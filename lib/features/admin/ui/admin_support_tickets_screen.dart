@@ -36,16 +36,40 @@ class _AdminSupportTicketsScreenState
     super.dispose();
   }
 
-  Future<Map<String, dynamic>> _load() {
-    return ref.read(adminApiProvider).supportTickets(search: _search.text);
+  Future<Map<String, dynamic>> _load() async {
+    final api = ref.read(adminApiProvider);
+    final tickets = await api.supportTickets(search: _search.text);
+    try {
+      tickets['supervisorOverview'] = await api.supportSupervisorOverview();
+      tickets['supportKpis'] = await api.supportKpis();
+    } catch (_) {
+      tickets['supervisorOverview'] = null;
+      tickets['supportKpis'] = null;
+    }
+    return tickets;
   }
 
   void _refresh() => setState(() => _future = _load());
+
+  Future<void> _openCreateTicket() async {
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const _AgentTicketSheet(),
+    );
+    if (created == true) _refresh();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('تذاكر الدعم')),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _openCreateTicket,
+        icon: const Icon(Icons.add_call),
+        label: const Text('تذكرة مكالمة'),
+      ),
       body: RefreshIndicator(
         onRefresh: () async => _refresh(),
         child: FutureBuilder<Map<String, dynamic>>(
@@ -61,6 +85,8 @@ class _AdminSupportTicketsScreenState
             final items = List<dynamic>.from(
               data['items'] as List? ?? const [],
             );
+            final supervisorOverview = _map(data['supervisorOverview']);
+            final supportKpis = _map(data['supportKpis']);
             return ListView(
               padding: const EdgeInsets.all(12),
               children: [
@@ -78,6 +104,13 @@ class _AdminSupportTicketsScreenState
                   ),
                 ),
                 const SizedBox(height: 12),
+                if (supervisorOverview.isNotEmpty) ...[
+                  _SupervisorOverviewCard(
+                    data: supervisorOverview,
+                    kpis: supportKpis,
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 if (items.isEmpty)
                   const Center(child: Text('لا توجد تذاكر دعم مطابقة.'))
                 else
@@ -95,6 +128,332 @@ class _AdminSupportTicketsScreenState
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _SupervisorOverviewCard extends StatelessWidget {
+  const _SupervisorOverviewCard({required this.data, required this.kpis});
+  final Map<String, dynamic> data;
+  final Map<String, dynamic> kpis;
+
+  @override
+  Widget build(BuildContext context) {
+    final queues = _list(data['queues']);
+    final agents = _list(data['agents']);
+    final sla = _map(data['sla']);
+    final open = queues.fold<int>(
+      0,
+      (sum, row) => sum + parseInt(row['open_count']),
+    );
+    final unassigned = queues.fold<int>(
+      0,
+      (sum, row) => sum + parseInt(row['unassigned_count']),
+    );
+    final available = agents
+        .where((row) => '${row['status'] ?? ''}' == 'available')
+        .length;
+    final breached =
+        parseInt(sla['first_response_breached']) +
+        parseInt(sla['resolution_breached']);
+    final summary = _map(kpis['summary']);
+    final measured =
+        parseInt(summary['first_response_sla_measured']) +
+        parseInt(summary['resolution_sla_measured']);
+    final met =
+        parseInt(summary['first_response_sla_met']) +
+        parseInt(summary['resolution_sla_met']);
+    final slaRate = measured > 0 ? '${((met / measured) * 100).round()}%' : '-';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('لوحة المشرف', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _MiniMetric(label: 'مفتوحة', value: '$open'),
+                _MiniMetric(label: 'بلا إسناد', value: '$unassigned'),
+                _MiniMetric(label: 'متاحون', value: '$available'),
+                _MiniMetric(label: 'SLA مخترق', value: '$breached'),
+              ],
+            ),
+            if (summary.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _MiniMetric(
+                    label: 'FRT',
+                    value: '${summary['avg_first_response_minutes'] ?? '-'}m',
+                  ),
+                  _MiniMetric(
+                    label: 'AHT',
+                    value: '${summary['avg_resolution_minutes'] ?? '-'}m',
+                  ),
+                  _MiniMetric(label: 'SLA', value: slaRate),
+                  _MiniMetric(
+                    label: 'CSAT',
+                    value: '${summary['avg_csat'] ?? '-'}',
+                  ),
+                ],
+              ),
+            ],
+            if (queues.isNotEmpty) ...[
+              const Divider(height: 18),
+              for (final row in queues.take(3))
+                Text(
+                  '${row['team'] ?? 'general'}: ${row['open_count'] ?? 0} مفتوحة / ${row['unassigned_count'] ?? 0} بلا إسناد',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniMetric extends StatelessWidget {
+  const _MiniMetric({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value, style: Theme.of(context).textTheme.titleSmall),
+          Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _AgentTicketSheet extends ConsumerStatefulWidget {
+  const _AgentTicketSheet();
+
+  @override
+  ConsumerState<_AgentTicketSheet> createState() => _AgentTicketSheetState();
+}
+
+class _AgentTicketSheetState extends ConsumerState<_AgentTicketSheet> {
+  final _phone = TextEditingController();
+  final _subject = TextEditingController();
+  final _description = TextEditingController();
+  final _note = TextEditingController();
+  String _domain = 'OTHER';
+  String _type = 'COMPLAINT';
+  String _priority = 'normal';
+  String _outcome = 'needs_follow_up';
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _phone.dispose();
+    _subject.dispose();
+    _description.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_phone.text.trim().isEmpty || _subject.text.trim().isEmpty) {
+      setState(() => _error = 'أدخل هاتف العميل وموضوع التذكرة.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(adminApiProvider)
+          .createSupportTicketForCustomer(
+            customerPhone: _phone.text.trim(),
+            domain: _domain,
+            type: _type,
+            priority: _priority,
+            subject: _subject.text.trim(),
+            description: _description.text.trim(),
+            channel: 'phone',
+            callOutcome: _outcome,
+            internalNote: _note.text.trim(),
+            assignToSelf: true,
+          );
+      if (mounted) Navigator.of(context).pop(true);
+    } on DioException catch (error) {
+      if (!mounted) return;
+      setState(
+        () => _error = mapDioError(error, fallback: 'تعذر فتح تذكرة المكالمة.'),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 8, 16, 16 + bottom),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'فتح تذكرة مكالمة',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 12),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            TextField(
+              controller: _phone,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'هاتف العميل',
+              ),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: _domain,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'القسم',
+              ),
+              items: const [
+                DropdownMenuItem(value: 'TAXI', child: Text('تكسي')),
+                DropdownMenuItem(value: 'SHOPPING', child: Text('طلبات')),
+                DropdownMenuItem(value: 'DELIVERY', child: Text('توصيل')),
+                DropdownMenuItem(value: 'PAYMENTS', child: Text('مالية')),
+                DropdownMenuItem(value: 'ACCOUNT', child: Text('حساب')),
+                DropdownMenuItem(value: 'OTHER', child: Text('أخرى')),
+              ],
+              onChanged: (value) => setState(() => _domain = value ?? _domain),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: _type,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'النوع',
+              ),
+              items: const [
+                DropdownMenuItem(value: 'COMPLAINT', child: Text('شكوى')),
+                DropdownMenuItem(value: 'PROBLEM', child: Text('مشكلة')),
+                DropdownMenuItem(value: 'QUESTION', child: Text('استفسار')),
+                DropdownMenuItem(value: 'REFUND', child: Text('استرجاع')),
+                DropdownMenuItem(value: 'OTHER', child: Text('أخرى')),
+              ],
+              onChanged: (value) => setState(() => _type = value ?? _type),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: _priority,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'الأولوية',
+              ),
+              items: const [
+                DropdownMenuItem(value: 'normal', child: Text('طبيعي')),
+                DropdownMenuItem(value: 'high', child: Text('مهم')),
+                DropdownMenuItem(value: 'urgent', child: Text('عاجل')),
+                DropdownMenuItem(value: 'low', child: Text('منخفض')),
+              ],
+              onChanged: (value) =>
+                  setState(() => _priority = value ?? _priority),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _subject,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'الموضوع',
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _description,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'الوصف الظاهر للعميل',
+              ),
+            ),
+            const SizedBox(height: 10),
+            DropdownButtonFormField<String>(
+              initialValue: _outcome,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'نتيجة المكالمة',
+              ),
+              items: const [
+                DropdownMenuItem(
+                  value: 'needs_follow_up',
+                  child: Text('تحتاج متابعة'),
+                ),
+                DropdownMenuItem(
+                  value: 'resolved_on_call',
+                  child: Text('حلت أثناء المكالمة'),
+                ),
+                DropdownMenuItem(
+                  value: 'callback_requested',
+                  child: Text('طلب اتصال لاحق'),
+                ),
+                DropdownMenuItem(value: 'transferred', child: Text('تحويل')),
+                DropdownMenuItem(value: 'info_only', child: Text('معلومة فقط')),
+              ],
+              onChanged: (value) =>
+                  setState(() => _outcome = value ?? _outcome),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _note,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'ملاحظة داخلية',
+              ),
+            ),
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: _busy ? null : _submit,
+              icon: _busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_rounded),
+              label: const Text('حفظ التذكرة'),
+            ),
+          ],
         ),
       ),
     );
@@ -129,9 +488,14 @@ class _AdminSupportTicketDetailsScreenState
       api.supportTicketDetails(widget.ticketId),
       api.supportTicketOrderContext(widget.ticketId),
       api.myPermissions(),
+      api.supportTicketCallbacks(widget.ticketId),
     ]);
     _permissions = _extractPermissions(results[2]);
-    return _TicketDetailsData(ticket: results[0], orderContext: results[1]);
+    return _TicketDetailsData(
+      ticket: results[0],
+      orderContext: results[1],
+      callbacks: results[3],
+    );
   }
 
   void _refresh() => setState(() => _future = _load());
@@ -223,6 +587,7 @@ class _AdminSupportTicketDetailsScreenState
             return _ErrorState(error: snapshot.error, onRetry: _refresh);
           }
           final data = snapshot.data!;
+          final ticket = _map(data.ticket['ticket']);
           final order = _map(data.orderContext['order']);
           final revisions = _list(
             data.orderContext['revisions'],
@@ -230,14 +595,22 @@ class _AdminSupportTicketDetailsScreenState
           return ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              _TicketSummary(ticket: _map(data.ticket['ticket'])),
+              _TicketSummary(ticket: ticket),
               const SizedBox(height: 12),
               _ConversationSection(detail: data.ticket),
               if (_can('support.tickets.reply')) ...[
                 const SizedBox(height: 8),
                 _SupportComposer(
                   ticketId: widget.ticketId,
+                  domain: parseString(ticket['domain']),
+                  type: parseString(ticket['type']),
                   onSent: () async => _refresh(),
+                ),
+                const SizedBox(height: 8),
+                _CallbacksSection(
+                  ticketId: widget.ticketId,
+                  data: data.callbacks,
+                  onChanged: () async => _refresh(),
                 ),
               ],
               const SizedBox(height: 12),
@@ -561,8 +934,9 @@ class _DraftItemRow extends StatelessWidget {
 class _Panel extends StatelessWidget {
   final String title;
   final Widget child;
+  final Widget? trailing;
 
-  const _Panel({required this.title, required this.child});
+  const _Panel({required this.title, required this.child, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -572,7 +946,17 @@ class _Panel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                ?trailing,
+              ],
+            ),
             const SizedBox(height: 8),
             child,
           ],
@@ -625,40 +1009,301 @@ class _ConversationSection extends StatelessWidget {
   }
 
   List<Map<String, dynamic>> _attachmentsFor(int? id, bool internal) {
-    return _rows('attachments').where((a) {
-      final key = internal ? 'internal_note_id' : 'message_id';
-      final ref = int.tryParse('${a[key] ?? ''}');
-      return id != null && ref != null && ref == id;
-    }).toList(growable: false);
+    return _rows('attachments')
+        .where((a) {
+          final key = internal ? 'internal_note_id' : 'message_id';
+          final ref = int.tryParse('${a[key] ?? ''}');
+          return id != null && ref != null && ref == id;
+        })
+        .toList(growable: false);
   }
 
   @override
   Widget build(BuildContext context) {
     final messages = _rows('messages');
     final internalNotes = _rows('internalNotes');
-    if (messages.isEmpty && internalNotes.isEmpty) {
-      return const _Panel(title: 'المحادثة', child: Text('لا توجد رسائل بعد.'));
+    final ticketId = int.tryParse('${detail['id'] ?? ''}');
+    final number = '${detail['ticket_number'] ?? ''}';
+    final subject = '${detail['subject'] ?? ''}';
+
+    void open() {
+      if (ticketId == null) return;
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => _ConversationScreen(
+            ticketId: ticketId,
+            ticketNumber: number,
+            subject: subject,
+          ),
+        ),
+      );
     }
-    return _Panel(
-      title: 'المحادثة',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (final m in messages)
-            _MessageBubble(
-              body: '${m['body'] ?? ''}',
-              author: '${m['author_role'] ?? ''}',
-              internal: false,
-              attachments: _attachmentsFor(int.tryParse('${m['id']}'), false),
+
+    final Widget body = (messages.isEmpty && internalNotes.isEmpty)
+        ? const Text('لا توجد رسائل بعد. اضغط للفتح وبدء المحادثة.')
+        : Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final m in messages)
+                _MessageBubble(
+                  body: '${m['body'] ?? ''}',
+                  author: '${m['author_role'] ?? ''}',
+                  internal: false,
+                  attachments: _attachmentsFor(
+                    int.tryParse('${m['id']}'),
+                    false,
+                  ),
+                ),
+              for (final n in internalNotes)
+                _MessageBubble(
+                  body: '${n['body'] ?? ''}',
+                  author: '${n['author_role'] ?? ''}',
+                  internal: true,
+                  attachments: _attachmentsFor(int.tryParse('${n['id']}'), true),
+                ),
+              const SizedBox(height: 4),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  'اضغط لفتح المحادثة كاملة ›',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          );
+
+    return InkWell(
+      onTap: open,
+      borderRadius: BorderRadius.circular(12),
+      child: _Panel(
+        title: 'المحادثة',
+        trailing: const Icon(Icons.open_in_full_rounded, size: 18),
+        child: body,
+      ),
+    );
+  }
+}
+
+/// شاشة محادثة التذكرة بملء الشاشة: كل الرسائل + مؤلّف الرد. تُفتح بالضغط على
+/// قسم المحادثة في تفاصيل التذكرة.
+class _ConversationScreen extends ConsumerStatefulWidget {
+  final int ticketId;
+  final String ticketNumber;
+  final String subject;
+  const _ConversationScreen({
+    required this.ticketId,
+    required this.ticketNumber,
+    required this.subject,
+  });
+
+  @override
+  ConsumerState<_ConversationScreen> createState() =>
+      _ConversationScreenState();
+}
+
+class _ConversationScreenState extends ConsumerState<_ConversationScreen> {
+  late Future<Map<String, dynamic>> _future;
+  final _replyCtrl = TextEditingController();
+  bool _internal = false;
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  @override
+  void dispose() {
+    _replyCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<Map<String, dynamic>> _load() =>
+      ref.read(adminApiProvider).supportTicketDetails(widget.ticketId);
+
+  void _reload() => setState(() => _future = _load());
+
+  List<Map<String, dynamic>> _rows(Map<String, dynamic> d, String key) {
+    final raw = d[key];
+    if (raw is List) {
+      return raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList(growable: false);
+    }
+    return const [];
+  }
+
+  List<Map<String, dynamic>> _attachmentsFor(
+    Map<String, dynamic> d,
+    int? id,
+    bool internal,
+  ) {
+    final key = internal ? 'internal_note_id' : 'message_id';
+    return _rows(d, 'attachments').where((a) {
+      final ref = int.tryParse('${a[key] ?? ''}');
+      return id != null && ref != null && ref == id;
+    }).toList(growable: false);
+  }
+
+  Future<void> _send() async {
+    final body = _replyCtrl.text.trim();
+    if (body.isEmpty) return;
+    setState(() => _sending = true);
+    try {
+      await ref
+          .read(adminApiProvider)
+          .replySupportTicket(widget.ticketId, body: body, isInternal: _internal);
+      if (!mounted) return;
+      _replyCtrl.clear();
+      setState(() {
+        _sending = false;
+        _internal = false;
+      });
+      _reload();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر إرسال الرسالة.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(title: Text('محادثة ${widget.ticketNumber}')),
+        body: Column(
+          children: [
+            Expanded(
+              child: FutureBuilder<Map<String, dynamic>>(
+                future: _future,
+                builder: (context, snap) {
+                  if (snap.connectionState != ConnectionState.done) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snap.hasError || snap.data == null) {
+                    return Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('تعذّر تحميل المحادثة.'),
+                          const SizedBox(height: 8),
+                          FilledButton(
+                            onPressed: _reload,
+                            child: const Text('إعادة المحاولة'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+                  final d = snap.data!;
+                  final items = <Map<String, dynamic>>[
+                    for (final m in _rows(d, 'messages')) {...m, '_internal': false},
+                    for (final n in _rows(d, 'internalNotes'))
+                      {...n, '_internal': true},
+                  ]..sort((a, b) {
+                      final ta =
+                          DateTime.tryParse('${a['created_at'] ?? ''}') ??
+                          DateTime.fromMillisecondsSinceEpoch(0);
+                      final tb =
+                          DateTime.tryParse('${b['created_at'] ?? ''}') ??
+                          DateTime.fromMillisecondsSinceEpoch(0);
+                      return ta.compareTo(tb);
+                    });
+                  if (items.isEmpty) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('لا توجد رسائل بعد. ابدأ المحادثة بالأسفل.'),
+                      ),
+                    );
+                  }
+                  return RefreshIndicator(
+                    onRefresh: () async => _reload(),
+                    child: ListView(
+                      padding: const EdgeInsets.all(12),
+                      children: [
+                        for (final it in items)
+                          _MessageBubble(
+                            body: '${it['body'] ?? ''}',
+                            author: '${it['author_role'] ?? ''}',
+                            internal: it['_internal'] == true,
+                            attachments: _attachmentsFor(
+                              d,
+                              int.tryParse('${it['id']}'),
+                              it['_internal'] == true,
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
-          for (final n in internalNotes)
-            _MessageBubble(
-              body: '${n['body'] ?? ''}',
-              author: '${n['author_role'] ?? ''}',
-              internal: true,
-              attachments: _attachmentsFor(int.tryParse('${n['id']}'), true),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _replyCtrl,
+                            minLines: 1,
+                            maxLines: 4,
+                            decoration: const InputDecoration(
+                              hintText: 'اكتب ردك للمستخدم…',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: _sending ? null : _send,
+                          child: _sending
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded),
+                        ),
+                      ],
+                    ),
+                    Row(
+                      children: [
+                        Switch.adaptive(
+                          value: _internal,
+                          onChanged: (v) => setState(() => _internal = v),
+                        ),
+                        Text(
+                          'ملاحظة داخلية (لا يراها العميل)',
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -686,8 +1331,9 @@ class _MessageBubble extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color:
-            internal ? scheme.errorContainer : scheme.surfaceContainerHighest,
+        color: internal
+            ? scheme.errorContainer
+            : scheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -709,10 +1355,7 @@ class _MessageBubble extends StatelessWidget {
               ],
             ],
           ),
-          if (body.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(body),
-          ],
+          if (body.isNotEmpty) ...[const SizedBox(height: 4), Text(body)],
           if (attachments.isNotEmpty) ...[
             const SizedBox(height: 6),
             Wrap(
@@ -733,8 +1376,10 @@ class _MessageBubble extends StatelessWidget {
                           ),
                         )
                       : Chip(
-                          avatar:
-                              const Icon(Icons.attach_file_rounded, size: 16),
+                          avatar: const Icon(
+                            Icons.attach_file_rounded,
+                            size: 16,
+                          ),
                           label: Text('${a['file_name'] ?? 'ملف'}'),
                         ),
               ],
@@ -749,8 +1394,15 @@ class _MessageBubble extends StatelessWidget {
 /// مُنشئ الرد: نص + إرفاق صورة + خيار ملاحظة داخلية + إرسال. يحفظ في الخادم.
 class _SupportComposer extends ConsumerStatefulWidget {
   final int ticketId;
+  final String domain;
+  final String type;
   final Future<void> Function() onSent;
-  const _SupportComposer({required this.ticketId, required this.onSent});
+  const _SupportComposer({
+    required this.ticketId,
+    required this.domain,
+    required this.type,
+    required this.onSent,
+  });
 
   @override
   ConsumerState<_SupportComposer> createState() => _SupportComposerState();
@@ -759,14 +1411,41 @@ class _SupportComposer extends ConsumerStatefulWidget {
 class _SupportComposerState extends ConsumerState<_SupportComposer> {
   final _controller = TextEditingController();
   final List<Map<String, dynamic>> _attachments = [];
+  late Future<Map<String, List<Map<String, dynamic>>>> _suggestionsFuture;
   bool _internal = false;
   bool _busy = false;
   String? _error;
 
   @override
+  void initState() {
+    super.initState();
+    _suggestionsFuture = _loadSuggestions();
+  }
+
+  @override
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  Future<Map<String, List<Map<String, dynamic>>>> _loadSuggestions() async {
+    final api = ref.read(adminApiProvider);
+    final results = await Future.wait<Map<String, dynamic>>([
+      api.supportCannedResponses(domain: widget.domain, type: widget.type),
+      api.supportKnowledgeArticles(domain: widget.domain),
+    ]);
+    return {
+      'responses': _list(results[0]['items']),
+      'articles': _list(results[1]['items']),
+    };
+  }
+
+  void _insertText(String text) {
+    final current = _controller.text.trim();
+    _controller.text = current.isEmpty ? text : '$current\n\n$text';
+    _controller.selection = TextSelection.collapsed(
+      offset: _controller.text.length,
+    );
   }
 
   Future<void> _attach() async {
@@ -777,15 +1456,19 @@ class _SupportComposerState extends ConsumerState<_SupportComposer> {
       _error = null;
     });
     try {
-      final att = await ref.read(adminApiProvider).uploadSupportAttachment(
+      final att = await ref
+          .read(adminApiProvider)
+          .uploadSupportAttachment(
             file,
             visibility: _internal ? 'internal' : 'customer',
           );
       setState(() => _attachments.add(att));
     } catch (e) {
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر رفع الصورة.')
-          : 'تعذّر رفع الصورة.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر رفع الصورة.')
+            : 'تعذّر رفع الصورة.',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -799,7 +1482,9 @@ class _SupportComposerState extends ConsumerState<_SupportComposer> {
       _error = null;
     });
     try {
-      await ref.read(adminApiProvider).replySupportTicket(
+      await ref
+          .read(adminApiProvider)
+          .replySupportTicket(
             widget.ticketId,
             body: body,
             isInternal: _internal,
@@ -809,9 +1494,11 @@ class _SupportComposerState extends ConsumerState<_SupportComposer> {
       _attachments.clear();
       await widget.onSent();
     } catch (e) {
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر إرسال الرسالة.')
-          : 'تعذّر إرسال الرسالة.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر إرسال الرسالة.')
+            : 'تعذّر إرسال الرسالة.',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -832,6 +1519,43 @@ class _SupportComposerState extends ConsumerState<_SupportComposer> {
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
+          FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
+            future: _suggestionsFuture,
+            builder: (context, snapshot) {
+              final data =
+                  snapshot.data ?? const <String, List<Map<String, dynamic>>>{};
+              final responses = data['responses'] ?? const [];
+              final articles = data['articles'] ?? const [];
+              if (responses.isEmpty && articles.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final response in responses.take(6))
+                      ActionChip(
+                        avatar: const Icon(Icons.quickreply_rounded, size: 18),
+                        label: Text('${response['title'] ?? ''}'),
+                        onPressed: _busy
+                            ? null
+                            : () => _insertText('${response['body'] ?? ''}'),
+                      ),
+                    for (final article in articles.take(4))
+                      ActionChip(
+                        avatar: const Icon(Icons.menu_book_rounded, size: 18),
+                        label: Text('${article['title'] ?? ''}'),
+                        onPressed: _busy
+                            ? null
+                            : () => _insertText('${article['body'] ?? ''}'),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
           TextField(
             controller: _controller,
             minLines: 1,
@@ -892,7 +1616,10 @@ class _SupportComposerState extends ConsumerState<_SupportComposer> {
 class _LinkSuggestionsSection extends ConsumerStatefulWidget {
   final int ticketId;
   final Future<void> Function() onLinked;
-  const _LinkSuggestionsSection({required this.ticketId, required this.onLinked});
+  const _LinkSuggestionsSection({
+    required this.ticketId,
+    required this.onLinked,
+  });
 
   @override
   ConsumerState<_LinkSuggestionsSection> createState() =>
@@ -912,20 +1639,25 @@ class _LinkSuggestionsSectionState
       _error = null;
     });
     try {
-      final data =
-          await ref.read(adminApiProvider).supportTicketLinkSuggestions(widget.ticketId);
-      final orders = ((data['orders'] as List?) ?? const [])
-          .map((e) => Map<String, dynamic>.from(e as Map));
-      final rides = ((data['rides'] as List?) ?? const [])
-          .map((e) => Map<String, dynamic>.from(e as Map));
+      final data = await ref
+          .read(adminApiProvider)
+          .supportTicketLinkSuggestions(widget.ticketId);
+      final orders = ((data['orders'] as List?) ?? const []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      );
+      final rides = ((data['rides'] as List?) ?? const []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      );
       setState(() {
         _items = [...orders, ...rides];
         _loaded = true;
       });
     } catch (e) {
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر تحميل الاقتراحات.')
-          : 'تعذّر تحميل الاقتراحات.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر تحميل الاقتراحات.')
+            : 'تعذّر تحميل الاقتراحات.',
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -934,7 +1666,9 @@ class _LinkSuggestionsSectionState
   Future<void> _link(Map<String, dynamic> item) async {
     setState(() => _loading = true);
     try {
-      await ref.read(adminApiProvider).linkSupportTicketEntity(
+      await ref
+          .read(adminApiProvider)
+          .linkSupportTicketEntity(
             widget.ticketId,
             entityType: '${item['entityType']}',
             entityId: parseInt(item['entityId']),
@@ -942,15 +1676,17 @@ class _LinkSuggestionsSectionState
             reason: 'linked from suggestions',
           );
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم الربط بنجاح.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('تم الربط بنجاح.')));
       }
       await widget.onLinked();
     } catch (e) {
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر الربط.')
-          : 'تعذّر الربط.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر الربط.')
+            : 'تعذّر الربط.',
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -1005,11 +1741,254 @@ class _LinkSuggestionsSectionState
   }
 }
 
+class _CallbacksSection extends ConsumerStatefulWidget {
+  const _CallbacksSection({
+    required this.ticketId,
+    required this.data,
+    required this.onChanged,
+  });
+
+  final int ticketId;
+  final Map<String, dynamic> data;
+  final Future<void> Function() onChanged;
+
+  @override
+  ConsumerState<_CallbacksSection> createState() => _CallbacksSectionState();
+}
+
+class _CallbacksSectionState extends ConsumerState<_CallbacksSection> {
+  bool _busy = false;
+
+  Future<void> _schedule() async {
+    final created = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _CallbackSheet(ticketId: widget.ticketId),
+    );
+    if (created == true) await widget.onChanged();
+  }
+
+  Future<void> _setStatus(int callbackId, String status) async {
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(adminApiProvider)
+          .updateSupportCallback(callbackId, status: status);
+      await widget.onChanged();
+    } on DioException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapDioError(error, fallback: 'تعذر تحديث موعد الاتصال.'),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _list(widget.data['items']);
+    return _Panel(
+      title: 'مواعيد الاتصال',
+      trailing: TextButton.icon(
+        onPressed: _busy ? null : _schedule,
+        icon: const Icon(Icons.event_available_rounded),
+        label: const Text('جدولة'),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (items.isEmpty)
+            const Text('لا توجد مواعيد اتصال لهذه التذكرة.')
+          else
+            for (final item in items)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                leading: const Icon(Icons.call_rounded),
+                title: Text(_formatDateTime(item['scheduled_at'])),
+                subtitle: Text(
+                  [
+                    '${item['status'] ?? ''}',
+                    '${item['phone'] ?? ''}',
+                    '${item['notes'] ?? ''}',
+                  ].where((part) => part.trim().isNotEmpty).join(' - '),
+                ),
+                trailing: PopupMenuButton<String>(
+                  enabled: !_busy,
+                  onSelected: (status) =>
+                      _setStatus(parseInt(item['id']), status),
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(value: 'completed', child: Text('مكتمل')),
+                    PopupMenuItem(value: 'missed', child: Text('فائت')),
+                    PopupMenuItem(value: 'cancelled', child: Text('ملغى')),
+                    PopupMenuItem(value: 'scheduled', child: Text('مجدول')),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CallbackSheet extends ConsumerStatefulWidget {
+  const _CallbackSheet({required this.ticketId});
+  final int ticketId;
+
+  @override
+  ConsumerState<_CallbackSheet> createState() => _CallbackSheetState();
+}
+
+class _CallbackSheetState extends ConsumerState<_CallbackSheet> {
+  final _phone = TextEditingController();
+  final _notes = TextEditingController();
+  DateTime _date = DateTime.now().add(const Duration(hours: 2));
+  TimeOfDay _time = TimeOfDay.fromDateTime(
+    DateTime.now().add(const Duration(hours: 2)),
+  );
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _phone.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  DateTime get _scheduledAt =>
+      DateTime(_date.year, _date.month, _date.day, _time.hour, _time.minute);
+
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime.now().subtract(const Duration(days: 1)),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+    );
+    if (picked != null) setState(() => _date = picked);
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(context: context, initialTime: _time);
+    if (picked != null) setState(() => _time = picked);
+  }
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await ref
+          .read(adminApiProvider)
+          .createSupportTicketCallback(
+            widget.ticketId,
+            scheduledAt: _scheduledAt,
+            phone: _phone.text,
+            notes: _notes.text,
+          );
+      if (mounted) Navigator.of(context).pop(true);
+    } on DioException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = mapDioError(error, fallback: 'تعذر جدولة موعد الاتصال.');
+      });
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text('جدولة اتصال', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _pickDate,
+                  icon: const Icon(Icons.calendar_month_rounded),
+                  label: Text(
+                    _formatDateTime(_date.toIso8601String()).split(' ').first,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _pickTime,
+                  icon: const Icon(Icons.schedule_rounded),
+                  label: Text(_time.format(context)),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _phone,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(labelText: 'رقم الهاتف'),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _notes,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(labelText: 'ملاحظات'),
+          ),
+          const SizedBox(height: 12),
+          FilledButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: _saving
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.save_rounded),
+            label: const Text('حفظ'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TicketDetailsData {
   final Map<String, dynamic> ticket;
   final Map<String, dynamic> orderContext;
+  final Map<String, dynamic> callbacks;
 
-  const _TicketDetailsData({required this.ticket, required this.orderContext});
+  const _TicketDetailsData({
+    required this.ticket,
+    required this.orderContext,
+    required this.callbacks,
+  });
 }
 
 class _RevisionDraftResult {
@@ -1072,6 +2051,17 @@ List<Map<String, dynamic>> _list(dynamic value) {
       .whereType<Map>()
       .map((entry) => entry.map((key, value) => MapEntry('$key', value)))
       .toList(growable: false);
+}
+
+String _formatDateTime(dynamic value) {
+  final text = '${value ?? ''}'.trim();
+  if (text.isEmpty) return '-';
+  final parsed = DateTime.tryParse(text);
+  if (parsed == null) return text;
+  final local = parsed.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
 }
 
 Set<String> _extractPermissions(Map<String, dynamic> payload) {
