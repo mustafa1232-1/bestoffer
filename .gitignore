@@ -67,6 +67,7 @@ app.*.map.json
 /tmp_r2_test/
 
 # Firebase secrets (do not commit)
+.firebase/
 /android/app/google-services.json
 /ios/Runner/GoogleService-Info.plist
 /backend/deploy/*service-account*.json
