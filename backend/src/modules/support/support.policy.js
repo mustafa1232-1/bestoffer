@@ -73,15 +73,108 @@ export function canTransition(from, to) {
   return Array.isArray(next) && next.includes(String(to || ""));
 }
 
-export function computeDueDates(priority, createdAtMs) {
-  const target = SLA_TARGETS[priority] || SLA_TARGETS.normal;
+function normalizeBusinessHours(options = {}) {
+  if (!options || options.enabled !== true) return null;
+  const startHour = Number(options.startHour ?? 9);
+  const endHour = Number(options.endHour ?? 21);
+  if (!Number.isInteger(startHour) || !Number.isInteger(endHour)) return null;
+  if (startHour < 0 || startHour > 23 || endHour < 1 || endHour > 24) return null;
+  if (endHour <= startHour) return null;
+  const timezoneOffsetMinutes = Number(options.timezoneOffsetMinutes ?? 180);
+  const rawWorkdays = options.workdays instanceof Set
+    ? [...options.workdays]
+    : Array.isArray(options.workdays)
+    ? options.workdays
+    : [0, 1, 2, 3, 4, 5, 6];
+  const workdays = new Set(
+    rawWorkdays
+      .map((day) => Number(day))
+      .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+  );
+  if (workdays.size === 0) return null;
+  return { enabled: true, startHour, endHour, timezoneOffsetMinutes, workdays };
+}
+
+function localParts(utcMs, timezoneOffsetMinutes) {
+  const d = new Date(utcMs + timezoneOffsetMinutes * 60_000);
   return {
-    firstResponseDueAt: new Date(
-      createdAtMs + target.firstResponseMins * 60_000
-    ).toISOString(),
-    resolutionDueAt: new Date(
-      createdAtMs + target.resolutionMins * 60_000
-    ).toISOString(),
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth(),
+    date: d.getUTCDate(),
+    day: d.getUTCDay(),
+    hour: d.getUTCHours(),
+  };
+}
+
+function localDayBoundaryUtcMs(parts, hour, timezoneOffsetMinutes) {
+  return Date.UTC(parts.year, parts.month, parts.date, hour, 0, 0, 0)
+    - timezoneOffsetMinutes * 60_000;
+}
+
+function nextLocalDayStartUtcMs(utcMs, business) {
+  const parts = localParts(utcMs, business.timezoneOffsetMinutes);
+  return Date.UTC(parts.year, parts.month, parts.date + 1, business.startHour, 0, 0, 0)
+    - business.timezoneOffsetMinutes * 60_000;
+}
+
+function alignToBusinessWindow(utcMs, business) {
+  let cursor = utcMs;
+  for (let guard = 0; guard < 370; guard += 1) {
+    const parts = localParts(cursor, business.timezoneOffsetMinutes);
+    const startMs = localDayBoundaryUtcMs(
+      parts,
+      business.startHour,
+      business.timezoneOffsetMinutes
+    );
+    const endMs = localDayBoundaryUtcMs(
+      parts,
+      business.endHour,
+      business.timezoneOffsetMinutes
+    );
+    if (!business.workdays.has(parts.day)) {
+      cursor = nextLocalDayStartUtcMs(cursor, business);
+      continue;
+    }
+    if (cursor < startMs) return startMs;
+    if (cursor >= endMs) {
+      cursor = nextLocalDayStartUtcMs(cursor, business);
+      continue;
+    }
+    return cursor;
+  }
+  return utcMs;
+}
+
+export function addBusinessMinutes(startAtMs, minutes, businessOptions = {}) {
+  const business = normalizeBusinessHours(businessOptions);
+  if (!business) return startAtMs + Number(minutes || 0) * 60_000;
+  let remainingMs = Math.max(0, Number(minutes || 0)) * 60_000;
+  let cursor = alignToBusinessWindow(Number(startAtMs), business);
+  while (remainingMs > 0) {
+    const parts = localParts(cursor, business.timezoneOffsetMinutes);
+    const endMs = localDayBoundaryUtcMs(
+      parts,
+      business.endHour,
+      business.timezoneOffsetMinutes
+    );
+    const availableMs = Math.max(0, endMs - cursor);
+    if (remainingMs <= availableMs) return cursor + remainingMs;
+    remainingMs -= availableMs;
+    cursor = alignToBusinessWindow(nextLocalDayStartUtcMs(cursor, business), business);
+  }
+  return cursor;
+}
+
+export function computeDueDates(priority, createdAtMs, options = {}) {
+  const target = SLA_TARGETS[priority] || SLA_TARGETS.normal;
+  const businessHours = normalizeBusinessHours(options.businessHours);
+  const addMinutes = (minutes) =>
+    businessHours
+      ? addBusinessMinutes(createdAtMs, minutes, businessHours)
+      : createdAtMs + minutes * 60_000;
+  return {
+    firstResponseDueAt: new Date(addMinutes(target.firstResponseMins)).toISOString(),
+    resolutionDueAt: new Date(addMinutes(target.resolutionMins)).toISOString(),
   };
 }
 

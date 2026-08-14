@@ -20,6 +20,7 @@ import 'core/diagnostics/qa_build_badge.dart';
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
 import 'core/navigation/app_route_observer.dart';
+import 'core/platform/edge_to_edge_system_ui.dart';
 import 'core/platform/app_flavor.dart';
 import 'core/platform/app_platform_capabilities.dart';
 import 'core/media/media_cache_service.dart';
@@ -120,6 +121,7 @@ void runUserAppBootstrap() {
   AppFlavorContext.setCurrent(AppFlavor.user);
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
+    await configureEdgeToEdgeSystemUi();
     _logStartupEvent(
       'startup_begin',
       status: 'binding_ready',
@@ -362,7 +364,7 @@ class MaslakiApp extends ConsumerStatefulWidget {
 class _MaslakiAppState extends ConsumerState<MaslakiApp>
     with WidgetsBindingObserver {
   static const Duration _authBootstrapTimeout = Duration(seconds: 20);
-  static const Duration _startupStepTimeout = Duration(seconds: 12);
+  static const Duration _startupStepTimeout = Duration(seconds: 75);
   static const Duration _bestEffortStepTimeout = Duration(seconds: 8);
 
   final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
@@ -1055,10 +1057,12 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
         return QaBuildBadge(
-          child: AppBackdrop(
-            animationsEnabled: settings.animationsEnabled,
-            weatherEffectsEnabled: settings.weatherEffectsEnabled,
-            child: AppResponsiveShell(child: child),
+          child: EdgeToEdgeSystemUi(
+            child: AppBackdrop(
+              animationsEnabled: settings.animationsEnabled,
+              weatherEffectsEnabled: settings.weatherEffectsEnabled,
+              child: AppResponsiveShell(child: child),
+            ),
           ),
         );
       },

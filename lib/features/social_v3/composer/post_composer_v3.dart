@@ -191,9 +191,9 @@ class _PostComposerV3State extends State<PostComposerV3> {
                 scrollDirection: Axis.horizontal,
                 buildDefaultDragHandles: true,
                 itemCount: _media.length,
-                onReorder: (oldI, newI) {
+                onReorderItem: (oldI, newI) {
+                  // onReorderItem already adjusts newI for the removed item.
                   setState(() {
-                    if (newI > oldI) newI -= 1;
                     final m = _media.removeAt(oldI);
                     _media.insert(newI, m);
                   });

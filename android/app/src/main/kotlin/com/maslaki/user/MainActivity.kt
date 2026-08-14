@@ -5,11 +5,13 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowCompat
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -17,15 +19,17 @@ import java.io.IOException
 import java.util.Locale
 import java.util.UUID
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private val printerChannel = "maslaki/printer_bridge"
     private val rfcommUuid: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     private val iposServicePackage = "com.iposprinter.iposprinterservice"
 
-    // Use the AndroidX helper so every flavor follows the Android 15 edge-to-edge path.
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
         super.onCreate(savedInstanceState)
-        WindowCompat.enableEdgeToEdge(window)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {

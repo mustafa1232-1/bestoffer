@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/platform/edge_to_edge_system_ui.dart';
 import 'features/auth/models/user_model.dart';
 import 'features/auth/state/auth_controller.dart';
 import 'features/auth/ui/merchants_list_screen.dart';
@@ -19,6 +22,8 @@ import 'features/orders/state/delivery_address_controller.dart';
 import 'l10n/app_localizations.dart';
 
 void runQaPharmacySurfaceApp() {
+  WidgetsFlutterBinding.ensureInitialized();
+  unawaited(configureEdgeToEdgeSystemUi());
   runApp(const _QaPharmacySurfaceApp());
 }
 
@@ -61,10 +66,15 @@ class _QaPharmacySurfaceApp extends StatelessWidget {
         locale: Locale('en'),
         supportedLocales: AppLocalizations.supportedLocales,
         localizationsDelegates: AppLocalizations.localizationsDelegates,
+        builder: _buildEdgeToEdgeQaApp,
         home: _QaHomeTabs(),
       ),
     );
   }
+}
+
+Widget _buildEdgeToEdgeQaApp(BuildContext context, Widget? child) {
+  return EdgeToEdgeSystemUi(child: child ?? const SizedBox.shrink());
 }
 
 class _QaHomeTabs extends StatelessWidget {

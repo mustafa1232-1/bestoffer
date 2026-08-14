@@ -387,12 +387,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> login(String phone, String pin) async {
-    state = state.copyWith(
-      loading: true,
-      error: null,
-      clearValidationError: true,
-      clearErrorCode: true,
-    );
+    state = const AuthState(loading: true);
 
     try {
       final user = await ref
@@ -408,23 +403,21 @@ class AuthController extends StateNotifier<AuthState> {
         token: token,
         guestMode: false,
         error: null,
+        sessionRecoveryPending: false,
         clearValidationError: true,
         clearErrorCode: true,
+        clearSessionRestoreStatus: true,
       );
     } on DioException catch (e) {
       final parsed = parseBackendFieldErrors(e);
-      state = state.copyWith(
-        loading: false,
+      state = AuthState(
         error: _mapLoginError(e),
         validationError: parsed,
         errorCode: parsed.messageCode,
       );
     } catch (e) {
-      state = state.copyWith(
-        loading: false,
+      state = AuthState(
         error: mapAnyError(e, fallback: 'Login failed. Please try again.'),
-        clearValidationError: true,
-        clearErrorCode: true,
       );
     }
   }

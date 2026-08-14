@@ -142,6 +142,32 @@ async function assertActorCanManagePermissionList({
   }
 }
 
+async function assertActorCanCreateEmployeeWithRole({
+  actorUserId,
+  targetUserId = null,
+  permissions = [],
+}) {
+  const actorId = Number(actorUserId);
+  if (!actorId) throw new AppError("PERMISSION_ACTOR_REQUIRED", { status: 403 });
+  const actor = await resolveEffectivePermissions(actorId);
+  if (actor.disabled) throw new AppError("PERMISSION_ACTOR_DISABLED", { status: 403 });
+  if (actor.isSuperAdmin || actor.permissions === "ALL") return;
+  const hasCreatePermission =
+    actor.permissions instanceof Map && actor.permissions.has("employees.create");
+  if (!hasCreatePermission) {
+    throw new AppError("FORBIDDEN_EMPLOYEE_CREATE_REQUIRED", { status: 403 });
+  }
+  for (const permission of permissions) {
+    const key = permission?.permissionKey;
+    if (isSensitivePermissionKey(key)) {
+      throw new AppError("SENSITIVE_PERMISSION_REQUIRES_SUPER_ADMIN", { status: 403 });
+    }
+  }
+  if (Number(targetUserId) === actorId) {
+    throw new AppError("SELF_PRIVILEGE_ESCALATION_BLOCKED", { status: 403 });
+  }
+}
+
 /**
  * يحسم الصلاحيات الفعّالة لمستخدم. يعيد:
  *   { isSuperAdmin, disabled, permissionVersion, roleKey, permissions: Map<key, scope> }
@@ -381,6 +407,45 @@ export async function assignAdminRole({
       throw new AppError("INVALID_ROLE_TEMPLATE", { status: 400 });
     }
   }
+  const out = await repo.setUserAdminRole({
+    targetUserId,
+    actorUserId,
+    roleKey: normalizedRoleKey,
+    reason,
+  });
+  invalidatePermissionCacheForUser(targetUserId);
+  return out;
+}
+
+export async function assignAdminRoleForEmployeeCreation({
+  actorUserId,
+  targetUserId,
+  roleKey,
+  reason = null,
+}) {
+  const normalizedRoleKey = roleKey == null ? null : normalizeRoleKey(roleKey);
+  let rolePermissions = [];
+  if (normalizedRoleKey) {
+    const templatePermissions = roleTemplatePermissions(normalizedRoleKey);
+    if (templatePermissions) {
+      rolePermissions = templatePermissions;
+    } else if (!ROLE_TEMPLATE_KEYS.includes(normalizedRoleKey)) {
+      const custom = await repo.getAdminRole(normalizedRoleKey);
+      if (!custom || custom.is_archived === true) {
+        throw new AppError("INVALID_ROLE_TEMPLATE", { status: 400 });
+      }
+      const customPermissions = await repo.listAdminRolePermissions(normalizedRoleKey);
+      rolePermissions = customPermissions.map((permission) => ({
+        permissionKey: permission.permission_key,
+        scope: permission.scope,
+      }));
+    }
+  }
+  await assertActorCanCreateEmployeeWithRole({
+    actorUserId,
+    targetUserId,
+    permissions: rolePermissions,
+  });
   const out = await repo.setUserAdminRole({
     targetUserId,
     actorUserId,

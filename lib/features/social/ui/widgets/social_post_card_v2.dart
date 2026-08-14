@@ -968,7 +968,7 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final nextTickerEnabled = TickerMode.of(context);
+    final nextTickerEnabled = TickerMode.valuesOf(context).enabled;
     if (_tickerEnabled != nextTickerEnabled) {
       _tickerEnabled = nextTickerEnabled;
       if (!_tickerEnabled) {

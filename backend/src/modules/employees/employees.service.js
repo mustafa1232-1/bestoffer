@@ -10,11 +10,16 @@ import { createUser, findUserByPhone } from "../auth/auth.repo.js";
 import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import {
   assignAdminRole,
+  assignAdminRoleForEmployeeCreation,
+  checkPermission,
   grantUserPermission,
 } from "../security/permissions.service.js";
 import { ROLE_TEMPLATES } from "../security/permissions.catalog.js";
 import { JOB_ROLE_METADATA } from "../security/permissions.metadata.js";
-import { createAgentReferralCoupon } from "../coupons/coupons.service.js";
+import {
+  createAgentReferralCoupon,
+  getMyCouponEarnings,
+} from "../coupons/coupons.service.js";
 
 // Maps a job role to its HR department bucket (company_employee_profile enum).
 const JOB_ROLE_DEPARTMENT = Object.freeze({
@@ -134,6 +139,11 @@ export async function createEmployeeAccount({ actorUserId, dto }) {
     throw new AppError("INVALID_SALARY_AMOUNT", { status: 400 });
   }
   const permissions = Array.isArray(dto?.permissions) ? dto.permissions : [];
+  const canManagePermissions =
+    (await checkPermission(actorUserId, "employees.permissions.manage")).allowed === true;
+  if (permissions.length && !canManagePermissions) {
+    throw new AppError("FORBIDDEN_PERMISSION_MANAGER_REQUIRED", { status: 403 });
+  }
 
   const exists = await findUserByPhone(phone);
   if (exists) {
@@ -172,7 +182,7 @@ export async function createEmployeeAccount({ actorUserId, dto }) {
       actorUserId,
     });
     // RBAC guards apply here: the actor must be allowed to grant this role's keys.
-    await assignAdminRole({
+    await assignAdminRoleForEmployeeCreation({
       actorUserId,
       targetUserId: Number(user.id),
       roleKey: jobRoleKey,
@@ -261,8 +271,12 @@ export async function lookupUsers(query) {
 export async function getEmployeeProfile(userId) {
   const employee = await repo.getEmployeeByUserId(userId);
   if (!employee) throw new AppError("EMPLOYEE_NOT_FOUND", { status: 404 });
-  const salaryHistory = await repo.listSalaryHistory(userId);
-  return { employee, salaryHistory };
+  const [salaryHistory, operationalSummary, couponEarnings] = await Promise.all([
+    repo.listSalaryHistory(userId),
+    repo.getEmployeeOperationalSummary(userId),
+    getMyCouponEarnings(userId).catch(() => null),
+  ]);
+  return { employee, salaryHistory, operationalSummary, couponEarnings };
 }
 
 export async function updateSalary({ actorUserId, userId, dto }) {

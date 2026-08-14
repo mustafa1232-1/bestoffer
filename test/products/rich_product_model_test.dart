@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:maslaki/core/media/media_url.dart';
 import 'package:maslaki/features/products/models/product_model.dart';
 
 void main() {
@@ -59,7 +60,7 @@ void main() {
     expect(product.summaryAttributes.single.valueText, 'قطن 100%');
     expect(
       product.variantGroups.first.options.first.imageUrl,
-      '/uploads/black.jpg',
+      resolveMediaUrl('/uploads/black.jpg'),
     );
     expect(product.variants.single.stockQuantity, 4);
     expect(product.isInStock, isTrue);

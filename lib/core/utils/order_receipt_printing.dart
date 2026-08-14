@@ -325,7 +325,7 @@ Future<bool> _printIposBluetoothOrderReceipt({
       appTitle: appTitle,
       statusOverride: statusOverride,
     );
-    return IposPrinterBridge.printEscPosBytes(Uint8List.fromList(bytes));
+    return await IposPrinterBridge.printEscPosBytes(Uint8List.fromList(bytes));
   } catch (_) {
     return false;
   }
@@ -362,7 +362,7 @@ Future<bool> _printIposBluetoothTestReceipt() async {
     bytes.addAll(generator.text('Print channel OK'));
     bytes.addAll(generator.feed(3));
     bytes.addAll(generator.cut());
-    return IposPrinterBridge.printEscPosBytes(Uint8List.fromList(bytes));
+    return await IposPrinterBridge.printEscPosBytes(Uint8List.fromList(bytes));
   } catch (_) {
     return false;
   }

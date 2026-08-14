@@ -60,7 +60,8 @@ void main() {
 
     expect(find.text('Orders gate'), findsOneWidget);
     expect(find.text('3'), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('1'), findsWidgets);
+    expect(find.text('Needs attention'), findsWidgets);
     expect(find.text('Taxi monitoring'), findsNothing);
   });
 

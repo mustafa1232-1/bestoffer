@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:intl/intl.dart';
+import 'package:maslaki/core/media/media_url.dart';
 import 'package:maslaki/features/orders/models/cart_item_model.dart';
 import 'package:maslaki/features/orders/models/order_item_presentation_model.dart';
 import 'package:maslaki/features/orders/ui/widgets/order_item_widgets.dart';
@@ -151,7 +152,7 @@ void main() {
     expect(presentation.selectedColor?.value, 'Black');
     expect(presentation.selectedSize?.value, 'XL');
     expect(presentation.visibleSpecs, hasLength(2));
-    expect(presentation.displayImageUrl, '/shirt.jpg');
+    expect(presentation.displayImageUrl, resolveMediaUrl('/shirt.jpg'));
   });
 
   test('legacy order item without snapshot hydrates fallback fields', () {

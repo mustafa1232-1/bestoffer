@@ -1,8 +1,9 @@
 import 'package:flutter/foundation.dart';
 
 // Runtime feature toggles.
-// Calls are temporarily disabled from client-facing UI.
-const bool appInAppCallsEnabled = false;
+// In-app voice/video calls are enabled: call buttons in chats/profiles, incoming
+// call handling, and call push notifications are all active.
+const bool appInAppCallsEnabled = true;
 
 bool get appIsDesktop {
   if (kIsWeb) return false;

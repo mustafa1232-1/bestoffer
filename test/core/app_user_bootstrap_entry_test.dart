@@ -4,13 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:maslaki/app_user_bootstrap.dart';
+import 'package:maslaki/core/network/dio_client.dart';
 import 'package:maslaki/core/notifications/local_notification_service.dart';
 import 'package:maslaki/core/notifications/push_notification_service.dart';
 import 'package:maslaki/core/realtime/maslaki_realtime_service.dart';
 import 'package:maslaki/core/sections/section_availability_controller.dart';
 import 'package:maslaki/core/settings/app_settings_controller.dart';
-import 'package:maslaki/core/theme/theme_preset.dart';
 import 'package:maslaki/core/storage/secure_storage.dart';
+import 'package:maslaki/core/theme/theme_preset.dart';
 import 'package:maslaki/features/admin/ui/admin_dashboard_screen.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/presentation/login_screen.dart';
@@ -34,6 +35,20 @@ class _FakeAuthController extends AuthController {
   @override
   Future<void> logout() async {
     logoutCalls += 1;
+  }
+}
+
+class _MemorySecureStore extends SecureStore {
+  final Map<String, String> _values = <String, String>{
+    'device_id': 'test-device-id',
+  };
+
+  @override
+  Future<String?> readString(String key) async => _values[key];
+
+  @override
+  Future<void> writeString(String key, String value) async {
+    _values[key] = value;
   }
 }
 
@@ -241,6 +256,9 @@ void main() {
                 AuthState(user: _customerUser(), token: 'user-token'),
               ),
             ),
+            dioClientProvider.overrideWithValue(
+              DioClient(_MemorySecureStore()),
+            ),
             appStartupControllerProvider.overrideWith(
               (ref) => _FakeStartupController(),
             ),
@@ -268,6 +286,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 250));
 
       expect(find.byType(CustomerHomeSelectorScreen), findsOneWidget);
+
+      // Unmount so the home ad-carousel's periodic timer is cancelled in its
+      // dispose() before the test ends (Flutter 3.47's test binding flags a
+      // still-pending timer otherwise).
+      await tester.pumpWidget(const SizedBox());
     },
   );
 
@@ -286,6 +309,9 @@ void main() {
               );
               return authController;
             }),
+            dioClientProvider.overrideWithValue(
+              DioClient(_MemorySecureStore()),
+            ),
             appStartupControllerProvider.overrideWith(
               (ref) => _FakeStartupController(),
             ),
@@ -330,6 +356,9 @@ void main() {
                 ref,
                 const AuthState(token: 'stale-token'),
               ),
+            ),
+            dioClientProvider.overrideWithValue(
+              DioClient(_MemorySecureStore()),
             ),
             appStartupControllerProvider.overrideWith(
               (ref) => _FakeStartupController(),
@@ -378,6 +407,9 @@ void main() {
                   token: 'backoffice-token',
                 ),
               ),
+            ),
+            dioClientProvider.overrideWithValue(
+              DioClient(_MemorySecureStore()),
             ),
             appStartupControllerProvider.overrideWith(
               (ref) => _FakeStartupController(),
@@ -429,6 +461,9 @@ void main() {
               );
               return authController;
             }),
+            dioClientProvider.overrideWithValue(
+              DioClient(_MemorySecureStore()),
+            ),
             appStartupControllerProvider.overrideWith(
               (ref) => _FakeStartupController(),
             ),
@@ -458,6 +493,11 @@ void main() {
       expect(find.byType(CustomerHomeSelectorScreen), findsOneWidget);
       expect(find.byType(MaslakiUserShell), findsOneWidget);
       expect(authController.logoutCalls, 0);
+
+      // Unmount so the home ad-carousel's periodic timer is cancelled in its
+      // dispose() before the test ends (Flutter 3.47's test binding flags a
+      // still-pending timer otherwise).
+      await tester.pumpWidget(const SizedBox());
     },
   );
 }

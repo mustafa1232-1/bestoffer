@@ -24,6 +24,8 @@ class MediaCachePolicy {
   final int videoMaxBytes;
   final int maxVideoFileBytes;
   final int imageMaxObjects;
+  final int imageMemoryMaxObjects;
+  final int imageMemoryMaxBytes;
   final int videoMaxObjects;
   final int videoPrefetchLimit;
 
@@ -33,6 +35,8 @@ class MediaCachePolicy {
     this.videoMaxBytes = 800 * 1024 * 1024,
     this.maxVideoFileBytes = 60 * 1024 * 1024,
     this.imageMaxObjects = 3000,
+    this.imageMemoryMaxObjects = 250,
+    this.imageMemoryMaxBytes = 80 * 1024 * 1024,
     this.videoMaxObjects = 420,
     this.videoPrefetchLimit = 1,
   });

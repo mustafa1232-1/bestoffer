@@ -97,25 +97,25 @@ async function cleanupFixture(fx) {
   await q(`DELETE FROM app_user WHERE id=$1`, [fx.userId]).catch(() => {});
 }
 
-test("company admin can log in from both the user (customer) and company surfaces", async () => {
+test("company admin can log in only from the company surface", async () => {
   const fx = await createLoginFixture("company_admin_user_surface", {
     role: "admin",
   });
   try {
-    // Back-office roles are allowed on the customer surface (matching the
-    // per-request access-auth allowCompanyUserShellSurface bypass), so an admin
-    // can sign in from the customer app just like the super-admin can.
-    const userLogin = await authService.login(
-      { phone: fx.phone, pin: fx.pin },
-      {
-        deviceFingerprint: "admin-user-surface-device",
-        appFlavor: "user",
-        userAgent: "auth-session-test",
-        ipAddress: "127.0.0.1",
-      }
+    await assert.rejects(
+      () =>
+        authService.login(
+          { phone: fx.phone, pin: fx.pin },
+          {
+            deviceFingerprint: "admin-user-surface-device",
+            appFlavor: "user",
+            userAgent: "auth-session-test",
+            ipAddress: "127.0.0.1",
+          }
+        ),
+      (error) =>
+        error?.message === "FORBIDDEN_APP_SURFACE" && error?.status === 403
     );
-    assert.ok(userLogin.token);
-    assert.equal(userLogin.user.role, "admin");
 
     const companyLogin = await authService.login(
       { phone: fx.phone, pin: fx.pin },

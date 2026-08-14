@@ -971,6 +971,7 @@ class ProductSummaryCard extends StatefulWidget {
   final bool showDescription;
   final bool showImage;
   final bool compact;
+  final bool denseGrid;
   final int maxAttributeBadges;
   final int maxVariantBadges;
   final int maxStatusBadges;
@@ -993,6 +994,7 @@ class ProductSummaryCard extends StatefulWidget {
     this.showDescription = true,
     this.showImage = true,
     this.compact = true,
+    this.denseGrid = false,
     this.maxAttributeBadges = 3,
     this.maxVariantBadges = 4,
     this.maxStatusBadges = 3,
@@ -1016,6 +1018,7 @@ class ProductSummaryCard extends StatefulWidget {
     bool showDescription = true,
     bool showImage = true,
     bool compact = true,
+    bool denseGrid = false,
     int maxAttributeBadges = 3,
     int maxVariantBadges = 4,
     int maxStatusBadges = 3,
@@ -1055,6 +1058,7 @@ class ProductSummaryCard extends StatefulWidget {
       showDescription: showDescription,
       showImage: showImage,
       compact: compact,
+      denseGrid: denseGrid,
       maxAttributeBadges: maxAttributeBadges,
       maxVariantBadges: maxVariantBadges,
       maxStatusBadges: maxStatusBadges,
@@ -1293,6 +1297,7 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
     final visibleSizes = widget.showVariantControls
         ? widget.data.availableSizesForColor(currentSelection.colorCode)
         : const <ProductSummarySizeData>[];
+    final denseGrid = widget.denseGrid;
 
     return Material(
       color: Colors.transparent,
@@ -1301,8 +1306,8 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
         borderRadius: resolvedAppearance.borderRadius,
         child: Container(
           padding: EdgeInsets.symmetric(
-            horizontal: widget.compact ? 12 : 16,
-            vertical: widget.compact ? 12 : 14,
+            horizontal: denseGrid ? 10 : (widget.compact ? 12 : 16),
+            vertical: denseGrid ? 10 : (widget.compact ? 12 : 14),
           ),
           decoration: BoxDecoration(
             borderRadius: resolvedAppearance.borderRadius,
@@ -1314,7 +1319,9 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
             children: [
               if (showGallery) ...[
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(widget.compact ? 14 : 16),
+                  borderRadius: BorderRadius.circular(
+                    denseGrid ? 12 : (widget.compact ? 14 : 16),
+                  ),
                   child: AspectRatio(
                     aspectRatio: heroAspectRatio,
                     child: Stack(
@@ -1385,9 +1392,10 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                     ),
                   ),
                 ),
-                SizedBox(height: widget.compact ? 10 : 12),
+                SizedBox(height: denseGrid ? 8 : (widget.compact ? 10 : 12)),
               ],
-              if (widget.data.categoryLabel?.trim().isNotEmpty == true) ...[
+              if (!denseGrid &&
+                  widget.data.categoryLabel?.trim().isNotEmpty == true) ...[
                 Align(
                   alignment: Alignment.centerRight,
                   child: Container(
@@ -1420,77 +1428,48 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                 widget.data.title,
                 textDirection: TextDirection.rtl,
                 textAlign: TextAlign.right,
+                maxLines: denseGrid ? 2 : null,
+                overflow: denseGrid ? TextOverflow.ellipsis : null,
                 style: TextStyle(
                   color: resolvedAppearance.titleColor,
-                  fontSize: widget.compact ? 15 : 16.5,
+                  fontSize: denseGrid ? 13.5 : (widget.compact ? 15 : 16.5),
                   fontWeight: FontWeight.w800,
                   height: 1.2,
                 ),
               ),
               if (widget.showDescription &&
                   widget.data.description?.trim().isNotEmpty == true) ...[
-                const SizedBox(height: 6),
+                SizedBox(height: denseGrid ? 4 : 6),
                 Text(
                   widget.data.description!.trim(),
                   textDirection: TextDirection.rtl,
                   textAlign: TextAlign.right,
-                  maxLines: widget.compact ? 2 : 3,
+                  maxLines: denseGrid ? 1 : (widget.compact ? 2 : 3),
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: resolvedAppearance.bodyColor,
-                    fontSize: widget.compact ? 12 : 13,
-                    height: 1.35,
+                    fontSize: denseGrid ? 11.2 : (widget.compact ? 12 : 13),
+                    height: denseGrid ? 1.2 : 1.35,
                   ),
                 ),
               ],
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                textDirection: TextDirection.rtl,
-                children: [
-                  Flexible(
-                    child: Text(
-                      _currentPriceText,
-                      textDirection: TextDirection.rtl,
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: resolvedAppearance.titleColor,
-                        fontWeight: FontWeight.w800,
-                        fontSize: widget.compact ? 14 : 16,
-                      ),
-                    ),
-                  ),
-                  if (widget.data.originalPriceText?.trim().isNotEmpty ==
-                      true) ...[
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        widget.data.originalPriceText!.trim(),
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(
-                          decoration: TextDecoration.lineThrough,
-                          color: resolvedAppearance.bodyColor,
-                          fontSize: widget.compact ? 11.5 : 12.5,
-                        ),
-                      ),
-                    ),
-                  ],
-                  if (widget.data.discountBadge != null) ...[
-                    const SizedBox(width: 6),
-                    _buildBadge(resolvedAppearance, widget.data.discountBadge!),
-                  ],
-                  if (widget.data.availabilityBadge != null) ...[
-                    const SizedBox(width: 6),
-                    _buildBadge(
-                      resolvedAppearance,
-                      widget.data.availabilityBadge!,
-                    ),
-                  ],
-                ],
+              SizedBox(height: denseGrid ? 6 : 8),
+              _buildPriceBlock(
+                appearance: resolvedAppearance,
+                denseGrid: denseGrid,
               ),
+              if (denseGrid) ...[
+                const SizedBox(height: 6),
+                _buildDenseGridHighlights(
+                  appearance: resolvedAppearance,
+                  currentSelection: currentSelection,
+                  colorGroupLabel: colorGroupLabel,
+                  sizeGroupLabel: sizeGroupLabel,
+                ),
+              ],
               if (_limited(
                 widget.data.attributeBadges,
-                widget.maxAttributeBadges,
+                denseGrid ? 0 : widget.maxAttributeBadges,
               ).isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Wrap(
@@ -1508,7 +1487,8 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                           .toList(growable: false),
                 ),
               ],
-              if (widget.showDetailedSpecifications &&
+              if (!denseGrid &&
+                  widget.showDetailedSpecifications &&
                   (widget.data.specificationBadges.isNotEmpty ||
                       widget.data.detailedSpecificationLines.isNotEmpty)) ...[
                 const SizedBox(height: 10),
@@ -1568,7 +1548,8 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                         .toList(growable: false),
                   ),
               ],
-              if (widget.showVariantControls &&
+              if (!denseGrid &&
+                  widget.showVariantControls &&
                   widget.data.colors.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(
@@ -1619,7 +1600,9 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                   ),
                 ],
               ],
-              if (widget.showVariantControls && visibleSizes.isNotEmpty) ...[
+              if (!denseGrid &&
+                  widget.showVariantControls &&
+                  visibleSizes.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 Text(
                   sizeGroupLabel,
@@ -1671,7 +1654,7 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
               ],
               if (_limited(
                 widget.data.variantBadges,
-                widget.maxVariantBadges,
+                denseGrid ? 0 : widget.maxVariantBadges,
               ).isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Wrap(
@@ -1691,7 +1674,7 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
               ],
               if (_limited(
                 widget.data.statusBadges,
-                widget.maxStatusBadges,
+                denseGrid ? 0 : widget.maxStatusBadges,
               ).isNotEmpty) ...[
                 const SizedBox(height: 8),
                 Wrap(
@@ -1707,9 +1690,11 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
                 ),
               ],
               if (widget.trailing != null) ...[
-                const SizedBox(height: 10),
+                SizedBox(height: denseGrid ? 8 : 10),
                 Align(
-                  alignment: Alignment.centerRight,
+                  alignment: denseGrid
+                      ? AlignmentDirectional.center
+                      : Alignment.centerRight,
                   child: widget.trailing!,
                 ),
               ],
@@ -1717,6 +1702,186 @@ class _ProductSummaryCardState extends State<ProductSummaryCard> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildDenseGridHighlights({
+    required ProductSummaryCardAppearance appearance,
+    required ProductSummaryCardSelection currentSelection,
+    required String colorGroupLabel,
+    required String sizeGroupLabel,
+  }) {
+    final badges = <ProductSummaryBadgeData>[
+      if (currentSelection.colorLabel?.trim().isNotEmpty == true)
+        ProductSummaryBadgeData(
+          text: '$colorGroupLabel: ${currentSelection.colorLabel!.trim()}',
+          kind: ProductSummaryBadgeKind.variant,
+        )
+      else if (widget.data.colors.isNotEmpty)
+        ProductSummaryBadgeData(
+          text: '$colorGroupLabel: ${widget.data.colors.length}',
+          kind: ProductSummaryBadgeKind.variant,
+        ),
+      if (currentSelection.sizeLabel?.trim().isNotEmpty == true)
+        ProductSummaryBadgeData(
+          text: '$sizeGroupLabel: ${currentSelection.sizeLabel!.trim()}',
+          kind: ProductSummaryBadgeKind.variant,
+        )
+      else if (widget.data.sizes.isNotEmpty)
+        ProductSummaryBadgeData(
+          text: '$sizeGroupLabel: ${widget.data.sizes.length}',
+          kind: ProductSummaryBadgeKind.variant,
+        ),
+      ...widget.data.attributeBadges.take(1),
+      ...widget.data.variantBadges.take(1),
+    ];
+
+    if (badges.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Wrap(
+      spacing: 5,
+      runSpacing: 5,
+      alignment: WrapAlignment.end,
+      children: badges
+          .take(3)
+          .map((badge) => _buildDenseBadge(appearance, badge))
+          .toList(growable: false),
+    );
+  }
+
+  Widget _buildDenseBadge(
+    ProductSummaryCardAppearance appearance,
+    ProductSummaryBadgeData badge,
+  ) {
+    final colors = _badgeColors(appearance, badge.kind);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: colors.background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: appearance.chipBorderColor),
+      ),
+      child: Text(
+        badge.text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        textDirection: TextDirection.rtl,
+        style: TextStyle(
+          fontSize: 10,
+          height: 1.1,
+          color: colors.text,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPriceBlock({
+    required ProductSummaryCardAppearance appearance,
+    required bool denseGrid,
+  }) {
+    final originalPrice = widget.data.originalPriceText?.trim();
+    if (denseGrid) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerEnd,
+              child: Text(
+                _currentPriceText,
+                maxLines: 1,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                style: TextStyle(
+                  color: appearance.titleColor,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13.5,
+                  height: 1.1,
+                ),
+              ),
+            ),
+          ),
+          if (originalPrice?.isNotEmpty == true) ...[
+            const SizedBox(height: 3),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Text(
+                originalPrice!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textDirection: TextDirection.rtl,
+                style: TextStyle(
+                  decoration: TextDecoration.lineThrough,
+                  color: appearance.bodyColor,
+                  fontSize: 11,
+                  height: 1.1,
+                ),
+              ),
+            ),
+          ],
+          if (widget.data.discountBadge != null ||
+              widget.data.availabilityBadge != null) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 5,
+              runSpacing: 5,
+              alignment: WrapAlignment.end,
+              children: [
+                if (widget.data.discountBadge != null)
+                  _buildBadge(appearance, widget.data.discountBadge!),
+                if (widget.data.availabilityBadge != null)
+                  _buildBadge(appearance, widget.data.availabilityBadge!),
+              ],
+            ),
+          ],
+        ],
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      textDirection: TextDirection.rtl,
+      children: [
+        Flexible(
+          child: Text(
+            _currentPriceText,
+            textDirection: TextDirection.rtl,
+            textAlign: TextAlign.right,
+            style: TextStyle(
+              color: appearance.titleColor,
+              fontWeight: FontWeight.w800,
+              fontSize: widget.compact ? 14 : 16,
+            ),
+          ),
+        ),
+        if (originalPrice?.isNotEmpty == true) ...[
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              originalPrice!,
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                decoration: TextDecoration.lineThrough,
+                color: appearance.bodyColor,
+                fontSize: widget.compact ? 11.5 : 12.5,
+              ),
+            ),
+          ),
+        ],
+        if (widget.data.discountBadge != null) ...[
+          const SizedBox(width: 6),
+          _buildBadge(appearance, widget.data.discountBadge!),
+        ],
+        if (widget.data.availabilityBadge != null) ...[
+          const SizedBox(width: 6),
+          _buildBadge(appearance, widget.data.availabilityBadge!),
+        ],
+      ],
     );
   }
 

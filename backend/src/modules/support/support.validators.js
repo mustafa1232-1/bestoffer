@@ -118,6 +118,8 @@ const CALL_OUTCOMES = new Set([
   "transferred",
   "info_only",
 ]);
+const PRESENCE_STATUSES = new Set(["available", "on_ticket", "acw", "break", "offline"]);
+const CALLBACK_STATUSES = new Set(["scheduled", "completed", "cancelled", "missed"]);
 
 // إنشاء تذكرة من قبل الموظف نيابةً عن العميل (توثيق مكالمة/تواصل خارجي).
 export function validateAgentCreateTicket(body = {}) {
@@ -170,6 +172,130 @@ export function validateAgentCreateTicket(body = {}) {
       entityLabel,
       assignToSelf,
     },
+  };
+}
+
+export function validatePresence(body = {}) {
+  const errors = {};
+  const status = text(body.status, 16).toLowerCase() || "available";
+  const team = text(body.team, 48) || null;
+  const currentTicketId = numberId(body.currentTicketId ?? body.current_ticket_id);
+  const rawSkillDomains = body.skillDomains ?? body.skill_domains;
+  const rawDomains = Array.isArray(rawSkillDomains) ? rawSkillDomains : [];
+  const skillDomains = rawDomains
+    .map((item) => text(item, 24).toUpperCase())
+    .filter(Boolean);
+  if (!PRESENCE_STATUSES.has(status)) errors.status = "INVALID";
+  if (currentTicketId === "INVALID") errors.currentTicketId = "INVALID";
+  for (const domain of skillDomains) {
+    if (!isValidDomain(domain)) {
+      errors.skillDomains = "INVALID";
+      break;
+    }
+  }
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      status,
+      team,
+      skillDomains,
+      currentTicketId: currentTicketId === "INVALID" ? null : currentTicketId,
+    },
+  };
+}
+
+function optionalDomain(value) {
+  const domain = text(value, 24).toUpperCase();
+  if (!domain) return null;
+  return isValidDomain(domain) ? domain : "INVALID";
+}
+
+function optionalType(value) {
+  const type = text(value, 24).toUpperCase();
+  if (!type) return null;
+  return isValidType(type) ? type : "INVALID";
+}
+
+export function validateCannedResponse(body = {}) {
+  const errors = {};
+  const title = text(body.title, 160);
+  const responseBody = text(body.body, 5000);
+  const domain = optionalDomain(body.domain);
+  const type = optionalType(body.type);
+  if (!title) errors.title = "REQUIRED";
+  if (!responseBody) errors.body = "REQUIRED";
+  if (domain === "INVALID") errors.domain = "INVALID";
+  if (type === "INVALID") errors.type = "INVALID";
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      title,
+      body: responseBody,
+      domain: domain === "INVALID" ? null : domain,
+      type: type === "INVALID" ? null : type,
+      isActive: body.isActive === undefined ? true : body.isActive === true,
+    },
+  };
+}
+
+export function validateKnowledgeArticle(body = {}) {
+  const errors = {};
+  const title = text(body.title, 200);
+  const articleBody = text(body.body, 15000);
+  const domain = optionalDomain(body.domain);
+  const rawTags = Array.isArray(body.tags) ? body.tags : [];
+  const tags = rawTags.map((tag) => text(tag, 48)).filter(Boolean).slice(0, 20);
+  if (!title) errors.title = "REQUIRED";
+  if (!articleBody) errors.body = "REQUIRED";
+  if (domain === "INVALID") errors.domain = "INVALID";
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      title,
+      body: articleBody,
+      domain: domain === "INVALID" ? null : domain,
+      tags,
+      isPublished:
+        body.isPublished === undefined ? true : body.isPublished === true,
+    },
+  };
+}
+
+export function validateCallback(body = {}) {
+  const errors = {};
+  const scheduledAtRaw = text(body.scheduledAt ?? body.scheduled_at, 64);
+  const scheduledAtMs = scheduledAtRaw ? new Date(scheduledAtRaw).getTime() : NaN;
+  const assignedUserId = numberId(body.assignedUserId ?? body.assigned_user_id);
+  const phone = text(body.phone, 32) || null;
+  const notes = text(body.notes, 3000) || null;
+  if (!Number.isFinite(scheduledAtMs)) errors.scheduledAt = "INVALID";
+  if (assignedUserId === "INVALID") errors.assignedUserId = "INVALID";
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: {
+      scheduledAt: Number.isFinite(scheduledAtMs)
+        ? new Date(scheduledAtMs).toISOString()
+        : null,
+      assignedUserId: assignedUserId === "INVALID" ? null : assignedUserId,
+      phone,
+      notes,
+    },
+  };
+}
+
+export function validateCallbackUpdate(body = {}) {
+  const errors = {};
+  const status = text(body.status, 16).toLowerCase();
+  const notes = text(body.notes, 3000) || null;
+  if (!CALLBACK_STATUSES.has(status)) errors.status = "INVALID";
+  return {
+    ok: Object.keys(errors).length === 0,
+    errors,
+    value: { status, notes },
   };
 }
 

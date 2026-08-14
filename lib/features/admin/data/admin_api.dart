@@ -831,8 +831,176 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> createSupportTicketForCustomer({
+    int? customerUserId,
+    String? customerPhone,
+    required String domain,
+    required String type,
+    String priority = 'normal',
+    required String subject,
+    String? description,
+    String channel = 'phone',
+    String? callOutcome,
+    String? internalNote,
+    bool assignToSelf = true,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/support/tickets',
+      data: {
+        if (customerUserId != null && customerUserId > 0)
+          'customerUserId': customerUserId,
+        if ((customerPhone ?? '').trim().isNotEmpty)
+          'customerPhone': customerPhone!.trim(),
+        'domain': domain,
+        'type': type,
+        'priority': priority,
+        'subject': subject,
+        if ((description ?? '').trim().isNotEmpty)
+          'description': description!.trim(),
+        'channel': channel,
+        if ((callOutcome ?? '').trim().isNotEmpty)
+          'callOutcome': callOutcome!.trim(),
+        if ((internalNote ?? '').trim().isNotEmpty)
+          'internalNote': internalNote!.trim(),
+        'assignToSelf': assignToSelf,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> supportPresence({
+    String? team,
+    String? status,
+    int limit = 100,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/support/presence',
+      queryParameters: {
+        'limit': limit,
+        if ((team ?? '').trim().isNotEmpty) 'team': team!.trim(),
+        if ((status ?? '').trim().isNotEmpty) 'status': status!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> supportSupervisorOverview() async {
+    final response = await dio.get('/api/admin/support/supervisor/overview');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> supportKpis({
+    String? from,
+    String? to,
+    String? team,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/support/reports/kpis',
+      queryParameters: {
+        if ((from ?? '').trim().isNotEmpty) 'from': from!.trim(),
+        if ((to ?? '').trim().isNotEmpty) 'to': to!.trim(),
+        if ((team ?? '').trim().isNotEmpty) 'team': team!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> supportCannedResponses({
+    String? domain,
+    String? type,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/support/canned-responses',
+      queryParameters: {
+        if ((domain ?? '').trim().isNotEmpty) 'domain': domain!.trim(),
+        if ((type ?? '').trim().isNotEmpty) 'type': type!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> supportKnowledgeArticles({
+    String? domain,
+    String? search,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/support/knowledge',
+      queryParameters: {
+        if ((domain ?? '').trim().isNotEmpty) 'domain': domain!.trim(),
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> mySupportPresence() async {
+    final response = await dio.get('/api/admin/support/presence/me');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateMySupportPresence({
+    required String status,
+    String? team,
+    List<String> skillDomains = const [],
+    int? currentTicketId,
+  }) async {
+    final response = await dio.put(
+      '/api/admin/support/presence/me',
+      data: {
+        'status': status,
+        if ((team ?? '').trim().isNotEmpty) 'team': team!.trim(),
+        if (skillDomains.isNotEmpty) 'skillDomains': skillDomains,
+        if (currentTicketId != null && currentTicketId > 0)
+          'currentTicketId': currentTicketId,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> supportTicketDetails(int ticketId) async {
     final response = await dio.get('/api/admin/support/tickets/$ticketId');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> supportTicketCallbacks(int ticketId) async {
+    final response = await dio.get(
+      '/api/admin/support/tickets/$ticketId/callbacks',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> createSupportTicketCallback(
+    int ticketId, {
+    required DateTime scheduledAt,
+    String? phone,
+    String? notes,
+    int? assignedUserId,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/support/tickets/$ticketId/callbacks',
+      data: {
+        'scheduledAt': scheduledAt.toUtc().toIso8601String(),
+        if ((phone ?? '').trim().isNotEmpty) 'phone': phone!.trim(),
+        if ((notes ?? '').trim().isNotEmpty) 'notes': notes!.trim(),
+        if (assignedUserId != null && assignedUserId > 0)
+          'assignedUserId': assignedUserId,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateSupportCallback(
+    int callbackId, {
+    required String status,
+    String? notes,
+  }) async {
+    final response = await dio.put(
+      '/api/admin/support/callbacks/$callbackId',
+      data: {
+        'status': status,
+        if ((notes ?? '').trim().isNotEmpty) 'notes': notes!.trim(),
+      },
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 

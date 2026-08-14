@@ -42,6 +42,7 @@ class _AdminCreateEmployeeScreenState
   List<Map<String, dynamic>> _groups = const [];
   List<Map<String, dynamic>> _perms = const [];
   List<Map<String, dynamic>> _jobRoles = const [];
+  bool _canManagePermissions = false;
 
   String? _jobRoleKey;
   final Set<String> _checked = <String>{};
@@ -76,7 +77,23 @@ class _AdminCreateEmployeeScreenState
       _error = null;
     });
     try {
-      final data = await ref.read(adminApiProvider).rbacCatalog();
+      final api = ref.read(adminApiProvider);
+      final permissionsData = await api.myPermissions();
+      final isSuper =
+          permissionsData['isSuperAdmin'] == true ||
+          permissionsData['wildcard'] == true ||
+          ref.read(authControllerProvider).isSuperAdmin;
+      final permissions =
+          List<dynamic>.from(
+                permissionsData['permissions'] as List? ?? const [],
+              )
+              .whereType<Map>()
+              .map((item) => '${item['key'] ?? ''}'.trim())
+              .where((item) => item.isNotEmpty)
+              .toSet();
+      final canManagePermissions =
+          isSuper || permissions.contains('employees.permissions.manage');
+      final data = await api.rbacCatalog();
       final groups = ((data['groups'] as List?) ?? const [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList(growable: false);
@@ -86,12 +103,14 @@ class _AdminCreateEmployeeScreenState
       final roles = ((data['roleTemplates'] as List?) ?? const [])
           .map((e) => Map<String, dynamic>.from(e as Map))
           .where((r) => r['isJobRole'] == true)
+          .where((r) => isSuper || !_roleHasSensitivePermission(r))
           .toList(growable: false);
       if (!mounted) return;
       setState(() {
         _groups = groups;
         _perms = perms;
         _jobRoles = roles;
+        _canManagePermissions = canManagePermissions;
         _loading = false;
       });
     } catch (e) {
@@ -112,6 +131,19 @@ class _AdminCreateEmployeeScreenState
     return ((role['permissions'] as List?) ?? const [])
         .map((e) => '$e')
         .toList(growable: false);
+  }
+
+  static const Set<String> _sensitivePermissionKeys = {
+    'employees.permissions.manage',
+    'accounts.delete_approve',
+    'payroll.release',
+    'payroll.approve',
+    'taxi.rides.emergency_cancel',
+  };
+
+  bool _roleHasSensitivePermission(Map<String, dynamic> role) {
+    final permissions = (role['permissions'] as List?) ?? const [];
+    return permissions.any((key) => _sensitivePermissionKeys.contains('$key'));
   }
 
   void _selectJobRole(String? key) {
@@ -154,14 +186,16 @@ class _AdminCreateEmployeeScreenState
     // Overrides = the diff between the checked set and the job-role defaults.
     final defaults = _rolePermissions(_jobRoleKey).toSet();
     final overrides = <Map<String, dynamic>>[];
-    for (final key in _checked) {
-      if (!defaults.contains(key)) {
-        overrides.add({'permissionKey': key, 'effect': 'grant'});
+    if (_canManagePermissions) {
+      for (final key in _checked) {
+        if (!defaults.contains(key)) {
+          overrides.add({'permissionKey': key, 'effect': 'grant'});
+        }
       }
-    }
-    for (final key in defaults) {
-      if (!_checked.contains(key)) {
-        overrides.add({'permissionKey': key, 'effect': 'revoke'});
+      for (final key in defaults) {
+        if (!_checked.contains(key)) {
+          overrides.add({'permissionKey': key, 'effect': 'revoke'});
+        }
       }
     }
 
@@ -178,8 +212,8 @@ class _AdminCreateEmployeeScreenState
         'employeeCode': _employeeCode.text.trim(),
         'jobRoleKey': _jobRoleKey,
         'jobTitle': _jobTitle.text.trim(),
-        'baseSalaryIqd': ?salary,
-        'permissions': overrides,
+        'baseSalaryIqd': salary,
+        if (_canManagePermissions) 'permissions': overrides,
         'createReferralCoupon': _createCoupon,
         if (_createCoupon) 'agentCommissionSharePercent': share,
         if (_createCoupon) 'couponDiscountType': _couponDiscountType,
@@ -216,7 +250,7 @@ class _AdminCreateEmployeeScreenState
             ? const Center(child: CircularProgressIndicator())
             : _error != null
             ? _errorView()
-            : _form(isSuper),
+            : _form(isSuper || _canManagePermissions),
         bottomNavigationBar: (_loading || _error != null)
             ? null
             : SafeArea(
@@ -297,34 +331,31 @@ class _AdminCreateEmployeeScreenState
         if (_jobRoleKey != null) _jobRoleHint(),
         const SizedBox(height: 8),
         _text(_jobTitle, 'المسمّى الوظيفي (اختياري)'),
-        _text(
-          _salary,
-          'الراتب الشهري (د.ع)',
-          keyboard: TextInputType.number,
-        ),
+        _text(_salary, 'الراتب الشهري (د.ع)', keyboard: TextInputType.number),
         const SizedBox(height: 16),
         _couponSection(),
         const SizedBox(height: 16),
         // Permissions are auto-filled by the chosen job role, so they're tucked
         // into a single collapsible section — the fast path never needs to open
         // it. Expand only to fine-tune.
-        Card(
-          child: ExpansionTile(
-            initiallyExpanded: false,
-            leading: const Icon(Icons.shield_outlined),
-            title: const Text(
-              'الصلاحيات (اختياري)',
-              style: TextStyle(fontWeight: FontWeight.w900),
+        if (_canManagePermissions)
+          Card(
+            child: ExpansionTile(
+              initiallyExpanded: false,
+              leading: const Icon(Icons.shield_outlined),
+              title: const Text(
+                'الصلاحيات (اختياري)',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              subtitle: Text(
+                _jobRoleKey == null
+                    ? 'ستُفعَّل تلقائياً حسب الوظيفة — اختر وظيفة'
+                    : 'مفعّلة تلقائياً حسب الوظيفة · ${_checked.length} صلاحية — اضغط للتخصيص',
+              ),
+              childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              children: _groups.map((g) => _permGroup(g, isSuper)).toList(),
             ),
-            subtitle: Text(
-              _jobRoleKey == null
-                  ? 'ستُفعَّل تلقائياً حسب الوظيفة — اختر وظيفة'
-                  : 'مفعّلة تلقائياً حسب الوظيفة · ${_checked.length} صلاحية — اضغط للتخصيص',
-            ),
-            childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-            children: _groups.map((g) => _permGroup(g, isSuper)).toList(),
           ),
-        ),
       ],
     );
   }
@@ -453,10 +484,9 @@ class _AdminCreateEmployeeScreenState
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .secondaryContainer
-                            .withValues(alpha: 0.4),
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.secondaryContainer.withValues(alpha: 0.4),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Text(

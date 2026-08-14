@@ -62,7 +62,7 @@ class SocialMediaPickerV3 {
     try {
       final file = await _picker.pickVideo(source: ImageSource.gallery);
       if (file == null) return null;
-      return _toResult(file, PickedMediaType.video);
+      return await _toResult(file, PickedMediaType.video);
     } catch (error) {
       throw SocialPickerException('pickReelVideo', error);
     }
@@ -73,7 +73,7 @@ class SocialMediaPickerV3 {
     try {
       final file = await _picker.pickMedia();
       if (file == null) return null;
-      return _toResult(file, _inferType(file));
+      return await _toResult(file, _inferType(file));
     } catch (error) {
       throw SocialPickerException('pickStoryImageOrVideo', error);
     }
@@ -84,7 +84,7 @@ class SocialMediaPickerV3 {
     try {
       final file = await _picker.pickImage(source: ImageSource.gallery);
       if (file == null) return null;
-      return _toResult(file, PickedMediaType.image);
+      return await _toResult(file, PickedMediaType.image);
     } catch (error) {
       throw SocialPickerException('pickStoryImage', error);
     }
@@ -95,7 +95,7 @@ class SocialMediaPickerV3 {
     try {
       final file = await _picker.pickVideo(source: ImageSource.gallery);
       if (file == null) return null;
-      return _toResult(file, PickedMediaType.video);
+      return await _toResult(file, PickedMediaType.video);
     } catch (error) {
       throw SocialPickerException('pickStoryVideo', error);
     }
@@ -106,7 +106,7 @@ class SocialMediaPickerV3 {
     try {
       final file = await _picker.pickMedia();
       if (file == null) return null;
-      return _toResult(file, _inferType(file));
+      return await _toResult(file, _inferType(file));
     } catch (error) {
       throw SocialPickerException('pickPostImageOrVideo', error);
     }

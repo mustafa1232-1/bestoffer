@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'core/diagnostics/build_identity_guard.dart';
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
+import 'core/platform/edge_to_edge_system_ui.dart';
 import 'core/platform/app_flavor.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/notifications/local_notification_service.dart';
@@ -28,6 +29,7 @@ import 'l10n/app_localizations.dart';
 void runStoreAppBootstrap() {
   AppFlavorContext.setCurrent(AppFlavor.store);
   WidgetsFlutterBinding.ensureInitialized();
+  unawaited(configureEdgeToEdgeSystemUi());
   installAppRuntimeErrorPresentation();
   unawaited(_runStoreAppBootstrap());
 }
@@ -229,11 +231,13 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
       themeMode: ThemeMode.dark,
       builder: (ctx, child) {
         if (child == null) return const SizedBox.shrink();
-        return AppBackdrop(
-          // Keep operational apps lightweight by default.
-          animationsEnabled: false,
-          weatherEffectsEnabled: false,
-          child: AppResponsiveShell(child: child),
+        return EdgeToEdgeSystemUi(
+          child: AppBackdrop(
+            // Keep operational apps lightweight by default.
+            animationsEnabled: false,
+            weatherEffectsEnabled: false,
+            child: AppResponsiveShell(child: child),
+          ),
         );
       },
       home: !_bootstrapped

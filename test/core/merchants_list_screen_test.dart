@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:maslaki/core/network/dio_client.dart';
+import 'package:maslaki/core/storage/secure_storage.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/auth/ui/merchants_list_screen.dart';
@@ -17,6 +19,20 @@ import 'package:maslaki/l10n/app_localizations.dart';
 class _FakeAuthController extends AuthController {
   _FakeAuthController(super.ref, AuthState initialState) {
     state = initialState;
+  }
+}
+
+class _MemorySecureStore extends SecureStore {
+  final Map<String, String> _values = <String, String>{
+    'device_id': 'test-device-id',
+  };
+
+  @override
+  Future<String?> readString(String key) async => _values[key];
+
+  @override
+  Future<void> writeString(String key, String value) async {
+    _values[key] = value;
   }
 }
 
@@ -191,6 +207,7 @@ Future<void> _pumpMerchantsList(
         authControllerProvider.overrideWith(
           (ref) => _FakeAuthController(ref, AuthState(user: _customerUser())),
         ),
+        dioClientProvider.overrideWithValue(DioClient(_MemorySecureStore())),
         merchantsControllerProvider.overrideWith(
           (ref) => _FakeMerchantsController(ref, _merchants()),
         ),
@@ -229,6 +246,7 @@ Future<void> _pumpMerchantsFlowWithRoot(WidgetTester tester) async {
         authControllerProvider.overrideWith(
           (ref) => _FakeAuthController(ref, AuthState(user: _customerUser())),
         ),
+        dioClientProvider.overrideWithValue(DioClient(_MemorySecureStore())),
         merchantsControllerProvider.overrideWith(
           (ref) => _FakeMerchantsController(ref, _merchants()),
         ),
@@ -298,27 +316,26 @@ void main() {
     },
   );
 
-  testWidgets(
-    'strictCategoryMode never appends unrelated fallback stores',
-    (tester) async {
-      // Same seeded-keyword setup as the non-strict test above, but strict:
-      // none of the seeded merchants match burger/pizza, so a strict category
-      // page must stay clean instead of falling back to all market stores.
-      await _pumpMerchantsList(
-        tester,
-        screen: const MerchantsListScreen(
-          compactCustomerMode: true,
-          initialType: 'market',
-          initialSearchQuery: 'fast food',
-          requiredAnyKeywords: <String>['burger', 'pizza'],
-          strictCategoryMode: true,
-        ),
-      );
+  testWidgets('strictCategoryMode never appends unrelated fallback stores', (
+    tester,
+  ) async {
+    // Same seeded-keyword setup as the non-strict test above, but strict:
+    // none of the seeded merchants match burger/pizza, so a strict category
+    // page must stay clean instead of falling back to all market stores.
+    await _pumpMerchantsList(
+      tester,
+      screen: const MerchantsListScreen(
+        compactCustomerMode: true,
+        initialType: 'market',
+        initialSearchQuery: 'fast food',
+        requiredAnyKeywords: <String>['burger', 'pizza'],
+        strictCategoryMode: true,
+      ),
+    );
 
-      expect(find.text('Fresh Market'), findsNothing);
-      expect(find.text('Coffee Corner'), findsNothing);
-    },
-  );
+    expect(find.text('Fresh Market'), findsNothing);
+    expect(find.text('Coffee Corner'), findsNothing);
+  });
 
   testWidgets('explicit search still shows the no matching state', (
     tester,
@@ -384,9 +401,7 @@ void main() {
     },
   );
 
-  testWidgets('strict category pages hide global type filters', (
-    tester,
-  ) async {
+  testWidgets('strict category pages hide global type filters', (tester) async {
     await _pumpMerchantsList(
       tester,
       screen: const MerchantsListScreen(
@@ -399,6 +414,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('Restaurants'), findsNothing);
     expect(find.text('Markets'), findsNothing);
+
+    // Unmount so any periodic timer in the discovery view (e.g. an ad carousel)
+    // is cancelled in dispose() before the test ends (Flutter 3.47's test
+    // binding flags a still-pending timer otherwise).
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('drawer home item returns to root stack', (tester) async {

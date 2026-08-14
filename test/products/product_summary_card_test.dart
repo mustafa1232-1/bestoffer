@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:maslaki/core/media/media_url.dart';
 import 'package:maslaki/features/products/models/product_model.dart';
 import 'package:maslaki/features/products/ui/product_summary_card.dart';
 
 void main() {
   CachedAppImage cachedImage(WidgetTester tester, String url) {
+    // The product model resolves media URLs to absolute (resolveMediaUrl), so
+    // the CachedAppImage receives the resolved URL, not the raw relative path.
+    final resolved = resolveMediaUrl(url);
     final finder = find.byWidgetPredicate(
-      (widget) => widget is CachedAppImage && widget.imageUrl == url,
+      (widget) => widget is CachedAppImage && widget.imageUrl == resolved,
     );
     expect(finder, findsWidgets);
     return tester.widgetList<CachedAppImage>(finder).first;
@@ -198,7 +202,7 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(cachedImage(tester, '/red.jpg').imageUrl, '/red.jpg');
+    expect(cachedImage(tester, '/red.jpg').imageUrl, resolveMediaUrl('/red.jpg'));
     expect(find.text('S'), findsOneWidget);
     expect(find.text('M'), findsOneWidget);
     expect(find.text('L'), findsNothing);
@@ -206,7 +210,7 @@ void main() {
     await tester.tap(find.text('أزرق'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(cachedImage(tester, '/blue.jpg').imageUrl, '/blue.jpg');
+    expect(cachedImage(tester, '/blue.jpg').imageUrl, resolveMediaUrl('/blue.jpg'));
     expect(find.text('S'), findsNothing);
     expect(find.text('M'), findsNothing);
     expect(find.text('L'), findsOneWidget);
@@ -267,12 +271,12 @@ void main() {
     );
     await tester.pump(const Duration(milliseconds: 50));
 
-    expect(cachedImage(tester, '/main.jpg').imageUrl, '/main.jpg');
+    expect(cachedImage(tester, '/main.jpg').imageUrl, resolveMediaUrl('/main.jpg'));
 
     await tester.tap(find.text('أزرق'));
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(cachedImage(tester, '/main.jpg').imageUrl, '/main.jpg');
+    expect(cachedImage(tester, '/main.jpg').imageUrl, resolveMediaUrl('/main.jpg'));
   });
 
   test('selection resolves the exact variant id when color and size match', () {
@@ -423,7 +427,7 @@ void main() {
     expect(find.text('اللون'), findsNothing);
     expect(find.text('المقاس'), findsNothing);
     expect(find.byType(CachedAppImage), findsOneWidget);
-    expect(cachedImage(tester, '/main.jpg').imageUrl, '/main.jpg');
+    expect(cachedImage(tester, '/main.jpg').imageUrl, resolveMediaUrl('/main.jpg'));
   });
 
   testWidgets(

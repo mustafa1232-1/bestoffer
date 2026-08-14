@@ -231,9 +231,84 @@ adminRouter.get(
   support.adminListTickets
 );
 adminRouter.get(
+  "/support/presence/me",
+  requirePermission("support.tickets.reply"),
+  support.adminGetMyPresence
+);
+adminRouter.put(
+  "/support/presence/me",
+  requirePermission("support.tickets.reply"),
+  support.adminUpdateMyPresence
+);
+adminRouter.get(
+  "/support/presence",
+  requirePermission("support.tickets.assign"),
+  support.adminListPresence
+);
+adminRouter.get(
+  "/support/supervisor/overview",
+  requirePermission("support.tickets.assign"),
+  support.adminSupervisorOverview
+);
+adminRouter.get(
+  "/support/reports/kpis",
+  requirePermission("support.tickets.assign"),
+  support.adminSupportKpis
+);
+adminRouter.get(
+  "/support/canned-responses",
+  requirePermission("support.tickets.reply"),
+  support.adminListCannedResponses
+);
+adminRouter.post(
+  "/support/canned-responses",
+  requirePermission("support.sla.manage"),
+  support.adminCreateCannedResponse
+);
+adminRouter.put(
+  "/support/canned-responses/:responseId",
+  requirePermission("support.sla.manage"),
+  support.adminUpdateCannedResponse
+);
+adminRouter.get(
+  "/support/knowledge",
+  requirePermission("support.tickets.reply"),
+  support.adminListKnowledgeArticles
+);
+adminRouter.post(
+  "/support/knowledge",
+  requirePermission("support.sla.manage"),
+  support.adminCreateKnowledgeArticle
+);
+adminRouter.put(
+  "/support/knowledge/:articleId",
+  requirePermission("support.sla.manage"),
+  support.adminUpdateKnowledgeArticle
+);
+adminRouter.get(
+  "/support/callbacks",
+  requirePermission("support.tickets.reply"),
+  support.adminListCallbacks
+);
+adminRouter.put(
+  "/support/callbacks/:callbackId",
+  requirePermission("support.tickets.reply"),
+  support.adminUpdateCallback
+);
+adminRouter.get(
   "/support/tickets/:ticketId",
   requirePermission("support.tickets.read"),
   support.adminGetTicket
+);
+adminRouter.get(
+  "/support/tickets/:ticketId/callbacks",
+  requirePermission("support.tickets.read"),
+  support.adminListTicketCallbacks
+);
+adminRouter.post(
+  "/support/tickets/:ticketId/callbacks",
+  requirePermission("support.tickets.reply"),
+  support.adminCreateTicketCallback
 );
 adminRouter.get(
   "/support/tickets/:ticketId/order-revisions",

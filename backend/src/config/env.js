@@ -325,6 +325,26 @@ export const env = {
   cfStreamPlaybackBaseUrl: readString("CF_STREAM_PLAYBACK_BASE_URL", ""),
   cfStreamThumbnailBaseUrl: readString("CF_STREAM_THUMBNAIL_BASE_URL", ""),
   cfStreamWebhookSecret: readString("CF_STREAM_WEBHOOK_SECRET", ""),
+  // WebRTC TURN / ICE config for in-app calls, served by GET /api/system/rtc-config.
+  // provider: "cloudflare" | "twilio" | "self-hosted" | "" (auto-detect any configured).
+  rtcTurnProvider: readString("RTC_TURN_PROVIDER", ""),
+  // Cloudflare Realtime TURN (recommended): dashboard -> Realtime/Calls -> TURN,
+  // create a Turn Key, then set its Key ID + API token here.
+  cfTurnKeyId: readString("CF_TURN_KEY_ID", ""),
+  cfTurnApiToken: readString("CF_TURN_API_TOKEN", ""),
+  cfTurnTtlSec: readNumber("CF_TURN_TTL_SEC", 3600, { min: 300, max: 86400 }),
+  // Twilio Network Traversal Service (alternative managed TURN).
+  twilioAccountSid: readString("TWILIO_ACCOUNT_SID", ""),
+  twilioAuthToken: readString("TWILIO_AUTH_TOKEN", ""),
+  twilioNtsTtlSec: readNumber("TWILIO_NTS_TTL_SEC", 3600, { min: 300, max: 86400 }),
+  // Self-hosted coturn (use-auth-secret / REST-API HMAC time-limited credentials).
+  rtcTurnEnabled: readBoolean("RTC_TURN_ENABLED", false),
+  rtcTurnUrls: readCsv("RTC_TURN_URLS", ""),
+  rtcTurnSecret: readString("RTC_TURN_SECRET", ""),
+  rtcTurnCredentialTtlSec: readNumber("RTC_TURN_CREDENTIAL_TTL_SEC", 21600, {
+    min: 300,
+    max: 86400,
+  }),
   socialStreamReconcileIntervalMs: readNumber(
     "SOCIAL_STREAM_RECONCILE_INTERVAL_MS",
     30000,

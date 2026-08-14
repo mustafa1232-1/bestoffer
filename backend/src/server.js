@@ -24,6 +24,10 @@ import {
   startNotificationOutboxWorker,
   stopNotificationOutboxWorker,
 } from "./modules/delivery/notification-outbox.worker.js";
+import {
+  startSupportSlaWorker,
+  stopSupportSlaWorker,
+} from "./modules/support/support.sla.worker.js";
 import { startPaidUpgradeMaintenanceWorker, stopPaidUpgradeMaintenanceWorker } from "./modules/paid-upgrades/paid-upgrades.service.js";
 import { startTaxiLifecycleWorker } from "./modules/taxi/taxi.service.js";
 import { seedBuiltinStoreActivityDefinitions } from "./modules/merchants/store-activity.registry.js";
@@ -303,6 +307,7 @@ async function start() {
   startInventoryReservationWorker();
   startDeliveryAssignmentRecoveryWorker();
   startNotificationOutboxWorker();
+  startSupportSlaWorker();
   startPaidUpgradeMaintenanceWorker();
 
   const server = app.listen(port, host, () => {
@@ -358,6 +363,7 @@ async function shutdown(reason, exitCode = 0) {
   stopInventoryReservationWorker();
   await stopDeliveryAssignmentRecoveryWorker();
   await stopNotificationOutboxWorker();
+  await stopSupportSlaWorker();
   stopSocialStreamReconciliationWorker();
   stopPaidUpgradeMaintenanceWorker();
 

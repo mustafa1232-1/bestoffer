@@ -126,7 +126,7 @@ class _FakeOwnerApi extends OwnerApi {
   }
 
   @override
-  Future<List<dynamic>> listProducts() async => <dynamic>[
+  Future<List<dynamic>> listProducts({bool summary = false}) async => <dynamic>[
     <String, dynamic>{'id': 1, 'name': 'Product', 'price': 1000},
   ];
 

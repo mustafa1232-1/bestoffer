@@ -103,9 +103,17 @@ class OwnerApi {
     await dio.delete('/api/owner/categories/$categoryId');
   }
 
-  Future<List<dynamic>> listProducts() async {
-    final response = await dio.get('/api/owner/products');
+  Future<List<dynamic>> listProducts({bool summary = false}) async {
+    final response = await dio.get(
+      '/api/owner/products',
+      queryParameters: summary ? const {'summary': 'true'} : null,
+    );
     return List<dynamic>.from(response.data as List);
+  }
+
+  Future<Map<String, dynamic>> getProduct(int productId) async {
+    final response = await dio.get('/api/owner/products/$productId');
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<Map<String, dynamic>> createProduct(

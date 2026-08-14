@@ -36,6 +36,23 @@ test("due dates scale with priority", () => {
   );
 });
 
+test("due dates can use support business hours", () => {
+  const created = Date.UTC(2026, 0, 1, 18, 30); // 21:30 Baghdad
+  const due = computeDueDates("urgent", created, {
+    businessHours: {
+      enabled: true,
+      timezoneOffsetMinutes: 180,
+      startHour: 9,
+      endHour: 21,
+      workdays: [0, 1, 2, 3, 4, 5, 6],
+    },
+  });
+  assert.equal(
+    new Date(due.firstResponseDueAt).getTime(),
+    Date.UTC(2026, 0, 2, 6, 15) // 09:15 Baghdad next day
+  );
+});
+
 test("SLA state: green within window, yellow near due, red overdue, met once satisfied", () => {
   const created = 0;
   const frDue = 100_000; // 100s window

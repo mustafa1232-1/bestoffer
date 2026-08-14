@@ -9,11 +9,13 @@ void main() {
       int? statusCode,
       Object? data,
       DioExceptionType type = DioExceptionType.badResponse,
+      Object? rawError,
     }) {
       final request = RequestOptions(path: '/api/auth/login');
       return DioException(
         requestOptions: request,
         type: type,
+        error: rawError,
         response: statusCode == null
             ? null
             : Response(
@@ -54,6 +56,51 @@ void main() {
       );
 
       expect(message, contains('Unable to connect to the server'));
+      expect(message, isNot(contains('Check your phone number and PIN')));
+    });
+
+    test(
+      'maps DNS lookup failures without a response as connection failures',
+      () {
+        final message = Intl.withLocale(
+          'en',
+          () => mapLoginDioErrorForUser(
+            error(
+              type: DioExceptionType.unknown,
+              rawError: 'SocketException: Failed host lookup',
+            ),
+          ),
+        );
+
+        expect(message, contains('Unable to connect to the server'));
+        expect(message, isNot(contains('Check your phone number and PIN')));
+      },
+    );
+
+    test(
+      'maps forbidden app surface without claiming credentials are wrong',
+      () {
+        final message = Intl.withLocale(
+          'en',
+          () => mapLoginDioErrorForUser(
+            error(statusCode: 403, data: {'message': 'FORBIDDEN_APP_SURFACE'}),
+          ),
+        );
+
+        expect(message, contains('not allowed on this app surface'));
+        expect(message, isNot(contains('Check your phone number and PIN')));
+      },
+    );
+
+    test('maps account lock without claiming credentials are wrong', () {
+      final message = Intl.withLocale(
+        'en',
+        () => mapLoginDioErrorForUser(
+          error(statusCode: 423, data: {'message': 'ACCOUNT_LOCKED'}),
+        ),
+      );
+
+      expect(message, contains('temporarily locked'));
       expect(message, isNot(contains('Check your phone number and PIN')));
     });
 

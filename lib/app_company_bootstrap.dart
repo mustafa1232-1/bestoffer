@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
+import 'core/platform/edge_to_edge_system_ui.dart';
 import 'core/platform/app_flavor.dart';
 import 'core/media/media_cache_service.dart';
 import 'core/settings/app_settings_controller.dart';
@@ -36,6 +37,7 @@ import 'l10n/app_localizations.dart';
 void runCompanyAppBootstrap() {
   AppFlavorContext.setCurrent(AppFlavor.company);
   WidgetsFlutterBinding.ensureInitialized();
+  unawaited(configureEdgeToEdgeSystemUi());
   installAppRuntimeErrorPresentation();
   unawaited(MediaCacheService.instance.scheduleMaintenance());
   runApp(
@@ -76,9 +78,7 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
     Future.microtask(() async {
       await ref.read(authControllerProvider.notifier).bootstrap();
       if (!mounted) return;
-      await _bootstrapCompanySessionIfNeeded(
-        ref.read(authControllerProvider),
-      );
+      await _bootstrapCompanySessionIfNeeded(ref.read(authControllerProvider));
       if (!mounted) return;
       setState(() {
         _bootstrapped = true;
@@ -142,9 +142,7 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
         return const CompanyShellScreen();
       }
       if (session.bootstrapping) {
-        return const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        );
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
       }
       return const CompanyLoginScreen();
     }
@@ -197,7 +195,9 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
       themeMode: ThemeMode.dark,
       builder: (context, child) {
         if (child == null) return const SizedBox.shrink();
-        return AppBackdrop(child: AppResponsiveShell(child: child));
+        return EdgeToEdgeSystemUi(
+          child: AppBackdrop(child: AppResponsiveShell(child: child)),
+        );
       },
       home: home,
     );
@@ -566,5 +566,3 @@ class _SidebarItem extends StatelessWidget {
     );
   }
 }
-
-

@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:maslaki/core/sections/section_availability_controller.dart';
+import 'package:maslaki/core/sections/section_availability_models.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/services/data/services_api.dart';
@@ -31,6 +33,26 @@ class _FakeAuthController extends AuthController {
 
   @override
   Future<void> bootstrap() async {}
+}
+
+class _FakeSectionAvailabilityController extends SectionAvailabilityController {
+  _FakeSectionAvailabilityController(super.ref) {
+    state = SectionAvailabilityState(
+      initialized: true,
+      entries: <String, SectionAvailabilityEntry>{
+        AppSectionKeys.services: fallbackOpenSectionEntry(
+          AppSectionKeys.services,
+          displayName: 'Services',
+        ),
+      },
+    );
+  }
+
+  @override
+  Future<void> bootstrap() async {}
+
+  @override
+  Future<void> refresh({bool silent = false}) async {}
 }
 
 class _FakeServicesApi extends ServicesApi {
@@ -118,8 +140,11 @@ Widget _buildApp(Widget home) {
     overrides: [
       authControllerProvider.overrideWith((ref) => _FakeAuthController(ref)),
       servicesApiProvider.overrideWithValue(_FakeServicesApi()),
+      sectionAvailabilityControllerProvider.overrideWith(
+        (ref) => _FakeSectionAvailabilityController(ref),
+      ),
     ],
-    child: MaterialApp(home: home),
+    child: MaterialApp(locale: const Locale('ar'), home: home),
   );
 }
 
@@ -139,6 +164,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('service_category_dropdown')),
+      160,
+      scrollable: find
+          .descendant(
+            of: find.byType(ServiceProviderOnboardingScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+
     await tester.tap(find.byKey(const Key('service_category_dropdown')));
     await tester.pumpAndSettle();
 
@@ -148,9 +185,33 @@ void main() {
     await tester.tapAt(const Offset(12, 12));
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('service_category_new_field')),
+      -160,
+      scrollable: find
+          .descendant(
+            of: find.byType(ServiceProviderOnboardingScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.pumpAndSettle();
+
     await tester.enterText(
       find.byKey(const Key('service_category_new_field')),
       'خدمات توصيل',
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('service_category_add_button')),
+      120,
+      scrollable: find
+          .descendant(
+            of: find.byType(ServiceProviderOnboardingScreen),
+            matching: find.byType(Scrollable),
+          )
+          .first,
     );
     await tester.pumpAndSettle();
 

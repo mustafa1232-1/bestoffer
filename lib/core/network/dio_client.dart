@@ -756,7 +756,9 @@ class _RequestSessionBinding {
 
 Future<String> _ensureDeviceId(SecureStore store) async {
   final key = store.storageKey(DioClient._deviceIdKey);
-  final existing = await store.readString(DioClient._deviceIdKey);
+  final existing = await store
+      .readString(DioClient._deviceIdKey)
+      .timeout(const Duration(milliseconds: 800), onTimeout: () => null);
   if (existing != null && existing.trim().isNotEmpty) {
     return existing.trim();
   }
@@ -767,7 +769,12 @@ Future<String> _ensureDeviceId(SecureStore store) async {
     final fallback = prefs.getString(key);
     if (fallback != null && fallback.trim().isNotEmpty) {
       final normalized = fallback.trim();
-      await store.writeString(DioClient._deviceIdKey, normalized);
+      unawaited(
+        store
+            .writeString(DioClient._deviceIdKey, normalized)
+            .timeout(const Duration(milliseconds: 800))
+            .catchError((_) {}),
+      );
       return normalized;
     }
   } catch (_) {
@@ -777,7 +784,12 @@ Future<String> _ensureDeviceId(SecureStore store) async {
   final random = Random.secure();
   final bytes = List<int>.generate(16, (_) => random.nextInt(256));
   final value = bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-  await store.writeString(DioClient._deviceIdKey, value);
+  unawaited(
+    store
+        .writeString(DioClient._deviceIdKey, value)
+        .timeout(const Duration(milliseconds: 800))
+        .catchError((_) {}),
+  );
   unawaited(_persistDeviceIdFallback(key, value));
   return value;
 }

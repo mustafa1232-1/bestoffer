@@ -38,7 +38,6 @@ import {
   deactivatePushTokensForUser,
 } from "../notifications/notifications.repo.js";
 import {
-  isCompanyBackofficeRole,
   isRoleAllowedForSurface,
   resolveRoleAppSurface,
 } from "../../shared/utils/app-surface.js";
@@ -190,15 +189,11 @@ function resolveSuperAdmin(user) {
 function isRequestedSurfaceAllowedForUser(user, requestedSurface) {
   if (!requestedSurface) return true;
   if (requestedSurface === "user") {
-    // Company back-office roles (admin / accountant / hr / …) may sign in on the
-    // customer surface too. The per-request access-auth middleware already grants
-    // them the customer shell (allowCompanyUserShellSurface); keeping this login
-    // gate in sync lets those accounts log in from the customer app the same way
-    // the super-admin already can, instead of being limited to the company app.
+    // Only super-admin can bootstrap through the user app. Regular company
+    // back-office accounts must sign in through the company surface.
     return (
       resolveSuperAdmin(user) ||
-      resolveRoleAppSurface(user?.role) === "user" ||
-      isCompanyBackofficeRole(user?.role)
+      resolveRoleAppSurface(user?.role) === "user"
     );
   }
   return isRoleAllowedForSurface(user?.role, requestedSurface);

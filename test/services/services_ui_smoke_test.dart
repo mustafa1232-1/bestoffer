@@ -1,3 +1,5 @@
+import 'package:maslaki/core/sections/section_availability_controller.dart';
+import 'package:maslaki/core/sections/section_availability_models.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/services/data/services_api.dart';
@@ -31,6 +33,26 @@ class _FakeAuthController extends AuthController {
 
   @override
   Future<void> bootstrap() async {}
+}
+
+class _FakeSectionAvailabilityController extends SectionAvailabilityController {
+  _FakeSectionAvailabilityController(super.ref) {
+    state = SectionAvailabilityState(
+      initialized: true,
+      entries: <String, SectionAvailabilityEntry>{
+        AppSectionKeys.services: fallbackOpenSectionEntry(
+          AppSectionKeys.services,
+          displayName: 'Services',
+        ),
+      },
+    );
+  }
+
+  @override
+  Future<void> bootstrap() async {}
+
+  @override
+  Future<void> refresh({bool silent = false}) async {}
 }
 
 class _FakeServicesApi extends ServicesApi {
@@ -158,8 +180,11 @@ Widget _buildApp(Widget home) {
     overrides: [
       authControllerProvider.overrideWith((ref) => _FakeAuthController(ref)),
       servicesApiProvider.overrideWithValue(_FakeServicesApi()),
+      sectionAvailabilityControllerProvider.overrideWith(
+        (ref) => _FakeSectionAvailabilityController(ref),
+      ),
     ],
-    child: MaterialApp(home: home),
+    child: MaterialApp(locale: const Locale('ar'), home: home),
   );
 }
 
@@ -190,7 +215,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('التسجيل كمقدم خدمة'), findsOneWidget);
+      expect(find.byType(ServiceProviderOnboardingScreen), findsOneWidget);
       expect(tester.takeException(), isNull);
     },
   );

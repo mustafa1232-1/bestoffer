@@ -240,7 +240,7 @@ class OwnerController extends StateNotifier<OwnerState> {
     try {
       final api = ref.read(ownerApiProvider);
       final merchantFuture = api.getMerchant();
-      final productsFuture = api.listProducts();
+      final productsFuture = api.listProducts(summary: true);
       final categoriesFuture = api.listCategories();
       final offersFuture = api.listOffers();
       final currentOrdersFuture = api.listCurrentOrders();
@@ -1498,11 +1498,26 @@ class OwnerController extends StateNotifier<OwnerState> {
   }
 
   Future<void> _reloadProducts() async {
-    final response = await ref.read(ownerApiProvider).listProducts();
+    final response = await ref
+        .read(ownerApiProvider)
+        .listProducts(summary: true);
     final products = response
         .map((e) => ProductModel.fromJson(Map<String, dynamic>.from(e as Map)))
         .toList();
     state = state.copyWith(products: products);
+  }
+
+  Future<ProductModel?> loadProductDetail(int productId) async {
+    try {
+      final response = await ref.read(ownerApiProvider).getProduct(productId);
+      return ProductModel.fromJson(response);
+    } on DioException catch (e) {
+      state = state.copyWith(error: _mapError(e));
+      return null;
+    } catch (_) {
+      state = state.copyWith(error: _ownerText('product_load_failed'));
+      return null;
+    }
   }
 
   Future<void> _reloadCategories() async {

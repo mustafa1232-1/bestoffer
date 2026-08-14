@@ -496,12 +496,24 @@ function buildMulticastMessage(
     localizedText?.body == null
       ? String(notification.body || "").trim()
       : String(localizedText.body || "").trim();
+  // Incoming-call pushes are sent DATA-ONLY (no top-level or android notification
+  // block) so the Android background handler can build the full-screen "ringing"
+  // call UI (fullScreenIntent + call category + ringtone). A notification block
+  // would make the OS render a plain tap-to-answer notification instead and
+  // suppress the ring. (Android focus; iOS incoming calls need CallKit/VoIP push.)
+  const isCallPush = String(notification?.type || "")
+    .toLowerCase()
+    .startsWith("social.call");
   return {
     tokens,
-    notification: {
-      title: titleText,
-      body: bodyText || "لديك إشعار جديد",
-    },
+    ...(isCallPush
+      ? {}
+      : {
+          notification: {
+            title: titleText,
+            body: bodyText || "لديك إشعار جديد",
+          },
+        }),
     data: {
       payloadVersion: "2",
       notificationId: String(notification.id || ""),
@@ -567,15 +579,22 @@ function buildMulticastMessage(
     android: {
       priority: "high",
       ttl: 60 * 60 * 1000,
-      notification: {
-        channelId: androidChannelId,
-        // Urgent operational channels carry a distinctive sound; the OS honors
-        // the channel's own sound/vibration for the final presentation.
-        sound: isUrgentChannel || requiresAction ? "maslaki_attention" : "default",
-        clickAction: "FLUTTER_NOTIFICATION_CLICK",
-        // Distinct assignment events must NOT collapse into each other.
-        tag: isUrgentChannel ? undefined : reminderTag || undefined,
-      },
+      ...(isCallPush
+        ? {}
+        : {
+            notification: {
+              channelId: androidChannelId,
+              // Urgent operational channels carry a distinctive sound; the OS honors
+              // the channel's own sound/vibration for the final presentation.
+              sound:
+                isUrgentChannel || requiresAction
+                  ? "maslaki_attention"
+                  : "default",
+              clickAction: "FLUTTER_NOTIFICATION_CLICK",
+              // Distinct assignment events must NOT collapse into each other.
+              tag: isUrgentChannel ? undefined : reminderTag || undefined,
+            },
+          }),
     },
     apns: {
       headers: {

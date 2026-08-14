@@ -520,7 +520,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupHome,
             onTap: (_) => _openPage(const CommandCenterScreen()),
           ),
-        if (canPermission('employees.read'))
+        if (canPermission('employees.read') ||
+            canPermission('employees.create'))
           AppUserDrawerItem(
             icon: Icons.badge_rounded,
             label: navText(ar: 'إدارة الموظفين', en: 'Employees'),

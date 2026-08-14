@@ -11,6 +11,64 @@ import {
 
 const REOPEN_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
+const DOMAIN_TEAM = Object.freeze({
+  SHOPPING: "orders",
+  DELIVERY: "delivery",
+  TAXI: "taxi",
+  SERVICES: "services",
+  REAL_ESTATE: "marketplace",
+  CARS: "marketplace",
+  JOBS: "jobs",
+  COMMUNITY: "community",
+  ACCOUNT: "account",
+  PAYMENTS: "finance",
+  OTHER: "general",
+});
+
+const PRESENCE_STATUSES = new Set([
+  "available",
+  "on_ticket",
+  "acw",
+  "break",
+  "offline",
+]);
+
+function teamForDomain(domain) {
+  return DOMAIN_TEAM[String(domain || "").trim().toUpperCase()] || "general";
+}
+
+function escalationTeamFor(ticket) {
+  return `${ticket.team || teamForDomain(ticket.domain)}_l2`;
+}
+
+function normalizePresenceStatus(status) {
+  const value = String(status || "").trim().toLowerCase();
+  return PRESENCE_STATUSES.has(value) ? value : "available";
+}
+
+function envBool(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || raw === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(String(raw).trim().toLowerCase());
+}
+
+function supportBusinessHoursConfig() {
+  if (!envBool("SUPPORT_SLA_BUSINESS_HOURS_ENABLED", true)) {
+    return { enabled: false };
+  }
+  const workdays = String(process.env.SUPPORT_SLA_WORKDAYS || "0,1,2,3,4,5,6")
+    .split(",")
+    .map((day) => Number(day.trim()))
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+  return {
+    enabled: true,
+    timezoneOffsetMinutes: Number(process.env.SUPPORT_SLA_TZ_OFFSET_MINUTES || 180),
+    startHour: Number(process.env.SUPPORT_SLA_START_HOUR || 9),
+    endHour: Number(process.env.SUPPORT_SLA_END_HOUR || 21),
+    workdays,
+  };
+}
+
 function queueNotification(payload) {
   createNotification(payload).catch((error) => {
     console.warn("[support] notification failed", error?.message || error);
@@ -81,6 +139,24 @@ function notifyAssignee(ticket, type, title, body, extra = {}) {
   });
 }
 
+function notifyAgents(agents, type, title, body, extra = {}) {
+  for (const agent of agents || []) {
+    const userId = Number(agent.agent_user_id || agent.user_id || agent.id);
+    if (!userId) continue;
+    queueNotification({
+      userId,
+      type,
+      title,
+      body,
+      payload: supportPayload(extra.ticketId || extra.id, extra),
+    });
+    queueRealtime(userId, "support_ticket", {
+      type,
+      ...extra,
+    });
+  }
+}
+
 function agentCanRead(ticket, viewer) {
   if (!viewer?.isAgent) return false;
   const scope = viewer.permissionScope || "assigned";
@@ -99,6 +175,52 @@ function assertAgentCanRead(ticket, viewer) {
   throw new AppError("TICKET_FORBIDDEN", { status: 403 });
 }
 
+async function autoRouteTicket(ticket) {
+  const team = ticket.team || teamForDomain(ticket.domain);
+  const agent = await repo.findBestAvailableAgent({ domain: ticket.domain, team });
+  if (!agent) {
+    await repo.updateTicketRouting({
+      ticketId: ticket.id,
+      strategy: `queued:${team}`,
+      team,
+    });
+    return { ticket: { ...ticket, team }, routed: false, team };
+  }
+  const assigned = await repo.assignTicket({
+    ticketId: ticket.id,
+    actorUserId: null,
+    actorRole: "system",
+    assigneeUserId: Number(agent.agent_user_id),
+    team,
+  });
+  if (assigned.code !== "OK") {
+    return { ticket: { ...ticket, team }, routed: false, team };
+  }
+  await repo.updateTicketRouting({
+    ticketId: ticket.id,
+    strategy: "auto_least_busy",
+    team,
+  });
+  await repo.markAgentAssigned({
+    agentUserId: Number(agent.agent_user_id),
+    ticketId: ticket.id,
+  });
+  queueNotification({
+    userId: Number(agent.agent_user_id),
+    type: "support.ticket.auto_assigned",
+    title: "New support ticket assigned",
+    body: `Ticket ${ticket.ticket_number || ticket.id}`,
+    payload: supportPayload(ticket.id, { team, strategy: "auto_least_busy" }),
+  });
+  queueRealtime(Number(agent.agent_user_id), "support_ticket", {
+    type: "support.ticket.auto_assigned",
+    ticketId: Number(ticket.id),
+    ticketNumber: ticket.ticket_number,
+    team,
+  });
+  return { ticket: assigned.ticket, routed: true, team };
+}
+
 export async function createTicket({
   userId,
   domain,
@@ -113,8 +235,11 @@ export async function createTicket({
   channel = "app",
   createdByUserId = null,
   callOutcome = null,
+  autoRoute = true,
 }) {
-  const due = computeDueDates(priority, Date.now());
+  const due = computeDueDates(priority, Date.now(), {
+    businessHours: supportBusinessHoursConfig(),
+  });
   const ticket = await repo.createTicket({
     userId,
     domain,
@@ -132,7 +257,9 @@ export async function createTicket({
     createdByUserId,
     callOutcome,
   });
-  return withSla(ticket);
+  if (!autoRoute || createdByUserId) return withSla(ticket);
+  const routed = await autoRouteTicket(ticket);
+  return withSla(routed.ticket);
 }
 
 /**
@@ -210,6 +337,10 @@ export async function createTicketByAgent({
       team: ticket.team || null,
     });
     if (assigned.code === "OK") {
+      await repo.markAgentAssigned({
+        agentUserId: agentUserId,
+        ticketId: ticket.id,
+      });
       const moved = await repo.transitionStatus({
         ticketId: ticket.id,
         toStatus: "IN_PROGRESS",
@@ -305,6 +436,246 @@ export async function listTicketsForAgent({
   }
   const out = await repo.listTickets({ ...filters, assignedUserId: actorUserId });
   return { ...out, items: out.items.map(withSla) };
+}
+
+export async function updateMyPresence({
+  agentUserId,
+  status,
+  team = null,
+  skillDomains = [],
+  currentTicketId = null,
+}) {
+  return repo.upsertAgentPresence({
+    agentUserId,
+    status: normalizePresenceStatus(status),
+    team: team || null,
+    skillDomains,
+    currentTicketId,
+  });
+}
+
+export async function getMyPresence(agentUserId) {
+  return repo.getAgentPresence(agentUserId);
+}
+
+export async function listPresence({ team = null, status = null, limit = 100 } = {}) {
+  return {
+    items: await repo.listAgentPresence({ team, status, limit }),
+  };
+}
+
+export async function getSupervisorOverview() {
+  return repo.getSupervisorOverview();
+}
+
+export async function listCannedResponses({
+  domain = null,
+  type = null,
+  includeInactive = false,
+  limit = 100,
+} = {}) {
+  return {
+    items: await repo.listCannedResponses({
+      domain,
+      type,
+      includeInactive,
+      limit,
+    }),
+  };
+}
+
+export async function createCannedResponse({
+  actorUserId,
+  title,
+  body,
+  domain = null,
+  type = null,
+}) {
+  return repo.createCannedResponse({
+    actorUserId,
+    title,
+    body,
+    domain,
+    type,
+  });
+}
+
+export async function updateCannedResponse({ id, actorUserId, ...data }) {
+  const row = await repo.updateCannedResponse({ id, actorUserId, ...data });
+  if (!row) throw new AppError("CANNED_RESPONSE_NOT_FOUND", { status: 404 });
+  return row;
+}
+
+export async function listKnowledgeArticles({
+  domain = null,
+  search = null,
+  includeUnpublished = false,
+  limit = 50,
+} = {}) {
+  return {
+    items: await repo.listKnowledgeArticles({
+      domain,
+      search,
+      includeUnpublished,
+      limit,
+    }),
+  };
+}
+
+export async function createKnowledgeArticle({
+  actorUserId,
+  title,
+  body,
+  domain = null,
+  tags = [],
+}) {
+  return repo.createKnowledgeArticle({
+    actorUserId,
+    title,
+    body,
+    domain,
+    tags,
+  });
+}
+
+export async function updateKnowledgeArticle({ id, actorUserId, ...data }) {
+  const row = await repo.updateKnowledgeArticle({ id, actorUserId, ...data });
+  if (!row) throw new AppError("KNOWLEDGE_ARTICLE_NOT_FOUND", { status: 404 });
+  return row;
+}
+
+export async function createCallback({
+  ticketId,
+  actorUserId,
+  assignedUserId = null,
+  scheduledAt,
+  phone = null,
+  notes = null,
+}) {
+  const ticket = await repo.getTicketById(ticketId);
+  if (!ticket) throw new AppError("TICKET_NOT_FOUND", { status: 404 });
+  const callback = await repo.createCallback({
+    ticketId,
+    customerUserId: ticket.user_id,
+    assignedUserId: assignedUserId || actorUserId,
+    createdByUserId: actorUserId,
+    scheduledAt,
+    phone,
+    notes,
+  });
+  if (callback.assigned_user_id) {
+    queueNotification({
+      userId: Number(callback.assigned_user_id),
+      type: "support.callback.scheduled",
+      title: "Support callback scheduled",
+      body: `Ticket ${ticket.ticket_number || ticket.id}`,
+      payload: supportPayload(ticket.id, {
+        callbackId: Number(callback.id),
+        scheduledAt,
+      }),
+    });
+  }
+  return callback;
+}
+
+export async function listCallbacks({
+  ticketId = null,
+  assignedUserId = null,
+  status = null,
+  limit = 50,
+} = {}) {
+  return { items: await repo.listCallbacks({ ticketId, assignedUserId, status, limit }) };
+}
+
+export async function updateCallback({ callbackId, actorUserId, status, notes = null }) {
+  const row = await repo.updateCallback({ callbackId, actorUserId, status, notes });
+  if (!row) throw new AppError("CALLBACK_NOT_FOUND", { status: 404 });
+  return row;
+}
+
+export async function getSupportKpiReport({ from = null, to = null, team = null, limit = 20 } = {}) {
+  return repo.getSupportKpiReport({ from, to, team, limit });
+}
+
+export async function processSupportSlaBatch({
+  warningWithinMinutes = 30,
+  limit = 50,
+} = {}) {
+  const summary = {
+    warnings: 0,
+    escalated: 0,
+    skipped: 0,
+  };
+
+  const warnings = await repo.listSlaWarningCandidates({
+    withinMinutes: warningWithinMinutes,
+    limit,
+  });
+  for (const ticket of warnings) {
+    const marked = await repo.markSlaWarning(ticket.id);
+    if (!marked) {
+      summary.skipped += 1;
+      continue;
+    }
+    summary.warnings += 1;
+    notifyAssignee(
+      marked,
+      "support.ticket.sla_warning",
+      "SLA warning",
+      `Ticket ${marked.ticket_number} is close to SLA breach.`,
+      { warning: true }
+    );
+  }
+
+  const breaches = await repo.listSlaBreachCandidates({ limit });
+  for (const ticket of breaches) {
+    const escalationTeam = escalationTeamFor(ticket);
+    const supervisor = await repo.findBestAvailableAgent({
+      domain: ticket.domain,
+      team: escalationTeam,
+    });
+    const result = await repo.escalateTicketForSla({
+      ticketId: ticket.id,
+      escalationTeam,
+      escalatedToUserId: supervisor?.agent_user_id || null,
+      reason: ticket.sla_breach_type || "sla_breached",
+    });
+    if (result.code !== "OK") {
+      summary.skipped += 1;
+      continue;
+    }
+    summary.escalated += 1;
+    if (supervisor?.agent_user_id) {
+      await repo.markAgentAssigned({
+        agentUserId: Number(supervisor.agent_user_id),
+        ticketId: ticket.id,
+      });
+    }
+    const recipients = supervisor?.agent_user_id
+      ? [supervisor]
+      : await repo.listAgentPresence({ team: escalationTeam, limit: 20 });
+    notifyAgents(
+      recipients,
+      "support.ticket.sla_escalated",
+      "SLA breached",
+      `Ticket ${result.ticket.ticket_number} was escalated to ${escalationTeam}.`,
+      {
+        ticketId: Number(ticket.id),
+        ticketNumber: result.ticket.ticket_number,
+        escalationTeam,
+        reason: ticket.sla_breach_type || "sla_breached",
+      }
+    );
+    notifyAssignee(
+      result.ticket,
+      "support.ticket.sla_escalated",
+      "Ticket escalated",
+      `Ticket ${result.ticket.ticket_number} breached SLA.`,
+      { escalationTeam, reason: ticket.sla_breach_type || "sla_breached" }
+    );
+  }
+
+  return summary;
 }
 
 export async function getTicketForViewer({ ticketId, viewer }) {
@@ -465,6 +836,10 @@ export async function assignTicket({
     throw new AppError("TICKET_ASSIGN_FAILED", { status: 409 });
   }
   if (assigneeUserId) {
+    await repo.markAgentAssigned({
+      agentUserId: Number(assigneeUserId),
+      ticketId,
+    });
     queueNotification({
       userId: Number(assigneeUserId),
       type: "support.ticket.assigned",
@@ -549,6 +924,64 @@ export async function transitionTicket({
   return withSla(result.ticket);
 }
 
+export async function escalateTicket({
+  ticketId,
+  actorUserId,
+  actorRole,
+  reason = "manual_escalation",
+}) {
+  const ticket = await repo.getTicketById(ticketId);
+  if (!ticket) throw new AppError("TICKET_NOT_FOUND", { status: 404 });
+  if (isTerminalStatus(ticket.status)) {
+    throw new AppError("TICKET_CLOSED", { status: 409 });
+  }
+  const escalationTeam = escalationTeamFor(ticket);
+  const supervisor = await repo.findBestAvailableAgent({
+    domain: ticket.domain,
+    team: escalationTeam,
+  });
+  const result = await repo.escalateTicketForSla({
+    ticketId,
+    escalationTeam,
+    escalatedToUserId: supervisor?.agent_user_id || null,
+    reason,
+  });
+  if (result.code !== "OK" && result.code !== "SKIPPED") {
+    throw new AppError("TICKET_ESCALATE_FAILED", { status: 409 });
+  }
+  if (supervisor?.agent_user_id && result.ticket) {
+    await repo.markAgentAssigned({
+      agentUserId: Number(supervisor.agent_user_id),
+      ticketId,
+    });
+  }
+  const finalTicket = result.ticket || ticket;
+  const recipients = supervisor?.agent_user_id
+    ? [supervisor]
+    : await repo.listAgentPresence({ team: escalationTeam, limit: 20 });
+  notifyAgents(
+    recipients,
+    "support.ticket.escalated",
+    "Ticket escalated",
+    `Ticket ${finalTicket.ticket_number} was escalated to ${escalationTeam}.`,
+    {
+      ticketId: Number(ticketId),
+      ticketNumber: finalTicket.ticket_number,
+      escalationTeam,
+      reason,
+      actorUserId: actorUserId ? Number(actorUserId) : null,
+    }
+  );
+  notifyAssignee(
+    finalTicket,
+    "support.ticket.escalated",
+    "Ticket escalated",
+    `Ticket ${finalTicket.ticket_number} was escalated to ${escalationTeam}.`,
+    { escalationTeam, reason }
+  );
+  return withSla(finalTicket);
+}
+
 export async function resolveTicket({
   ticketId,
   actorUserId,
@@ -580,6 +1013,13 @@ export async function resolveTicket({
   });
   if (result.code !== "OK") {
     throw new AppError("TICKET_INVALID_TRANSITION", { status: 409 });
+  }
+  if (ticket.assigned_user_id) {
+    await repo.markAgentAfterTicketDone({
+      agentUserId: Number(ticket.assigned_user_id),
+      ticketId,
+      status: "acw",
+    });
   }
   notifyTicketUser(
     ticket,

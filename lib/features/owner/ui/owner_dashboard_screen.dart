@@ -3,6 +3,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1419,111 +1420,119 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                             padding: EdgeInsets.symmetric(vertical: 20),
                             child: Text('لا توجد منتجات بعد'),
                           )
-                        : Column(
-                            children: catalogProducts
-                                .map(
-                                  (product) => _ProductTile(
-                                    product: product,
-                                    onEdit: () async {
-                                      final data = await _openProductSheet(
-                                        context,
-                                        product: product,
-                                        categories: ownerState.categories,
-                                        merchantActivityType:
-                                            ownerState.merchant?.activityType ??
-                                            ownerState.merchant?.type ??
-                                            'market',
-                                        supportsPharmacyWorkflow:
-                                            ownerState
-                                                .merchant
-                                                ?.supportsPharmacyWorkflow ==
-                                            true,
-                                      );
-                                      if (data == null) return;
+                        : _OwnerProductsLazyList(
+                            products: catalogProducts,
+                            itemBuilder: (product) => _ProductTile(
+                              key: ValueKey(product.id),
+                              product: product,
+                              onEdit: () async {
+                                final productDetails = await ref
+                                    .read(ownerControllerProvider.notifier)
+                                    .loadProductDetail(product.id);
+                                if (!mounted) return;
+                                if (productDetails == null) {
+                                  final currentError = ref
+                                      .read(ownerControllerProvider)
+                                      .error;
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        currentError ??
+                                            'تعذر تحميل تفاصيل المنتج. حاول مرة أخرى.',
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                final data = await _openProductSheet(
+                                  context,
+                                  product: productDetails,
+                                  categories: ownerState.categories,
+                                  merchantActivityType:
+                                      ownerState.merchant?.activityType ??
+                                      ownerState.merchant?.type ??
+                                      'market',
+                                  supportsPharmacyWorkflow:
+                                      ownerState
+                                          .merchant
+                                          ?.supportsPharmacyWorkflow ==
+                                      true,
+                                );
+                                if (data == null) return;
+                                await ref
+                                    .read(ownerControllerProvider.notifier)
+                                    .updateProduct(
+                                      productId: product.id,
+                                      name: data.name,
+                                      description: data.description,
+                                      categoryId: data.categoryId,
+                                      price: data.price,
+                                      discountedPrice: data.discountedPrice,
+                                      imageUrl: data.imageUrl,
+                                      imageFile: data.imageFile,
+                                      freeDelivery: data.freeDelivery,
+                                      offerLabel: data.offerLabel,
+                                      isAvailable: data.isAvailable,
+                                      unavailableReason: data.unavailableReason,
+                                      unavailableUntil: data.unavailableUntil,
+                                      requiresPrescription:
+                                          data.requiresPrescription,
+                                      requiresReview: data.requiresReview,
+                                      sortOrder: data.sortOrder,
+                                      stockQuantity: data.stockQuantity,
+                                      attributes: data.attributes,
+                                      variantGroups: data.variantGroups,
+                                      variants: data.variants,
+                                      media: data.media,
+                                      galleryFiles: data.galleryFiles,
+                                      variantFiles: data.variantFiles,
+                                    );
+                              },
+                              onDelete: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    title: const Text('حذف المنتج'),
+                                    content: const Text(
+                                      'هل تريد حذف هذا المنتج نهائيًا؟',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('إلغاء'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: const Text('حذف'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  await ref
+                                      .read(ownerControllerProvider.notifier)
+                                      .deleteProduct(product.id);
+                                }
+                              },
+                              onRestoreAvailability:
+                                  ownerState.savingProduct ||
+                                      product.isAvailable
+                                  ? null
+                                  : () async {
                                       await ref
                                           .read(
                                             ownerControllerProvider.notifier,
                                           )
-                                          .updateProduct(
+                                          .updateProductAvailability(
                                             productId: product.id,
-                                            name: data.name,
-                                            description: data.description,
-                                            categoryId: data.categoryId,
-                                            price: data.price,
-                                            discountedPrice:
-                                                data.discountedPrice,
-                                            imageUrl: data.imageUrl,
-                                            imageFile: data.imageFile,
-                                            freeDelivery: data.freeDelivery,
-                                            offerLabel: data.offerLabel,
-                                            isAvailable: data.isAvailable,
-                                            unavailableReason:
-                                                data.unavailableReason,
-                                            unavailableUntil:
-                                                data.unavailableUntil,
-                                            requiresPrescription:
-                                                data.requiresPrescription,
-                                            requiresReview: data.requiresReview,
-                                            sortOrder: data.sortOrder,
-                                            stockQuantity: data.stockQuantity,
-                                            attributes: data.attributes,
-                                            variantGroups: data.variantGroups,
-                                            variants: data.variants,
-                                            media: data.media,
-                                            galleryFiles: data.galleryFiles,
-                                            variantFiles: data.variantFiles,
+                                            isAvailable: true,
+                                            unavailableReason: null,
+                                            unavailableUntil: null,
                                           );
                                     },
-                                    onDelete: () async {
-                                      final confirm = await showDialog<bool>(
-                                        context: context,
-                                        builder: (_) => AlertDialog(
-                                          title: const Text('حذف المنتج'),
-                                          content: const Text(
-                                            'هل تريد حذف هذا المنتج نهائيًا؟',
-                                          ),
-                                          actions: [
-                                            TextButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(context, false),
-                                              child: const Text('إلغاء'),
-                                            ),
-                                            TextButton(
-                                              onPressed: () =>
-                                                  Navigator.pop(context, true),
-                                              child: const Text('حذف'),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                      if (confirm == true) {
-                                        await ref
-                                            .read(
-                                              ownerControllerProvider.notifier,
-                                            )
-                                            .deleteProduct(product.id);
-                                      }
-                                    },
-                                    onRestoreAvailability:
-                                        ownerState.savingProduct ||
-                                            product.isAvailable
-                                        ? null
-                                        : () async {
-                                            await ref
-                                                .read(
-                                                  ownerControllerProvider
-                                                      .notifier,
-                                                )
-                                                .updateProductAvailability(
-                                                  productId: product.id,
-                                                  isAvailable: true,
-                                                  unavailableReason: null,
-                                                  unavailableUntil: null,
-                                                );
-                                          },
-                                  ),
-                                )
-                                .toList(),
+                            ),
                           ),
                   ),
                 const SizedBox(height: 90),
@@ -2902,6 +2911,38 @@ class _CategoryTile extends StatelessWidget {
   }
 }
 
+class _OwnerProductsLazyList extends StatelessWidget {
+  final List<ProductModel> products;
+  final Widget Function(ProductModel product) itemBuilder;
+
+  const _OwnerProductsLazyList({
+    required this.products,
+    required this.itemBuilder,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final screenHeight = MediaQuery.sizeOf(context).height;
+    final maxHeight = (screenHeight * 0.62).clamp(260.0, 720.0);
+    final contentHeight = products.length * 92.0;
+
+    return SizedBox(
+      height: contentHeight < maxHeight ? contentHeight : maxHeight,
+      child: Scrollbar(
+        child: ListView.separated(
+          primary: false,
+          physics: const ClampingScrollPhysics(),
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          scrollCacheExtent: const ScrollCacheExtent.pixels(320),
+          itemCount: products.length,
+          separatorBuilder: (context, index) => const Divider(height: 1),
+          itemBuilder: (context, index) => itemBuilder(products[index]),
+        ),
+      ),
+    );
+  }
+}
+
 class _ProductTile extends StatelessWidget {
   final ProductModel product;
   final VoidCallback onEdit;
@@ -2909,6 +2950,7 @@ class _ProductTile extends StatelessWidget {
   final VoidCallback? onRestoreAvailability;
 
   const _ProductTile({
+    super.key,
     required this.product,
     required this.onEdit,
     required this.onDelete,
@@ -2929,7 +2971,12 @@ class _ProductTile extends StatelessWidget {
           child: product.imageUrl?.isNotEmpty == true
               ? CachedAppImage(
                   imageUrl: product.imageUrl!,
+                  cacheIdentity: 'owner_product_${product.id}',
                   fit: BoxFit.cover,
+                  memCacheWidth: 160,
+                  memCacheHeight: 160,
+                  maxWidthDiskCache: 160,
+                  maxHeightDiskCache: 160,
                   errorWidget: (context, error, stackTrace) => Container(
                     color: Colors.white.withValues(alpha: 0.10),
                     alignment: Alignment.center,

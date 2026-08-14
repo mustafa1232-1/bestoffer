@@ -21,6 +21,18 @@ String mapLoginDioErrorForUser(DioException error) {
     return l10n.apiDeliveryAccountPendingApproval;
   }
 
+  if (code == 'FORBIDDEN_APP_SURFACE') {
+    return l10n.localeName.startsWith('ar')
+        ? 'هذا الحساب غير مسموح له على هذه الواجهة.'
+        : 'This account is not allowed on this app surface.';
+  }
+
+  if (code == 'ACCOUNT_LOCKED' || status == 423) {
+    return l10n.localeName.startsWith('ar')
+        ? 'تم قفل الحساب مؤقتاً بسبب محاولات دخول متكررة. انتظر قليلاً ثم حاول مرة أخرى.'
+        : 'This account is temporarily locked after repeated sign-in attempts. Wait a moment, then try again.';
+  }
+
   if (status == 404 || status == 429 || status >= 500) {
     return l10n.apiServerError;
   }
@@ -37,10 +49,19 @@ String mapLoginDioErrorForUser(DioException error) {
 }
 
 bool _isConnectionError(DioException error) {
-  return error.type == DioExceptionType.connectionError ||
+  if (error.type == DioExceptionType.connectionError ||
       error.type == DioExceptionType.connectionTimeout ||
       error.type == DioExceptionType.sendTimeout ||
-      error.type == DioExceptionType.receiveTimeout;
+      error.type == DioExceptionType.receiveTimeout) {
+    return true;
+  }
+  final rawError = '${error.error ?? ''}'.toLowerCase();
+  return error.response == null &&
+      error.type == DioExceptionType.unknown &&
+      (rawError.contains('socket') ||
+          rawError.contains('failed host lookup') ||
+          rawError.contains('name resolution') ||
+          rawError.contains('remote name could not be resolved'));
 }
 
 String? _extractCode(dynamic data) {

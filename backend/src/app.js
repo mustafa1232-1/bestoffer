@@ -26,6 +26,7 @@ import {
 } from "./modules/merchants/merchants.routes.js";
 import * as merchantsController from "./modules/merchants/merchants.controller.js";
 import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
+import { getPushConfigStatus } from "./modules/notifications/notifications.repo.js";
 import { ordersRouter } from "./modules/orders/orders.routes.js";
 import { ownerRouter } from "./modules/owner/owner.routes.js";
 import * as adminOpsController from "./modules/admin/admin.ops.controller.js";
@@ -80,6 +81,7 @@ import { securityHeaders } from "./shared/middleware/security.middleware.js";
 import { activityAuditMiddleware } from "./shared/middleware/activity-audit.middleware.js";
 import { getRequestSigningRuntimeStatus } from "./modules/security/security.service.js";
 import { getUploadRuntimeStatus } from "./shared/utils/upload.js";
+import { buildRtcConfigForUser } from "./shared/utils/rtc-config.js";
 import {
   streamConfigHealth,
   classifyStreamConfig,
@@ -258,6 +260,15 @@ function mountApiSurface(prefix = "/api") {
   app.use(`${prefix}/hr`, hrRouter);
   app.use(`${prefix}/accountant`, accountantRouter);
   app.post(`${prefix}/system/crash-events`, adminOpsController.reportCrashEvent);
+  // WebRTC TURN/ICE config for in-app calls. Authenticated so TURN credentials
+  // (and their cost) are never handed to anonymous callers.
+  app.get(`${prefix}/system/rtc-config`, requireAuth, async (req, res, next) => {
+    try {
+      res.json(await buildRtcConfigForUser(req.userId));
+    } catch (e) {
+      next(e);
+    }
+  });
   app.use(prefix, commerceRouter);
   app.use(`${prefix}/admin/paid-upgrades`, paidUpgradesAdminRouter);
   app.use(`${prefix}/admin/merchant-subscriptions`, subscriptionsAdminRouter);
@@ -454,6 +465,10 @@ app.get("/health", async (req, res, next) => {
       // runtime can be verified from outside.
       stream: streamConfigHealth(),
       streamConfig: classifyStreamConfig(),
+      // Firebase/FCM push config-presence (no secrets) so push delivery can be
+      // verified from outside without auth. configured:false => backend can't
+      // send ANY push (set FIREBASE_SERVICE_ACCOUNT_JSON on the server).
+      push: getPushConfigStatus(),
       responseMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     });

@@ -970,9 +970,9 @@ export async function getPublicAdBoardItems({
      ORDER BY
        -- Exact category/subcategory/department ads outrank activity-wide ads,
        -- and both outrank the general fallback.
-       ($3::text IS NOT NULL AND a.category = $3::text) DESC,
-       ($4::text IS NOT NULL AND a.activity_type = $4::text) DESC,
-       (a.category IS NOT NULL OR a.activity_type IS NOT NULL) DESC,
+       COALESCE(($3::text IS NOT NULL AND a.category = $3::text), FALSE) DESC,
+       COALESCE(($4::text IS NOT NULL AND a.activity_type = $4::text), FALSE) DESC,
+       COALESCE((a.category IS NOT NULL OR a.activity_type IS NOT NULL), FALSE) DESC,
        a.priority ASC, a.created_at DESC, a.id DESC
      LIMIT 60`,
     [type || null, placement || null, categoryKey || null, activityType || null]

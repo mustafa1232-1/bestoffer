@@ -10,6 +10,11 @@ import {
   validateTransition,
   validateAssign,
   validateLinkEntity,
+  validatePresence,
+  validateCannedResponse,
+  validateKnowledgeArticle,
+  validateCallback,
+  validateCallbackUpdate,
   validateRating,
 } from "./support.validators.js";
 
@@ -45,6 +50,15 @@ function ticketId(req, res) {
   const id = Number(req.params?.ticketId);
   if (!Number.isInteger(id) || id <= 0) {
     badRequest(res, ["ticketId"]);
+    return null;
+  }
+  return id;
+}
+
+function positiveId(req, res, name) {
+  const id = Number(req.params?.[name]);
+  if (!Number.isInteger(id) || id <= 0) {
+    badRequest(res, [name]);
     return null;
   }
   return id;
@@ -202,6 +216,265 @@ export async function adminListTickets(req, res, next) {
       offset: req.query?.offset ? Number(req.query.offset) : 0,
     });
     return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminGetMyPresence(req, res, next) {
+  try {
+    const presence = await service.getMyPresence(req.userId);
+    return res.json({ presence });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminUpdateMyPresence(req, res, next) {
+  try {
+    const v = validatePresence(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const presence = await service.updateMyPresence({
+      agentUserId: req.userId,
+      ...v.value,
+    });
+    audit(req, {
+      actionKey: "support.tickets.reply",
+      summary: `Updated support presence to ${v.value.status}`,
+      targetId: req.userId,
+      metadata: v.value,
+    });
+    return res.json({ presence });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminListPresence(req, res, next) {
+  try {
+    const out = await service.listPresence({
+      team: req.query?.team || null,
+      status: req.query?.status || null,
+      limit: req.query?.limit ? Number(req.query.limit) : 100,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminSupervisorOverview(req, res, next) {
+  try {
+    const overview = await service.getSupervisorOverview();
+    return res.json(overview);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminSupportKpis(req, res, next) {
+  try {
+    const report = await service.getSupportKpiReport({
+      from: req.query?.from || null,
+      to: req.query?.to || null,
+      team: req.query?.team || null,
+      limit: req.query?.limit ? Number(req.query.limit) : 20,
+    });
+    return res.json(report);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminListCannedResponses(req, res, next) {
+  try {
+    const out = await service.listCannedResponses({
+      domain: req.query?.domain || null,
+      type: req.query?.type || null,
+      includeInactive: boolQuery(req.query?.includeInactive),
+      limit: req.query?.limit ? Number(req.query.limit) : 100,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminCreateCannedResponse(req, res, next) {
+  try {
+    const v = validateCannedResponse(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const response = await service.createCannedResponse({
+      actorUserId: req.userId,
+      ...v.value,
+    });
+    audit(req, {
+      actionKey: "support.sla.manage",
+      summary: `Created support canned response #${response.id}`,
+      targetId: Number(response.id),
+      metadata: { domain: response.domain, type: response.type },
+    });
+    return res.status(201).json({ response });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminUpdateCannedResponse(req, res, next) {
+  try {
+    const id = positiveId(req, res, "responseId");
+    if (!id) return;
+    const v = validateCannedResponse(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const response = await service.updateCannedResponse({
+      id,
+      actorUserId: req.userId,
+      ...v.value,
+    });
+    audit(req, {
+      actionKey: "support.sla.manage",
+      summary: `Updated support canned response #${id}`,
+      targetId: id,
+      metadata: { domain: response.domain, type: response.type },
+    });
+    return res.json({ response });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminListKnowledgeArticles(req, res, next) {
+  try {
+    const out = await service.listKnowledgeArticles({
+      domain: req.query?.domain || null,
+      search: req.query?.search || null,
+      includeUnpublished: boolQuery(req.query?.includeUnpublished),
+      limit: req.query?.limit ? Number(req.query.limit) : 50,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminCreateKnowledgeArticle(req, res, next) {
+  try {
+    const v = validateKnowledgeArticle(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const article = await service.createKnowledgeArticle({
+      actorUserId: req.userId,
+      ...v.value,
+    });
+    audit(req, {
+      actionKey: "support.sla.manage",
+      summary: `Created support knowledge article #${article.id}`,
+      targetId: Number(article.id),
+      metadata: { domain: article.domain },
+    });
+    return res.status(201).json({ article });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminUpdateKnowledgeArticle(req, res, next) {
+  try {
+    const id = positiveId(req, res, "articleId");
+    if (!id) return;
+    const v = validateKnowledgeArticle(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const article = await service.updateKnowledgeArticle({
+      id,
+      actorUserId: req.userId,
+      ...v.value,
+    });
+    audit(req, {
+      actionKey: "support.sla.manage",
+      summary: `Updated support knowledge article #${id}`,
+      targetId: id,
+      metadata: { domain: article.domain },
+    });
+    return res.json({ article });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminListCallbacks(req, res, next) {
+  try {
+    const out = await service.listCallbacks({
+      assignedUserId: boolQuery(req.query?.my) ? req.userId : null,
+      status: req.query?.status || null,
+      limit: req.query?.limit ? Number(req.query.limit) : 50,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminListTicketCallbacks(req, res, next) {
+  try {
+    const id = ticketId(req, res);
+    if (!id) return;
+    await service.getTicketForViewer({
+      ticketId: id,
+      viewer: {
+        userId: req.userId,
+        isAgent: true,
+        canReadInternal: true,
+        permissionScope: req.permissionScope || "assigned",
+        team: req.query?.team || null,
+      },
+    });
+    const out = await service.listCallbacks({ ticketId: id, limit: 50 });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminCreateTicketCallback(req, res, next) {
+  try {
+    const id = ticketId(req, res);
+    if (!id) return;
+    const v = validateCallback(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const callback = await service.createCallback({
+      ticketId: id,
+      actorUserId: req.userId,
+      ...v.value,
+    });
+    audit(req, {
+      actionKey: "support.tickets.reply",
+      summary: `Scheduled callback for support ticket #${id}`,
+      targetId: id,
+      metadata: { callbackId: Number(callback.id), scheduledAt: callback.scheduled_at },
+    });
+    return res.status(201).json({ callback });
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function adminUpdateCallback(req, res, next) {
+  try {
+    const id = positiveId(req, res, "callbackId");
+    if (!id) return;
+    const v = validateCallbackUpdate(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const callback = await service.updateCallback({
+      callbackId: id,
+      actorUserId: req.userId,
+      ...v.value,
+    });
+    audit(req, {
+      actionKey: "support.tickets.reply",
+      summary: `Updated support callback #${id} to ${callback.status}`,
+      targetId: Number(callback.ticket_id),
+      metadata: { callbackId: id, status: callback.status },
+    });
+    return res.json({ callback });
   } catch (error) {
     return next(error);
   }
@@ -391,11 +664,14 @@ export async function adminEscalate(req, res, next) {
   try {
     const id = ticketId(req, res);
     if (!id) return;
-    const ticket = await service.transitionTicket({
+    const ticket = await service.escalateTicket({
       ticketId: id,
       actorUserId: req.userId,
       actorRole: req.userRole || "agent",
-      toStatus: "ESCALATED",
+      reason:
+        typeof req.body?.reason === "string"
+          ? req.body.reason.trim() || "manual_escalation"
+          : "manual_escalation",
     });
     audit(req, {
       actionKey: "support.tickets.escalate",

@@ -89,12 +89,12 @@ class AppStartupController extends StateNotifier<AppStartupState> {
     required this.store,
     required this.dio,
     required bool? initialFirstLaunchDone,
-    this.serverAttemptTimeout = const Duration(seconds: 10),
-    this.serverRetryBackoff = const [
-      Duration(milliseconds: 500),
-      Duration(seconds: 1),
-    ],
-  }) : super(
+    Duration? serverAttemptTimeout,
+    List<Duration>? serverRetryBackoff,
+  }) : serverAttemptTimeout =
+           serverAttemptTimeout ?? _defaultServerAttemptTimeout,
+       serverRetryBackoff = serverRetryBackoff ?? _defaultServerRetryBackoff,
+       super(
          initialFirstLaunchDone == true
              ? const AppStartupState(
                  phase: AppStartupPhase.ready,
@@ -112,6 +112,20 @@ class AppStartupController extends StateNotifier<AppStartupState> {
   // always fall through to the server check so the gate can never hang.
   static const _firstLaunchReadBudget = Duration(seconds: 4);
   static const _maxServerAttempts = 3;
+  static const _defaultServerRetryBackoff = [
+    Duration(milliseconds: 500),
+    Duration(seconds: 1),
+  ];
+
+  static Duration get _defaultServerAttemptTimeout {
+    if (kIsWeb) return const Duration(seconds: 10);
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux => const Duration(seconds: 20),
+      _ => const Duration(seconds: 10),
+    };
+  }
 
   Future<void> bootstrap() async {
     final existing = _bootstrapInFlight;
@@ -243,8 +257,8 @@ class AppStartupController extends StateNotifier<AppStartupState> {
           .get<dynamic>(
             '/health',
             options: Options(
-              sendTimeout: const Duration(seconds: 8),
-              receiveTimeout: const Duration(seconds: 8),
+              sendTimeout: serverAttemptTimeout,
+              receiveTimeout: serverAttemptTimeout,
               // /health is public and runs before login — skip the auth/token/
               // signing interceptor path so a slow Keychain read cannot stall the
               // readiness probe.

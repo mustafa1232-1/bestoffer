@@ -46,11 +46,15 @@ test("resolveRequestAppSurface prefers flavor headers and falls back to routes",
 
 test("role to surface mapping rejects cross-flavor access", () => {
   assert.equal(isRoleAllowedForSurface("admin", "company"), true);
+  assert.equal(isRoleAllowedForSurface("admin", "user"), false);
   assert.equal(isRoleAllowedForSurface("accountant", "company"), true);
+  assert.equal(isRoleAllowedForSurface("accountant", "user"), false);
   assert.equal(isRoleAllowedForSurface("call_center", "company"), true);
+  assert.equal(isRoleAllowedForSurface("call_center", "user"), false);
   assert.equal(isRoleAllowedForSurface("user", "company"), false);
   assert.equal(isRoleAllowedForSurface("owner", "store"), true);
   assert.equal(isRoleAllowedForSurface("service_provider", "user"), true);
+  assert.equal(isRoleAllowedForSurface("super_admin", "user"), true);
   assert.equal(resolveRoleAppSurface("service_provider"), "user");
   assert.equal(resolveRoleAppSurface("call_center"), "company");
 });

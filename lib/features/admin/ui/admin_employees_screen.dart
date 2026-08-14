@@ -5,31 +5,52 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/utils/currency.dart';
 import '../../../core/utils/parsers.dart';
 import '../state/admin_controller.dart';
 import 'admin_create_employee_screen.dart';
 import 'admin_rbac_management_screen.dart';
 
 const _departments = <String>[
-  'delivery', 'customer_service', 'hr', 'monitoring', 'accounting',
-  'marketing', 'management', 'tech', 'other',
+  'delivery',
+  'customer_service',
+  'hr',
+  'monitoring',
+  'accounting',
+  'marketing',
+  'management',
+  'tech',
+  'other',
 ];
-const _employmentTypes = <String>['full_time', 'part_time', 'contract', 'temporary'];
+const _employmentTypes = <String>[
+  'full_time',
+  'part_time',
+  'contract',
+  'temporary',
+];
 const _statuses = <String>['active', 'suspended', 'terminated'];
 
 String deptLabel(BuildContext c, String key) {
   const ar = {
-    'delivery': 'دلفري', 'customer_service': 'خدمة عملاء', 'hr': 'موارد بشرية',
-    'monitoring': 'متابعة', 'accounting': 'محاسبة', 'marketing': 'تسويق',
-    'management': 'إدارة', 'tech': 'تقنية', 'other': 'أخرى',
+    'delivery': 'دلفري',
+    'customer_service': 'خدمة عملاء',
+    'hr': 'موارد بشرية',
+    'monitoring': 'متابعة',
+    'accounting': 'محاسبة',
+    'marketing': 'تسويق',
+    'management': 'إدارة',
+    'tech': 'تقنية',
+    'other': 'أخرى',
   };
   return c.lt(ar: ar[key] ?? key, en: key);
 }
 
 String _empTypeLabel(BuildContext c, String key) {
   const ar = {
-    'full_time': 'دوام كامل', 'part_time': 'دوام جزئي',
-    'contract': 'عقد', 'temporary': 'مؤقت',
+    'full_time': 'دوام كامل',
+    'part_time': 'دوام جزئي',
+    'contract': 'عقد',
+    'temporary': 'مؤقت',
   };
   return c.lt(ar: ar[key] ?? key, en: key);
 }
@@ -39,11 +60,26 @@ String _statusLabel(BuildContext c, String key) {
   return c.lt(ar: ar[key] ?? key, en: key);
 }
 
+Map<String, dynamic> _map(dynamic value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value is Map) return value.map((key, value) => MapEntry('$key', value));
+  return const <String, dynamic>{};
+}
+
+Set<String> _permissionKeys(Map<String, dynamic> data) {
+  return List<dynamic>.from(data['permissions'] as List? ?? const [])
+      .whereType<Map>()
+      .map((item) => '${item['key'] ?? ''}'.trim())
+      .where((key) => key.isNotEmpty)
+      .toSet();
+}
+
 class AdminEmployeesScreen extends ConsumerStatefulWidget {
   const AdminEmployeesScreen({super.key});
 
   @override
-  ConsumerState<AdminEmployeesScreen> createState() => _AdminEmployeesScreenState();
+  ConsumerState<AdminEmployeesScreen> createState() =>
+      _AdminEmployeesScreenState();
 }
 
 class _AdminEmployeesScreenState extends ConsumerState<AdminEmployeesScreen> {
@@ -52,6 +88,8 @@ class _AdminEmployeesScreenState extends ConsumerState<AdminEmployeesScreen> {
   List<Map<String, dynamic>> _items = const [];
   String _search = '';
   String? _department;
+  bool _canReadEmployees = false;
+  bool _canCreateEmployees = false;
 
   @override
   void initState() {
@@ -65,20 +103,37 @@ class _AdminEmployeesScreenState extends ConsumerState<AdminEmployeesScreen> {
       _error = null;
     });
     try {
-      final data = await ref.read(adminApiProvider).listEmployees(
-            department: _department,
-            search: _search,
-          );
-      final items = ((data['items'] as List?) ?? const [])
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList(growable: false);
+      final api = ref.read(adminApiProvider);
+      final permissionsData = await api.myPermissions();
+      final privileged =
+          permissionsData['isSuperAdmin'] == true ||
+          permissionsData['wildcard'] == true;
+      final keys = _permissionKeys(permissionsData);
+      final canRead = privileged || keys.contains('employees.read');
+      final canCreate = privileged || keys.contains('employees.create');
+      final items = canRead
+          ? (((await api.listEmployees(
+                          department: _department,
+                          search: _search,
+                        ))['items']
+                        as List?) ??
+                    const [])
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList(growable: false)
+          : const <Map<String, dynamic>>[];
       if (!mounted) return;
-      setState(() => _items = items);
+      setState(() {
+        _canReadEmployees = canRead;
+        _canCreateEmployees = canCreate;
+        _items = items;
+      });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر تحميل الموظفين.')
-          : 'تعذّر تحميل الموظفين.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر تحميل الموظفين.')
+            : 'تعذّر تحميل الموظفين.',
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -93,131 +148,153 @@ class _AdminEmployeesScreenState extends ConsumerState<AdminEmployeesScreen> {
     if (created == true) _load();
   }
 
-  // Secondary path: attach an employee HR profile to an existing user account.
-  Future<void> _openLinkExisting() async {
-    final created = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => const _EmployeeFormSheet(),
-    );
-    if (created == true) _load();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.lt(ar: 'إدارة الموظفين', en: 'Employees')),
         actions: [
-          IconButton(
-            tooltip: context.lt(
-              ar: 'ربط مستخدم موجود كموظف',
-              en: 'Link existing user as employee',
+          if (_canReadEmployees)
+            IconButton(
+              onPressed: _loading ? null : _load,
+              icon: const Icon(Icons.refresh_rounded),
             ),
-            onPressed: _openLinkExisting,
-            icon: const Icon(Icons.link_rounded),
-          ),
-          IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _openCreate,
-        icon: const Icon(Icons.person_add_alt_1_rounded),
-        label: Text(context.lt(ar: 'موظف جديد', en: 'New employee')),
-      ),
+      floatingActionButton: _canCreateEmployees
+          ? FloatingActionButton.extended(
+              onPressed: _openCreate,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+              label: Text(context.lt(ar: 'موظف جديد', en: 'New employee')),
+            )
+          : null,
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(MaslakiSpacing.md),
-            child: TextField(
-              onChanged: (v) => _search = v,
-              onSubmitted: (_) => _load(),
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search_rounded),
-                hintText: context.lt(ar: 'ابحث بالاسم أو الهاتف', en: 'Search name/phone'),
-                border: const OutlineInputBorder(),
+          if (_canReadEmployees) ...[
+            Padding(
+              padding: const EdgeInsets.all(MaslakiSpacing.md),
+              child: TextField(
+                onChanged: (v) => _search = v,
+                onSubmitted: (_) => _load(),
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  hintText: context.lt(
+                    ar: 'ابحث بالاسم أو الهاتف',
+                    en: 'Search name/phone',
+                  ),
+                  border: const OutlineInputBorder(),
+                ),
               ),
             ),
-          ),
-          SizedBox(
-            height: 46,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: MaslakiSpacing.md),
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text(context.lt(ar: 'الكل', en: 'All')),
-                    selected: _department == null,
-                    onSelected: (_) {
-                      setState(() => _department = null);
-                      _load();
-                    },
-                  ),
+            SizedBox(
+              height: 46,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: MaslakiSpacing.md,
                 ),
-                for (final d in _departments)
+                children: [
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(deptLabel(context, d)),
-                      selected: _department == d,
+                      label: Text(context.lt(ar: 'الكل', en: 'All')),
+                      selected: _department == null,
                       onSelected: (_) {
-                        setState(() => _department = d);
+                        setState(() => _department = null);
                         _load();
                       },
                     ),
                   ),
-              ],
+                  for (final d in _departments)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(deptLabel(context, d)),
+                        selected: _department == d,
+                        onSelected: (_) {
+                          setState(() => _department = d);
+                          _load();
+                        },
+                      ),
+                    ),
+                ],
+              ),
             ),
-          ),
+          ],
           if (_error != null)
             Padding(
               padding: const EdgeInsets.all(MaslakiSpacing.md),
-              child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              child: Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
+                : !_canReadEmployees
+                ? MaslakiEmptyState(
+                    icon: _canCreateEmployees
+                        ? Icons.person_add_alt_1_rounded
+                        : Icons.lock_outline_rounded,
+                    title: _canCreateEmployees
+                        ? context.lt(
+                            ar: 'إنشاء موظف فقط',
+                            en: 'Create employees only',
+                          )
+                        : context.lt(
+                            ar: 'لا تملك صلاحية عرض الموظفين',
+                            en: 'No employee read permission',
+                          ),
+                    body: _canCreateEmployees
+                        ? context.lt(
+                            ar: 'استخدم زر موظف جديد لإنشاء حساب موظف مسلكي.',
+                            en: 'Use New employee to create a Maslaki employee account.',
+                          )
+                        : context.lt(
+                            ar: 'تحتاج صلاحية قراءة الموظفين لعرض هذه القائمة.',
+                            en: 'Employee read permission is required to view this list.',
+                          ),
+                  )
                 : _items.isEmpty
-                    ? MaslakiEmptyState(
-                        icon: Icons.badge_outlined,
-                        title: context.lt(ar: 'لا يوجد موظفون', en: 'No employees'),
-                        body: context.lt(
-                          ar: 'أضف موظفاً جديداً من الزر بالأسفل.',
-                          en: 'Add a new employee from the button below.',
-                        ),
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.all(MaslakiSpacing.md),
-                        itemCount: _items.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: MaslakiSpacing.sm),
-                        itemBuilder: (context, i) {
-                          final e = _items[i];
-                          return MaslakiCard(
-                            child: ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: Text('${e['full_name'] ?? '—'}'),
-                              subtitle: Text(
-                                '${deptLabel(context, '${e['department'] ?? ''}')} · '
-                                '${_statusLabel(context, '${e['status'] ?? ''}')}',
+                ? MaslakiEmptyState(
+                    icon: Icons.badge_outlined,
+                    title: context.lt(ar: 'لا يوجد موظفون', en: 'No employees'),
+                    body: context.lt(
+                      ar: 'أضف موظفاً جديداً من الزر بالأسفل.',
+                      en: 'Add a new employee from the button below.',
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(MaslakiSpacing.md),
+                    itemCount: _items.length,
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(height: MaslakiSpacing.sm),
+                    itemBuilder: (context, i) {
+                      final e = _items[i];
+                      return MaslakiCard(
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text('${e['full_name'] ?? '—'}'),
+                          subtitle: Text(
+                            '${deptLabel(context, '${e['department'] ?? ''}')} · '
+                            '${_statusLabel(context, '${e['status'] ?? ''}')}',
+                          ),
+                          trailing: const Icon(Icons.chevron_left_rounded),
+                          onTap: () async {
+                            await Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => AdminEmployeeDetailScreen(
+                                  userId: parseInt(e['user_id']),
+                                ),
                               ),
-                              trailing: const Icon(Icons.chevron_left_rounded),
-                              onTap: () async {
-                                await Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => AdminEmployeeDetailScreen(
-                                      userId: parseInt(e['user_id']),
-                                    ),
-                                  ),
-                                );
-                                _load();
-                              },
-                            ),
-                          );
-                        },
-                      ),
+                            );
+                            _load();
+                          },
+                        ),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
@@ -259,7 +336,9 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
     if (e != null) {
       _userId.text = '${e['user_id'] ?? ''}';
       _jobTitle.text = '${e['job_title'] ?? ''}';
-      _salary.text = e['base_salary_iqd'] == null ? '' : '${e['base_salary_iqd']}';
+      _salary.text = e['base_salary_iqd'] == null
+          ? ''
+          : '${e['base_salary_iqd']}';
       _department = '${e['department'] ?? 'customer_service'}';
       _employmentType = '${e['employment_type'] ?? 'full_time'}';
       _status = '${e['status'] ?? 'active'}';
@@ -276,7 +355,9 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
     }
     setState(() => _searching = true);
     try {
-      final rows = await ref.read(adminApiProvider).lookupUsersForEmployee(q.trim());
+      final rows = await ref
+          .read(adminApiProvider)
+          .lookupUsersForEmployee(q.trim());
       if (!mounted) return;
       setState(() => _userResults = rows);
     } catch (_) {
@@ -300,11 +381,15 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
       final cat = await ref.read(adminApiProvider).rbacCatalog();
       final templates = (cat['roleTemplates'] as List?) ?? const [];
       if (!mounted) return;
-      setState(() => _roleKeys = templates
-          .map((t) => '${(t as Map)['key']}')
-          .where((k) => k.isNotEmpty)
-          .toList());
-    } catch (_) {/* roles optional */}
+      setState(
+        () => _roleKeys = templates
+            .map((t) => '${(t as Map)['key']}')
+            .where((k) => k.isNotEmpty)
+            .toList(),
+      );
+    } catch (_) {
+      /* roles optional */
+    }
   }
 
   @override
@@ -319,7 +404,12 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
   Future<void> _save() async {
     final uid = int.tryParse(_userId.text.trim());
     if (uid == null || uid <= 0) {
-      setState(() => _error = context.lt(ar: 'أدخل معرّف مستخدم صحيحاً.', en: 'Enter a valid user id.'));
+      setState(
+        () => _error = context.lt(
+          ar: 'أدخل معرّف مستخدم صحيحاً.',
+          en: 'Enter a valid user id.',
+        ),
+      );
       return;
     }
     setState(() {
@@ -332,7 +422,8 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
       'employmentType': _employmentType,
       'status': _status,
       if (_jobTitle.text.trim().isNotEmpty) 'jobTitle': _jobTitle.text.trim(),
-      if (_salary.text.trim().isNotEmpty) 'baseSalaryIqd': int.tryParse(_salary.text.trim()),
+      if (_salary.text.trim().isNotEmpty)
+        'baseSalaryIqd': int.tryParse(_salary.text.trim()),
       if (_roleKey != null) 'adminRoleKey': _roleKey,
     };
     try {
@@ -344,9 +435,11 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
       }
       if (mounted) Navigator.of(context).pop(true);
     } catch (e) {
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر حفظ الموظف.')
-          : 'تعذّر حفظ الموظف.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر حفظ الموظف.')
+            : 'تعذّر حفظ الموظف.',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -356,7 +449,12 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
     return Padding(
-      padding: EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 16 + bottom),
+      padding: EdgeInsets.only(
+        left: 16,
+        right: 16,
+        top: 8,
+        bottom: 16 + bottom,
+      ),
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -372,7 +470,10 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
             if (_error != null)
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               ),
             // اختيار المستخدم: بحث بالاسم/الهاتف (عند الإنشاء)، ثابت عند التعديل.
             if (_isEdit)
@@ -388,7 +489,10 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
                 InputDecorator(
                   decoration: InputDecoration(
                     border: const OutlineInputBorder(),
-                    labelText: context.lt(ar: 'المستخدم المختار', en: 'Selected user'),
+                    labelText: context.lt(
+                      ar: 'المستخدم المختار',
+                      en: 'Selected user',
+                    ),
                     suffixIcon: IconButton(
                       icon: const Icon(Icons.close_rounded),
                       onPressed: () => setState(() {
@@ -410,12 +514,16 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
                         ? const Padding(
                             padding: EdgeInsets.all(12),
                             child: SizedBox(
-                              width: 16, height: 16,
+                              width: 16,
+                              height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             ),
                           )
                         : null,
-                    labelText: context.lt(ar: 'ابحث عن مستخدم (اسم/هاتف)', en: 'Search user (name/phone)'),
+                    labelText: context.lt(
+                      ar: 'ابحث عن مستخدم (اسم/هاتف)',
+                      en: 'Search user (name/phone)',
+                    ),
                   ),
                 ),
                 if (_userResults.isNotEmpty)
@@ -433,8 +541,10 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
                           ListTile(
                             dense: true,
                             title: Text('${u['full_name'] ?? '—'}'),
-                            subtitle: Text('${u['phone'] ?? ''}'
-                                '${u['is_employee'] == true ? context.lt(ar: ' · موظف بالفعل', en: ' · already employee') : ''}'),
+                            subtitle: Text(
+                              '${u['phone'] ?? ''}'
+                              '${u['is_employee'] == true ? context.lt(ar: ' · موظف بالفعل', en: ' · already employee') : ''}',
+                            ),
                             onTap: () => _pickUser(u),
                           ),
                       ],
@@ -451,7 +561,10 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
               ),
               items: [
                 for (final d in _departments)
-                  DropdownMenuItem(value: d, child: Text(deptLabel(context, d))),
+                  DropdownMenuItem(
+                    value: d,
+                    child: Text(deptLabel(context, d)),
+                  ),
               ],
               onChanged: (v) => setState(() => _department = v ?? _department),
             ),
@@ -472,9 +585,13 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
               ),
               items: [
                 for (final t in _employmentTypes)
-                  DropdownMenuItem(value: t, child: Text(_empTypeLabel(context, t))),
+                  DropdownMenuItem(
+                    value: t,
+                    child: Text(_empTypeLabel(context, t)),
+                  ),
               ],
-              onChanged: (v) => setState(() => _employmentType = v ?? _employmentType),
+              onChanged: (v) =>
+                  setState(() => _employmentType = v ?? _employmentType),
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
@@ -485,7 +602,10 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
               ),
               items: [
                 for (final s in _statuses)
-                  DropdownMenuItem(value: s, child: Text(_statusLabel(context, s))),
+                  DropdownMenuItem(
+                    value: s,
+                    child: Text(_statusLabel(context, s)),
+                  ),
               ],
               onChanged: (v) => setState(() => _status = v ?? _status),
             ),
@@ -495,7 +615,10 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
                 border: const OutlineInputBorder(),
-                labelText: context.lt(ar: 'الراتب الأساسي (د.ع)', en: 'Base salary (IQD)'),
+                labelText: context.lt(
+                  ar: 'الراتب الأساسي (د.ع)',
+                  en: 'Base salary (IQD)',
+                ),
               ),
             ),
             const SizedBox(height: 10),
@@ -503,7 +626,10 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
               initialValue: _roleKey,
               decoration: InputDecoration(
                 border: const OutlineInputBorder(),
-                labelText: context.lt(ar: 'قالب الدور (صلاحيات)', en: 'Role template'),
+                labelText: context.lt(
+                  ar: 'قالب الدور (صلاحيات)',
+                  en: 'Role template',
+                ),
               ),
               items: [
                 DropdownMenuItem<String?>(
@@ -519,7 +645,11 @@ class _EmployeeFormSheetState extends ConsumerState<_EmployeeFormSheet> {
             FilledButton.icon(
               onPressed: _busy ? null : _save,
               icon: _busy
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   : const Icon(Icons.save_rounded),
               label: Text(context.lt(ar: 'حفظ', en: 'Save')),
             ),
@@ -545,6 +675,8 @@ class _AdminEmployeeDetailScreenState
   String? _error;
   Map<String, dynamic> _employee = const {};
   List<Map<String, dynamic>> _salaryHistory = const [];
+  Map<String, dynamic> _operationalSummary = const {};
+  Map<String, dynamic> _couponEarnings = const {};
 
   @override
   void initState() {
@@ -565,12 +697,20 @@ class _AdminEmployeeDetailScreenState
         _salaryHistory = ((data['salaryHistory'] as List?) ?? const [])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
+        _operationalSummary = Map<String, dynamic>.from(
+          data['operationalSummary'] as Map? ?? const {},
+        );
+        _couponEarnings = Map<String, dynamic>.from(
+          data['couponEarnings'] as Map? ?? const {},
+        );
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر تحميل الملف.')
-          : 'تعذّر تحميل الملف.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر تحميل الملف.')
+            : 'تعذّر تحميل الملف.',
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -600,19 +740,28 @@ class _AdminEmployeeDetailScreenState
               controller: controller,
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
-                labelText: context.lt(ar: 'الراتب الجديد (د.ع)', en: 'New salary (IQD)'),
+                labelText: context.lt(
+                  ar: 'الراتب الجديد (د.ع)',
+                  en: 'New salary (IQD)',
+                ),
               ),
             ),
             TextField(
               controller: reason,
-              decoration: InputDecoration(labelText: context.lt(ar: 'السبب', en: 'Reason')),
+              decoration: InputDecoration(
+                labelText: context.lt(ar: 'السبب', en: 'Reason'),
+              ),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(context.lt(ar: 'إلغاء', en: 'Cancel'))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(context.lt(ar: 'إلغاء', en: 'Cancel')),
+          ),
           FilledButton(
-            onPressed: () => Navigator.pop(ctx, int.tryParse(controller.text.trim())),
+            onPressed: () =>
+                Navigator.pop(ctx, int.tryParse(controller.text.trim())),
             child: Text(context.lt(ar: 'حفظ', en: 'Save')),
           ),
         ],
@@ -620,7 +769,9 @@ class _AdminEmployeeDetailScreenState
     );
     if (amount == null || amount < 0) return;
     try {
-      await ref.read(adminApiProvider).updateEmployeeSalary(
+      await ref
+          .read(adminApiProvider)
+          .updateEmployeeSalary(
             widget.userId,
             baseSalaryIqd: amount,
             reason: reason.text.trim(),
@@ -628,18 +779,34 @@ class _AdminEmployeeDetailScreenState
       _load();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر تحديث الراتب.')
-          : 'تعذّر تحديث الراتب.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر تحديث الراتب.')
+            : 'تعذّر تحديث الراتب.',
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final e = _employee;
+    final attendance = Map<String, dynamic>.from(
+      _operationalSummary['attendance'] as Map? ?? const {},
+    );
+    final expenses = Map<String, dynamic>.from(
+      _operationalSummary['expensesByStatus'] as Map? ?? const {},
+    );
+    final latestPayroll = Map<String, dynamic>.from(
+      _operationalSummary['latestPayroll'] as Map? ?? const {},
+    );
+    final couponSummary = Map<String, dynamic>.from(
+      _couponEarnings['summary'] as Map? ?? const {},
+    );
     return Scaffold(
       appBar: AppBar(
-        title: Text('${e['full_name'] ?? context.lt(ar: 'ملف الموظف', en: 'Employee')}'),
+        title: Text(
+          '${e['full_name'] ?? context.lt(ar: 'ملف الموظف', en: 'Employee')}',
+        ),
         actions: [
           if (!_loading)
             IconButton(onPressed: _edit, icon: const Icon(Icons.edit_rounded)),
@@ -653,18 +820,142 @@ class _AdminEmployeeDetailScreenState
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
                   ),
                 MaslakiCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _row(context, 'القسم', 'Department', deptLabel(context, '${e['department'] ?? ''}')),
-                      _row(context, 'المسمى', 'Job', '${e['job_title'] ?? '—'}'),
-                      _row(context, 'نوع الدوام', 'Type', _empTypeLabel(context, '${e['employment_type'] ?? ''}')),
-                      _row(context, 'الحالة', 'Status', _statusLabel(context, '${e['status'] ?? ''}')),
+                      _row(
+                        context,
+                        'القسم',
+                        'Department',
+                        deptLabel(context, '${e['department'] ?? ''}'),
+                      ),
+                      _row(
+                        context,
+                        'المسمى',
+                        'Job',
+                        '${e['job_title'] ?? '—'}',
+                      ),
+                      _row(
+                        context,
+                        'نوع الدوام',
+                        'Type',
+                        _empTypeLabel(context, '${e['employment_type'] ?? ''}'),
+                      ),
+                      _row(
+                        context,
+                        'الحالة',
+                        'Status',
+                        _statusLabel(context, '${e['status'] ?? ''}'),
+                      ),
                       _row(context, 'الهاتف', 'Phone', '${e['phone'] ?? '—'}'),
-                      _row(context, 'قالب الدور', 'Role', '${e['admin_role_key'] ?? '—'}'),
+                      _row(
+                        context,
+                        'قالب الدور',
+                        'Role',
+                        '${e['admin_role_key'] ?? '—'}',
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                MaslakiCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        context.lt(
+                          ar: 'ملخص الأداء',
+                          en: 'Performance summary',
+                        ),
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      const SizedBox(height: 8),
+                      _row(
+                        context,
+                        'أيام الحضور هذا الشهر',
+                        'Present days this month',
+                        '${attendance['present_days_this_month'] ?? 0}',
+                      ),
+                      _row(
+                        context,
+                        'أيام الغياب هذا الشهر',
+                        'Absent days this month',
+                        '${attendance['absent_days_this_month'] ?? 0}',
+                      ),
+                      _row(
+                        context,
+                        'ساعات الحضور',
+                        'Attendance hours',
+                        '${attendance['hours_this_month'] ?? 0}',
+                      ),
+                      _row(
+                        context,
+                        'حالة اليوم',
+                        'Current state',
+                        attendance['currently_checked_in'] == true
+                            ? context.lt(ar: 'حاضر الآن', en: 'Checked in')
+                            : context.lt(
+                                ar: 'غير مسجل حضور',
+                                en: 'Not checked in',
+                              ),
+                      ),
+                      _row(
+                        context,
+                        'استخدام الكوبون',
+                        'Coupon redemptions',
+                        '${couponSummary['totalRedemptions'] ?? 0}',
+                      ),
+                      _row(
+                        context,
+                        'إضافات الكوبون',
+                        'Coupon earnings',
+                        formatIqd(parseInt(couponSummary['totalEarnings'])),
+                      ),
+                      _row(
+                        context,
+                        'المصاريف المعتمدة',
+                        'Approved expenses',
+                        formatIqd(
+                          parseInt(_map(expenses['approved'])['amountIqd']),
+                        ),
+                      ),
+                      _row(
+                        context,
+                        'المصاريف المنتظرة',
+                        'Pending expenses',
+                        formatIqd(
+                          parseInt(_map(expenses['submitted'])['amountIqd']),
+                        ),
+                      ),
+                      if (latestPayroll.isNotEmpty) ...[
+                        const Divider(),
+                        _row(
+                          context,
+                          'آخر راتب صافي',
+                          'Latest net salary',
+                          formatIqd(parseInt(latestPayroll['netIqd'])),
+                        ),
+                        _row(
+                          context,
+                          'إضافات الراتب',
+                          'Payroll additions',
+                          formatIqd(parseInt(latestPayroll['additionsIqd'])),
+                        ),
+                        _row(
+                          context,
+                          'خصومات الراتب',
+                          'Payroll deductions',
+                          formatIqd(parseInt(latestPayroll['deductionsIqd'])),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -705,13 +996,17 @@ class _AdminEmployeeDetailScreenState
                 const SizedBox(height: 12),
                 OutlinedButton.icon(
                   onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const AdminRbacManagementScreen()),
+                    MaterialPageRoute(
+                      builder: (_) => const AdminRbacManagementScreen(),
+                    ),
                   ),
                   icon: const Icon(Icons.admin_panel_settings_rounded),
-                  label: Text(context.lt(
-                    ar: 'إدارة صلاحيات هذا الموظف',
-                    en: 'Manage this employee\'s permissions',
-                  )),
+                  label: Text(
+                    context.lt(
+                      ar: 'إدارة صلاحيات هذا الموظف',
+                      en: 'Manage this employee\'s permissions',
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -723,7 +1018,13 @@ class _AdminEmployeeDetailScreenState
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         children: [
-          SizedBox(width: 110, child: Text(c.lt(ar: ar, en: en), style: Theme.of(c).textTheme.labelMedium)),
+          SizedBox(
+            width: 110,
+            child: Text(
+              c.lt(ar: ar, en: en),
+              style: Theme.of(c).textTheme.labelMedium,
+            ),
+          ),
           Expanded(child: Text(value)),
         ],
       ),

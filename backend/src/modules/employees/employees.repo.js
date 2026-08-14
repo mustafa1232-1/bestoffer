@@ -226,6 +226,112 @@ export async function getMyEmployeeDashboard(userId) {
   };
 }
 
+export async function getEmployeeOperationalSummary(userId) {
+  const id = Number(userId);
+  const [attendanceRes, expenseRes, payrollRes] = await Promise.all([
+    q(
+      `WITH bounds AS (
+         SELECT
+           GREATEST(
+             date_trunc('month', (NOW() AT TIME ZONE 'Asia/Baghdad'))::date,
+             COALESCE(e.start_date, date_trunc('month', (NOW() AT TIME ZONE 'Asia/Baghdad'))::date)
+           ) AS start_date,
+           (NOW() AT TIME ZONE 'Asia/Baghdad')::date AS today
+         FROM company_employee_profile e
+         WHERE e.user_id = $1
+       ),
+       current_month AS (
+         SELECT
+           COUNT(DISTINCT ((a.check_in_at AT TIME ZONE 'Asia/Baghdad')::date))::int AS present_days,
+           COUNT(*)::int AS sessions,
+           COALESCE(SUM(EXTRACT(EPOCH FROM (COALESCE(a.check_out_at, NOW()) - a.check_in_at))) / 3600.0, 0) AS hours,
+           BOOL_OR(a.check_out_at IS NULL) AS currently_in,
+           MAX(a.check_in_at) AS last_check_in
+         FROM company_attendance a, bounds b
+         WHERE a.employee_user_id = $1
+           AND ((a.check_in_at AT TIME ZONE 'Asia/Baghdad')::date) BETWEEN b.start_date AND b.today
+       ),
+       lifetime AS (
+         SELECT
+           COUNT(DISTINCT ((a.check_in_at AT TIME ZONE 'Asia/Baghdad')::date))::int AS present_days_total,
+           COUNT(*)::int AS sessions_total
+         FROM company_attendance a
+         WHERE a.employee_user_id = $1
+       )
+       SELECT
+         COALESCE(cm.present_days, 0)::int AS present_days_this_month,
+         GREATEST(0, ((b.today - b.start_date + 1)::int - COALESCE(cm.present_days, 0)))::int AS absent_days_this_month,
+         COALESCE(cm.sessions, 0)::int AS sessions_this_month,
+         ROUND(COALESCE(cm.hours, 0)::numeric, 1)::float AS hours_this_month,
+         COALESCE(cm.currently_in, FALSE) AS currently_checked_in,
+         cm.last_check_in,
+         COALESCE(lt.present_days_total, 0)::int AS present_days_total,
+         COALESCE(lt.sessions_total, 0)::int AS sessions_total
+       FROM bounds b
+       CROSS JOIN current_month cm
+       CROSS JOIN lifetime lt`,
+      [id]
+    ),
+    q(
+      `SELECT
+         status,
+         COUNT(*)::int AS count,
+         COALESCE(SUM(amount_iqd), 0)::int AS amount_iqd
+       FROM company_expense_claim
+       WHERE employee_user_id = $1
+       GROUP BY status`,
+      [id]
+    ),
+    q(
+      `SELECT
+         r.id AS run_id,
+         r.period_month,
+         r.status AS run_status,
+         i.base_salary_iqd,
+         i.additions_iqd,
+         i.deductions_iqd,
+         i.net_iqd,
+         i.breakdown,
+         i.acknowledged_at,
+         i.created_at
+       FROM company_payroll_item i
+       JOIN company_payroll_run r ON r.id = i.run_id
+       WHERE i.employee_user_id = $1
+       ORDER BY r.period_month DESC, r.id DESC
+       LIMIT 1`,
+      [id]
+    ),
+  ]);
+
+  const expensesByStatus = {};
+  for (const row of expenseRes.rows) {
+    expensesByStatus[row.status] = {
+      count: Number(row.count || 0),
+      amountIqd: Number(row.amount_iqd || 0),
+    };
+  }
+
+  const latestPayroll = payrollRes.rows[0] || null;
+  return {
+    attendance: attendanceRes.rows[0] || null,
+    expensesByStatus,
+    latestPayroll: latestPayroll
+      ? {
+          runId: Number(latestPayroll.run_id),
+          periodMonth: latestPayroll.period_month,
+          runStatus: latestPayroll.run_status,
+          baseSalaryIqd: Number(latestPayroll.base_salary_iqd || 0),
+          additionsIqd: Number(latestPayroll.additions_iqd || 0),
+          deductionsIqd: Number(latestPayroll.deductions_iqd || 0),
+          netIqd: Number(latestPayroll.net_iqd || 0),
+          breakdown: latestPayroll.breakdown || {},
+          acknowledgedAt: latestPayroll.acknowledged_at || null,
+          createdAt: latestPayroll.created_at || null,
+        }
+      : null,
+  };
+}
+
 // Compensating delete for a half-created employee account (role must be 'staff'
 // so this can never remove a real user/admin). Profile + salary contracts cascade.
 export async function deleteStaffAccount(userId) {

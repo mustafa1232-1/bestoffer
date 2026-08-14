@@ -73,6 +73,10 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
     });
     if (phoneError != null || pinError != null) return;
 
+    if (widget.scope == RoleLoginScope.owner) {
+      await ref.read(secureStoreProvider).clear();
+    }
+
     await ref
         .read(authControllerProvider.notifier)
         .login(phoneCtrl.text, pinCtrl.text);
