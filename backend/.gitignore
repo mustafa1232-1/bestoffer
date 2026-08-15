@@ -1,1 +1,12 @@
-node_modules
+node_modules/
+.env
+.env.test
+.qa_pg/
+.qa_run/
+.tmp/
+.tmp_pg*/
+.tmp_pg_data_path
+tmp/
+tmp_*
+uploads/
+*.log
