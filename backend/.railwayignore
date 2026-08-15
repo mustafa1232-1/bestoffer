@@ -1,9 +1,14 @@
 .git
 .env
+.env.test
 .qa_pg/
 .qa_run/
+.tmp/
+.tmp_pg*/
+.tmp_pg_data_path
 node_modules/
 uploads/
+tmp/
 0
 tmp_*
 *.log
