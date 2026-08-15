@@ -231,6 +231,23 @@ export function attachNotificationI18n({ type, payload }) {
     );
   }
 
+  if (
+    normalizedType === "taxi.ride.requested" ||
+    String(out.target || "").trim().toLowerCase() === "taxi_ride_requested"
+  ) {
+    const fare = firstNonEmpty(
+      out.fare,
+      out.suggestedFareIqd,
+      out.proposedFareIqd
+    );
+    return assignI18n(
+      out,
+      "notifications.taxi.ride_request.title",
+      "notifications.taxi.ride_request.body",
+      { bodyArgs: { fare: fare || "" } }
+    );
+  }
+
   if (normalizedType.startsWith("taxi.")) {
     return assignI18n(
       out,
@@ -260,6 +277,29 @@ export function attachNotificationI18n({ type, payload }) {
       out,
       "notifications.company.title",
       "notifications.company.body"
+    );
+  }
+
+  if (normalizedType === "customer_order_status") {
+    const storeName = firstNonEmpty(
+      out.storeName,
+      out.store_name,
+      out.merchantName,
+      out.merchant_name
+    );
+    const orderNumber = firstNonEmpty(out.orderNumber, out.orderId, out.order_id);
+    const statusTextArg = firstNonEmpty(out.statusText, out.status_text);
+    return assignI18n(
+      out,
+      "notifications.orders.status.title",
+      "notifications.orders.status.body",
+      {
+        bodyArgs: {
+          storeName: storeName || "المتجر",
+          orderNumber: orderNumber || "",
+          statusText: statusTextArg || "",
+        },
+      }
     );
   }
 

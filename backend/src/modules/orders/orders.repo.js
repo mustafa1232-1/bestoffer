@@ -4464,6 +4464,9 @@ export async function updateOwnerOrderStatus(
           payload: {
             orderId: updated.id,
             status,
+            storeName: current.merchant_name || "المتجر",
+            orderNumber: updated.id,
+            statusText: statusText(status),
           },
         },
         status === "preparing" && deliveryUserId

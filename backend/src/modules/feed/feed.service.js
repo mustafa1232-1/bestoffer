@@ -6519,6 +6519,7 @@ async function insertAndDispatchThreadMessage({
         payload: {
           threadId: Number(threadId),
           senderUserId: Number(userId),
+          remoteDisplayName: sender?.full_name || undefined,
           target: "social_chat",
         },
       }))
@@ -6738,6 +6739,7 @@ export async function sendMessage({
         payload: {
           threadId: Number(threadId),
           senderUserId: Number(userId),
+          remoteDisplayName: sender?.full_name || undefined,
           target: "social_chat",
         },
       }))
