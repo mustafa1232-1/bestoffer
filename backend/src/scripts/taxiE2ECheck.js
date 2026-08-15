@@ -660,7 +660,11 @@ async function main() {
       baseUrl,
       customer,
       "POST",
-      `/api/taxi/rides/${rejectedRideId}/cancel`
+      `/api/taxi/rides/${rejectedRideId}/cancel`,
+      {
+        reasonCode: "customer_test_cleanup",
+        reasonText: `reject-threshold cleanup ${runTag}`,
+      }
     );
     assertStatus(cancelRejectedRide, 200, "cancel rejected ride");
     await expectNoCurrentRide(
@@ -709,7 +713,11 @@ async function main() {
       baseUrl,
       customer,
       "POST",
-      `/api/taxi/rides/${timeoutRideId}/cancel`
+      `/api/taxi/rides/${timeoutRideId}/cancel`,
+      {
+        reasonCode: "customer_test_cleanup",
+        reasonText: `timeout-threshold cleanup ${runTag}`,
+      }
     );
     assertStatus(cancelTimeoutRide, 200, "cancel timeout ride");
     await expectNoCurrentRide(
