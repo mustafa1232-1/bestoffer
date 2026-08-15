@@ -1205,6 +1205,8 @@ class _OrderTrackingDetailsScreenState
           builder: (_) => OrderChatScreen(
             orderId: order.id,
             title: 'محادثة الطلب #${order.id}',
+            peerPhone:
+                order.deliveryAssignment?.driver?.phone ?? order.deliveryPhone,
           ),
         ),
       );

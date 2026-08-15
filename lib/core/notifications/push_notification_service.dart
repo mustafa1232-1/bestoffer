@@ -189,8 +189,26 @@ class PushNotificationService {
     SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
   }
 
-  final StreamController<NotificationTapPayload> _tapController =
-      StreamController<NotificationTapPayload>.broadcast();
+  final List<NotificationTapPayload> _pendingTaps = [];
+  // Buffer taps that arrive before a listener subscribes. Cold-start race:
+  // getInitialMessage() fires during init, before the bootstrap subscribes to
+  // tapStream, so a plain broadcast controller drops the tap and the app opens
+  // without navigating. Pending taps are flushed when the first listener attaches.
+  late final StreamController<NotificationTapPayload> _tapController =
+      StreamController<NotificationTapPayload>.broadcast(
+    onListen: _flushPendingTaps,
+  );
+
+  void _flushPendingTaps() {
+    if (_pendingTaps.isEmpty) return;
+    final pending = List<NotificationTapPayload>.of(_pendingTaps);
+    _pendingTaps.clear();
+    for (final payload in pending) {
+      scheduleMicrotask(() {
+        if (!_tapController.isClosed) _tapController.add(payload);
+      });
+    }
+  }
 
   StreamSubscription<String>? _tokenRefreshSub;
   StreamSubscription<RemoteMessage>? _foregroundSub;
@@ -450,7 +468,11 @@ class PushNotificationService {
       );
       return;
     }
-    _tapController.add(payload);
+    if (_tapController.hasListener) {
+      _tapController.add(payload);
+    } else {
+      _pendingTaps.add(payload);
+    }
   }
 
   static Future<bool> _ensureFirebaseInitialized() async {

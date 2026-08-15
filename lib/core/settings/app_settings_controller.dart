@@ -147,6 +147,11 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
       maslakiTheme: MaslakiTheme.fromStorageValue(maslakiThemeRaw),
       loaded: true,
     );
+    // Mirror the resolved app language to the plain `app_locale` key so
+    // PushNotificationService._currentLocaleCode() registers the FCM token with
+    // the APP-selected language (not the device locale). Without this, push
+    // notifications arrive in the device language.
+    await store.writeString(_legacyKeyLocale, locale.languageCode);
   }
 
   /// يثبّت الثيم الرسمي المختار (الأصلي/الشفق/المرجاني) محلياً. المرحلة 9.
@@ -238,6 +243,8 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
   Future<void> _persistLocale(Locale locale) async {
     state = state.copyWith(locale: locale);
     await store.writeString(_keyLocale, locale.languageCode);
+    // Keep the plain `app_locale` mirror in sync (read by PushNotificationService).
+    await store.writeString(_legacyKeyLocale, locale.languageCode);
   }
 }
 

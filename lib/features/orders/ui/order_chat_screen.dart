@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' show DateFormat;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/forms/form_field_error_resolver.dart';
 import '../../../core/forms/form_scroll_coordinator.dart';
@@ -21,7 +22,16 @@ class OrderChatScreen extends ConsumerStatefulWidget {
   final int orderId;
   final String? title;
 
-  const OrderChatScreen({super.key, required this.orderId, this.title});
+  /// Phone of the other party (driver ↔ customer) for a direct call button in
+  /// the chat AppBar. When null/empty the call button is hidden.
+  final String? peerPhone;
+
+  const OrderChatScreen({
+    super.key,
+    required this.orderId,
+    this.title,
+    this.peerPhone,
+  });
 
   @override
   ConsumerState<OrderChatScreen> createState() => _OrderChatScreenState();
@@ -153,6 +163,17 @@ class _OrderChatScreenState extends ConsumerState<OrderChatScreen> {
     }
   }
 
+  Future<void> _callPeer() async {
+    final phone = (widget.peerPhone ?? '').trim();
+    if (phone.isEmpty) return;
+    try {
+      await launchUrl(
+        Uri.parse('tel:$phone'),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
@@ -162,6 +183,12 @@ class _OrderChatScreenState extends ConsumerState<OrderChatScreen> {
       appBar: AppBar(
         title: Text(widget.title ?? 'محادثة الطلب #${widget.orderId}'),
         actions: [
+          if ((widget.peerPhone ?? '').trim().isNotEmpty)
+            IconButton(
+              onPressed: _callPeer,
+              icon: const Icon(Icons.call_rounded),
+              tooltip: 'اتصال',
+            ),
           IconButton(
             onPressed: _loading ? null : () => _load(),
             icon: const Icon(Icons.refresh_rounded),

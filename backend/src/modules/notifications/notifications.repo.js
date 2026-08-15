@@ -153,6 +153,38 @@ export function getPushConfigStatus() {
   };
 }
 
+/**
+ * Diagnostic (no counts leaked): does ANY device have a registered push token,
+ * and is any token actually sendable (active + linked to a live session)?
+ * anyActiveTokens=false  -> no device is registering tokens at all.
+ * anyActiveTokens=true & anySendableTokens=false -> tokens exist but sessions expired.
+ */
+export async function getPushTokenPresence() {
+  try {
+    const r = await q(
+      `SELECT
+         EXISTS(SELECT 1 FROM user_push_token WHERE is_active) AS any_active,
+         EXISTS(
+           SELECT 1
+             FROM user_push_token upt
+             JOIN user_session us
+               ON us.id = upt.auth_session_id
+              AND us.user_id = upt.user_id
+              AND us.revoked_at IS NULL
+              AND us.expires_at > NOW()
+            WHERE upt.is_active = TRUE
+         ) AS any_sendable`
+    );
+    const row = r.rows?.[0] || {};
+    return {
+      anyActiveTokens: !!row.any_active,
+      anySendableTokens: !!row.any_sendable,
+    };
+  } catch {
+    return { anyActiveTokens: null, anySendableTokens: null };
+  }
+}
+
 function getFirebaseMessaging() {
   if (firebaseMessaging) return firebaseMessaging;
   if (firebaseInitAttempted) return null;
@@ -496,17 +528,20 @@ function buildMulticastMessage(
     localizedText?.body == null
       ? String(notification.body || "").trim()
       : String(localizedText.body || "").trim();
-  // Incoming-call pushes are sent DATA-ONLY (no top-level or android notification
-  // block) so the Android background handler can build the full-screen "ringing"
-  // call UI (fullScreenIntent + call category + ringtone). A notification block
-  // would make the OS render a plain tap-to-answer notification instead and
-  // suppress the ring. (Android focus; iOS incoming calls need CallKit/VoIP push.)
-  const isCallPush = String(notification?.type || "")
-    .toLowerCase()
-    .startsWith("social.call");
+  // Full-screen pushes — incoming calls AND new taxi ride requests for captains —
+  // are sent DATA-ONLY (no top-level or android notification block) so the Android
+  // background handler can build the full-screen UI (fullScreenIntent + ringtone +
+  // accept/decline) even when the app is closed. A notification block would make
+  // the OS render a plain notification instead and suppress the full-screen ring.
+  // (Android focus; iOS incoming calls need CallKit/VoIP push.)
+  const fullScreenTarget = String(target || "").trim().toLowerCase();
+  const isFullScreenPush =
+    String(notification?.type || "").toLowerCase().startsWith("social.call") ||
+    fullScreenTarget === "taxi_ride_requested" ||
+    fullScreenTarget === "taxi_new_request";
   return {
     tokens,
-    ...(isCallPush
+    ...(isFullScreenPush
       ? {}
       : {
           notification: {
@@ -579,7 +614,7 @@ function buildMulticastMessage(
     android: {
       priority: "high",
       ttl: 60 * 60 * 1000,
-      ...(isCallPush
+      ...(isFullScreenPush
         ? {}
         : {
             notification: {

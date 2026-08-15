@@ -26,7 +26,7 @@ import {
 } from "./modules/merchants/merchants.routes.js";
 import * as merchantsController from "./modules/merchants/merchants.controller.js";
 import { notificationsRouter } from "./modules/notifications/notifications.routes.js";
-import { getPushConfigStatus } from "./modules/notifications/notifications.repo.js";
+import { getPushConfigStatus, getPushTokenPresence } from "./modules/notifications/notifications.repo.js";
 import { ordersRouter } from "./modules/orders/orders.routes.js";
 import { ownerRouter } from "./modules/owner/owner.routes.js";
 import * as adminOpsController from "./modules/admin/admin.ops.controller.js";
@@ -468,7 +468,8 @@ app.get("/health", async (req, res, next) => {
       // Firebase/FCM push config-presence (no secrets) so push delivery can be
       // verified from outside without auth. configured:false => backend can't
       // send ANY push (set FIREBASE_SERVICE_ACCOUNT_JSON on the server).
-      push: getPushConfigStatus(),
+      // anyActiveTokens:false => no device has registered a push token.
+      push: { ...getPushConfigStatus(), ...(await getPushTokenPresence()) },
       responseMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     });

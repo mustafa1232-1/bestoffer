@@ -294,7 +294,10 @@ class _DeliveryLiveTrackingScreenState
     if (_isPublic || widget.orderId == null) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => OrderChatScreen(orderId: widget.orderId!),
+        builder: (_) => OrderChatScreen(
+          orderId: widget.orderId!,
+          peerPhone: _string(_courier?['phone']),
+        ),
       ),
     );
   }

@@ -129,7 +129,10 @@ class _DeliveryOrderDetailScreenState
   Future<void> _openChat() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => OrderChatScreen(orderId: widget.orderId),
+        builder: (_) => OrderChatScreen(
+          orderId: widget.orderId,
+          peerPhone: _order?.customerPhone,
+        ),
       ),
     );
   }

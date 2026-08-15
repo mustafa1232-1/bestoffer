@@ -1155,6 +1155,7 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
           builder: (_) => OrderChatScreen(
             orderId: order.id,
             title: l10n.deliveryOrderChatTitle(order.id),
+            peerPhone: order.customerPhone,
           ),
         ),
       );

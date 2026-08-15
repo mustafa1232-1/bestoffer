@@ -4458,7 +4458,7 @@ export async function updateOwnerOrderStatus(
           userId: current.customer_user_id,
           type: "customer_order_status",
           title: "تحديث حالة الطلب",
-          body: `حالة الطلب #${updated.id}: ${statusText(status)}`,
+          body: `قام ${current.merchant_name || "المتجر"} بتحديث حالة طلبك رقم #${updated.id}: ${statusText(status)}`,
           orderId: updated.id,
           merchantId: updated.merchant_id,
           payload: {

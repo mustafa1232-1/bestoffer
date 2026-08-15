@@ -162,8 +162,34 @@ class LocalNotificationService {
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
-  final StreamController<NotificationTapPayload> _tapController =
-      StreamController<NotificationTapPayload>.broadcast();
+  final List<NotificationTapPayload> _pendingTaps = [];
+  // Buffer taps that arrive before a listener subscribes. Cold-start race:
+  // getNotificationAppLaunchDetails() fires during initialize(), before the
+  // bootstrap subscribes to tapStream, so a plain broadcast controller drops the
+  // tap and the app opens without navigating. Flushed when the first listener attaches.
+  late final StreamController<NotificationTapPayload> _tapController =
+      StreamController<NotificationTapPayload>.broadcast(
+    onListen: _flushPendingTaps,
+  );
+
+  void _flushPendingTaps() {
+    if (_pendingTaps.isEmpty) return;
+    final pending = List<NotificationTapPayload>.of(_pendingTaps);
+    _pendingTaps.clear();
+    for (final payload in pending) {
+      scheduleMicrotask(() {
+        if (!_tapController.isClosed) _tapController.add(payload);
+      });
+    }
+  }
+
+  void _emitTap(NotificationTapPayload payload) {
+    if (_tapController.hasListener) {
+      _tapController.add(payload);
+    } else {
+      _pendingTaps.add(payload);
+    }
+  }
 
   bool _initialized = false;
   int _fallbackId = 100000;
@@ -217,7 +243,7 @@ class LocalNotificationService {
     if (launchPayload != null && launchPayload.isNotEmpty) {
       final parsed = _parsePayload(launchPayload);
       if (parsed != null) {
-        _tapController.add(parsed);
+        _emitTap(parsed);
       }
     }
   }
@@ -536,7 +562,7 @@ class LocalNotificationService {
     if (payload == null || payload.isEmpty) return;
     final parsed = _parsePayload(payload, responseActionId: response.actionId);
     if (parsed != null) {
-      _tapController.add(parsed);
+      _emitTap(parsed);
     }
   }
 
@@ -549,6 +575,14 @@ class LocalNotificationService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     await androidPlugin?.requestNotificationsPermission();
+    // Android 14+ (API 34): full-screen intent — needed to pop incoming calls and
+    // new taxi ride requests over the lock screen — must be granted explicitly for
+    // non-"calling" apps. No-op / auto-granted on older Android and safe to call.
+    try {
+      await androidPlugin?.requestFullScreenIntentPermission();
+    } catch (_) {
+      // Older plugin/OS without this API — ignore.
+    }
 
     final iosPlugin = _plugin
         .resolvePlatformSpecificImplementation<
