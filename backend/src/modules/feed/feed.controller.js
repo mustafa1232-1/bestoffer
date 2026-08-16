@@ -1908,6 +1908,30 @@ export async function getThreadCallState(req, res, next) {
   }
 }
 
+export async function listCallHistory(req, res, next) {
+  try {
+    const limit = Math.max(1, Math.min(200, Number(req.query?.limit) || 50));
+    const out = await service.listCallHistory({ userId: req.userId, limit });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function clearThread(req, res, next) {
+  try {
+    const thread = validateThreadId(req.params.threadId);
+    if (!thread.ok) return badRequest(res, thread.errors);
+    const out = await service.clearThread({
+      userId: req.userId,
+      threadId: thread.value,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function startThreadCall(req, res, next) {
   try {
     const thread = validateThreadId(req.params.threadId);

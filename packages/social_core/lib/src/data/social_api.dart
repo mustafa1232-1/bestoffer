@@ -1682,6 +1682,26 @@ class SocialApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  /// Call history for the current user (incoming/outgoing/missed), newest first.
+  Future<List<Map<String, dynamic>>> listCallHistory({int limit = 50}) async {
+    final response = await dio.get(
+      '/api/feed/chats/calls',
+      queryParameters: {'limit': limit},
+    );
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final raw = data['calls'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  /// "Delete conversation" — hides the thread from the current user's chat list.
+  Future<void> deleteThread({required int threadId}) async {
+    await dio.delete('/api/feed/chats/threads/$threadId');
+  }
+
   Future<Map<String, dynamic>> listExplore({int limit = 18}) async {
     final response = await dio.get(
       '/api/feed/explore',

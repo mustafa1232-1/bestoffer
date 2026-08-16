@@ -81,7 +81,7 @@ import { securityHeaders } from "./shared/middleware/security.middleware.js";
 import { activityAuditMiddleware } from "./shared/middleware/activity-audit.middleware.js";
 import { getRequestSigningRuntimeStatus } from "./modules/security/security.service.js";
 import { getUploadRuntimeStatus } from "./shared/utils/upload.js";
-import { buildRtcConfigForUser } from "./shared/utils/rtc-config.js";
+import { buildRtcConfigForUser, getRtcConfigStatus } from "./shared/utils/rtc-config.js";
 import {
   streamConfigHealth,
   classifyStreamConfig,
@@ -470,6 +470,9 @@ app.get("/health", async (req, res, next) => {
       // send ANY push (set FIREBASE_SERVICE_ACCOUNT_JSON on the server).
       // anyActiveTokens:false => no device has registered a push token.
       push: { ...getPushConfigStatus(), ...(await getPushTokenPresence()) },
+      // TURN presence for call audio. anyTurnConfigured:false => calls are
+      // STUN-only and audio fails on mobile CGNAT networks.
+      rtc: getRtcConfigStatus(),
       responseMs: Date.now() - startedAt,
       timestamp: new Date().toISOString(),
     });

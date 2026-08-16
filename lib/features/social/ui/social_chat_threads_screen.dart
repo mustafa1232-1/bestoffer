@@ -18,6 +18,7 @@ import '../../notifications/models/app_notification_model.dart';
 import '../../notifications/state/notifications_controller.dart';
 import '../models/social_models.dart';
 import '../state/social_controller.dart';
+import 'call_history_screen.dart';
 import 'social_call_screen.dart';
 import 'social_chat_thread_screen.dart';
 import 'social_message_requests_screen.dart';
@@ -388,10 +389,57 @@ class _SocialChatThreadsScreenState
                 unawaited(_toggleMuteThread(thread));
               },
             ),
+            ListTile(
+              leading: const Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.red,
+              ),
+              title: const Text(
+                'حذف المحادثة',
+                style: TextStyle(color: Colors.red),
+              ),
+              onTap: () {
+                Navigator.of(context).pop();
+                unawaited(_deleteThread(thread));
+              },
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _deleteThread(SocialChatThread thread) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف المحادثة'),
+        content: const Text(
+          'سيتم إخفاء هذه المحادثة من قائمتك. تعود تلقائيًا عند وصول رسالة جديدة.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('حذف', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    try {
+      await ref.read(socialApiProvider).deleteThread(threadId: thread.id);
+      if (!mounted) return;
+      await _refreshThreads(silent: true);
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تعذّر حذف المحادثة')),
+      );
+    }
   }
 
   @override
@@ -996,6 +1044,15 @@ class _SocialChatThreadsScreenState
             : const MaslakiUserDrawerButton(openStartDrawer: true),
         actions: [
           if (canPop) const MaslakiUserDrawerButton(openStartDrawer: true),
+          IconButton(
+            tooltip: 'سجل المكالمات',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const CallHistoryScreen(),
+              ),
+            ),
+            icon: const Icon(Icons.call_rounded),
+          ),
           IconButton(
             tooltip: l10n.socialChatThreadsCreateGroupTooltip,
             onPressed: _openCreateGroupSheet,

@@ -79,7 +79,8 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   Timer? _stateSyncTimer;
 
   final Set<int> _handledSignalIds = <int>{};
-  final Set<String> _boundRemoteTrackIds = <String>{};
+  final Map<String, MediaStreamTrack> _boundRemoteAudioTracks =
+      <String, MediaStreamTrack>{};
   final List<RTCIceCandidate> _queuedRemoteCandidates = <RTCIceCandidate>[];
 
   int? _sessionId;
@@ -185,6 +186,11 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   /// ثم تابع إلى `_consumeSignal` و`_bindRemoteTrack`.
   Future<void> _prepareRtc() async {
     await _ensureMicrophonePermission();
+    // Initialize the native WebRTC audio module before configuring routing or
+    // creating the peer connection. Idempotent (guarded internally).
+    try {
+      await WebRTC.initialize();
+    } catch (_) {}
     if (WebRTC.platformIsAndroid) {
       await Helper.setAndroidAudioConfiguration(
         AndroidAudioConfiguration.communication,
@@ -683,6 +689,15 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     if (_callEnded) return;
     _callEnded = true;
     _stopRinging();
+    // Notify the OTHER party over the signaling channel (which reliably delivers
+    // to them during the call — that's how offer/answer/ice arrive). endThreadCall
+    // alone does not push an end event to the peer, so their call screen stays
+    // open. A hangup/decline signal ends the session AND fans out to both parties.
+    try {
+      await _sendSignal(
+        signalType: status == 'declined' ? 'decline' : 'hangup',
+      );
+    } catch (_) {}
     try {
       await _api.endThreadCall(
         threadId: widget.threadId,
@@ -715,7 +730,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     } catch (_) {}
     _remoteStream = null;
     _remoteDescriptionSet = false;
-    _boundRemoteTrackIds.clear();
+    _boundRemoteAudioTracks.clear();
     _queuedRemoteCandidates.clear();
     if (WebRTC.platformIsAndroid) {
       try {
@@ -847,6 +862,10 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
         unawaited(Helper.setVolume(1.0, track).catchError((_) {}));
       }
     }
+    for (final track in _boundRemoteAudioTracks.values) {
+      track.enabled = true;
+      unawaited(Helper.setVolume(1.0, track).catchError((_) {}));
+    }
   }
 
   void _bindRemoteStream(MediaStream stream) {
@@ -862,7 +881,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     final trackId = normalizedTrackId.isEmpty
         ? 'audio:${track.hashCode}'
         : normalizedTrackId;
-    if (!_boundRemoteTrackIds.add(trackId)) return;
+    _boundRemoteAudioTracks[trackId] = track;
     track.enabled = true;
     unawaited(_applyAudioRoute());
     unawaited(Helper.setVolume(1.0, track).catchError((_) {}));

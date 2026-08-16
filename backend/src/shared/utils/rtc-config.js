@@ -209,3 +209,29 @@ export async function buildRtcConfigForUser(userId) {
 
   return buildDisabledRtcConfig();
 }
+
+/**
+ * Non-secret TURN config presence for /health diagnostics. anyTurnConfigured=false
+ * => calls run STUN-only and audio media WILL fail on mobile CGNAT networks even
+ * though signaling "connects". Does NOT hit the provider API (fast, no credentials).
+ */
+export function getRtcConfigStatus() {
+  const provider = String(env.rtcTurnProvider || "").trim().toLowerCase();
+  const cloudflareConfigured = !!(env.cfTurnKeyId && env.cfTurnApiToken);
+  const twilioConfigured = !!(env.twilioAccountSid && env.twilioAuthToken);
+  const selfHostedConfigured = !!(
+    env.rtcTurnEnabled &&
+    Array.isArray(env.rtcTurnUrls) &&
+    env.rtcTurnUrls.length > 0 &&
+    env.rtcTurnSecret
+  );
+  const anyTurnConfigured =
+    cloudflareConfigured || twilioConfigured || selfHostedConfigured;
+  return {
+    provider: provider || (anyTurnConfigured ? "auto" : "none"),
+    anyTurnConfigured,
+    cloudflareConfigured,
+    twilioConfigured,
+    selfHostedConfigured,
+  };
+}

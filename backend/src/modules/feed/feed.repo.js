@@ -4203,6 +4203,7 @@ async function listDirectOrBusinessThreadsForUserRows({
         self_state.rejected_at,
         self_state.muted_until,
         self_state.pinned_at,
+        self_state.cleared_at,
         self_state.theme_key,
         self_state.last_read_message_id,
         self_state.last_delivered_message_id,
@@ -4312,6 +4313,7 @@ async function listGroupThreadsForUserRows({ userId, limit = 50, inboxBucket = "
         self_state.rejected_at,
         self_state.muted_until,
         self_state.pinned_at,
+        self_state.cleared_at,
         self_state.theme_key,
         self_state.last_read_message_id,
         self_state.last_delivered_message_id,
@@ -4421,6 +4423,14 @@ export async function listThreadsForUser({
     listGroupThreadsForUserRows({ userId, limit, inboxBucket }),
   ]);
   return [...directOrBusinessRows, ...groupRows]
+    .filter((row) => {
+      // "Delete conversation": hidden until a message newer than cleared_at arrives.
+      if (!row.cleared_at) return true;
+      const lastAt = new Date(
+        row.last_message_created_at || row.last_message_at || 0
+      ).getTime();
+      return lastAt > new Date(row.cleared_at).getTime();
+    })
     .sort((a, b) => {
       const aAt = new Date(a.last_message_created_at || a.last_message_at || 0).getTime();
       const bAt = new Date(b.last_message_created_at || b.last_message_at || 0).getTime();
@@ -4431,6 +4441,19 @@ export async function listThreadsForUser({
       return Number(b.id || 0) - Number(a.id || 0);
     })
     .slice(0, Math.max(1, Number(limit) || 50));
+}
+
+/** "Delete conversation" for a user: hide the thread from their list. */
+export async function clearThreadForUser({ userId, threadId }) {
+  await q(
+    `INSERT INTO social_chat_thread_participant_state
+       (thread_id, user_id, cleared_at, created_at, updated_at)
+     VALUES ($1, $2, NOW(), NOW(), NOW())
+     ON CONFLICT (thread_id, user_id)
+     DO UPDATE SET cleared_at = NOW(), updated_at = NOW()`,
+    [Number(threadId), Number(userId)]
+  );
+  return { ok: true };
 }
 
 export async function listMessagesForThread({
@@ -6067,6 +6090,61 @@ export async function getThreadCallState(threadId, { signalLimit = 160 } = {}) {
   if (!session) return { session: null, signals: [] };
   const signals = await listThreadCallSignals(session.id, { limit: signalLimit });
   return { session, signals };
+}
+
+function normalizeCallHistoryRow(row, userId) {
+  const uid = Number(userId);
+  const direction = Number(row.caller_user_id) === uid ? "outgoing" : "incoming";
+  const missed = direction === "incoming" && !row.answered_at;
+  let durationSec = null;
+  if (row.answered_at && row.ended_at) {
+    durationSec = Math.max(
+      0,
+      Math.round(
+        (new Date(row.ended_at).getTime() -
+          new Date(row.answered_at).getTime()) /
+          1000
+      )
+    );
+  }
+  const iso = (v) => (v ? new Date(v).toISOString() : null);
+  return {
+    id: Number(row.id),
+    threadId: Number(row.thread_id),
+    direction,
+    status: String(row.status || ""),
+    missed,
+    peerUserId: Number(row.peer_user_id),
+    peerName: row.peer_full_name || null,
+    peerImageUrl: row.peer_image_url || null,
+    startedAt: iso(row.started_at),
+    answeredAt: iso(row.answered_at),
+    endedAt: iso(row.ended_at),
+    durationSec,
+    createdAt: iso(row.created_at),
+  };
+}
+
+/** Call history for a user (incoming/outgoing/missed), newest first. */
+export async function listUserCallHistory(userId, { limit = 50 } = {}) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const r = await q(
+    `SELECT
+       s.id, s.thread_id, s.caller_user_id, s.callee_user_id, s.status,
+       s.started_at, s.answered_at, s.ended_at, s.end_reason, s.created_at,
+       peer.id AS peer_user_id,
+       peer.full_name AS peer_full_name,
+       peer.image_url AS peer_image_url
+     FROM social_call_session s
+     JOIN app_user peer
+       ON peer.id = CASE WHEN s.caller_user_id = $1
+                         THEN s.callee_user_id ELSE s.caller_user_id END
+     WHERE s.caller_user_id = $1 OR s.callee_user_id = $1
+     ORDER BY s.created_at DESC, s.id DESC
+     LIMIT $2`,
+    [Number(userId), safeLimit]
+  );
+  return r.rows.map((row) => normalizeCallHistoryRow(row, userId));
 }
 
 export async function listStaleRingingThreadCallSessions({

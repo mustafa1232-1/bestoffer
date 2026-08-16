@@ -7898,6 +7898,18 @@ export async function getThreadCallState({ userId, threadId, signalLimit }) {
   };
 }
 
+export async function listCallHistory({ userId, limit }) {
+  const calls = await repo.listUserCallHistory(userId, { limit });
+  return { calls };
+}
+
+export async function clearThread({ userId, threadId }) {
+  const thread = await repo.getThreadForUser({ threadId, userId });
+  if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
+  await repo.clearThreadForUser({ userId, threadId });
+  return { ok: true };
+}
+
 export async function startThreadCall({ userId, threadId }) {
   const thread = await repo.getThreadForUser({ threadId, userId });
   if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });

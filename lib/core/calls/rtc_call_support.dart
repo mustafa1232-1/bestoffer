@@ -108,31 +108,26 @@ Future<List<Map<String, dynamic>>> _loadRuntimeIceServers(Dio dio) async {
 }
 
 Map<String, dynamic> buildHighQualityAudioConstraints() {
+  // Keep this SIMPLE. Native (Android/iOS) WebRTC ignores/rejects strict + legacy
+  // constraints (sampleRate/latency/channelCount + the goog* web flags), which can
+  // yield a SILENT capture track — the exact "call connects but no audio (both
+  // ends, even on same Wi-Fi)" symptom. Native WebRTC enables echo cancellation,
+  // noise suppression and auto gain by default, so a plain `audio: true` is the
+  // reliable choice for mobile voice calls.
   return {
-    'audio': {
-      'channelCount': 1,
-      'sampleRate': 48000,
-      'latency': 0,
-      'echoCancellation': true,
-      'noiseSuppression': true,
-      'autoGainControl': true,
-      'googEchoCancellation': true,
-      'googEchoCancellation2': true,
-      'googNoiseSuppression': true,
-      'googNoiseSuppression2': true,
-      'googAutoGainControl': true,
-      'googAutoGainControl2': true,
-      'googHighpassFilter': true,
-      'googTypingNoiseDetection': true,
-      'googAudioMirroring': false,
-    },
+    'audio': true,
     'video': false,
   };
 }
 
 RTCSessionDescription optimizeVoiceDescription(RTCSessionDescription source) {
-  final optimizedSdp = _optimizeOpusSdp(source.sdp);
-  return RTCSessionDescription(optimizedSdp, source.type);
+  // SDP munging DISABLED (2026-08-15). The custom Opus payload reordering + fmtp
+  // rewriting below was a likely cause of "call connects but NO audio" (verified
+  // symptom: no audio even on the same Wi-Fi, which rules out TURN/connectivity).
+  // Rewriting the audio m-line can corrupt codec negotiation and break media while
+  // ICE/DTLS still connect. Standard WebRTC negotiates Opus correctly on its own,
+  // so return the SDP unchanged. `_optimizeOpusSdp` is kept for reference only.
+  return source;
 }
 
 List<Map<String, dynamic>> _parseExtraIceServers() {
@@ -160,6 +155,7 @@ List<Map<String, dynamic>> _parseExtraIceServers() {
   }
 }
 
+// ignore: unused_element
 String _optimizeOpusSdp(String? rawSdp) {
   final sdp = rawSdp ?? '';
   if (sdp.isEmpty) return sdp;

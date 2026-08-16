@@ -1,3 +1,16 @@
 *
 !backend/
 !backend/**
+backend/.git/
+backend/.env
+backend/.env.test
+backend/.qa_pg/
+backend/.qa_run/
+backend/.tmp/
+backend/.tmp_pg*/
+backend/.tmp_pg_data_path
+backend/node_modules/
+backend/uploads/
+backend/tmp/
+backend/tmp_*
+backend/*.log

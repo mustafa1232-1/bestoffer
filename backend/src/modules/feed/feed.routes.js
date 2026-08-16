@@ -247,6 +247,7 @@ feedRouter.post("/reels", mediaUpload.single("mediaFile"), c.createReel);
 
 feedRouter.get("/chats/threads", c.listThreads);
 feedRouter.post("/chats/threads", c.createThread);
+feedRouter.delete("/chats/threads/:threadId", c.clearThread);
 feedRouter.get("/chats/threads/:threadId/group", c.getGroupThreadDetails);
 feedRouter.patch("/chats/threads/:threadId/group", c.updateGroupThread);
 feedRouter.post(
@@ -326,6 +327,7 @@ feedRouter.get("/chats/threads/:threadId/call", c.getThreadCallState);
 feedRouter.post("/chats/threads/:threadId/call/start", c.startThreadCall);
 feedRouter.post("/chats/threads/:threadId/call/signal", c.sendThreadCallSignal);
 feedRouter.post("/chats/threads/:threadId/call/end", c.endThreadCall);
+feedRouter.get("/chats/calls", c.listCallHistory);
 feedRouter.get("/chats/threads/:threadId/media", c.listThreadMedia);
 feedRouter.patch("/chats/threads/:threadId/read", c.markThreadRead);
 feedRouter.post("/chats/threads/:threadId/typing", c.emitThreadTyping);
