@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' as intl;
+import 'package:social_ui/social_gif_picker_sheet.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/files/local_media_file.dart';
@@ -1334,15 +1335,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
             ),
             const SizedBox(height: 14),
             TextButton.icon(
-              onPressed: () {
-                Navigator.of(sheetContext).pop();
-                _snack(
-                  _t(
-                    'ميزة GIF تحتاج إعداد Tenor.',
-                    'GIF requires Tenor configuration.',
-                  ),
-                );
-              },
+              onPressed: () => Navigator.of(sheetContext).pop('__open_gif__'),
               icon: const Icon(Icons.gif_box_outlined),
               label: Text(_t('فتح GIF', 'Open GIF')),
             ),
@@ -1351,7 +1344,12 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
         ),
       ),
     );
-    if (!mounted || (selectedText ?? '').trim().isEmpty) return;
+    if (!mounted) return;
+    if (selectedText == '__open_gif__') {
+      await _openCommunityGifPicker();
+      return;
+    }
+    if ((selectedText ?? '').trim().isEmpty) return;
     final current = _chatCtrl.text;
     final prefix = current.trim().isEmpty ? '' : '$current ';
     _chatCtrl.value = TextEditingValue(
@@ -1362,6 +1360,48 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     );
     _communityComposerHasText = _chatCtrl.text.trim().isNotEmpty;
     if (mounted) setState(() {});
+  }
+
+  /// Opens the Giphy-backed picker; the chosen GIF is sent as an image message.
+  Future<void> _openCommunityGifPicker() async {
+    if (_sending || _voiceComposerBusy) return;
+    final gif = await showModalBottomSheet<SocialGif>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => SocialGifPickerSheet(
+        api: _api,
+        isEnglish: context.isEnglishLocale,
+      ),
+    );
+    if (!mounted || gif == null) return;
+    await _sendCommunityGif(gif);
+  }
+
+  /// Downloads the picked GIF and sends it through the standard community
+  /// image-attachment pipeline (reusing [_sendChat]), so it self-hosts and
+  /// renders (animated) like any other image message.
+  Future<void> _sendCommunityGif(SocialGif gif) async {
+    if (_sending || _voiceComposerBusy) return;
+    final Uint8List bytes;
+    try {
+      bytes = await _api.downloadRemoteMedia(gif.url);
+    } catch (_) {
+      if (!mounted) return;
+      _snack(
+        _t('تعذّر تحميل GIF.', 'Could not load the GIF.'),
+        error: true,
+      );
+      return;
+    }
+    if (!mounted) return;
+    _chatAttachmentDraft = LocalMediaFile(
+      name: 'giphy_${gif.id.isEmpty ? 'gif' : gif.id}.gif',
+      path: null,
+      bytes: bytes,
+      mimeType: 'image/gif',
+    );
+    await _sendChat();
   }
 
   Future<SocialSharedEntity?> _buildCommunityLocationDraft() async {

@@ -1,4 +1,5 @@
 export 'social_attachment_preview_card.dart';
+export 'social_gif_picker_sheet.dart';
 export 'social_scheduled_message_widgets.dart';
 export 'social_surface_widgets.dart';
 export 'social_thread_theme.dart';

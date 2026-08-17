@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' as intl;
+import 'package:social_ui/social_gif_picker_sheet.dart';
 import 'package:social_ui/social_scheduled_message_widgets.dart';
 import 'package:social_ui/social_thread_theme.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -1893,15 +1894,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       return;
     }
     if (pick.gif) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _isEnglishLocale
-                ? 'GIF search requires a Tenor API key on the server.'
-                : 'بحث GIF يحتاج مفتاح Tenor على الخادم.',
-          ),
-        ),
-      );
+      await _openGifPicker();
       return;
     }
     final emoji = (pick.emoji ?? '').trim();
@@ -1945,6 +1938,82 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         pending.clientMessageId,
         errorCode: _socialChatErrorCode(e),
       );
+      setState(() {
+        _error = mapAnyError(
+          e,
+          fallback: context.l10n.socialChatThreadSendFailed,
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      }
+    }
+  }
+
+  /// Opens the Giphy-backed GIF picker; the chosen GIF is sent as an image.
+  Future<void> _openGifPicker() async {
+    if (_sending || widget.readOnly || _voiceComposerBusy) return;
+    final gif = await showModalBottomSheet<SocialGif>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => SocialGifPickerSheet(
+        api: _api,
+        isEnglish: _isEnglishLocale,
+      ),
+    );
+    if (!mounted || gif == null) return;
+    await _sendGifMessage(gif);
+  }
+
+  /// Downloads the picked GIF and sends it through the standard image-attachment
+  /// pipeline, so it self-hosts on our storage and renders (animated) like any
+  /// other image message — independent of the GIF provider's CDN afterwards.
+  Future<void> _sendGifMessage(SocialGif gif) async {
+    if (_sending || widget.readOnly) return;
+    final clientMessageId = buildSocialMessageClientId(
+      scopeKey: 'thread:$_threadId',
+      body: 'gif:${gif.id}:${gif.url}',
+    );
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    LocalPendingMessage? pending;
+    try {
+      final bytes = await _api.downloadRemoteMedia(gif.url);
+      final file = LocalMediaFile(
+        name: 'giphy_${gif.id.isEmpty ? 'gif' : gif.id}.gif',
+        path: null,
+        bytes: bytes,
+        mimeType: 'image/gif',
+      );
+      pending = _enqueuePendingMessage(
+        clientMessageId: clientMessageId,
+        body: '',
+        attachmentFile: file,
+        attachmentDurationMs: null,
+        replyToMessageId: null,
+      );
+      _stopTyping();
+      final out = await _api.sendThreadMessage(
+        _threadId,
+        '',
+        attachmentFile: file,
+        clientMessageId: clientMessageId,
+      );
+      if (_cancelledPendingClientIds.contains(clientMessageId)) return;
+      _applySentMessage(out);
+      _scrollToBottom();
+    } catch (e) {
+      if (!mounted) return;
+      if (pending != null) {
+        _pendingMessagesController.markFailed(
+          pending.clientMessageId,
+          errorCode: _socialChatErrorCode(e),
+        );
+      }
       setState(() {
         _error = mapAnyError(
           e,

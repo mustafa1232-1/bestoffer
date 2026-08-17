@@ -2985,17 +2985,7 @@ class _RuntimeThreadScreenState extends ConsumerState<_RuntimeThreadScreen>
             ),
             const SizedBox(height: 14),
             TextButton.icon(
-              onPressed: () {
-                Navigator.of(sheetContext).pop();
-                _showRuntimeMessage(
-                  context,
-                  _runtimeText(
-                    context,
-                    ar: 'ميزة GIF تحتاج إعداد Tenor.',
-                    en: 'GIF requires Tenor configuration.',
-                  ),
-                );
-              },
+              onPressed: () => Navigator.of(sheetContext).pop('__open_gif__'),
               icon: const Icon(Icons.gif_box_outlined),
               label: Text(
                 _runtimeText(sheetContext, ar: 'فتح GIF', en: 'Open GIF'),
@@ -3006,7 +2996,12 @@ class _RuntimeThreadScreenState extends ConsumerState<_RuntimeThreadScreen>
         ),
       ),
     );
-    if (!mounted || (selectedText ?? '').trim().isEmpty) return;
+    if (!mounted) return;
+    if (selectedText == '__open_gif__') {
+      await _openRuntimeGifPicker();
+      return;
+    }
+    if ((selectedText ?? '').trim().isEmpty) return;
     final current = _messageController.text;
     final prefix = current.trim().isEmpty ? '' : '$current ';
     _messageController.value = TextEditingValue(
@@ -3015,6 +3010,55 @@ class _RuntimeThreadScreenState extends ConsumerState<_RuntimeThreadScreen>
         offset: '$prefix${selectedText.trim()}'.length,
       ),
     );
+  }
+
+  /// Opens the Giphy-backed picker; the chosen GIF is sent as an image message.
+  Future<void> _openRuntimeGifPicker() async {
+    if (_sending) return;
+    final gif = await showModalBottomSheet<SocialGif>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => SocialGifPickerSheet(
+        api: ref.read(_runtimeSocialApiProvider),
+        isEnglish:
+            Localizations.maybeLocaleOf(context)?.languageCode.toLowerCase() !=
+            'ar',
+      ),
+    );
+    if (!mounted || gif == null) return;
+    await _sendRuntimeGif(gif);
+  }
+
+  /// Downloads the picked GIF and sends it through the standard image-attachment
+  /// pipeline (reusing [_sendText]), so it self-hosts and renders (animated)
+  /// like any other image message.
+  Future<void> _sendRuntimeGif(SocialGif gif) async {
+    if (_sending) return;
+    try {
+      final bytes = await ref
+          .read(_runtimeSocialApiProvider)
+          .downloadRemoteMedia(gif.url);
+      if (!mounted) return;
+      _attachmentDraft = LocalMediaFile(
+        name: 'giphy_${gif.id.isEmpty ? 'gif' : gif.id}.gif',
+        path: null,
+        bytes: bytes,
+        mimeType: 'image/gif',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      _showRuntimeMessage(
+        context,
+        _runtimeText(
+          context,
+          ar: 'تعذّر تحميل GIF.',
+          en: 'Could not load the GIF.',
+        ),
+      );
+      return;
+    }
+    await _sendText();
   }
 
   Future<void> _scheduleCurrentDraft() async {

@@ -1,8 +1,28 @@
 import 'package:dio/dio.dart';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import '../core/local_media_file.dart';
 import '../models/social_models.dart';
+
+/// A single GIF result from the chat GIF picker (provider-agnostic — currently
+/// backed by Giphy on the server, see feed.service `searchGifs`).
+class SocialGif {
+  const SocialGif({
+    required this.id,
+    required this.url,
+    required this.previewUrl,
+    this.description = '',
+  });
+
+  /// Full-size (chat-friendly) GIF used when the user sends it.
+  final String url;
+
+  /// Small rendition shown in the picker grid.
+  final String previewUrl;
+  final String id;
+  final String description;
+}
 
 class SocialApi {
   final Dio dio;
@@ -1721,6 +1741,69 @@ class SocialApi {
         .whereType<Map>()
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
+  }
+
+  /// GIF search for chat. Hits `GET /api/feed/gif/search`, which proxies Giphy.
+  /// `enabled` is false when the server has no GIPHY_API_KEY configured, so the
+  /// UI can show a "not configured" hint instead of an empty grid.
+  Future<({bool enabled, List<SocialGif> results})> searchGifs({
+    String query = '',
+    int limit = 24,
+  }) async {
+    final response = await dio.get(
+      '/api/feed/gif/search',
+      queryParameters: <String, dynamic>{
+        'limit': limit,
+        if (query.trim().isNotEmpty) 'q': query.trim(),
+      },
+    );
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final enabled = data['enabled'] == true;
+    final raw = data['results'];
+    final results = <SocialGif>[];
+    if (raw is List) {
+      for (final item in raw) {
+        if (item is! Map) continue;
+        final map = Map<String, dynamic>.from(item);
+        final url = (map['url'] ?? '').toString().trim();
+        if (url.isEmpty) continue;
+        final preview = (map['previewUrl'] ?? '').toString().trim();
+        results.add(
+          SocialGif(
+            id: (map['id'] ?? '').toString(),
+            url: url,
+            previewUrl: preview.isEmpty ? url : preview,
+            description: (map['description'] ?? '').toString(),
+          ),
+        );
+      }
+    }
+    return (enabled: enabled, results: results);
+  }
+
+  /// Downloads the raw bytes of an external media URL (e.g. a picked GIF) so it
+  /// can be re-sent through the normal image-attachment pipeline. Uses a bare
+  /// Dio client so the app's auth headers and baseUrl are never sent to the CDN.
+  Future<Uint8List> downloadRemoteMedia(
+    String url, {
+    int maxBytes = 8 * 1024 * 1024,
+  }) async {
+    final client = Dio(
+      BaseOptions(
+        responseType: ResponseType.bytes,
+        followRedirects: true,
+        receiveTimeout: const Duration(seconds: 25),
+      ),
+    );
+    final response = await client.get<List<int>>(url);
+    final data = response.data ?? const <int>[];
+    if (data.isEmpty) {
+      throw StateError('EMPTY_MEDIA');
+    }
+    if (data.length > maxBytes) {
+      throw StateError('MEDIA_TOO_LARGE');
+    }
+    return Uint8List.fromList(data);
   }
 
   Future<Map<String, dynamic>> listExplore({int limit = 18}) async {
