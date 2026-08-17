@@ -7587,6 +7587,75 @@ export async function toggleMessageReaction({ userId, threadId, messageId, react
   };
 }
 
+export async function listStickers({ pack = null, limit = 200 } = {}) {
+  const stickers = await repo.listStickers({ pack, limit });
+  return { stickers };
+}
+
+// GIF search via Giphy v1 (Tenor's public developer API was retired 2026-06-30).
+// Returns { enabled:false, results:[] } when no API key is configured, so the
+// client can degrade gracefully. Response shape is provider-agnostic:
+// { enabled, results:[{ id, url, previewUrl, description }] }.
+export async function searchGifs({ query = "", limit = 24 } = {}) {
+  const apiKey = String(env.giphyApiKey || "").trim();
+  if (!apiKey) {
+    return { enabled: false, results: [] };
+  }
+  const safeLimit = Math.min(48, Math.max(1, Number(limit) || 24));
+  const q = String(query || "").trim();
+  const base = q
+    ? "https://api.giphy.com/v1/gifs/search"
+    : "https://api.giphy.com/v1/gifs/trending";
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    limit: String(safeLimit),
+    rating: String(env.giphyRating || "g"),
+  });
+  if (q) params.set("q", q);
+
+  let data;
+  try {
+    const response = await fetch(`${base}?${params.toString()}`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+    if (!response.ok) {
+      return { enabled: true, results: [] };
+    }
+    data = await response.json();
+  } catch (_) {
+    return { enabled: true, results: [] };
+  }
+
+  const rows = Array.isArray(data?.data) ? data.data : [];
+  const results = rows
+    .map((row) => {
+      const images = row?.images || {};
+      // Full: a size-capped GIF good for sending in chat. Preview: a small
+      // rendition for the picker grid. Fall back through renditions that Giphy
+      // always returns so a missing size never drops the whole item.
+      const full =
+        images.downsized?.url ||
+        images.fixed_height?.url ||
+        images.original?.url ||
+        null;
+      const preview =
+        images.fixed_width_small?.url ||
+        images.preview_gif?.url ||
+        images.fixed_height_small?.url ||
+        full;
+      if (!full) return null;
+      return {
+        id: String(row.id || ""),
+        url: full,
+        previewUrl: preview,
+        description: String(row.title || ""),
+      };
+    })
+    .filter(Boolean);
+  return { enabled: true, results };
+}
+
 export async function setUserNotificationPreference({
   userId,
   otherUserId,

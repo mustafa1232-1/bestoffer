@@ -345,6 +345,13 @@ export const env = {
     min: 300,
     max: 86400,
   }),
+  // GIF search for chat (Giphy v1 — Tenor's public API was shut down 2026-06-30).
+  // Get a free key at https://developers.giphy.com/dashboard/ and set
+  // GIPHY_API_KEY. When empty, GET /api/feed/gif/search returns
+  // { enabled: false, results: [] } so the client degrades gracefully.
+  // GIPHY_RATING bounds content (g | pg | pg-13 | r); "g" is the strictest.
+  giphyApiKey: readString("GIPHY_API_KEY", ""),
+  giphyRating: readString("GIPHY_RATING", "g"),
   socialStreamReconcileIntervalMs: readNumber(
     "SOCIAL_STREAM_RECONCILE_INTERVAL_MS",
     30000,

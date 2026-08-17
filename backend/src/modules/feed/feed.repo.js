@@ -4929,10 +4929,20 @@ export async function listMessageReactionsForMessages({ messageIds, userId }) {
   return out;
 }
 
+// Legacy 4-key reactions stay valid (stored lowercase); any other value is treated
+// as an emoji glyph and stored as-is, capped to the reaction column width VARCHAR(32).
+const LEGACY_REACTION_KEYS = new Set(["like", "heart", "laugh", "fire"]);
+
+export function normalizeReactionValue(reaction) {
+  const raw = String(reaction || "").trim();
+  if (!raw) return "like";
+  const lower = raw.toLowerCase();
+  if (LEGACY_REACTION_KEYS.has(lower)) return lower;
+  return raw.length > 32 ? raw.slice(0, 32) : raw;
+}
+
 export async function toggleMessageReaction({ messageId, userId, reaction }) {
-  const targetReaction = String(reaction || "").trim().toLowerCase();
-  const allowed = new Set(["like", "heart", "laugh", "fire"]);
-  const safeReaction = allowed.has(targetReaction) ? targetReaction : "like";
+  const safeReaction = normalizeReactionValue(reaction);
 
   const existingRes = await q(
     `SELECT reaction
@@ -4944,7 +4954,7 @@ export async function toggleMessageReaction({ messageId, userId, reaction }) {
   );
   const existing = existingRes.rows[0] || null;
 
-  if (existing && String(existing.reaction || "").trim().toLowerCase() === safeReaction) {
+  if (existing && String(existing.reaction || "").trim() === safeReaction) {
     await q(
       `DELETE FROM social_chat_message_reaction
        WHERE message_id = $1
@@ -7156,9 +7166,7 @@ export async function toggleScopeChatMessageReaction({
   userId,
   reaction,
 }) {
-  const targetReaction = String(reaction || "").trim().toLowerCase();
-  const allowed = new Set(["like", "heart", "laugh", "fire"]);
-  const safeReaction = allowed.has(targetReaction) ? targetReaction : "like";
+  const safeReaction = normalizeReactionValue(reaction);
 
   const existingRes = await q(
     `SELECT reaction
@@ -7170,7 +7178,7 @@ export async function toggleScopeChatMessageReaction({
   );
   const existing = existingRes.rows[0] || null;
 
-  if (existing && String(existing.reaction || "").trim().toLowerCase() === safeReaction) {
+  if (existing && String(existing.reaction || "").trim() === safeReaction) {
     await q(
       `DELETE FROM social_scope_chat_message_reaction
        WHERE message_id = $1
@@ -7190,6 +7198,33 @@ export async function toggleScopeChatMessageReaction({
     [Number(messageId), Number(userId), safeReaction]
   );
   return { active: true, reaction: safeReaction };
+}
+
+export async function listStickers({ pack = null, limit = 200 } = {}) {
+  const safeLimit = Math.min(500, Math.max(1, Number(limit) || 200));
+  const params = [];
+  let where = "WHERE is_active = TRUE";
+  if (pack && String(pack).trim()) {
+    params.push(String(pack).trim().slice(0, 40));
+    where += ` AND pack = $${params.length}`;
+  }
+  params.push(safeLimit);
+  const res = await q(
+    `SELECT id, pack, kind, content, label, sort_order
+     FROM social_sticker
+     ${where}
+     ORDER BY pack ASC, sort_order ASC, id ASC
+     LIMIT $${params.length}`,
+    params
+  );
+  return res.rows.map((row) => ({
+    id: Number(row.id),
+    pack: row.pack,
+    kind: row.kind,
+    content: row.content,
+    label: row.label || null,
+    sortOrder: Number(row.sort_order || 0),
+  }));
 }
 
 export async function listScopeBills({

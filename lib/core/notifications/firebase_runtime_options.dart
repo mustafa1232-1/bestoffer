@@ -27,6 +27,13 @@ class FirebaseRuntimeOptions {
   );
 
   static FirebaseOptions? currentPlatform() {
+    if (kIsWeb &&
+        _apiKey.isEmpty &&
+        _projectId.isEmpty &&
+        _messagingSenderId.isEmpty) {
+      return _defaultWeb;
+    }
+
     if (_apiKey.isEmpty || _projectId.isEmpty || _messagingSenderId.isEmpty) {
       return null;
     }
@@ -88,4 +95,14 @@ class FirebaseRuntimeOptions {
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
   }
+
+  static const FirebaseOptions _defaultWeb = FirebaseOptions(
+    apiKey: 'AIzaSyBwUhhCl-MONjtOl8oddvmwvqZUFEvQ5M8',
+    appId: '1:1016190459986:web:f8aa889b7a8a354e117f8b',
+    messagingSenderId: '1016190459986',
+    projectId: 'maslaki-61a97',
+    authDomain: 'maslaki-61a97.firebaseapp.com',
+    storageBucket: 'maslaki-61a97.firebasestorage.app',
+    measurementId: 'G-MYS8SC0PJ5',
+  );
 }

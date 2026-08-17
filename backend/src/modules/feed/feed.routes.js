@@ -328,6 +328,8 @@ feedRouter.post("/chats/threads/:threadId/call/start", c.startThreadCall);
 feedRouter.post("/chats/threads/:threadId/call/signal", c.sendThreadCallSignal);
 feedRouter.post("/chats/threads/:threadId/call/end", c.endThreadCall);
 feedRouter.get("/chats/calls", c.listCallHistory);
+feedRouter.get("/stickers", c.listStickers);
+feedRouter.get("/gif/search", c.searchGifs);
 feedRouter.get("/chats/threads/:threadId/media", c.listThreadMedia);
 feedRouter.patch("/chats/threads/:threadId/read", c.markThreadRead);
 feedRouter.post("/chats/threads/:threadId/typing", c.emitThreadTyping);

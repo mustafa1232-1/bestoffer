@@ -1702,6 +1702,27 @@ class SocialApi {
     await dio.delete('/api/feed/chats/threads/$threadId');
   }
 
+  /// Server-seeded sticker catalog (shared by all users, see migration 205).
+  Future<List<Map<String, dynamic>>> listStickers({
+    String? pack,
+    int limit = 200,
+  }) async {
+    final response = await dio.get(
+      '/api/feed/stickers',
+      queryParameters: {
+        'limit': limit,
+        if (pack != null && pack.trim().isNotEmpty) 'pack': pack.trim(),
+      },
+    );
+    final data = Map<String, dynamic>.from(response.data as Map);
+    final raw = data['stickers'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
   Future<Map<String, dynamic>> listExplore({int limit = 18}) async {
     final response = await dio.get(
       '/api/feed/explore',

@@ -21,6 +21,7 @@ import 'local_notification_service.dart';
 const _tokenHeartbeatInterval = Duration(minutes: 15);
 const _tokenForceResyncInterval = Duration(hours: 6);
 const _appLocaleStorageKey = 'app_locale';
+const _firebaseWebVapidKey = String.fromEnvironment('FIREBASE_WEB_VAPID_KEY');
 
 class PushTokenSessionContext {
   const PushTokenSessionContext({
@@ -196,8 +197,8 @@ class PushNotificationService {
   // without navigating. Pending taps are flushed when the first listener attaches.
   late final StreamController<NotificationTapPayload> _tapController =
       StreamController<NotificationTapPayload>.broadcast(
-    onListen: _flushPendingTaps,
-  );
+        onListen: _flushPendingTaps,
+      );
 
   void _flushPendingTaps() {
     if (_pendingTaps.isEmpty) return;
@@ -317,7 +318,11 @@ class PushNotificationService {
     if (_tokenSyncInFlight) return;
     _tokenSyncInFlight = true;
     try {
-      final token = await FirebaseMessaging.instance.getToken();
+      final token = await FirebaseMessaging.instance.getToken(
+        vapidKey: kIsWeb && _firebaseWebVapidKey.trim().isNotEmpty
+            ? _firebaseWebVapidKey.trim()
+            : null,
+      );
       if (token == null || token.isEmpty) return;
       await _registerTokenWithRetry(token, userId);
       _ensureHeartbeatTimer();
@@ -334,7 +339,11 @@ class PushNotificationService {
     if (accessToken == null || accessToken.isEmpty) {
       return;
     }
-    final token = await FirebaseMessaging.instance.getToken();
+    final token = await FirebaseMessaging.instance.getToken(
+      vapidKey: kIsWeb && _firebaseWebVapidKey.trim().isNotEmpty
+          ? _firebaseWebVapidKey.trim()
+          : null,
+    );
     if (token == null || token.isEmpty) return;
     try {
       await api.unregisterPushToken(token: token);

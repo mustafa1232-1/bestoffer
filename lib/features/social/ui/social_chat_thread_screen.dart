@@ -196,6 +196,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   SocialChatReplyPreview? _replyingTo;
   LocalMediaFile? _attachmentDraft;
   SocialSharedEntity? _sharedEntityDraft;
+  List<Map<String, dynamic>>? _stickerCache;
   late final SocialVoiceComposerController _voiceComposer;
   late final LocalPendingMessageController _pendingMessagesController;
   bool _loading = false;
@@ -1860,79 +1861,101 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     await _pickAttachment(action);
   }
 
+  Future<List<Map<String, dynamic>>> _loadStickers() async {
+    if (_stickerCache != null) return _stickerCache!;
+    try {
+      final list = await _api.listStickers();
+      _stickerCache = list;
+      return list;
+    } catch (_) {
+      return const <Map<String, dynamic>>[];
+    }
+  }
+
   Future<void> _openStickersGifMenu() async {
     if (_sending || widget.readOnly || _voiceComposerBusy) return;
-    final selectedText = await showModalBottomSheet<String>(
+    final stickers = await _loadStickers();
+    if (!mounted) return;
+    final pick = await showModalBottomSheet<_StickerPick>(
       context: context,
       showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: Row(
-                children: [
-                  Text(
-                    _isEnglishLocale ? 'Stickers & GIF' : 'الملصقات و GIF',
-                    style: Theme.of(sheetContext).textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
-                  ),
-                ],
-              ),
-            ),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: ['ðŸ˜€', 'ðŸ˜', 'ðŸ”¥', 'ðŸ‘', 'ðŸ‘', 'ðŸ’¯']
-                  .map(
-                    (emoji) => InkWell(
-                      borderRadius: BorderRadius.circular(999),
-                      onTap: () => Navigator.of(sheetContext).pop(emoji),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Text(
-                          emoji,
-                          style: const TextStyle(fontSize: 28),
-                        ),
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
-            ),
-            const SizedBox(height: 14),
-            TextButton.icon(
-              onPressed: () {
-                Navigator.of(sheetContext).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      _isEnglishLocale
-                          ? 'GIF requires Tenor configuration.'
-                          : 'ميزة GIF تحتاج إعداد Tenor.',
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.gif_box_outlined),
-              label: Text(_isEnglishLocale ? 'Open GIF' : 'فتح GIF'),
-            ),
-            const SizedBox(height: 8),
-          ],
+      isScrollControlled: true,
+      builder: (sheetContext) => _StickerPickerSheet(
+        stickers: stickers,
+        isEnglish: _isEnglishLocale,
+      ),
+    );
+    if (!mounted || pick == null) return;
+    if (pick.createFromImage) {
+      // Reuse the image attachment flow: the picked image becomes a message the
+      // user sends like a sticker.
+      await _pickAttachment(_ChatComposerAttachmentAction.image);
+      return;
+    }
+    if (pick.gif) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _isEnglishLocale
+                ? 'GIF search requires a Tenor API key on the server.'
+                : 'بحث GIF يحتاج مفتاح Tenor على الخادم.',
+          ),
         ),
-      ),
+      );
+      return;
+    }
+    final emoji = (pick.emoji ?? '').trim();
+    if (emoji.isNotEmpty) {
+      await _sendStickerMessage(emoji);
+    }
+  }
+
+  /// Sends an emoji sticker as its own message (rendered large & borderless).
+  Future<void> _sendStickerMessage(String emoji) async {
+    final body = emoji.trim();
+    if (body.isEmpty || _sending || widget.readOnly) return;
+    final clientMessageId = buildSocialMessageClientId(
+      scopeKey: 'thread:$_threadId',
+      body: body,
     );
-    if (!mounted || (selectedText ?? '').trim().isEmpty) return;
-    final current = _inputController.text;
-    final prefix = current.trim().isEmpty ? '' : '$current ';
-    _inputController.value = TextEditingValue(
-      text: '$prefix${selectedText!.trim()}',
-      selection: TextSelection.collapsed(
-        offset: '$prefix${selectedText.trim()}'.length,
-      ),
+    final pending = _enqueuePendingMessage(
+      clientMessageId: clientMessageId,
+      body: body,
+      attachmentFile: null,
+      attachmentDurationMs: null,
+      replyToMessageId: null,
     );
-    _composerHasText = _inputController.text.trim().isNotEmpty;
-    if (mounted) setState(() {});
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      _stopTyping();
+      final out = await _api.sendThreadMessage(
+        _threadId,
+        body,
+        clientMessageId: clientMessageId,
+      );
+      if (_cancelledPendingClientIds.contains(clientMessageId)) return;
+      _applySentMessage(out);
+      _scrollToBottom();
+    } catch (e) {
+      if (!mounted) return;
+      _pendingMessagesController.markFailed(
+        pending.clientMessageId,
+        errorCode: _socialChatErrorCode(e),
+      );
+      setState(() {
+        _error = mapAnyError(
+          e,
+          fallback: context.l10n.socialChatThreadSendFailed,
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      }
+    }
   }
 
   Future<SocialSharedEntity?> _buildLocationDraft() async {
@@ -2325,32 +2348,43 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
               ),
             if (canReact)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _kMessageReactionSpecs
-                      .map((spec) {
-                        final selected = message.myReaction == spec.key;
-                        final count = message.reactionCounts[spec.key] ?? 0;
-                        return ActionChip(
-                          onPressed:
-                              _reactionBusyMessageIds.contains(message.id)
-                              ? null
-                              : () {
-                                  Navigator.of(context).pop();
-                                  _toggleReaction(message, spec.key);
-                                },
-                          avatar: Text(spec.emoji),
-                          label: Text(count > 0 ? '$count' : ' '),
-                          side: BorderSide(
-                            color: selected
-                                ? Theme.of(context).colorScheme.primary
-                                : Colors.transparent,
-                          ),
-                        );
-                      })
-                      .toList(growable: false),
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Row(
+                          children: [
+                            for (final emoji in _kReactionQuickEmojis)
+                              _ReactionQuickButton(
+                                emoji: emoji,
+                                selected:
+                                    _reactionEmojiForKey(message.myReaction) ==
+                                    emoji,
+                                onTap:
+                                    _reactionBusyMessageIds.contains(message.id)
+                                    ? null
+                                    : () {
+                                        Navigator.of(context).pop();
+                                        _toggleReaction(message, emoji);
+                                      },
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_reaction_outlined),
+                      tooltip: _isEnglishLocale ? 'More' : 'المزيد',
+                      onPressed: _reactionBusyMessageIds.contains(message.id)
+                          ? null
+                          : () {
+                              Navigator.of(context).pop();
+                              unawaited(_openReactionEmojiPicker(message));
+                            },
+                    ),
+                  ],
                 ),
               ),
             if (canReply)
@@ -2448,13 +2482,28 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     );
   }
 
+  Future<void> _openReactionEmojiPicker(SocialChatMessage message) async {
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) => _EmojiGridSheet(
+        title: _isEnglishLocale ? 'Reactions' : 'التفاعلات',
+        emojis: _kReactionEmojiGrid,
+        selected: _reactionEmojiForKey(message.myReaction),
+      ),
+    );
+    if (!mounted || picked == null || picked.trim().isEmpty) return;
+    unawaited(_toggleReaction(message, picked));
+  }
+
   Future<void> _toggleReaction(
     SocialChatMessage message,
     String reactionKey,
   ) async {
     if (_reactionBusyMessageIds.contains(message.id)) return;
-    final normalized = reactionKey.trim().toLowerCase();
-    if (!_kMessageReactionKeys.contains(normalized)) return;
+    final normalized = _normalizeReactionInput(reactionKey);
+    if (normalized.isEmpty) return;
 
     final previous = message;
     final optimistic = _optimisticMessageReaction(previous, normalized);
@@ -3787,6 +3836,13 @@ class _ChatBubble extends StatelessWidget {
     final showEdited = !isDeleted && message.editedAt != null;
     final bubbleColor = mine ? visualTheme.mineBubble : visualTheme.peerBubble;
     final textColor = mine ? visualTheme.mineText : visualTheme.peerText;
+    // Emoji-only messages (picked stickers or typed emoji) render large and
+    // borderless, like a sticker — the WhatsApp/Telegram behaviour.
+    final emojiOnly =
+        !isDeleted &&
+        message.attachment == null &&
+        message.replyToMessage == null &&
+        _isEmojiOnlyBody(message.body);
 
     return Align(
       alignment: mine ? Alignment.centerLeft : Alignment.centerRight,
@@ -3798,7 +3854,7 @@ class _ChatBubble extends StatelessWidget {
             margin: const EdgeInsets.symmetric(vertical: 5),
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
             decoration: BoxDecoration(
-              color: bubbleColor,
+              color: emojiOnly ? Colors.transparent : bubbleColor,
               borderRadius: BorderRadius.circular(14),
               border: highlighted
                   ? Border.all(
@@ -3918,6 +3974,11 @@ class _ChatBubble extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                             fontStyle: FontStyle.italic,
                           ),
+                        )
+                      : emojiOnly
+                      ? Text(
+                          displayBody,
+                          style: const TextStyle(fontSize: 44, height: 1.15),
                         )
                       : SocialMentionHashtagText(
                           text: displayBody,
@@ -4440,13 +4501,41 @@ int? _parseInt(dynamic value) {
 }
 
 String _reactionEmojiForKey(String? key) {
-  final normalized = (key ?? '').trim().toLowerCase();
+  final raw = (key ?? '').trim();
+  if (raw.isEmpty) return '';
+  final normalized = raw.toLowerCase();
   for (final spec in _kMessageReactionSpecs) {
     if (spec.key == normalized) {
       return spec.emoji;
     }
   }
-  return '';
+  // Not a legacy key — the value is already an emoji glyph.
+  return raw;
+}
+
+/// Legacy keys (like/heart/laugh/fire) stay lowercase; anything else is treated
+/// as an emoji glyph and sent as-is (capped to the backend column width).
+String _normalizeReactionInput(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return '';
+  final lower = raw.toLowerCase();
+  if (_kMessageReactionKeys.contains(lower)) return lower;
+  return raw.characters.length > 8 ? raw.characters.take(8).toString() : raw;
+}
+
+final RegExp _kEmojiOnlyRegExp = RegExp(
+  r'^(?:[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}'
+  r'\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{2764}\u{1F1E6}-\u{1F1FF}\s])+$',
+  unicode: true,
+);
+
+/// True when the body is a short run of emoji only (a picked sticker or typed
+/// emoji) — rendered large & borderless like a real sticker.
+bool _isEmojiOnlyBody(String body) {
+  final trimmed = body.trim();
+  if (trimmed.isEmpty) return false;
+  if (trimmed.characters.length > 6) return false;
+  return _kEmojiOnlyRegExp.hasMatch(trimmed);
 }
 
 const Set<String> _kMessageReactionKeys = <String>{
@@ -4470,3 +4559,259 @@ class _MessageReactionSpec {
 
   const _MessageReactionSpec(this.key, this.emoji);
 }
+
+class _ReactionQuickButton extends StatelessWidget {
+  const _ReactionQuickButton({
+    required this.emoji,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String emoji;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Material(
+        color: selected
+            ? scheme.primary.withValues(alpha: 0.16)
+            : Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Text(emoji, style: const TextStyle(fontSize: 26)),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Reusable scrollable grid of emoji; pops the tapped glyph.
+class _EmojiGridSheet extends StatelessWidget {
+  const _EmojiGridSheet({
+    required this.title,
+    required this.emojis,
+    this.selected = '',
+  });
+
+  final String title;
+  final List<String> emojis;
+  final String selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.6,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            Flexible(
+              child: GridView.builder(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
+                gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 8,
+                  mainAxisSpacing: 4,
+                  crossAxisSpacing: 4,
+                ),
+                itemCount: emojis.length,
+                itemBuilder: (context, index) {
+                  final emoji = emojis[index];
+                  final isSelected = emoji == selected;
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => Navigator.of(context).pop(emoji),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? scheme.primary.withValues(alpha: 0.16)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        emoji,
+                        style: const TextStyle(fontSize: 24),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StickerPick {
+  const _StickerPick({this.emoji, this.createFromImage = false, this.gif = false});
+
+  final String? emoji;
+  final bool createFromImage;
+  final bool gif;
+}
+
+/// Sticker picker sheet: server-seeded emoji stickers + "create from image" + GIF.
+class _StickerPickerSheet extends StatelessWidget {
+  const _StickerPickerSheet({
+    required this.stickers,
+    required this.isEnglish,
+  });
+
+  final List<Map<String, dynamic>> stickers;
+  final bool isEnglish;
+
+  @override
+  Widget build(BuildContext context) {
+    // Fall back to a built-in set if the server catalog is unreachable, so the
+    // picker is never empty.
+    final glyphs = <String>[
+      for (final s in stickers)
+        if ((s['content'] ?? '').toString().trim().isNotEmpty)
+          (s['content']).toString().trim(),
+    ];
+    final items = glyphs.isNotEmpty
+        ? glyphs
+        : _kReactionEmojiGrid.take(30).toList(growable: false);
+
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.62,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              child: Text(
+                isEnglish ? 'Stickers' : 'الملصقات',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            Flexible(
+              child: GridView.builder(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 5,
+                  mainAxisSpacing: 6,
+                  crossAxisSpacing: 6,
+                ),
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final glyph = items[index];
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () =>
+                        Navigator.of(context).pop(_StickerPick(emoji: glyph)),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest
+                            .withValues(alpha: 0.4),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        glyph,
+                        style: const TextStyle(fontSize: 34),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context).pop(
+                        const _StickerPick(createFromImage: true),
+                      ),
+                      icon: const Icon(Icons.add_photo_alternate_outlined),
+                      label: Text(
+                        isEnglish ? 'From image' : 'من صورة',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => Navigator.of(context)
+                          .pop(const _StickerPick(gif: true)),
+                      icon: const Icon(Icons.gif_box_outlined),
+                      label: Text(
+                        isEnglish ? 'GIF' : 'GIF',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Quick-reaction row shown inline on long-press (WhatsApp/Telegram style).
+const List<String> _kReactionQuickEmojis = <String>[
+  '👍',
+  '❤️',
+  '😂',
+  '😮',
+  '😢',
+  '🙏',
+  '🔥',
+  '💯',
+];
+
+/// Full emoji palette (~100) opened from the "＋" button, reusable for stickers.
+const List<String> _kReactionEmojiGrid = <String>[
+  '👍', '👎', '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍',
+  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '🙂', '😊',
+  '😇', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😜',
+  '🤪', '😝', '🤗', '🤭', '🤫', '🤔', '😐', '😑', '😶', '😏',
+  '😒', '🙄', '😬', '😌', '😔', '😪', '😴', '😷', '🤒', '🤕',
+  '🥳', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '😳', '🥵',
+  '🥶', '😱', '😨', '😰', '😥', '😓', '🤯', '😲', '🙃', '🤠',
+  '🥸', '😎', '🤓', '🧐', '🤡', '👻', '💀', '👽', '🤖', '😺',
+  '🙏', '👏', '🙌', '🤝', '👋', '🤙', '💪', '👊', '✊', '👌',
+  '✌️', '🤞', '🤟', '🖐️', '✋', '👐', '🔥', '💯', '⭐', '🌟',
+  '✨', '🎉', '🎊', '🎁', '💝', '💖', '💗', '💓', '💞', '💕',
+];

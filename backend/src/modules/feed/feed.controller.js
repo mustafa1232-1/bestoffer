@@ -1918,6 +1918,32 @@ export async function listCallHistory(req, res, next) {
   }
 }
 
+export async function listStickers(req, res, next) {
+  try {
+    const pack =
+      typeof req.query?.pack === "string" && req.query.pack.trim()
+        ? req.query.pack.trim()
+        : null;
+    const limit = Math.max(1, Math.min(500, Number(req.query?.limit) || 200));
+    const out = await service.listStickers({ pack, limit });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function searchGifs(req, res, next) {
+  try {
+    const query =
+      typeof req.query?.q === "string" ? req.query.q.trim().slice(0, 100) : "";
+    const limit = Math.max(1, Math.min(48, Number(req.query?.limit) || 24));
+    const out = await service.searchGifs({ query, limit });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function clearThread(req, res, next) {
   try {
     const thread = validateThreadId(req.params.threadId);

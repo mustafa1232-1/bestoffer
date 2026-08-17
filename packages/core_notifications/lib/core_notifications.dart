@@ -10,6 +10,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+const _firebaseWebVapidKey = String.fromEnvironment('FIREBASE_WEB_VAPID_KEY');
+
 final runtimeLocalNotificationsProvider =
     Provider<RuntimeLocalNotificationsService>((ref) {
       final service = RuntimeLocalNotificationsService();
@@ -327,7 +329,11 @@ class RuntimePushNotificationsService {
       return;
     _tokenSyncInFlight = true;
     try {
-      final token = await FirebaseMessaging.instance.getToken();
+      final token = await FirebaseMessaging.instance.getToken(
+        vapidKey: kIsWeb && _firebaseWebVapidKey.trim().isNotEmpty
+            ? _firebaseWebVapidKey.trim()
+            : null,
+      );
       if (token == null || token.isEmpty) return;
       await _registerToken(token);
     } finally {
@@ -339,7 +345,11 @@ class RuntimePushNotificationsService {
     if (!_supportsPushMessaging || !_firebaseReady) return;
     final accessToken = await store.readToken();
     if (accessToken == null || accessToken.isEmpty) return;
-    final token = await FirebaseMessaging.instance.getToken();
+    final token = await FirebaseMessaging.instance.getToken(
+      vapidKey: kIsWeb && _firebaseWebVapidKey.trim().isNotEmpty
+          ? _firebaseWebVapidKey.trim()
+          : null,
+    );
     if (token == null || token.isEmpty) return;
     try {
       await dio.delete('/api/notifications/push-token', data: {'token': token});
@@ -442,6 +452,13 @@ class _FirebaseRuntimeOptions {
   );
 
   static FirebaseOptions? currentPlatform() {
+    if (kIsWeb &&
+        _apiKey.isEmpty &&
+        _projectId.isEmpty &&
+        _messagingSenderId.isEmpty) {
+      return _defaultWeb;
+    }
+
     if (_apiKey.isEmpty || _projectId.isEmpty || _messagingSenderId.isEmpty) {
       return null;
     }
@@ -503,6 +520,16 @@ class _FirebaseRuntimeOptions {
     final trimmed = value.trim();
     return trimmed.isEmpty ? null : trimmed;
   }
+
+  static const FirebaseOptions _defaultWeb = FirebaseOptions(
+    apiKey: 'AIzaSyBwUhhCl-MONjtOl8oddvmwvqZUFEvQ5M8',
+    appId: '1:1016190459986:web:f8aa889b7a8a354e117f8b',
+    messagingSenderId: '1016190459986',
+    projectId: 'maslaki-61a97',
+    authDomain: 'maslaki-61a97.firebaseapp.com',
+    storageBucket: 'maslaki-61a97.firebasestorage.app',
+    measurementId: 'G-MYS8SC0PJ5',
+  );
 }
 
 String _currentLocaleCode() {
