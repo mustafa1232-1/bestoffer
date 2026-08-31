@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -16,11 +17,24 @@ class SocialStreamUploadService {
   static const Duration defaultReadyTimeout = Duration(minutes: 2);
   static const Duration defaultReadyPollInterval = Duration(seconds: 2);
   static const int defaultChunkSizeBytes = 1024 * 1024;
+  static const int _maxChunkRetries = 5;
 
   final SocialApi api;
   final Dio dio;
 
-  SocialStreamUploadService(this.api) : dio = api.dio;
+  /// Direct Cloudflare traffic must never use the Maslaki API Dio instance.
+  /// The API client carries auth/signing interceptors and 15s generic timeouts;
+  /// applying those to a one-time Cloudflare TUS URL can both leak irrelevant
+  /// headers and make large mobile uploads fail on slower connections.
+  SocialStreamUploadService(this.api)
+      : dio = Dio(
+          BaseOptions(
+            connectTimeout: const Duration(seconds: 20),
+            sendTimeout: const Duration(minutes: 2),
+            receiveTimeout: const Duration(seconds: 30),
+            responseType: ResponseType.plain,
+          ),
+        );
 
   Future<SocialMediaAsset> uploadVideoAndWaitReady({
     required LocalMediaFile mediaFile,
@@ -29,9 +43,6 @@ class SocialStreamUploadService {
     void Function(double progress)? onProgress,
     Duration readyTimeout = defaultReadyTimeout,
     Duration readyPollInterval = defaultReadyPollInterval,
-    // When false, publishing does NOT block on Cloudflare encoding: the method
-    // returns as soon as the upload is accepted (asset is PROCESSING). The Story
-    // is created immediately and reconciled PROCESSING → READY later.
     bool waitForReady = true,
   }) async {
     if (!mediaFile.isVideo) {
@@ -45,20 +56,19 @@ class SocialStreamUploadService {
       throw StateError('Selected media has no readable bytes.');
     }
 
-    final session =
-        await _loadMatchingSession(
-          mediaFile: mediaFile,
-          sourceType: sourceType,
-          sizeBytes: sizeBytes,
-          mimeType: mimeType,
-        ) ??
-        await api.createStreamUploadSession(
-          sourceType: sourceType,
-          sizeBytes: sizeBytes,
-          fileName: fileName,
-          mimeType: mimeType,
-          title: title ?? fileName,
-        );
+    var session = await _loadMatchingSession(
+      mediaFile: mediaFile,
+      sourceType: sourceType,
+      sizeBytes: sizeBytes,
+      mimeType: mimeType,
+    );
+    session ??= await api.createStreamUploadSession(
+      sourceType: sourceType,
+      sizeBytes: sizeBytes,
+      fileName: fileName,
+      mimeType: mimeType,
+      title: title ?? fileName,
+    );
 
     final persistedKey = _buildSessionKey(
       assetId: session.assetId,
@@ -72,16 +82,35 @@ class SocialStreamUploadService {
       uploadedBytes = persisted.uploadedBytes.clamp(0, sizeBytes).toInt();
     }
 
-    final offsetFromServer = await _readUploadOffset(session.uploadUrl);
-    if (offsetFromServer != null) {
-      uploadedBytes = uploadedBytes > offsetFromServer
-          ? uploadedBytes
-          : offsetFromServer;
+    try {
+      final offsetFromServer = await _readUploadOffset(session.uploadUrl);
+      if (offsetFromServer != null) {
+        // Server offset is authoritative. A local snapshot can be ahead after a
+        // response was lost; never skip bytes based on local state alone.
+        uploadedBytes = offsetFromServer.clamp(0, sizeBytes).toInt();
+      }
+    } on _ExpiredStreamUploadException {
+      await _removePersistedSession(persistedKey);
+      session = await api.createStreamUploadSession(
+        sourceType: sourceType,
+        sizeBytes: sizeBytes,
+        fileName: fileName,
+        mimeType: mimeType,
+        title: title ?? fileName,
+      );
+      uploadedBytes = 0;
     }
+
+    final activeKey = _buildSessionKey(
+      assetId: session.assetId,
+      sourceType: sourceType,
+      filePath: mediaFile.path ?? '',
+      sizeBytes: sizeBytes,
+    );
 
     await _savePersistedSession(
       _PersistedSocialStreamUploadSession(
-        key: persistedKey,
+        key: activeKey,
         assetId: session.assetId,
         streamUid: session.streamUid,
         uploadUrl: session.uploadUrl,
@@ -103,8 +132,9 @@ class SocialStreamUploadService {
       totalBytes: sizeBytes,
       alreadyUploaded: uploadedBytes,
       onProgress: onProgress,
-      sessionKey: persistedKey,
+      sessionKey: activeKey,
       assetId: session.assetId,
+      streamUid: session.streamUid,
       sourceType: sourceType,
       title: title ?? fileName,
       fileName: fileName,
@@ -115,34 +145,24 @@ class SocialStreamUploadService {
       throw StateError('Stream upload did not reach the expected size.');
     }
 
-    // Upload accepted. The Stream asset already exists (created by the upload
-    // session) and is now PROCESSING with a persisted stream UID.
     if (!waitForReady) {
-      // KEEP the persisted session (upload bytes == full): a create retry then
-      // resumes with zero re-upload and reuses the SAME assetId — no duplicate
-      // upload or media asset. It expires naturally if never reused.
       final processing = await api.getMediaAsset(session.assetId);
       return processing ?? _processingAssetFrom(session);
     }
 
-    await _removePersistedSession(persistedKey);
+    await _removePersistedSession(activeKey);
     final asset = await _waitForAssetReady(
       session.assetId,
       timeout: readyTimeout,
       pollInterval: readyPollInterval,
     );
     if (asset == null || !asset.isReady) {
-      // Do not fail the publish just because encoding is still running — return
-      // the PROCESSING asset so the Story is created and reconciled later.
       final processing = asset ?? await api.getMediaAsset(session.assetId);
       return processing ?? _processingAssetFrom(session);
     }
     return asset;
   }
 
-  /// Minimal PROCESSING asset synthesized from the accepted upload session, so a
-  /// Story can be created immediately even before the media-asset row is
-  /// re-fetched.
   SocialMediaAsset _processingAssetFrom(SocialMediaUploadSession session) {
     return SocialMediaAsset(
       id: session.assetId,
@@ -211,6 +231,16 @@ class SocialStreamUploadService {
       if (persisted.filePath != (mediaFile.path ?? '')) continue;
       if (persisted.sizeBytes != sizeBytes) continue;
       if (persisted.mimeType != mimeType) continue;
+      // Expired one-time URLs must not poison every future retry.
+      try {
+        await _readUploadOffset(persisted.uploadUrl);
+      } on _ExpiredStreamUploadException {
+        await prefs.remove(key);
+        continue;
+      } catch (_) {
+        // A transient HEAD failure is not proof that the resumable session is
+        // unusable; keep it and let the chunk retry loop reconcile later.
+      }
       return SocialMediaUploadSession(
         assetId: persisted.assetId,
         streamUid: persisted.streamUid,
@@ -233,6 +263,7 @@ class SocialStreamUploadService {
     required void Function(double progress)? onProgress,
     required String sessionKey,
     required int assetId,
+    required String streamUid,
     required String sourceType,
     required String title,
     required String fileName,
@@ -240,73 +271,113 @@ class SocialStreamUploadService {
   }) async {
     var uploaded = alreadyUploaded.clamp(0, totalBytes).toInt();
     while (uploaded < totalBytes) {
-      final end = (uploaded + defaultChunkSizeBytes)
-          .clamp(0, totalBytes)
-          .toInt();
-      final chunk = await _readBytes(mediaFile, uploaded, end);
-      final response = await dio.requestUri(
-        Uri.parse(uploadUrl),
-        data: chunk,
-        options: Options(
-          method: 'PATCH',
-          responseType: ResponseType.plain,
-          headers: <String, dynamic>{
-            'Tus-Resumable': '1.0.0',
-            'Upload-Offset': uploaded.toString(),
-            'Upload-Length': totalBytes.toString(),
-            'Content-Type': 'application/offset+octet-stream',
-          },
-          validateStatus: (status) =>
-              status != null && status >= 200 && status < 500,
-        ),
-      );
-      final statusCode = response.statusCode ?? 0;
-      if (statusCode != 200 && statusCode != 204) {
-        throw StateError('Stream upload failed with status $statusCode.');
+      var attempt = 0;
+      while (true) {
+        final end = (uploaded + defaultChunkSizeBytes)
+            .clamp(0, totalBytes)
+            .toInt();
+        final chunk = await _readBytes(mediaFile, uploaded, end);
+        try {
+          final response = await dio.requestUri<dynamic>(
+            Uri.parse(uploadUrl),
+            data: chunk,
+            options: Options(
+              method: 'PATCH',
+              responseType: ResponseType.plain,
+              headers: <String, dynamic>{
+                'Tus-Resumable': '1.0.0',
+                'Upload-Offset': uploaded.toString(),
+                'Content-Type': 'application/offset+octet-stream',
+                Headers.contentLengthHeader: chunk.length,
+              },
+              validateStatus: (_) => true,
+            ),
+          );
+          final statusCode = response.statusCode ?? 0;
+          if (statusCode == 404 || statusCode == 410) {
+            throw const _ExpiredStreamUploadException();
+          }
+          if (statusCode < 200 || statusCode >= 300) {
+            throw DioException.badResponse(
+              statusCode: statusCode,
+              requestOptions: response.requestOptions,
+              response: response,
+            );
+          }
+          final serverOffset = int.tryParse(
+            response.headers.value('upload-offset') ?? '',
+          );
+          if (serverOffset == null ||
+              serverOffset < uploaded ||
+              serverOffset > totalBytes) {
+            throw StateError('Stream upload returned an invalid offset.');
+          }
+          uploaded = serverOffset;
+          onProgress?.call(uploaded / totalBytes);
+          await _savePersistedSession(
+            _PersistedSocialStreamUploadSession(
+              key: sessionKey,
+              assetId: assetId,
+              streamUid: streamUid,
+              uploadUrl: uploadUrl,
+              sourceType: sourceType.toLowerCase().trim(),
+              filePath: mediaFile.path ?? '',
+              fileName: fileName,
+              mimeType: mimeType,
+              sizeBytes: totalBytes,
+              uploadedBytes: uploaded,
+              title: title,
+              createdAt: DateTime.now().toUtc(),
+              updatedAt: DateTime.now().toUtc(),
+            ),
+          );
+          break;
+        } on _ExpiredStreamUploadException {
+          rethrow;
+        } catch (_) {
+          attempt += 1;
+          if (attempt > _maxChunkRetries) rethrow;
+          await Future<void>.delayed(
+            Duration(milliseconds: math.min(8000, 250 * (1 << (attempt - 1)))),
+          );
+          // PATCH may have reached Cloudflare even when its response was lost.
+          // Reconcile before retrying and read the next chunk from that offset.
+          final serverOffset = await _readUploadOffset(uploadUrl);
+          if (serverOffset != null) {
+            uploaded = serverOffset.clamp(0, totalBytes).toInt();
+            onProgress?.call(uploaded / totalBytes);
+          }
+          if (uploaded >= totalBytes) break;
+        }
       }
-      final serverOffset = int.tryParse(
-        response.headers.value('upload-offset') ?? '',
-      );
-      uploaded = serverOffset ?? end;
-      onProgress?.call(uploaded / totalBytes);
-      await _savePersistedSession(
-        _PersistedSocialStreamUploadSession(
-          key: sessionKey,
-          assetId: assetId,
-          streamUid: '',
-          uploadUrl: uploadUrl,
-          sourceType: sourceType.toLowerCase().trim(),
-          filePath: mediaFile.path ?? '',
-          fileName: fileName,
-          mimeType: mimeType,
-          sizeBytes: totalBytes,
-          uploadedBytes: uploaded,
-          title: title,
-          createdAt: DateTime.now().toUtc(),
-          updatedAt: DateTime.now().toUtc(),
-        ),
-      );
     }
     return uploaded;
   }
 
   Future<int?> _readUploadOffset(String uploadUrl) async {
-    try {
-      final response = await dio.requestUri(
-        Uri.parse(uploadUrl),
-        options: Options(
-          method: 'HEAD',
-          validateStatus: (status) =>
-              status != null && status >= 200 && status < 500,
-          headers: const {'Tus-Resumable': '1.0.0'},
-        ),
-      );
-      final header = response.headers.value('upload-offset');
-      final offset = int.tryParse(header ?? '');
-      return offset != null && offset >= 0 ? offset : null;
-    } catch (_) {
-      return null;
+    final response = await dio.requestUri<dynamic>(
+      Uri.parse(uploadUrl),
+      options: Options(
+        method: 'HEAD',
+        responseType: ResponseType.plain,
+        validateStatus: (_) => true,
+        headers: const {'Tus-Resumable': '1.0.0'},
+      ),
+    );
+    final statusCode = response.statusCode ?? 0;
+    if (statusCode == 404 || statusCode == 410) {
+      throw const _ExpiredStreamUploadException();
     }
+    if (statusCode < 200 || statusCode >= 300) {
+      throw DioException.badResponse(
+        statusCode: statusCode,
+        requestOptions: response.requestOptions,
+        response: response,
+      );
+    }
+    final header = response.headers.value('upload-offset');
+    final offset = int.tryParse(header ?? '');
+    return offset != null && offset >= 0 ? offset : null;
   }
 
   Future<List<int>> _readBytes(
@@ -422,6 +493,10 @@ class SocialStreamUploadService {
 }
 
 const String _sessionPrefix = 'social_stream_upload_session';
+
+class _ExpiredStreamUploadException implements Exception {
+  const _ExpiredStreamUploadException();
+}
 
 class _PersistedSocialStreamUploadSession {
   final String key;
