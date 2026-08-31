@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
 import 'package:social_core/local_media_file.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../social/models/social_story_document.dart';
 import '../../social/state/social_controller.dart';
@@ -15,15 +15,17 @@ import '../../social/ui/widgets/social_story_canvas.dart';
 import '../../social/ui/widgets/social_story_tool_panels.dart';
 import '../media/social_safe_image.dart';
 import '../pickers/social_media_picker_v3.dart';
-import 'story_media_type_picker.dart';
 import 'story_composer_source.dart';
+import 'story_media_type_picker.dart';
 
-/// Full-screen Story Composer.
+/// Reserved layer persisted inside storyStyle.
 ///
-/// This screen owns the live draft state, renders the selected media in the
-/// 9:16 canvas, and exposes the real text / mention / sticker / draw tools.
-/// The publish callback receives the live caption plus scope, while the draft
-/// provider keeps the media attachment and layer state authoritative.
+/// It is intentionally represented as an empty reel-share layer because the
+/// existing document schema already persists x/y/scale/rotation/text and the
+/// canvas renders no attachment when a normal local-media story has none. This
+/// keeps the change backwards-compatible without a database migration.
+const String kStoryBaseMediaTransformLayerId = '__base_media_transform_v1__';
+
 class StoryComposerV3 extends ConsumerStatefulWidget {
   const StoryComposerV3({
     super.key,
@@ -37,8 +39,7 @@ class StoryComposerV3 extends ConsumerStatefulWidget {
   final StoryComposerSource source;
   final StoryComposerScope scope;
   final bool audienceScopeSupported;
-  final Future<bool> Function(String caption, StoryComposerScope scope)?
-  onPublish;
+  final Future<bool> Function(String caption, StoryComposerScope scope)? onPublish;
   final void Function(String caption)? onSaveDraft;
 
   static Route<void> route(
@@ -67,24 +68,25 @@ class StoryComposerV3 extends ConsumerStatefulWidget {
 class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
   late final TextEditingController _captionController;
   bool _publishing = false;
-  bool _seeded = false;
 
   StoryComposerScope get _scope => widget.scope;
 
-  bool get isScopedPublishBlocked =>
+  bool get _scopedPublishBlocked =>
       _scope.scope != StoryAudienceScope.global &&
       !widget.audienceScopeSupported;
 
   @override
   void initState() {
     super.initState();
-    final draft = widget.source.buildInitialDraft();
+    var draft = widget.source.buildInitialDraft();
+    if (draft.buildLocalMediaFile() != null) {
+      draft = _ensureMediaTransform(draft);
+    }
     _captionController = TextEditingController(text: draft.caption);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       ref.read(socialStoryDraftControllerProvider.notifier).replaceDraft(draft);
     });
-    _seeded = true;
   }
 
   @override
@@ -93,10 +95,83 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
     super.dispose();
   }
 
-  String _scopeLabel(StoryComposerScope scope) {
-    if (scope.label != null && scope.label!.trim().isNotEmpty) {
-      return scope.label!.trim();
+  SocialStoryDraft _ensureMediaTransform(SocialStoryDraft draft) {
+    if (_mediaTransformLayer(draft) != null) return draft;
+    return draft.copyWith(
+      layers: <SocialStoryLayer>[
+        ...draft.layers,
+        _defaultMediaTransformLayer(),
+      ],
+    );
+  }
+
+  SocialStoryLayer _defaultMediaTransformLayer() => const SocialStoryLayer(
+        id: kStoryBaseMediaTransformLayerId,
+        type: SocialStoryLayerType.reelShare,
+        x: 0.5,
+        y: 0.5,
+        scale: 1,
+        rotation: 0,
+        zIndex: -1000,
+        text: 'contain',
+        color: null,
+        backgroundColor: null,
+        fontFamily: null,
+        fontWeight: null,
+        textAlign: null,
+        fontScale: null,
+        sticker: null,
+        mentionedUserId: null,
+        displayLabel: null,
+        locked: true,
+      );
+
+  SocialStoryLayer? _mediaTransformLayer(SocialStoryDraft draft) {
+    for (final layer in draft.layers) {
+      if (layer.id == kStoryBaseMediaTransformLayerId) return layer;
     }
+    return null;
+  }
+
+  void _setMediaTransform({
+    double? x,
+    double? y,
+    double? scale,
+    double? rotation,
+    String? fit,
+    bool reset = false,
+  }) {
+    final notifier = ref.read(socialStoryDraftControllerProvider.notifier);
+    var draft = ref.read(socialStoryDraftControllerProvider).draft;
+    if (draft.buildLocalMediaFile() == null) return;
+    draft = _ensureMediaTransform(draft);
+    final current = _mediaTransformLayer(draft) ?? _defaultMediaTransformLayer();
+    final next = reset
+        ? _defaultMediaTransformLayer()
+        : current.copyWith(
+            x: (x ?? current.x).clamp(-0.25, 1.25),
+            y: (y ?? current.y).clamp(-0.25, 1.25),
+            scale: (scale ?? current.scale).clamp(0.5, 5.0),
+            rotation: rotation ?? current.rotation,
+            text: fit ?? current.text,
+          );
+    final layers = draft.layers
+        .map((layer) => layer.id == kStoryBaseMediaTransformLayerId ? next : layer)
+        .toList(growable: true);
+    if (!layers.any((layer) => layer.id == kStoryBaseMediaTransformLayerId)) {
+      layers.add(next);
+    }
+    notifier.replaceDraft(draft.copyWith(layers: layers));
+  }
+
+  void _toggleFit(SocialStoryDraft draft) {
+    final layer = _mediaTransformLayer(draft) ?? _defaultMediaTransformLayer();
+    final current = (layer.text ?? 'contain').trim().toLowerCase();
+    _setMediaTransform(fit: current == 'cover' ? 'contain' : 'cover');
+  }
+
+  String _scopeLabel(StoryComposerScope scope) {
+    if ((scope.label ?? '').trim().isNotEmpty) return scope.label!.trim();
     switch (scope.scope) {
       case StoryAudienceScope.global:
         return 'الجمهور: جميع المستخدمين';
@@ -120,7 +195,7 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
   }
 
   SocialStoryLayer? _selectedLayer(SocialStoryDraft draft, String? layerId) {
-    if (layerId == null) return null;
+    if (layerId == null || layerId == kStoryBaseMediaTransformLayerId) return null;
     for (final layer in draft.layers) {
       if (layer.id == layerId) return layer;
     }
@@ -128,9 +203,9 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
   }
 
   String _publishCaption(SocialStoryDraft draft) {
-    final explicit = draft.caption.trim();
-    if (explicit.isNotEmpty) return explicit;
+    if (draft.caption.trim().isNotEmpty) return draft.caption.trim();
     for (final layer in draft.layers) {
+      if (layer.id == kStoryBaseMediaTransformLayerId) continue;
       if (layer.type == SocialStoryLayerType.text &&
           (layer.text ?? '').trim().isNotEmpty) {
         return layer.text!.trim();
@@ -141,64 +216,44 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
 
   Future<void> _publish() async {
     if (_publishing) return;
-    if (isScopedPublishBlocked) {
+    if (_scopedPublishBlocked) {
       widget.onSaveDraft?.call(_captionController.text.trim());
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'نشر القصص المخصصة للبناية غير متاح حالياً. تم حفظ المسودة.',
-          ),
+          content: Text('نشر القصص المخصصة غير متاح حالياً. تم حفظ المسودة.'),
         ),
       );
       return;
     }
-
     final draft = ref.read(socialStoryDraftControllerProvider).draft;
-    final publishCaption = _publishCaption(draft);
-    final media = draft.buildLocalMediaFile();
-    if (publishCaption.isEmpty && media == null && draft.attachment == null) {
-      widget.onSaveDraft?.call(_captionController.text.trim());
-      if (!mounted) return;
+    final caption = _publishCaption(draft);
+    if (caption.isEmpty &&
+        draft.buildLocalMediaFile() == null &&
+        draft.attachment == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('أضف نصاً أو وسائط قبل نشر القصة.')),
       );
       return;
     }
-
-    setState(() {
-      _publishing = true;
-    });
-
-    final ok =
-        await (widget.onPublish?.call(publishCaption, _scope) ??
-            Future.value(true));
+    setState(() => _publishing = true);
+    final ok = await (widget.onPublish?.call(caption, _scope) ?? Future.value(true));
     if (!mounted) return;
     if (ok) {
       Navigator.of(context).maybePop(true);
       return;
     }
-    // §5: never fail silently. Surface the authoritative reason so the user can
-    // retry (the draft is preserved because we do not pop).
     final err = ref.read(socialControllerProvider).error;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          (err != null && err.trim().isNotEmpty)
-              ? err
+          (err ?? '').trim().isNotEmpty
+              ? err!.trim()
               : 'تعذّر نشر القصة. تحقّق من الاتصال وحاول مرة أخرى.',
         ),
       ),
     );
-    setState(() {
-      _publishing = false;
-    });
-  }
-
-  Future<void> _openOriginalReel() async {
-    final reel = widget.source.sharedReel;
-    if (reel == null || reel.reelId <= 0) return;
-    await openSocialReelsV3(context, reelId: reel.reelId);
+    setState(() => _publishing = false);
   }
 
   Future<void> _replaceMedia() async {
@@ -211,6 +266,10 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
     if (picked == null || !mounted) return;
     final notifier = ref.read(socialStoryDraftControllerProvider.notifier);
     final current = ref.read(socialStoryDraftControllerProvider).draft;
+    final withoutOldTransform = current.layers
+        .where((layer) => layer.id != kStoryBaseMediaTransformLayerId)
+        .toList(growable: true)
+      ..add(_defaultMediaTransformLayer());
     notifier.replaceDraft(
       current.copyWith(
         mode: SocialStoryComposerMode.media,
@@ -218,51 +277,39 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
         mediaName: picked.name,
         mediaMimeType: picked.mimeType,
         clearAttachment: true,
+        layers: withoutOldTransform,
       ),
     );
   }
 
+  Future<void> _openOriginalReel() async {
+    final reel = widget.source.sharedReel;
+    if (reel == null || reel.reelId <= 0) return;
+    await openSocialReelsV3(context, reelId: reel.reelId);
+  }
+
   Widget? _buildBaseMedia(SocialStoryDraft draft) {
     final source = widget.source;
-    if (source.kind == StorySourceKind.sharedReel &&
-        source.sharedReel != null) {
-      return _SharedReelPreview(
-        reel: source.sharedReel!,
-        onOpenOriginalReel: _openOriginalReel,
+    if (source.kind == StorySourceKind.sharedReel && source.sharedReel != null) {
+      final reel = source.sharedReel!;
+      return GestureDetector(
+        onTap: _openOriginalReel,
+        child: _SharedReelPreview(reel: reel),
       );
     }
-
     final media = draft.buildLocalMediaFile();
-    if (media == null) {
-      if (draft.mode == SocialStoryComposerMode.text &&
-          draft.caption.trim().isNotEmpty &&
-          draft.layers.isEmpty) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Text(
-              draft.caption.trim(),
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 30,
-                fontWeight: FontWeight.w800,
-                shadows: [Shadow(color: Colors.black87, blurRadius: 10)],
-              ),
-            ),
-          ),
-        );
-      }
-      return null;
-    }
-
-    if (media.isVideo) {
-      return _LocalVideoPreview(media: media);
-    }
-    return Image.file(
-      File(media.path!),
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => const SizedBox.shrink(),
+    if (media == null) return null;
+    final transform = _mediaTransformLayer(draft) ?? _defaultMediaTransformLayer();
+    return _EditableBaseMedia(
+      media: media,
+      transform: transform,
+      onChanged: (next) => _setMediaTransform(
+        x: next.x,
+        y: next.y,
+        scale: next.scale,
+        rotation: next.rotation,
+        fit: next.fit,
+      ),
     );
   }
 
@@ -283,19 +330,17 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
     }
   }
 
-  void _setTool(SocialStoryComposerTool tool) {
-    ref.read(socialStoryDraftControllerProvider.notifier).setTool(tool);
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(socialStoryDraftControllerProvider);
     final draft = state.draft;
+    final notifier = ref.read(socialStoryDraftControllerProvider.notifier);
     final selectedLayer = _selectedLayer(draft, state.selectedLayerId);
-    final toolView = _toolViewFor(state.activeTool);
+    final mediaTransform = _mediaTransformLayer(draft);
+    final fit = (mediaTransform?.text ?? 'contain').trim().toLowerCase();
+    final hasEditableMedia = draft.buildLocalMediaFile() != null;
     final padding = MediaQuery.of(context).padding;
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
-    final notifier = ref.read(socialStoryDraftControllerProvider.notifier);
     final showToolPanel = state.activeTool != SocialStoryComposerTool.none;
 
     return Scaffold(
@@ -313,14 +358,10 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                 borderRadius: BorderRadius.zero,
                 baseMedia: _buildBaseMedia(draft),
                 onSelectLayer: notifier.selectLayer,
-                onLayerChanged: (layer) =>
-                    notifier.updateLayer(layer.id, layer),
+                onLayerChanged: (layer) => notifier.updateLayer(layer.id, layer),
                 onDrawStroke: notifier.addDrawStroke,
                 onLayerTap: (layer) {
-                  if (layer.type == SocialStoryLayerType.mention &&
-                      (layer.mentionedUserId ?? 0) > 0) {
-                    return;
-                  }
+                  if (layer.id == kStoryBaseMediaTransformLayerId) return;
                   notifier.selectLayer(layer.id);
                 },
                 onAttachmentTap: widget.source.sharedReel != null
@@ -330,56 +371,85 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
             ),
           ),
           Positioned(
-            top: padding.top + 10,
-            left: 12,
-            right: 12,
+            top: padding.top + 8,
+            left: 10,
+            right: 10,
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _RoundButton(
+                _CircleButton(
                   icon: Icons.close_rounded,
+                  tooltip: 'إغلاق',
                   onTap: () => Navigator.of(context).maybePop(),
                 ),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    _RoundButton(
-                      icon: Icons.text_fields_rounded,
-                      onTap: () {
-                        if (state.selectedLayerId == null ||
-                            selectedLayer?.type != SocialStoryLayerType.text) {
-                          notifier.addTextLayer(text: _captionController.text);
-                        }
-                        _setTool(SocialStoryComposerTool.text);
-                      },
+                const Spacer(),
+                if (hasEditableMedia) ...[
+                  _CircleButton(
+                    icon: fit == 'cover'
+                        ? Icons.fullscreen_rounded
+                        : Icons.fit_screen_rounded,
+                    tooltip: fit == 'cover' ? 'ملء الشاشة' : 'إظهار كامل الوسيط',
+                    onTap: () => _toggleFit(draft),
+                  ),
+                  _CircleButton(
+                    icon: Icons.rotate_90_degrees_cw_rounded,
+                    tooltip: 'تدوير',
+                    onTap: () => _setMediaTransform(
+                      rotation: (mediaTransform?.rotation ?? 0) + math.pi / 2,
                     ),
-                    _RoundButton(
-                      icon: Icons.alternate_email_rounded,
-                      onTap: () => _setTool(SocialStoryComposerTool.mention),
-                    ),
-                    _RoundButton(
-                      icon: Icons.emoji_emotions_outlined,
-                      onTap: () => _setTool(SocialStoryComposerTool.stickers),
-                    ),
-                    _RoundButton(
-                      icon: Icons.brush_rounded,
-                      onTap: () => _setTool(SocialStoryComposerTool.draw),
-                    ),
-                    if (widget.source.kind != StorySourceKind.sharedReel)
-                      _RoundButton(
-                        icon: Icons.photo_library_outlined,
-                        onTap: _replaceMedia,
-                      ),
-                    if (widget.source.kind == StorySourceKind.sharedReel)
-                      _RoundButton(
-                        icon: Icons.open_in_new_rounded,
-                        onTap: _openOriginalReel,
-                      ),
-                  ],
+                  ),
+                  _CircleButton(
+                    icon: Icons.restart_alt_rounded,
+                    tooltip: 'إعادة الضبط',
+                    onTap: () => _setMediaTransform(reset: true),
+                  ),
+                ],
+                _CircleButton(
+                  icon: Icons.text_fields_rounded,
+                  tooltip: 'نص',
+                  onTap: () {
+                    if (selectedLayer?.type != SocialStoryLayerType.text) {
+                      notifier.addTextLayer(text: _captionController.text);
+                    }
+                    notifier.setTool(SocialStoryComposerTool.text);
+                  },
                 ),
+                _CircleButton(
+                  icon: Icons.alternate_email_rounded,
+                  tooltip: 'منشن',
+                  onTap: () => notifier.setTool(SocialStoryComposerTool.mention),
+                ),
+                _CircleButton(
+                  icon: Icons.emoji_emotions_outlined,
+                  tooltip: 'ملصقات',
+                  onTap: () => notifier.setTool(SocialStoryComposerTool.stickers),
+                ),
+                _CircleButton(
+                  icon: Icons.brush_rounded,
+                  tooltip: 'رسم',
+                  onTap: () => notifier.setTool(SocialStoryComposerTool.draw),
+                ),
+                if (widget.source.kind != StorySourceKind.sharedReel)
+                  _CircleButton(
+                    icon: Icons.photo_library_outlined,
+                    tooltip: 'استبدال الوسيط',
+                    onTap: _replaceMedia,
+                  ),
               ],
             ),
           ),
+          if (hasEditableMedia)
+            Positioned(
+              top: padding.top + 62,
+              left: 0,
+              right: 0,
+              child: const IgnorePointer(
+                child: Center(
+                  child: _HintPill(
+                    text: 'اسحب للتعديل • قرّب بإصبعين • دوّر بإصبعين',
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             left: 12,
             right: 12,
@@ -389,49 +459,41 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
               children: [
                 if (showToolPanel) ...[
                   SocialStoryToolPanels(
-                    tool: toolView,
+                    tool: _toolViewFor(state.activeTool),
                     selectedLayer: selectedLayer,
                     onTextChanged: (value) {
                       notifier.setCaption(value);
                       notifier.updateSelectedTextLayer(text: value);
                     },
-                    onTextColorChanged: (value) {
-                      notifier.updateSelectedTextLayer(color: value);
-                    },
-                    onTextBackgroundChanged: (value) {
-                      notifier.updateSelectedTextLayer(backgroundColor: value);
-                    },
-                    onFontScaleChanged: (value) {
-                      notifier.updateSelectedTextLayer(fontScale: value);
-                    },
-                    onStickerSelected: (sticker) {
-                      notifier.addStickerLayer(sticker);
-                    },
-                    onMentionSelected: (userId, label) {
-                      notifier.addMentionLayer(
-                        userId: userId,
-                        displayLabel: label,
-                      );
-                    },
+                    onTextColorChanged: (value) =>
+                        notifier.updateSelectedTextLayer(color: value),
+                    onTextBackgroundChanged: (value) =>
+                        notifier.updateSelectedTextLayer(backgroundColor: value),
+                    onFontScaleChanged: (value) =>
+                        notifier.updateSelectedTextLayer(fontScale: value),
+                    onStickerSelected: notifier.addStickerLayer,
+                    onMentionSelected: (userId, label) => notifier.addMentionLayer(
+                      userId: userId,
+                      displayLabel: label,
+                    ),
                     onReplaceMedia: _replaceMedia,
                     onClearSelection: () =>
-                        _setTool(SocialStoryComposerTool.none),
+                        notifier.setTool(SocialStoryComposerTool.none),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                 ],
                 Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                   decoration: BoxDecoration(
                     color: const Color(0xCC0D1B2A),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFFE7B24B)),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0x66E7B24B)),
                   ),
                   child: TextField(
                     controller: _captionController,
-                    onChanged: (value) => notifier.setCaption(value),
-                    minLines: 1,
+                    onChanged: notifier.setCaption,
                     maxLines: 3,
+                    minLines: 1,
                     style: const TextStyle(color: Colors.white),
                     decoration: const InputDecoration(
                       hintText: 'أضف وصفاً',
@@ -440,72 +502,191 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Row(
                   children: [
-                    _ScopeChip(
-                      label: _scopeLabel(_scope),
-                      official: _scope.isOfficial,
-                      locked: _scope.locked,
-                    ),
+                    _HintPill(text: _scopeLabel(_scope)),
                     const Spacer(),
                     TextButton(
-                      onPressed: () async {
-                        widget.onSaveDraft?.call(
-                          _captionController.text.trim(),
-                        );
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('تم حفظ المسودة')),
-                        );
-                      },
-                      child: const Text(
-                        'مسودة',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      onPressed: _publishing
+                          ? null
+                          : () async {
+                              await notifier.saveDraft();
+                              widget.onSaveDraft?.call(_captionController.text.trim());
+                              if (!mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('تم حفظ المسودة')),
+                              );
+                            },
+                      child: const Text('مسودة'),
                     ),
                     const SizedBox(width: 8),
-                    _PublishButton(onTap: _publishing ? null : _publish),
+                    FilledButton.icon(
+                      onPressed: _publishing ? null : _publish,
+                      icon: _publishing
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.send_rounded),
+                      label: Text(_publishing ? 'جارٍ النشر…' : 'نشر'),
+                    ),
                   ],
                 ),
               ],
             ),
           ),
-          if ((_seeded &&
-                  _captionController.text.trim().isNotEmpty &&
-                  draft.layers.isEmpty &&
-                  draft.mode == SocialStoryComposerMode.text) ||
-              (_captionController.text.trim().isNotEmpty &&
-                  draft.layers.isEmpty &&
-                  draft.mode == SocialStoryComposerMode.media))
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  _captionController.text.trim(),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.w800,
-                    shadows: [Shadow(color: Colors.black87, blurRadius: 10)],
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );
   }
 }
 
-class _LocalVideoPreview extends StatefulWidget {
-  const _LocalVideoPreview({required this.media});
+class _MediaTransformValue {
+  const _MediaTransformValue({
+    required this.x,
+    required this.y,
+    required this.scale,
+    required this.rotation,
+    required this.fit,
+  });
+
+  final double x;
+  final double y;
+  final double scale;
+  final double rotation;
+  final String fit;
+}
+
+class _EditableBaseMedia extends StatefulWidget {
+  const _EditableBaseMedia({
+    required this.media,
+    required this.transform,
+    required this.onChanged,
+  });
 
   final LocalMediaFile media;
+  final SocialStoryLayer transform;
+  final ValueChanged<_MediaTransformValue> onChanged;
+
+  @override
+  State<_EditableBaseMedia> createState() => _EditableBaseMediaState();
+}
+
+class _EditableBaseMediaState extends State<_EditableBaseMedia> {
+  late double _x;
+  late double _y;
+  late double _scale;
+  late double _rotation;
+  late String _fit;
+  double _gestureScale = 1;
+  double _gestureRotation = 0;
+  Offset _gestureFocal = Offset.zero;
+
+  @override
+  void initState() {
+    super.initState();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EditableBaseMedia oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.transform != widget.transform) _sync();
+  }
+
+  void _sync() {
+    _x = widget.transform.x;
+    _y = widget.transform.y;
+    _scale = widget.transform.scale;
+    _rotation = widget.transform.rotation;
+    _fit = (widget.transform.text ?? 'contain').trim().toLowerCase() == 'cover'
+        ? 'cover'
+        : 'contain';
+  }
+
+  void _emit() {
+    widget.onChanged(
+      _MediaTransformValue(
+        x: _x,
+        y: _y,
+        scale: _scale,
+        rotation: _rotation,
+        fit: _fit,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final height = constraints.maxHeight;
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onScaleStart: (details) {
+            _gestureScale = _scale;
+            _gestureRotation = _rotation;
+            _gestureFocal = details.focalPoint;
+          },
+          onScaleUpdate: (details) {
+            final delta = details.focalPoint - _gestureFocal;
+            _gestureFocal = details.focalPoint;
+            setState(() {
+              _scale = (_gestureScale * details.scale).clamp(0.5, 5.0);
+              _rotation = _gestureRotation + details.rotation;
+              if (width > 0) _x = (_x + delta.dx / width).clamp(-0.25, 1.25);
+              if (height > 0) _y = (_y + delta.dy / height).clamp(-0.25, 1.25);
+            });
+          },
+          onScaleEnd: (_) => _emit(),
+          child: ClipRect(
+            child: Transform.translate(
+              offset: Offset((_x - 0.5) * width, (_y - 0.5) * height),
+              child: Transform.rotate(
+                angle: _rotation,
+                child: Transform.scale(
+                  scale: _scale,
+                  child: _MediaContent(media: widget.media, fit: _fit),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _MediaContent extends StatelessWidget {
+  const _MediaContent({required this.media, required this.fit});
+
+  final LocalMediaFile media;
+  final String fit;
+
+  @override
+  Widget build(BuildContext context) {
+    final boxFit = fit == 'cover' ? BoxFit.cover : BoxFit.contain;
+    if (media.isVideo) return _LocalVideoPreview(media: media, fit: boxFit);
+    final path = (media.path ?? '').trim();
+    if (path.isEmpty) return const SizedBox.shrink();
+    return SizedBox.expand(
+      child: Image.file(
+        File(path),
+        fit: boxFit,
+        errorBuilder: (_, _, _) => const SizedBox.shrink(),
+      ),
+    );
+  }
+}
+
+class _LocalVideoPreview extends StatefulWidget {
+  const _LocalVideoPreview({required this.media, required this.fit});
+
+  final LocalMediaFile media;
+  final BoxFit fit;
 
   @override
   State<_LocalVideoPreview> createState() => _LocalVideoPreviewState();
@@ -513,20 +694,17 @@ class _LocalVideoPreview extends StatefulWidget {
 
 class _LocalVideoPreviewState extends State<_LocalVideoPreview> {
   VideoPlayerController? _controller;
-  bool _ready = false;
 
   @override
   void initState() {
     super.initState();
-    _init();
+    unawaited(_init());
   }
 
   Future<void> _init() async {
     try {
-      final path = widget.media.path;
-      if (path == null || path.trim().isEmpty) {
-        throw StateError('Local video preview requires a file path');
-      }
+      final path = (widget.media.path ?? '').trim();
+      if (path.isEmpty) return;
       final controller = VideoPlayerController.file(File(path));
       await controller.initialize();
       await controller.setLooping(true);
@@ -536,16 +714,8 @@ class _LocalVideoPreviewState extends State<_LocalVideoPreview> {
         await controller.dispose();
         return;
       }
-      setState(() {
-        _controller = controller;
-        _ready = true;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _ready = false;
-      });
-    }
+      setState(() => _controller = controller);
+    } catch (_) {}
   }
 
   @override
@@ -556,442 +726,142 @@ class _LocalVideoPreviewState extends State<_LocalVideoPreview> {
 
   @override
   Widget build(BuildContext context) {
-    if (!_ready || _controller == null) {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) {
       return const ColoredBox(
         color: Color(0xFF0D1B2A),
-        child: Center(
-          child: Icon(
-            Icons.play_circle_fill_rounded,
-            color: Colors.white54,
-            size: 72,
-          ),
-        ),
+        child: Center(child: CircularProgressIndicator(color: Colors.white54)),
       );
     }
-    final controller = _controller!;
-    return FittedBox(
-      fit: BoxFit.cover,
-      child: SizedBox(
-        width: controller.value.size.width,
-        height: controller.value.size.height,
-        child: VideoPlayer(controller),
+    final size = controller.value.size;
+    return SizedBox.expand(
+      child: ClipRect(
+        child: FittedBox(
+          fit: widget.fit,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: size.width,
+            height: size.height,
+            child: VideoPlayer(controller),
+          ),
+        ),
       ),
     );
   }
 }
 
 class _SharedReelPreview extends StatelessWidget {
-  const _SharedReelPreview({
-    required this.reel,
-    required this.onOpenOriginalReel,
-  });
+  const _SharedReelPreview({required this.reel});
 
   final SharedReelSource reel;
-  final VoidCallback onOpenOriginalReel;
 
   @override
   Widget build(BuildContext context) {
     final presentation = reel.toPresentation();
-    final topLeft = reel.authorName?.trim().isNotEmpty == true
-        ? reel.authorName!.trim()
-        : (reel.authorHandle?.trim().isNotEmpty == true
-              ? reel.authorHandle!.trim()
-              : 'Original reel');
-    final posterUrl = (presentation.posterImageUrl ?? '').trim();
-    final playbackUrl = (presentation.videoPlaybackUrl ?? '').trim();
-
-    final media = playbackUrl.isNotEmpty
-        ? _SharedReelPlaybackPreview(
-            playbackUrl: playbackUrl,
-            posterUrl: posterUrl,
-            isVertical: presentation.isVertical,
-            aspectRatio: presentation.aspectRatio ?? reel.aspectRatio,
-          )
-        : _SharedReelPosterPreview(
-            posterUrl: posterUrl,
-            isVertical: presentation.isVertical,
-            aspectRatio: presentation.aspectRatio ?? reel.aspectRatio,
-          );
-
     return Stack(
       fit: StackFit.expand,
       children: [
-        media,
-        Positioned(
-          top: 18,
-          left: 18,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: 0.45),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: const Color(0xFFE7B24B)),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircleAvatar(
-                  radius: 14,
-                  backgroundColor: Colors.white12,
-                  backgroundImage: (reel.authorAvatarUrl ?? '').trim().isEmpty
-                      ? null
-                      : NetworkImage(reel.authorAvatarUrl!),
-                  child: (reel.authorAvatarUrl ?? '').trim().isEmpty
-                      ? const Icon(Icons.person, color: Colors.white, size: 14)
-                      : null,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  topLeft,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
+        SocialSafeImage(
+          imageUrl: presentation.posterImageUrl,
+          fit: reel.isVertical ? BoxFit.cover : BoxFit.contain,
+          showVideoGlyph: true,
         ),
         Positioned(
+          left: 16,
           right: 16,
           bottom: 18,
-          child: ElevatedButton.icon(
-            onPressed: onOpenOriginalReel,
-            icon: const Icon(Icons.open_in_new_rounded),
-            label: const Text('فتح الريل الأصلي'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFE7B24B),
-              foregroundColor: Colors.black,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.52),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  const Icon(Icons.play_circle_fill_rounded, color: Colors.white),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      (reel.authorName ?? reel.authorHandle ?? 'الريل الأصلي').trim(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.open_in_new_rounded, color: Colors.white70),
+                ],
+              ),
             ),
           ),
-        ),
-        if (!reel.available)
-          Positioned.fill(
-            child: Container(
-              color: Colors.black.withValues(alpha: 0.36),
-              alignment: Alignment.center,
-              child: const Text(
-                'الريل الأصلي غير متاح',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _SharedReelPosterPreview extends StatelessWidget {
-  const _SharedReelPosterPreview({
-    required this.posterUrl,
-    required this.isVertical,
-    required this.aspectRatio,
-  });
-
-  final String posterUrl;
-  final bool isVertical;
-  final double aspectRatio;
-
-  @override
-  Widget build(BuildContext context) {
-    final poster = posterUrl.trim();
-    if (poster.isEmpty) {
-      return const DecoratedBox(
-        decoration: BoxDecoration(color: Color(0xFF0D1B2A)),
-        child: Center(
-          child: Icon(
-            Icons.play_circle_outline_rounded,
-            color: Colors.white54,
-            size: 72,
-          ),
-        ),
-      );
-    }
-    return isVertical
-        ? SocialSafeImage(
-            imageUrl: poster,
-            fit: BoxFit.cover,
-            showVideoGlyph: true,
-          )
-        : Stack(
-            fit: StackFit.expand,
-            children: [
-              ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
-                child: SocialSafeImage(
-                  imageUrl: poster,
-                  fit: BoxFit.cover,
-                  showVideoGlyph: true,
-                ),
-              ),
-              Center(
-                child: AspectRatio(
-                  aspectRatio: aspectRatio,
-                  child: SocialSafeImage(
-                    imageUrl: poster,
-                    fit: BoxFit.contain,
-                    showVideoGlyph: true,
-                  ),
-                ),
-              ),
-            ],
-          );
-  }
-}
-
-class _SharedReelPlaybackPreview extends StatefulWidget {
-  const _SharedReelPlaybackPreview({
-    required this.playbackUrl,
-    required this.posterUrl,
-    required this.isVertical,
-    required this.aspectRatio,
-  });
-
-  final String playbackUrl;
-  final String posterUrl;
-  final bool isVertical;
-  final double aspectRatio;
-
-  @override
-  State<_SharedReelPlaybackPreview> createState() =>
-      _SharedReelPlaybackPreviewState();
-}
-
-class _SharedReelPlaybackPreviewState
-    extends State<_SharedReelPlaybackPreview> {
-  VideoPlayerController? _controller;
-  bool _ready = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _init();
-  }
-
-  Future<void> _init() async {
-    try {
-      final uri = Uri.parse(widget.playbackUrl);
-      final controller = VideoPlayerController.networkUrl(uri);
-      await controller.initialize();
-      await controller.setLooping(true);
-      await controller.setVolume(0);
-      await controller.play();
-      if (!mounted) {
-        await controller.dispose();
-        return;
-      }
-      setState(() {
-        _controller = controller;
-        _ready = true;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _ready = false;
-      });
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller?.dispose();
-    super.dispose();
-  }
-
-  Widget _fallbackPoster() {
-    final poster = widget.posterUrl.trim();
-    if (poster.isEmpty) {
-      return const DecoratedBox(
-        decoration: BoxDecoration(color: Color(0xFF0D1B2A)),
-        child: Center(
-          child: Icon(
-            Icons.play_circle_outline_rounded,
-            color: Colors.white54,
-            size: 72,
-          ),
-        ),
-      );
-    }
-    return widget.isVertical
-        ? SocialSafeImage(
-            imageUrl: poster,
-            fit: BoxFit.cover,
-            showVideoGlyph: true,
-          )
-        : Stack(
-            fit: StackFit.expand,
-            children: [
-              ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 26, sigmaY: 26),
-                child: SocialSafeImage(
-                  imageUrl: poster,
-                  fit: BoxFit.cover,
-                  showVideoGlyph: true,
-                ),
-              ),
-              Center(
-                child: AspectRatio(
-                  aspectRatio: widget.aspectRatio,
-                  child: SocialSafeImage(
-                    imageUrl: poster,
-                    fit: BoxFit.contain,
-                    showVideoGlyph: true,
-                  ),
-                ),
-              ),
-            ],
-          );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_ready || _controller == null) {
-      return _fallbackPoster();
-    }
-
-    final controller = _controller!;
-    final aspect = controller.value.aspectRatio <= 0
-        ? widget.aspectRatio
-        : controller.value.aspectRatio;
-    final player = FittedBox(
-      fit: widget.isVertical ? BoxFit.cover : BoxFit.contain,
-      child: SizedBox(
-        width: controller.value.size.width,
-        height: controller.value.size.height,
-        child: VideoPlayer(controller),
-      ),
-    );
-
-    if (widget.isVertical) {
-      return player;
-    }
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ImageFiltered(
-          imageFilter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
-          child: VideoPlayer(controller),
-        ),
-        DecoratedBox(
-          decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.4)),
-        ),
-        Center(
-          child: AspectRatio(aspectRatio: aspect, child: player),
         ),
       ],
     );
   }
 }
 
-class _RoundButton extends StatelessWidget {
-  const _RoundButton({required this.icon, required this.onTap});
+class _CircleButton extends StatelessWidget {
+  const _CircleButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+  });
 
   final IconData icon;
+  final String tooltip;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return InkResponse(
-      onTap: onTap,
-      radius: 26,
-      child: Container(
-        width: 40,
-        height: 40,
-        decoration: const BoxDecoration(
-          color: Color(0x55000000),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: Colors.white, size: 22),
-      ),
-    );
-  }
-}
-
-class _ScopeChip extends StatelessWidget {
-  const _ScopeChip({
-    required this.label,
-    required this.official,
-    required this.locked,
-  });
-
-  final String label;
-  final bool official;
-  final bool locked;
-
-  @override
-  Widget build(BuildContext context) {
-    final content = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0x66000000),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: official ? const Color(0xFFE7B24B) : Colors.white24,
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            official
-                ? Icons.verified_rounded
-                : (locked ? Icons.lock_outline : Icons.public),
-            color: official ? const Color(0xFFE7B24B) : Colors.white,
-            size: 16,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 2),
+      child: Tooltip(
+        message: tooltip,
+        child: InkResponse(
+          onTap: onTap,
+          radius: 24,
+          child: Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.42),
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white24),
             ),
+            child: Icon(icon, color: Colors.white, size: 20),
           ),
-        ],
+        ),
       ),
     );
-    return content;
   }
 }
 
-class _PublishButton extends StatelessWidget {
-  const _PublishButton({required this.onTap});
+class _HintPill extends StatelessWidget {
+  const _HintPill({required this.text});
 
-  final VoidCallback? onTap;
+  final String text;
 
   @override
   Widget build(BuildContext context) {
-    if (onTap == null) {
-      return Container(
-        width: 110,
-        height: 48,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: const Color(0xFFE7B24B).withValues(alpha: 0.28),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: const SizedBox(
-          width: 18,
-          height: 18,
-          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-        ),
-      );
-    }
-    return FilledButton(
-      onPressed: onTap,
-      style: FilledButton.styleFrom(
-        backgroundColor: const Color(0xFFE7B24B),
-        foregroundColor: Colors.black,
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 280),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.48),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white24),
       ),
-      child: const Text('نشر', style: TextStyle(fontWeight: FontWeight.w800)),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
