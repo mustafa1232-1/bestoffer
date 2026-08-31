@@ -1,0 +1,46 @@
+name: tmp-stream-contract-patch
+
+on:
+  push:
+    branches:
+      - fix/social-stream-realtime-closure
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'chore: add temporary stream contract patch workflow'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/social-stream-realtime-closure
+      - name: Align Cloudflare tus chunk sizes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          replacements = {
+              Path('lib/features/social_v3/upload/tus_upload_client.dart'): (
+                  'this.chunkSize = 4 * 1024 * 1024,',
+                  'this.chunkSize = 5 * 1024 * 1024,',
+              ),
+              Path('lib/features/social/data/social_stream_upload_service.dart'): (
+                  'static const int defaultChunkSizeBytes = 1024 * 1024;',
+                  'static const int defaultChunkSizeBytes = 5 * 1024 * 1024;',
+              ),
+          }
+          for path, (old, new) in replacements.items():
+              text = path.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise SystemExit(f'Expected exactly one match in {path}: {old!r}')
+              path.write_text(text.replace(old, new), encoding='utf-8')
+          PY
+      - name: Commit contract correction
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/features/social_v3/upload/tus_upload_client.dart lib/features/social/data/social_stream_upload_service.dart
+          git commit -m "fix: align TUS chunks with Cloudflare contract"
+          git push origin HEAD:fix/social-stream-realtime-closure
