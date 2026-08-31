@@ -148,7 +148,8 @@ class _StoryMediaTransform {
     return _StoryMediaTransform(
       x: layer.x.clamp(-0.25, 1.25).toDouble(),
       y: layer.y.clamp(-0.25, 1.25).toDouble(),
-      scale: layer.scale.clamp(0.5, 5.0).toDouble(),
+      // Match backend Story-style validation (max scale = 4).
+      scale: layer.scale.clamp(0.5, 4.0).toDouble(),
       rotation: layer.rotation,
       fit: fitValue == 'cover' ? BoxFit.cover : BoxFit.contain,
     );
