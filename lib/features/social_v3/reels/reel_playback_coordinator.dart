@@ -185,9 +185,10 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
     _controllers[index] = controller;
     _controllerUrls[index] = url;
     controller.addListener(_onControllerTick);
-    // Reels are a continuous surface. Native looping avoids the visible stop /
-    // seek gap and keeps the completion callback available for analytics only.
-    controller.setLooping(true);
+    // Keep native looping disabled: SocialReelsScreenV3 owns completion and
+    // either advances to the next reel or explicitly replays the final reel.
+    // This avoids competing seek/loop behavior at the end of a video.
+    controller.setLooping(false);
     controller
         .initialize()
         .then((_) {
