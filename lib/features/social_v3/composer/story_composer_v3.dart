@@ -24,6 +24,12 @@ import 'story_media_type_picker.dart';
 /// carried by the existing layer schema and [text] stores `contain` / `cover`.
 const String kStoryBaseMediaTransformLayerId = '__base_media_transform_v1__';
 
+/// Keep rotations inside the backend Story-style contract (-6.4..6.4) while
+/// preserving the visually equivalent angle. Normalizing to -pi..pi also keeps
+/// repeated rotate gestures/buttons from growing the persisted value forever.
+double _normalizeStoryRotation(double value) =>
+    math.atan2(math.sin(value), math.cos(value));
+
 class StoryComposerV3 extends ConsumerStatefulWidget {
   const StoryComposerV3({
     super.key,
@@ -100,7 +106,9 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
         y: 0.5,
         scale: 1,
         rotation: 0,
-        zIndex: -1000,
+        // Backend sanitizeLayer accepts -100..100. Reserve the lowest legal
+        // z-index so this compatibility marker can never cover user layers.
+        zIndex: -100,
         text: 'contain',
         color: null,
         backgroundColor: null,
@@ -149,8 +157,9 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
         : current.copyWith(
             x: (x ?? current.x).clamp(-0.25, 1.25).toDouble(),
             y: (y ?? current.y).clamp(-0.25, 1.25).toDouble(),
-            scale: (scale ?? current.scale).clamp(0.5, 5.0).toDouble(),
-            rotation: rotation ?? current.rotation,
+            // Backend validates Story layer scale at 0.2..4.
+            scale: (scale ?? current.scale).clamp(0.5, 4.0).toDouble(),
+            rotation: _normalizeStoryRotation(rotation ?? current.rotation),
             text: fit ?? current.text,
           );
     final layers = draft.layers
@@ -637,7 +646,7 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
     _x = widget.transform.x;
     _y = widget.transform.y;
     _scale = widget.transform.scale;
-    _rotation = widget.transform.rotation;
+    _rotation = _normalizeStoryRotation(widget.transform.rotation);
   }
 
   void _emit() {
@@ -646,7 +655,7 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
         x: _x,
         y: _y,
         scale: _scale,
-        rotation: _rotation,
+        rotation: _normalizeStoryRotation(_rotation),
         fit: (widget.transform.text ?? 'contain').trim().toLowerCase() == 'cover'
             ? 'cover'
             : 'contain',
@@ -674,8 +683,10 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
             final delta = details.focalPoint - _gestureFocal;
             _gestureFocal = details.focalPoint;
             setState(() {
-              _scale = (_gestureScale * details.scale).clamp(0.5, 5.0).toDouble();
-              _rotation = _gestureRotation + details.rotation;
+              _scale = (_gestureScale * details.scale).clamp(0.5, 4.0).toDouble();
+              _rotation = _normalizeStoryRotation(
+                _gestureRotation + details.rotation,
+              );
               if (width > 0) {
                 _x = (_x + delta.dx / width).clamp(-0.25, 1.25).toDouble();
               }
