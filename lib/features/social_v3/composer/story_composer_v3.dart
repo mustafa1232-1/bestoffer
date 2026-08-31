@@ -807,9 +807,8 @@ class _SharedReelPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final presentation = reel.toPresentation();
     final poster = (presentation.posterImageUrl ?? '').trim();
-    final naturalAspect = presentation.aspectRatio > 0
-        ? presentation.aspectRatio
-        : (reel.isVertical ? 9 / 16 : 16 / 9);
+    final naturalAspect =
+        presentation.aspectRatio ?? (reel.isVertical ? 9 / 16 : 16 / 9);
 
     Widget foreground() {
       if (poster.isEmpty) {
