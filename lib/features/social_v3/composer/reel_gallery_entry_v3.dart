@@ -4,6 +4,7 @@ import 'package:social_core/local_media_file.dart';
 
 import '../../../core/auth/auth_guard.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../social/data/social_stream_upload_service.dart';
 import '../../social/state/social_controller.dart';
 import '../../social/models/social_story_document.dart';
 import '../capabilities/social_capabilities_controller.dart';
@@ -273,19 +274,33 @@ Future<bool> _publishStoryDraft(
     return ok;
   }
 
-  // Non-global (capability-gated). Call the API directly so we can handle the
-  // backend 409 STORY_AUDIENCE_SCOPE_NOT_AVAILABLE. This is the real production
-  // call site for markStoryScopeUnsupported().
+  // Non-global remains a direct API call so the existing scoped capability
+  // fail-closed behavior and 409 handling stay exactly the same. Only the video
+  // transport changes: videos are uploaded directly to Stream first and the
+  // Story is then created with mediaAssetId, never with a multipart video body.
   try {
-    await container
-        .read(socialApiProvider)
-        .createStory(
-          caption: publishCaption,
-          mediaFile: mediaFile,
-          storyStyle: storyStyle,
-          audienceScopeType: scope.scope.wireType,
-          audienceScopeCode: scope.scopeCode,
-        );
+    final api = container.read(socialApiProvider);
+    var resolvedMediaFile = mediaFile;
+    int? mediaAssetId;
+    if (mediaFile?.isVideo == true) {
+      final asset = await SocialStreamUploadService(api).uploadVideoAndWaitReady(
+        mediaFile: mediaFile!,
+        sourceType: 'story',
+        title: publishCaption.isEmpty ? null : publishCaption,
+        waitForReady: false,
+      );
+      mediaAssetId = asset.id;
+      resolvedMediaFile = null;
+    }
+
+    await api.createStory(
+      caption: publishCaption,
+      mediaFile: resolvedMediaFile,
+      mediaAssetId: mediaAssetId,
+      storyStyle: storyStyle,
+      audienceScopeType: scope.scope.wireType,
+      audienceScopeCode: scope.scopeCode,
+    );
     await container.read(socialControllerProvider.notifier).loadStories();
     await container
         .read(socialStoryDraftControllerProvider.notifier)

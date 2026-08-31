@@ -9,6 +9,7 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/files/local_media_file.dart';
+import '../../social_v3/upload/picked_xfile_registry.dart';
 import '../../social_v3/upload/reel_map_normalizer.dart';
 import '../models/social_models.dart';
 import 'social_api.dart';
@@ -16,7 +17,7 @@ import 'social_api.dart';
 class SocialStreamUploadService {
   static const Duration defaultReadyTimeout = Duration(minutes: 2);
   static const Duration defaultReadyPollInterval = Duration(seconds: 2);
-  static const int defaultChunkSizeBytes = 1024 * 1024;
+  static const int defaultChunkSizeBytes = 5 * 1024 * 1024;
   static const int _maxChunkRetries = 5;
 
   final SocialApi api;
@@ -392,6 +393,9 @@ class SocialStreamUploadService {
     if (filePath == null || filePath.trim().isEmpty) {
       throw StateError('Media file path is required for Stream upload.');
     }
+    final registeredBytes =
+        await readRegisteredPickedFileRange(filePath, start, end);
+    if (registeredBytes != null) return registeredBytes;
     final file = File(filePath);
     final builder = BytesBuilder(copy: false);
     await for (final chunk in file.openRead(start, end)) {
@@ -409,6 +413,8 @@ class SocialStreamUploadService {
     }
     final filePath = mediaFile.path;
     if (filePath == null || filePath.trim().isEmpty) return 0;
+    final registeredSize = await registeredPickedFileLength(filePath);
+    if (registeredSize != null && registeredSize > 0) return registeredSize;
     return File(filePath).length();
   }
 

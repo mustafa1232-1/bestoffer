@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 
+import '../upload/picked_xfile_registry.dart';
+
 /// Media type of a picked social asset.
 enum PickedMediaType { image, video }
 
@@ -131,6 +133,7 @@ class SocialMediaPickerV3 {
 
   Future<PickedSocialMedia> _toResult(XFile file, PickedMediaType type) async {
     final normalized = await _materializePickedFile(file);
+    registerPickedXFile(normalized);
     // NOTE: never read the whole file into memory (no `readAsBytes` for video).
     int? size;
     try {
