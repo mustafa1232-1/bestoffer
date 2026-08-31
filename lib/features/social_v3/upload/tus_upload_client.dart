@@ -157,7 +157,7 @@ class TusUploadClient {
     _emit();
 
     try {
-      _offset = (await _headWithRetry()).clamp(0, totalBytes);
+      _offset = (await _headWithRetry()).clamp(0, totalBytes).toInt();
       await _snapshot();
       _emit();
       if (_offset >= totalBytes) {
@@ -178,7 +178,7 @@ class TusUploadClient {
 
         final length = math.min(chunkSize, totalBytes - _offset);
         final result = await _patchWithRetry(_offset, length);
-        _offset = result.offset.clamp(0, totalBytes);
+        _offset = result.offset.clamp(0, totalBytes).toInt();
         await _snapshot();
         _emit();
         if (result.completed || _offset >= totalBytes) {
@@ -239,11 +239,9 @@ class TusUploadClient {
       } catch (_) {
         if (!_shouldRetry()) rethrow;
         await _backoff();
-        // A PATCH can reach Cloudflare even when the response is lost. Always
-        // reconcile with the authoritative server offset before retrying and
-        // recompute the remaining chunk length. Reusing the old length here can
-        // overrun Upload-Length after a partial/uncertain write.
-        nextOffset = (await transport.head(uploadUrl)).clamp(0, totalBytes);
+        nextOffset = (await transport.head(uploadUrl))
+            .clamp(0, totalBytes)
+            .toInt();
         _offset = nextOffset;
         await _snapshot();
         _emit();
