@@ -34,12 +34,8 @@ function normalizeSourceType(value, fallback = "post") {
 function mapSocialMediaAssetRow(row) {
   if (!row) return null;
   const streamUid = row.stream_uid || null;
+  const provider = String(row.provider || "").trim().toLowerCase();
 
-  // Derive Cloudflare Stream playback/thumbnail URLs from the stream UID when the
-  // stored columns are empty (e.g. rows written before the thumbnail existed, or
-  // where only the UID was persisted). The builders use the CONFIGURED customer
-  // base URL / thumbnail base URL — no hardcoded/unsigned host. A thumbnail is an
-  // image; a playback URL is an HLS manifest — they are never interchanged.
   let playbackUrl = row.playback_url || null;
   let thumbnailUrl = row.thumbnail_url || null;
   let posterUrl = row.poster_url || null;
@@ -52,7 +48,6 @@ function mapSocialMediaAssetRow(row) {
       const derived = buildStreamThumbnailUrl(streamUid);
       if (derived) thumbnailUrl = derived;
     }
-    // Poster falls back to the (image) thumbnail, never to the HLS manifest.
     if (!posterUrl && thumbnailUrl) posterUrl = thumbnailUrl;
   }
 
@@ -63,11 +58,12 @@ function mapSocialMediaAssetRow(row) {
     provider: row.provider || null,
     streamUid,
     traceId: row.trace_id || streamUid || (row.id == null ? null : `asset:${row.id}`),
-    originalUrl: row.original_url || null,
+    // Direct-upload URLs are one-time TUS capabilities, not durable media URLs.
+    // Never expose an old persisted Stream upload URL back to clients.
+    originalUrl: provider === "stream" ? null : row.original_url || null,
     normalizedUrl: row.normalized_url || null,
     posterUrl,
     playbackUrl,
-    // hlsUrl is an explicit alias so the client contract is unambiguous.
     hlsUrl: playbackUrl,
     thumbnailUrl,
     mimeType: row.mime_type || null,
@@ -281,9 +277,6 @@ export async function resolveSocialMediaAssetForPublishing({
   userId,
   mediaAssetId,
   expectedSourceType = null,
-  // When true, a PROCESSING (not-yet-encoded) Stream asset is accepted so the
-  // Story/Reel can be created immediately; playback reconciles to READY later.
-  // FAILED/REJECTED/DELETED are still rejected.
   allowProcessing = false,
 }) {
   const assetId = Number(mediaAssetId);
@@ -315,8 +308,6 @@ export async function resolveSocialMediaAssetForPublishing({
     if (!allowProcessing) {
       throw new AppError("MEDIA_ASSET_NOT_READY", { status: 409 });
     }
-    // §4: a non-READY asset may be published ONLY when it is a story-scoped
-    // Cloudflare Stream video whose upload has actually landed. Fail closed.
     const provider = String(asset.provider || "").trim().toLowerCase();
     const mediaKind = String(asset.media_kind || "").trim().toLowerCase();
     if (
@@ -376,7 +367,9 @@ export async function createSocialMediaStreamUploadSession({
     provider: "stream",
     streamUid: session.streamUid,
     traceId: session.streamUid,
-    originalUrl: session.uploadUrl,
+    // The one-time TUS URL is returned only in uploadSession below. It is not a
+    // media URL and should never be persisted in the asset row.
+    originalUrl: null,
     normalizedUrl: null,
     posterUrl: null,
     playbackUrl: null,
@@ -416,8 +409,6 @@ export async function cancelSocialMediaStreamUploadSession({ userId, assetId }) 
     throw new AppError("MEDIA_ASSET_FORBIDDEN", { status: 403 });
   }
   const status = String(asset.processing_status || "").trim().toLowerCase();
-  // Only in-flight (pre-ready) sessions may be cancelled; a published/ready
-  // asset must not be silently torn down here.
   if (["ready", "published"].includes(status)) {
     throw new AppError("MEDIA_ASSET_ALREADY_READY", { status: 409 });
   }
@@ -431,13 +422,24 @@ export async function cancelSocialMediaStreamUploadSession({ userId, assetId }) 
 }
 
 export async function getSocialMediaAssetById({ userId, assetId }) {
-  const asset = await repo.findSocialMediaAssetById(assetId);
+  let asset = await repo.findSocialMediaAssetById(assetId);
   if (!asset) {
     throw new AppError("MEDIA_ASSET_NOT_FOUND", { status: 404 });
   }
   if (Number(asset.owner_user_id) !== Number(userId)) {
     throw new AppError("MEDIA_ASSET_FORBIDDEN", { status: 403 });
   }
+
+  const provider = String(asset.provider || "").trim().toLowerCase();
+  const status = String(asset.processing_status || "").trim().toLowerCase();
+  if (provider === "stream" && ["pending", "processing"].includes(status)) {
+    // Client polling is already bounded. Reconcile this single asset on demand
+    // so READY can be observed as soon as Cloudflare finishes encoding rather
+    // than waiting for a delayed webhook or the periodic fallback worker.
+    const reconciled = await reconcilePendingStreamAsset(asset);
+    if (reconciled) asset = reconciled;
+  }
+
   return { asset: mapSocialMediaAssetRow(asset) };
 }
 
@@ -463,6 +465,9 @@ export async function getSocialMediaAssetDiagnosticsById({ userId, assetId }) {
 }
 
 export function mapStreamDetailsToStatus(details, fallbackStatus = "processing") {
+  if (details?.readyToStream === true || details?.ready_to_stream === true) {
+    return "ready";
+  }
   const statusValue =
     typeof details?.status === "object" && details?.status !== null
       ? details.status.state || details.status.status || details.status.value || ""
@@ -517,16 +522,12 @@ function normalizeStreamDurationMs(details) {
   if (Number.isFinite(durationMs)) {
     return Math.max(0, Math.round(durationMs));
   }
-
   const rawDurationSeconds =
     details?.duration ?? details?.durationSeconds ?? details?.duration_sec;
   const durationSeconds = Number(rawDurationSeconds);
   if (!Number.isFinite(durationSeconds)) {
     return null;
   }
-
-  // Cloudflare Stream emits duration in seconds, often as a decimal string
-  // such as "9.2". The database column stores milliseconds as bigint.
   return Math.max(0, Math.round(durationSeconds * 1000));
 }
 
@@ -568,6 +569,12 @@ export async function handleCloudflareStreamWebhook({
   const details = payload?.data || payload?.result || payload;
   const nextStatus = mapStreamDetailsToStatus(details, current.processing_status || "processing");
   const playbacks = extractStreamPlaybacks(details);
+  const playbackUrl =
+    playbacks.playbackUrl ||
+    (nextStatus === "ready" ? buildStreamPlaybackUrl(streamUid) : null);
+  const thumbnailUrl =
+    playbacks.thumbnailUrl ||
+    (nextStatus === "ready" ? buildStreamThumbnailUrl(streamUid) : null);
   const updated = await repo.updateSocialMediaAssetStatus({
     assetId: current.id,
     streamUid,
@@ -577,10 +584,10 @@ export async function handleCloudflareStreamWebhook({
       details?.error ||
       details?.last_error ||
       (nextStatus === "failed" ? "STREAM_PROCESSING_FAILED" : null),
-    normalizedUrl: playbacks.playbackUrl || null,
-    posterUrl: playbacks.thumbnailUrl || null,
-    playbackUrl: playbacks.playbackUrl || null,
-    thumbnailUrl: playbacks.thumbnailUrl || null,
+    normalizedUrl: playbackUrl,
+    posterUrl: thumbnailUrl,
+    playbackUrl,
+    thumbnailUrl,
     durationMs: normalizeStreamDurationMs(details),
     width:
       details?.video?.width == null
@@ -608,6 +615,12 @@ async function reconcilePendingStreamAsset(asset) {
     const details = await fetchCloudflareStreamVideoDetails(asset.stream_uid);
     const nextStatus = mapStreamDetailsToStatus(details, asset.processing_status || "processing");
     const playbacks = extractStreamPlaybacks(details);
+    const playbackUrl =
+      playbacks.playbackUrl ||
+      (nextStatus === "ready" ? buildStreamPlaybackUrl(asset.stream_uid) : null);
+    const thumbnailUrl =
+      playbacks.thumbnailUrl ||
+      (nextStatus === "ready" ? buildStreamThumbnailUrl(asset.stream_uid) : null);
     return await repo.updateSocialMediaAssetStatus({
       assetId: asset.id,
       streamUid: asset.stream_uid,
@@ -617,10 +630,10 @@ async function reconcilePendingStreamAsset(asset) {
         details?.error ||
         details?.last_error ||
         (nextStatus === "failed" ? "STREAM_PROCESSING_FAILED" : null),
-      normalizedUrl: playbacks.playbackUrl || null,
-      posterUrl: playbacks.thumbnailUrl || null,
-      playbackUrl: playbacks.playbackUrl || null,
-      thumbnailUrl: playbacks.thumbnailUrl || null,
+      normalizedUrl: playbackUrl,
+      posterUrl: thumbnailUrl,
+      playbackUrl,
+      thumbnailUrl,
       durationMs: normalizeStreamDurationMs(details),
       width:
         details?.video?.width == null
@@ -677,7 +690,7 @@ export function startSocialStreamReconciliationWorker({ intervalMs = null } = {}
   if (socialStreamReconcileWorker) return;
   const cadence = Math.max(
     5000,
-    Number(intervalMs ?? env.socialStreamReconcileIntervalMs ?? 30000) || 30000
+    Number(intervalMs ?? env.socialStreamReconcileIntervalMs ?? 10000) || 10000
   );
   socialStreamReconcileWorker = setInterval(() => {
     processSocialStreamAssetReconciliation().catch((error) => {
