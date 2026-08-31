@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 
+import 'picked_xfile_registry.dart';
 import 'tus_upload_client.dart';
 
 /// Production [TusTransport] over Dio implementing the tus 1.0 core protocol.
@@ -71,10 +72,21 @@ class DioTusTransport implements TusTransport {
     required int length,
     required int total,
   }) async {
-    final raf = await File(filePath).open();
+    RandomAccessFile? raf;
     try {
-      await raf.setPosition(offset);
-      final bytes = await raf.read(length);
+      final registeredBytes = await readRegisteredPickedFileRange(
+        filePath,
+        offset,
+        offset + length,
+      );
+      final List<int> bytes;
+      if (registeredBytes != null) {
+        bytes = registeredBytes;
+      } else {
+        raf = await File(filePath).open();
+        await raf.setPosition(offset);
+        bytes = await raf.read(length);
+      }
       if (bytes.isEmpty && offset < total) {
         throw StateError('TUS_SOURCE_ENDED_BEFORE_UPLOAD_LENGTH');
       }
@@ -120,7 +132,9 @@ class DioTusTransport implements TusTransport {
       }
       rethrow;
     } finally {
-      await raf.close();
+      if (raf != null) {
+        await raf.close();
+      }
     }
   }
 }
