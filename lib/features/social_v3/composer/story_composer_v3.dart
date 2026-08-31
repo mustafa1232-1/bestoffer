@@ -106,8 +106,6 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
         y: 0.5,
         scale: 1,
         rotation: 0,
-        // Backend sanitizeLayer accepts -100..100. Reserve the lowest legal
-        // z-index so this compatibility marker can never cover user layers.
         zIndex: -100,
         text: 'contain',
         color: null,
@@ -157,7 +155,6 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
         : current.copyWith(
             x: (x ?? current.x).clamp(-0.25, 1.25).toDouble(),
             y: (y ?? current.y).clamp(-0.25, 1.25).toDouble(),
-            // Backend validates Story layer scale at 0.2..4.
             scale: (scale ?? current.scale).clamp(0.5, 4.0).toDouble(),
             rotation: _normalizeStoryRotation(rotation ?? current.rotation),
             text: fit ?? current.text,
@@ -904,10 +901,10 @@ class _SharedReelPreview extends StatelessWidget {
           ),
         ),
         if (!reel.available)
-          Positioned.fill(
+          const Positioned.fill(
             child: ColoredBox(
-              color: const Color(0x88000000),
-              child: const Center(
+              color: Color(0x88000000),
+              child: Center(
                 child: Text(
                   'الريل الأصلي غير متاح',
                   style: TextStyle(
