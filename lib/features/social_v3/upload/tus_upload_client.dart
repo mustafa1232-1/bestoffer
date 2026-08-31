@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 /// A minimal, dependency-light resumable (tus) upload client for direct
-/// Flutter → Cloudflare Stream uploads (§5).
+/// Flutter → Cloudflare Stream uploads.
 ///
 /// The video bytes go straight to Cloudflare; the backend never sees the body.
 /// Transport is abstracted behind [TusTransport] so tests use a fake and never
@@ -10,18 +10,13 @@ import 'dart:math' as math;
 /// secret — the client only ever holds a one-time upload URL provisioned by the
 /// backend).
 
-/// Result of a PATCH/HEAD against the tus endpoint.
 class TusTransportResult {
   const TusTransportResult({required this.offset, this.completed = false});
 
-  /// The server's authoritative Upload-Offset after the operation.
   final int offset;
-
-  /// True when the server reports the upload finished.
   final bool completed;
 }
 
-/// Thrown when the upload URL is no longer valid (expired / 410 / 404).
 class TusExpiredUploadException implements Exception {
   const TusExpiredUploadException([this.message = 'upload url expired']);
   final String message;
@@ -29,12 +24,9 @@ class TusExpiredUploadException implements Exception {
   String toString() => 'TusExpiredUploadException($message)';
 }
 
-/// Transport seam. Production wires this to Dio/HTTP; tests use a fake.
 abstract class TusTransport {
-  /// HEAD → returns the current server offset (tus `Upload-Offset`).
   Future<int> head(String uploadUrl);
 
-  /// PATCH a chunk starting at [offset]; returns the new server offset.
   Future<TusTransportResult> patch(
     String uploadUrl, {
     required int offset,
@@ -45,8 +37,6 @@ abstract class TusTransport {
 
 enum TusUploadState { idle, uploading, paused, completed, cancelled, failed }
 
-/// Persisted, secret-free snapshot of an in-flight upload so it survives an app
-/// restart (§5 "app restart recovery").
 class TusSessionSnapshot {
   const TusSessionSnapshot({
     required this.uploadUrl,
@@ -96,7 +86,7 @@ class TusUploadClient {
     required this.uploadUrl,
     required this.totalBytes,
     required this.assetId,
-    this.chunkSize = 8 * 1024 * 1024,
+    this.chunkSize = 4 * 1024 * 1024,
     this.maxRetries = 5,
     int initialOffset = 0,
     Future<void> Function(TusSessionSnapshot snapshot)? persist,
@@ -119,12 +109,13 @@ class TusUploadClient {
   TusUploadState _state = TusUploadState.idle;
   bool _pauseRequested = false;
   bool _cancelRequested = false;
+  bool _disposed = false;
 
   int get offset => _offset;
   TusUploadState get state => _state;
 
   void _emit() {
-    if (_progress.isClosed) return;
+    if (_disposed || _progress.isClosed) return;
     _progress.add(
       TusProgress(state: _state, uploaded: _offset, total: totalBytes),
     );
@@ -149,29 +140,32 @@ class TusUploadClient {
     _cancelRequested = true;
   }
 
-  /// Starts (or resumes) the upload. Idempotent: calling it again after a pause
-  /// resumes from the server's authoritative offset.
   Future<TusUploadState> start() async {
+    if (_disposed) return TusUploadState.cancelled;
     if (_state == TusUploadState.completed ||
         _state == TusUploadState.cancelled) {
       return _state;
     }
-    // Pause is per-run and cleared on (re)start; cancel is sticky — a cancel
-    // requested before start() must still take effect.
+    if (totalBytes <= 0 || chunkSize <= 0) {
+      _state = TusUploadState.failed;
+      _emit();
+      return _state;
+    }
+
     _pauseRequested = false;
     _state = TusUploadState.uploading;
     _emit();
 
     try {
-      // Always reconcile with the server offset first (recovers from restart /
-      // offset mismatch / duplicate completion).
-      _offset = await _headWithRetry();
+      _offset = (await _headWithRetry()).clamp(0, totalBytes).toInt();
+      await _snapshot();
+      _emit();
       if (_offset >= totalBytes) {
         return _finish();
       }
 
       while (_offset < totalBytes) {
-        if (_cancelRequested) {
+        if (_cancelRequested || _disposed) {
           _state = TusUploadState.cancelled;
           _emit();
           return _state;
@@ -184,9 +178,7 @@ class TusUploadClient {
 
         final length = math.min(chunkSize, totalBytes - _offset);
         final result = await _patchWithRetry(_offset, length);
-        // Trust the server offset, not our local arithmetic (handles partial
-        // writes / offset mismatch).
-        _offset = result.offset;
+        _offset = result.offset.clamp(0, totalBytes).toInt();
         await _snapshot();
         _emit();
         if (result.completed || _offset >= totalBytes) {
@@ -215,6 +207,7 @@ class TusUploadClient {
   Future<int> _headWithRetry() async {
     _attempt = 0;
     while (true) {
+      if (_cancelRequested || _disposed) return _offset;
       try {
         return await transport.head(uploadUrl);
       } on TusExpiredUploadException {
@@ -228,12 +221,17 @@ class TusUploadClient {
 
   Future<TusTransportResult> _patchWithRetry(int offset, int length) async {
     _attempt = 0;
+    var nextOffset = offset;
+    var nextLength = length;
     while (true) {
+      if (_cancelRequested || _disposed) {
+        return TusTransportResult(offset: nextOffset);
+      }
       try {
         return await transport.patch(
           uploadUrl,
-          offset: offset,
-          length: length,
+          offset: nextOffset,
+          length: nextLength,
           total: totalBytes,
         );
       } on TusExpiredUploadException {
@@ -241,9 +239,16 @@ class TusUploadClient {
       } catch (_) {
         if (!_shouldRetry()) rethrow;
         await _backoff();
-        // Re-sync offset before retrying the chunk.
-        offset = await transport.head(uploadUrl);
-        _offset = offset;
+        nextOffset = (await transport.head(uploadUrl))
+            .clamp(0, totalBytes)
+            .toInt();
+        _offset = nextOffset;
+        await _snapshot();
+        _emit();
+        if (nextOffset >= totalBytes) {
+          return TusTransportResult(offset: totalBytes, completed: true);
+        }
+        nextLength = math.min(chunkSize, totalBytes - nextOffset);
       }
     }
   }
@@ -251,13 +256,14 @@ class TusUploadClient {
   bool _shouldRetry() => ++_attempt <= maxRetries;
 
   Future<void> _backoff() async {
-    // Bounded exponential backoff (cap ~8s). Deterministic (no jitter) so tests
-    // stay stable; real jitter can be layered by the transport if desired.
     final ms = math.min(8000, 200 * (1 << (_attempt - 1)));
     await Future<void>.delayed(Duration(milliseconds: ms));
   }
 
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    _cancelRequested = true;
     await _progress.close();
   }
 }

@@ -1,46 +1,37 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../media/social_media_presentation.dart';
 import '../media/social_safe_image.dart';
 
-/// The visual surface for one reel's video (§3 "ReelVideoSurfaceV3").
+/// The visual surface for one reel's video.
 ///
-/// Invariants this widget guarantees:
-///  * The poster is shown until the video produces its first frame — never a
-///    blank/black gap and never a spinner-over-nothing.
-///  * The video fills the viewport with [BoxFit.cover] (no letterboxing by
-///    default), preserving aspect ratio with no circular clipping, no square
-///    feed-card container, no gold border, no card padding.
-///  * A missing playback URL never fakes a playing state — it shows the poster
-///    (and, for the owner, the caller decides whether to show a retry).
-///
-/// It takes a *nullable* [controller] so the widget can be rendered
-/// deterministically in golden tests (null controller → poster state).
+/// The foreground preserves the video's natural aspect ratio by default. When
+/// it does not match the phone viewport, a blurred poster/frame fills the
+/// background rather than cropping the actual video. Callers can still request
+/// [BoxFit.cover] explicitly for a deliberate fill/crop presentation.
 class ReelVideoSurfaceV3 extends StatelessWidget {
   const ReelVideoSurfaceV3({
     super.key,
     required this.media,
     this.controller,
     this.isBuffering = false,
-    this.fit = BoxFit.cover,
+    this.fit = BoxFit.contain,
   });
 
   final SocialMediaPresentation media;
   final VideoPlayerController? controller;
-
-  /// Explicit buffering flag (the coordinator drives this) so goldens can force
-  /// the buffering state without a live controller.
   final bool isBuffering;
-
-  /// Cover by default; a caller may pass [BoxFit.contain] for an explicit
-  /// user-triggered "fit" mode.
   final BoxFit fit;
 
   bool get _hasFirstFrame {
     final c = controller;
     return c != null && c.value.isInitialized && c.value.size.width > 0;
   }
+
+  bool get _usesNaturalFit => fit == BoxFit.contain || fit == BoxFit.scaleDown;
 
   @override
   Widget build(BuildContext context) {
@@ -49,14 +40,32 @@ class ReelVideoSurfaceV3 extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Poster underlay — always present so there is never a blank frame.
-          SocialSafeImage(
-            imageUrl: media.posterImageUrl,
-            fit: fit,
-            showVideoGlyph: true,
+          // Fill unused viewport space with a soft version of the same content.
+          // This keeps square/landscape reels attractive without cutting their
+          // edges, and doubles as an immediate first-frame placeholder.
+          if (_usesNaturalFit)
+            ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+              child: SocialSafeImage(
+                imageUrl: media.posterImageUrl,
+                fit: BoxFit.cover,
+              ),
+            ),
+          if (_usesNaturalFit)
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.34),
+              ),
+            ),
+          Center(
+            child: _hasFirstFrame
+                ? _FittedVideo(controller: controller!, fit: fit)
+                : SocialSafeImage(
+                    imageUrl: media.posterImageUrl,
+                    fit: fit,
+                    showVideoGlyph: true,
+                  ),
           ),
-          if (_hasFirstFrame)
-            _CoveredVideo(controller: controller!, fit: fit),
           if (isBuffering && !_hasFirstFrame)
             const Center(
               child: SizedBox(
@@ -74,9 +83,8 @@ class ReelVideoSurfaceV3 extends StatelessWidget {
   }
 }
 
-/// Fills the viewport with the video, preserving aspect ratio via cover/contain.
-class _CoveredVideo extends StatelessWidget {
-  const _CoveredVideo({required this.controller, required this.fit});
+class _FittedVideo extends StatelessWidget {
+  const _FittedVideo({required this.controller, required this.fit});
 
   final VideoPlayerController controller;
   final BoxFit fit;
@@ -84,6 +92,9 @@ class _CoveredVideo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = controller.value.size;
+    if (size.width <= 0 || size.height <= 0) {
+      return const SizedBox.shrink();
+    }
     return ClipRect(
       child: FittedBox(
         fit: fit,

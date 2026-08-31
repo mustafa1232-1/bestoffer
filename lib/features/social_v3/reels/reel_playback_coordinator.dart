@@ -3,18 +3,11 @@ import 'package:video_player/video_player.dart';
 
 import '../media/social_media_presentation.dart';
 
-/// Owns the [VideoPlayerController]s for the reels viewer and enforces the §3
-/// playback rules:
-///  * At most one controller plays at a time.
-///  * Only {previous, active, next} controllers are retained; distant ones are
-///    disposed to bound memory.
-///  * Mute preference is preserved across page changes.
-///  * Audio stops immediately when the route is hidden or the app is inactive.
-///  * The active controller is NOT recreated just because likes/comments change
-///    (the coordinator is keyed by index + playback URL, not by post state).
+/// Owns the [VideoPlayerController]s for the reels viewer.
 ///
-/// A [controllerFactory] seam lets tests inject fakes; production uses
-/// [VideoPlayerController.networkUrl].
+/// Only previous/current/next are retained, the active reel is the only one
+/// allowed to play, adjacent reels initialize in advance, and every controller
+/// is disposed as soon as it leaves the three-item window.
 class ReelPlaybackCoordinator extends ChangeNotifier {
   ReelPlaybackCoordinator({
     VideoPlayerController Function(String url)? controllerFactory,
@@ -45,7 +38,6 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
   double get playbackSpeed => _playbackSpeed;
 
   VideoPlayerController? controllerFor(int index) => _controllers[index];
-
   bool isFailed(int index) => _failed.contains(index);
 
   bool isBuffering(int index) {
@@ -57,19 +49,23 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
 
   void setItems(List<SocialMediaPresentation> items) {
     _items = items;
+    if (_items.isEmpty) {
+      _activeIndex = 0;
+    } else if (_activeIndex >= _items.length) {
+      _activeIndex = _items.length - 1;
+    }
     _reconcileWindow();
   }
 
-  /// Called when the visible page settles on [index].
   Future<void> setActiveIndex(int index) async {
-    if (_disposed) return;
-    if (index == _activeIndex && _controllers.containsKey(index)) {
-      // Re-assert play state without tearing anything down.
+    if (_disposed || _items.isEmpty) return;
+    final safeIndex = index.clamp(0, _items.length - 1).toInt();
+    if (safeIndex == _activeIndex && _controllers.containsKey(safeIndex)) {
       _userPaused = false;
       _applyPlayState();
       return;
     }
-    _activeIndex = index;
+    _activeIndex = safeIndex;
     _userPaused = false;
     _reconcileWindow();
     notifyListeners();
@@ -109,21 +105,16 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
     if (controller == null) return;
     try {
       await controller.seekTo(Duration.zero);
-    } catch (_) {
-      // If the player cannot seek synchronously (or is already resetting),
-      // the subsequent play-state application still keeps playback correct.
-    }
+    } catch (_) {}
     _applyPlayState();
   }
 
-  /// Route visibility (e.g. pushed a comments route on top or left the tab).
   void setRouteVisible(bool visible) {
     if (_routeVisible == visible) return;
     _routeVisible = visible;
     _applyPlayState();
   }
 
-  /// App lifecycle (resumed vs inactive/paused).
   void setAppActive(bool active) {
     if (_appActive == active) return;
     _appActive = active;
@@ -141,29 +132,39 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
         c.setVolume(_muted ? 0 : 1);
         c.setPlaybackSpeed(_playbackSpeed);
         if (!c.value.isPlaying) c.play();
-      } else {
-        if (c.value.isPlaying) c.pause();
+      } else if (c.value.isPlaying) {
+        c.pause();
       }
     }
   }
 
   void _reconcileWindow() {
     if (_disposed) return;
+    if (_items.isEmpty) {
+      for (final index in _controllers.keys.toList()) {
+        _disposeController(index);
+      }
+      return;
+    }
+
     final keep = <int>{
       _activeIndex - 1,
       _activeIndex,
       _activeIndex + 1,
     }.where((i) => i >= 0 && i < _items.length).toSet();
 
-    // Dispose controllers outside the window.
     for (final index in _controllers.keys.toList()) {
-      if (!keep.contains(index)) {
-        _disposeController(index);
-      }
+      if (!keep.contains(index)) _disposeController(index);
     }
 
-    // Ensure controllers inside the window exist.
-    for (final index in keep) {
+    // Initialize the active item first so first-frame latency has priority over
+    // background preloading, then warm next/previous.
+    final ordered = <int>[
+      _activeIndex,
+      if (keep.contains(_activeIndex + 1)) _activeIndex + 1,
+      if (keep.contains(_activeIndex - 1)) _activeIndex - 1,
+    ];
+    for (final index in ordered) {
       final media = _items[index];
       if (!media.hasVideo) continue;
       final url = media.videoPlaybackUrl!;
@@ -184,6 +185,9 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
     _controllers[index] = controller;
     _controllerUrls[index] = url;
     controller.addListener(_onControllerTick);
+    // Keep native looping disabled: SocialReelsScreenV3 owns completion and
+    // either advances to the next reel or explicitly replays the final reel.
+    // This avoids competing seek/loop behavior at the end of a video.
     controller.setLooping(false);
     controller
         .initialize()
@@ -195,7 +199,7 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
           notifyListeners();
         })
         .catchError((Object error) {
-          if (_disposed) return;
+          if (_disposed || _controllers[index] != controller) return;
           _failed.add(index);
           notifyListeners();
         });
@@ -203,10 +207,6 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
 
   void _onControllerTick() {
     if (_disposed) return;
-    // Only the ACTIVE controller's init/buffering transitions drive UI rebuilds.
-    // Off-screen preload controllers buffering must NOT rebuild the reel pages
-    // (that churn was a primary source of playback stutter). Their state is
-    // reconciled lazily when they become active.
     final index = _activeIndex;
     final c = _controllers[index];
     if (c == null) return;
@@ -230,6 +230,7 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
     _controllerUrls.remove(index);
     _lastBufferingState.remove(index);
     _lastInitializedState.remove(index);
+    _failed.remove(index);
     if (controller != null) {
       controller.removeListener(_onControllerTick);
       controller.pause();
@@ -237,14 +238,13 @@ class ReelPlaybackCoordinator extends ChangeNotifier {
     }
   }
 
-  /// Retry a controller that failed to initialize (§3 "retry controlled
-  /// network failures").
   void retry(int index) {
     if (index < 0 || index >= _items.length) return;
     final media = _items[index];
     if (!media.hasVideo) return;
     _disposeController(index);
     _createController(index, media.videoPlaybackUrl!);
+    _applyPlayState();
     notifyListeners();
   }
 

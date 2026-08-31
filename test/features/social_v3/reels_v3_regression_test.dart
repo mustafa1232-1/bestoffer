@@ -65,20 +65,16 @@ void main() {
     ) async {
       await _pumpReels(tester);
       expect(find.byType(ReelPageV3), findsWidgets);
-      // No Material Card anywhere around the reel content.
       expect(find.byType(Card), findsNothing);
     });
 
     testWidgets('video surface is never circular-clipped', (tester) async {
       await _pumpReels(tester);
       final surface = find.byType(ReelVideoSurfaceV3).first;
-      // No ClipOval between the surface and the root (the media must be
-      // rectangular, never a circle).
       expect(
         find.ancestor(of: surface, matching: find.byType(ClipOval)),
         findsNothing,
       );
-      // And the surface subtree itself uses no ClipOval.
       expect(
         find.descendant(of: surface, matching: find.byType(ClipOval)),
         findsNothing,
@@ -91,17 +87,19 @@ void main() {
       expect(pageView.scrollDirection, Axis.vertical);
     });
 
-    testWidgets('the video surface has no decorative border/card container', (
-      tester,
-    ) async {
-      await _pumpReels(tester);
-      // The immediate wrapper of the video surface is a plain black ColoredBox,
-      // not a Container with a gold Border or a rounded card.
-      final surface = tester.widget<ReelVideoSurfaceV3>(
-        find.byType(ReelVideoSurfaceV3).first,
-      );
-      expect(surface.fit, BoxFit.cover);
-    });
+    testWidgets(
+      'video surface preserves natural aspect ratio without a decorative card',
+      (tester) async {
+        await _pumpReels(tester);
+        // Reels no longer force an arbitrary full-screen crop. The foreground
+        // video is contained at its natural aspect ratio, while the surface
+        // itself remains edge-to-edge and uses its poster as the visual fill.
+        final surface = tester.widget<ReelVideoSurfaceV3>(
+          find.byType(ReelVideoSurfaceV3).first,
+        );
+        expect(surface.fit, BoxFit.contain);
+      },
+    );
 
     testWidgets('renders in Arabic RTL without overflow', (tester) async {
       await _pumpReels(tester, rtl: true);
