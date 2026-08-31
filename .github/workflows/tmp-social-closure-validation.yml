@@ -1,0 +1,47 @@
+name: tmp-social-closure-validation
+
+on:
+  push:
+    branches:
+      - fix/social-stream-realtime-closure
+
+jobs:
+  realtime-stream-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci
+      - name: Realtime and Stream unit contracts
+        working-directory: backend
+        run: >-
+          node --test
+          src/tests/realtime.gateway.test.js
+          src/tests/realtime.membership.resilience.test.js
+          src/tests/feed.stream-media.test.js
+          src/tests/feed.stream-config.test.js
+
+  flutter-social-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Flutter pub get
+        run: flutter pub get
+      - name: Analyze changed social paths
+        run: >-
+          dart analyze
+          lib/features/social_v3/composer/reel_gallery_entry_v3.dart
+          lib/features/social/data/social_stream_upload_service.dart
+          lib/features/social_v3/upload/tus_upload_client.dart
+          test/features/social_v3/tus_cloudflare_contract_test.dart
+      - name: Cloudflare TUS regression test
+        run: flutter test test/features/social_v3/tus_cloudflare_contract_test.dart
