@@ -16,7 +16,7 @@ import 'social_api.dart';
 class SocialStreamUploadService {
   static const Duration defaultReadyTimeout = Duration(minutes: 2);
   static const Duration defaultReadyPollInterval = Duration(seconds: 2);
-  static const int defaultChunkSizeBytes = 1024 * 1024;
+  static const int defaultChunkSizeBytes = 5 * 1024 * 1024;
   static const int _maxChunkRetries = 5;
 
   final SocialApi api;

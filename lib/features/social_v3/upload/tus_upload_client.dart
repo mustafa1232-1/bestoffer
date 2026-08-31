@@ -86,7 +86,7 @@ class TusUploadClient {
     required this.uploadUrl,
     required this.totalBytes,
     required this.assetId,
-    this.chunkSize = 4 * 1024 * 1024,
+    this.chunkSize = 5 * 1024 * 1024,
     this.maxRetries = 5,
     int initialOffset = 0,
     Future<void> Function(TusSessionSnapshot snapshot)? persist,
