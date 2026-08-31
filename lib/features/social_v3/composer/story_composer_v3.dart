@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,12 +19,9 @@ import '../pickers/social_media_picker_v3.dart';
 import 'story_composer_source.dart';
 import 'story_media_type_picker.dart';
 
-/// Reserved layer persisted inside storyStyle.
-///
-/// It is intentionally represented as an empty reel-share layer because the
-/// existing document schema already persists x/y/scale/rotation/text and the
-/// canvas renders no attachment when a normal local-media story has none. This
-/// keeps the change backwards-compatible without a database migration.
+/// Backwards-compatible marker persisted inside storyStyle for the base media.
+/// Existing Story documents need no database migration: x/y/scale/rotation are
+/// carried by the existing layer schema and [text] stores `contain` / `cover`.
 const String kStoryBaseMediaTransformLayerId = '__base_media_transform_v1__';
 
 class StoryComposerV3 extends ConsumerStatefulWidget {
@@ -95,16 +93,6 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
     super.dispose();
   }
 
-  SocialStoryDraft _ensureMediaTransform(SocialStoryDraft draft) {
-    if (_mediaTransformLayer(draft) != null) return draft;
-    return draft.copyWith(
-      layers: <SocialStoryLayer>[
-        ...draft.layers,
-        _defaultMediaTransformLayer(),
-      ],
-    );
-  }
-
   SocialStoryLayer _defaultMediaTransformLayer() => const SocialStoryLayer(
         id: kStoryBaseMediaTransformLayerId,
         type: SocialStoryLayerType.reelShare,
@@ -133,6 +121,16 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
     return null;
   }
 
+  SocialStoryDraft _ensureMediaTransform(SocialStoryDraft draft) {
+    if (_mediaTransformLayer(draft) != null) return draft;
+    return draft.copyWith(
+      layers: <SocialStoryLayer>[
+        ...draft.layers,
+        _defaultMediaTransformLayer(),
+      ],
+    );
+  }
+
   void _setMediaTransform({
     double? x,
     double? y,
@@ -149,14 +147,16 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
     final next = reset
         ? _defaultMediaTransformLayer()
         : current.copyWith(
-            x: (x ?? current.x).clamp(-0.25, 1.25),
-            y: (y ?? current.y).clamp(-0.25, 1.25),
-            scale: (scale ?? current.scale).clamp(0.5, 5.0),
+            x: (x ?? current.x).clamp(-0.25, 1.25).toDouble(),
+            y: (y ?? current.y).clamp(-0.25, 1.25).toDouble(),
+            scale: (scale ?? current.scale).clamp(0.5, 5.0).toDouble(),
             rotation: rotation ?? current.rotation,
             text: fit ?? current.text,
           );
     final layers = draft.layers
-        .map((layer) => layer.id == kStoryBaseMediaTransformLayerId ? next : layer)
+        .map(
+          (layer) => layer.id == kStoryBaseMediaTransformLayerId ? next : layer,
+        )
         .toList(growable: true);
     if (!layers.any((layer) => layer.id == kStoryBaseMediaTransformLayerId)) {
       layers.add(next);
@@ -165,8 +165,9 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
   }
 
   void _toggleFit(SocialStoryDraft draft) {
-    final layer = _mediaTransformLayer(draft) ?? _defaultMediaTransformLayer();
-    final current = (layer.text ?? 'contain').trim().toLowerCase();
+    final current = (_mediaTransformLayer(draft)?.text ?? 'contain')
+        .trim()
+        .toLowerCase();
     _setMediaTransform(fit: current == 'cover' ? 'contain' : 'cover');
   }
 
@@ -195,7 +196,9 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
   }
 
   SocialStoryLayer? _selectedLayer(SocialStoryDraft draft, String? layerId) {
-    if (layerId == null || layerId == kStoryBaseMediaTransformLayerId) return null;
+    if (layerId == null || layerId == kStoryBaseMediaTransformLayerId) {
+      return null;
+    }
     for (final layer in draft.layers) {
       if (layer.id == layerId) return layer;
     }
@@ -221,11 +224,14 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('نشر القصص المخصصة غير متاح حالياً. تم حفظ المسودة.'),
+          content: Text(
+            'نشر القصص المخصصة للبناية غير متاح حالياً. تم حفظ المسودة.',
+          ),
         ),
       );
       return;
     }
+
     final draft = ref.read(socialStoryDraftControllerProvider).draft;
     final caption = _publishCaption(draft);
     if (caption.isEmpty &&
@@ -236,13 +242,16 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
       );
       return;
     }
+
     setState(() => _publishing = true);
-    final ok = await (widget.onPublish?.call(caption, _scope) ?? Future.value(true));
+    final ok =
+        await (widget.onPublish?.call(caption, _scope) ?? Future.value(true));
     if (!mounted) return;
     if (ok) {
       Navigator.of(context).maybePop(true);
       return;
     }
+
     final err = ref.read(socialControllerProvider).error;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -264,9 +273,10 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
         ? await picker.pickStoryVideo()
         : await picker.pickStoryImage();
     if (picked == null || !mounted) return;
+
     final notifier = ref.read(socialStoryDraftControllerProvider.notifier);
     final current = ref.read(socialStoryDraftControllerProvider).draft;
-    final withoutOldTransform = current.layers
+    final layers = current.layers
         .where((layer) => layer.id != kStoryBaseMediaTransformLayerId)
         .toList(growable: true)
       ..add(_defaultMediaTransformLayer());
@@ -277,7 +287,7 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
         mediaName: picked.name,
         mediaMimeType: picked.mimeType,
         clearAttachment: true,
-        layers: withoutOldTransform,
+        layers: layers,
       ),
     );
   }
@@ -291,26 +301,49 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
   Widget? _buildBaseMedia(SocialStoryDraft draft) {
     final source = widget.source;
     if (source.kind == StorySourceKind.sharedReel && source.sharedReel != null) {
-      final reel = source.sharedReel!;
       return GestureDetector(
         onTap: _openOriginalReel,
-        child: _SharedReelPreview(reel: reel),
+        child: _SharedReelPreview(reel: source.sharedReel!),
       );
     }
+
     final media = draft.buildLocalMediaFile();
-    if (media == null) return null;
-    final transform = _mediaTransformLayer(draft) ?? _defaultMediaTransformLayer();
-    return _EditableBaseMedia(
-      media: media,
-      transform: transform,
-      onChanged: (next) => _setMediaTransform(
-        x: next.x,
-        y: next.y,
-        scale: next.scale,
-        rotation: next.rotation,
-        fit: next.fit,
-      ),
-    );
+    if (media != null) {
+      final transform =
+          _mediaTransformLayer(draft) ?? _defaultMediaTransformLayer();
+      return _EditableBaseMedia(
+        media: media,
+        transform: transform,
+        onChanged: (next) => _setMediaTransform(
+          x: next.x,
+          y: next.y,
+          scale: next.scale,
+          rotation: next.rotation,
+          fit: next.fit,
+        ),
+      );
+    }
+
+    if (draft.mode == SocialStoryComposerMode.text &&
+        draft.caption.trim().isNotEmpty &&
+        draft.layers.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(
+            draft.caption.trim(),
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 30,
+              fontWeight: FontWeight.w800,
+              shadows: [Shadow(color: Colors.black87, blurRadius: 10)],
+            ),
+          ),
+        ),
+      );
+    }
+    return null;
   }
 
   SocialStoryComposerToolView _toolViewFor(SocialStoryComposerTool tool) {
@@ -385,9 +418,11 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                 if (hasEditableMedia) ...[
                   _CircleButton(
                     icon: fit == 'cover'
-                        ? Icons.fullscreen_rounded
-                        : Icons.fit_screen_rounded,
-                    tooltip: fit == 'cover' ? 'ملء الشاشة' : 'إظهار كامل الوسيط',
+                        ? Icons.fit_screen_rounded
+                        : Icons.fullscreen_rounded,
+                    tooltip: fit == 'cover'
+                        ? 'إظهار الوسيط كاملاً'
+                        : 'ملء الشاشة',
                     onTap: () => _toggleFit(draft),
                   ),
                   _CircleButton(
@@ -472,7 +507,8 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                     onFontScaleChanged: (value) =>
                         notifier.updateSelectedTextLayer(fontScale: value),
                     onStickerSelected: notifier.addStickerLayer,
-                    onMentionSelected: (userId, label) => notifier.addMentionLayer(
+                    onMentionSelected: (userId, label) =>
+                        notifier.addMentionLayer(
                       userId: userId,
                       displayLabel: label,
                     ),
@@ -512,8 +548,10 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                           ? null
                           : () async {
                               await notifier.saveDraft();
-                              widget.onSaveDraft?.call(_captionController.text.trim());
-                              if (!mounted) return;
+                              if (!context.mounted) return;
+                              widget.onSaveDraft?.call(
+                                _captionController.text.trim(),
+                              );
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(content: Text('تم حفظ المسودة')),
                               );
@@ -579,7 +617,6 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
   late double _y;
   late double _scale;
   late double _rotation;
-  late String _fit;
   double _gestureScale = 1;
   double _gestureRotation = 0;
   Offset _gestureFocal = Offset.zero;
@@ -601,9 +638,6 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
     _y = widget.transform.y;
     _scale = widget.transform.scale;
     _rotation = widget.transform.rotation;
-    _fit = (widget.transform.text ?? 'contain').trim().toLowerCase() == 'cover'
-        ? 'cover'
-        : 'contain';
   }
 
   void _emit() {
@@ -613,13 +647,18 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
         y: _y,
         scale: _scale,
         rotation: _rotation,
-        fit: _fit,
+        fit: (widget.transform.text ?? 'contain').trim().toLowerCase() == 'cover'
+            ? 'cover'
+            : 'contain',
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final fit = (widget.transform.text ?? 'contain').trim().toLowerCase() == 'cover'
+        ? 'cover'
+        : 'contain';
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -635,10 +674,14 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
             final delta = details.focalPoint - _gestureFocal;
             _gestureFocal = details.focalPoint;
             setState(() {
-              _scale = (_gestureScale * details.scale).clamp(0.5, 5.0);
+              _scale = (_gestureScale * details.scale).clamp(0.5, 5.0).toDouble();
               _rotation = _gestureRotation + details.rotation;
-              if (width > 0) _x = (_x + delta.dx / width).clamp(-0.25, 1.25);
-              if (height > 0) _y = (_y + delta.dy / height).clamp(-0.25, 1.25);
+              if (width > 0) {
+                _x = (_x + delta.dx / width).clamp(-0.25, 1.25).toDouble();
+              }
+              if (height > 0) {
+                _y = (_y + delta.dy / height).clamp(-0.25, 1.25).toDouble();
+              }
             });
           },
           onScaleEnd: (_) => _emit(),
@@ -649,7 +692,7 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
                 angle: _rotation,
                 child: Transform.scale(
                   scale: _scale,
-                  child: _MediaContent(media: widget.media, fit: _fit),
+                  child: _MediaContent(media: widget.media, fit: fit),
                 ),
               ),
             ),
@@ -669,7 +712,9 @@ class _MediaContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final boxFit = fit == 'cover' ? BoxFit.cover : BoxFit.contain;
-    if (media.isVideo) return _LocalVideoPreview(media: media, fit: boxFit);
+    if (media.isVideo) {
+      return _LocalVideoPreview(media: media, fit: boxFit);
+    }
     final path = (media.path ?? '').trim();
     if (path.isEmpty) return const SizedBox.shrink();
     return SizedBox.expand(
@@ -730,10 +775,13 @@ class _LocalVideoPreviewState extends State<_LocalVideoPreview> {
     if (controller == null || !controller.value.isInitialized) {
       return const ColoredBox(
         color: Color(0xFF0D1B2A),
-        child: Center(child: CircularProgressIndicator(color: Colors.white54)),
+        child: Center(
+          child: CircularProgressIndicator(color: Colors.white54),
+        ),
       );
     }
     final size = controller.value.size;
+    if (size.width <= 0 || size.height <= 0) return const SizedBox.shrink();
     return SizedBox.expand(
       child: ClipRect(
         child: FittedBox(
@@ -758,14 +806,56 @@ class _SharedReelPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final presentation = reel.toPresentation();
+    final poster = (presentation.posterImageUrl ?? '').trim();
+    final naturalAspect = presentation.aspectRatio > 0
+        ? presentation.aspectRatio
+        : (reel.isVertical ? 9 / 16 : 16 / 9);
+
+    Widget foreground() {
+      if (poster.isEmpty) {
+        return const ColoredBox(
+          color: Color(0xFF0D1B2A),
+          child: Center(
+            child: Icon(
+              Icons.play_circle_outline_rounded,
+              color: Colors.white54,
+              size: 72,
+            ),
+          ),
+        );
+      }
+      return SocialSafeImage(
+        imageUrl: poster,
+        fit: reel.isVertical ? BoxFit.cover : BoxFit.contain,
+        showVideoGlyph: true,
+      );
+    }
+
     return Stack(
       fit: StackFit.expand,
       children: [
-        SocialSafeImage(
-          imageUrl: presentation.posterImageUrl,
-          fit: reel.isVertical ? BoxFit.cover : BoxFit.contain,
-          showVideoGlyph: true,
-        ),
+        if (!reel.isVertical && poster.isNotEmpty) ...[
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: SocialSafeImage(
+              imageUrl: poster,
+              fit: BoxFit.cover,
+              showVideoGlyph: true,
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.35),
+            ),
+          ),
+          Center(
+            child: AspectRatio(
+              aspectRatio: naturalAspect,
+              child: foreground(),
+            ),
+          ),
+        ] else
+          foreground(),
         Positioned(
           left: 16,
           right: 16,
@@ -779,23 +869,45 @@ class _SharedReelPreview extends StatelessWidget {
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
-                  const Icon(Icons.play_circle_fill_rounded, color: Colors.white),
+                  const Icon(
+                    Icons.play_circle_fill_rounded,
+                    color: Colors.white,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      (reel.authorName ?? reel.authorHandle ?? 'الريل الأصلي').trim(),
+                      (reel.authorName ?? reel.authorHandle ?? 'الريل الأصلي')
+                          .trim(),
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
-                  const Icon(Icons.open_in_new_rounded, color: Colors.white70),
+                  const Icon(
+                    Icons.open_in_new_rounded,
+                    color: Colors.white70,
+                  ),
                 ],
               ),
             ),
           ),
         ),
+        if (!reel.available)
+          Positioned.fill(
+            child: ColoredBox(
+              color: const Color(0x88000000),
+              child: const Center(
+                child: Text(
+                  'الريل الأصلي غير متاح',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
