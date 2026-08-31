@@ -1,0 +1,79 @@
+name: tmp-web-media-patch
+
+on:
+  push:
+    branches:
+      - fix/social-stream-realtime-closure
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/social-stream-realtime-closure
+      - name: Patch cross-platform picked media reads
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8')
+              if text.count(old) != 1:
+                  raise SystemExit(f'Expected exactly one match in {path}: {old!r}')
+              p.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace_once(
+              'lib/features/social_v3/pickers/social_media_picker_v3.dart',
+              "import 'package:path/path.dart' as p;\n",
+              "import 'package:path/path.dart' as p;\n\nimport '../upload/picked_xfile_registry.dart';\n",
+          )
+          replace_once(
+              'lib/features/social_v3/pickers/social_media_picker_v3.dart',
+              "    final normalized = await _materializePickedFile(file);\n    // NOTE: never read the whole file into memory (no `readAsBytes` for video).",
+              "    final normalized = await _materializePickedFile(file);\n    registerPickedXFile(normalized);\n    // NOTE: never read the whole file into memory (no `readAsBytes` for video).",
+          )
+
+          replace_once(
+              'lib/features/social_v3/upload/dio_tus_transport.dart',
+              "import 'package:dio/dio.dart';\n\nimport 'tus_upload_client.dart';",
+              "import 'package:dio/dio.dart';\n\nimport 'picked_xfile_registry.dart';\nimport 'tus_upload_client.dart';",
+          )
+          replace_once(
+              'lib/features/social_v3/upload/dio_tus_transport.dart',
+              "    final raf = await File(filePath).open();\n    try {\n      await raf.setPosition(offset);\n      final bytes = await raf.read(length);",
+              "    RandomAccessFile? raf;\n    try {\n      final registeredBytes = await readRegisteredPickedFileRange(\n        filePath,\n        offset,\n        offset + length,\n      );\n      final List<int> bytes;\n      if (registeredBytes != null) {\n        bytes = registeredBytes;\n      } else {\n        raf = await File(filePath).open();\n        await raf.setPosition(offset);\n        bytes = await raf.read(length);\n      }",
+          )
+          replace_once(
+              'lib/features/social_v3/upload/dio_tus_transport.dart',
+              "    } finally {\n      await raf.close();\n    }",
+              "    } finally {\n      if (raf != null) {\n        await raf.close();\n      }\n    }",
+          )
+
+          replace_once(
+              'lib/features/social/data/social_stream_upload_service.dart',
+              "import '../../social_v3/upload/reel_map_normalizer.dart';",
+              "import '../../social_v3/upload/picked_xfile_registry.dart';\nimport '../../social_v3/upload/reel_map_normalizer.dart';",
+          )
+          replace_once(
+              'lib/features/social/data/social_stream_upload_service.dart',
+              "    final file = File(filePath);\n    final builder = BytesBuilder(copy: false);",
+              "    final registeredBytes =\n        await readRegisteredPickedFileRange(filePath, start, end);\n    if (registeredBytes != null) return registeredBytes;\n    final file = File(filePath);\n    final builder = BytesBuilder(copy: false);",
+          )
+          replace_once(
+              'lib/features/social/data/social_stream_upload_service.dart',
+              "    if (filePath == null || filePath.trim().isEmpty) return 0;\n    return File(filePath).length();",
+              "    if (filePath == null || filePath.trim().isEmpty) return 0;\n    final registeredSize = await registeredPickedFileLength(filePath);\n    if (registeredSize != null && registeredSize > 0) return registeredSize;\n    return File(filePath).length();",
+          )
+          PY
+      - name: Commit Web-safe ranged source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/features/social_v3/pickers/social_media_picker_v3.dart lib/features/social_v3/upload/dio_tus_transport.dart lib/features/social/data/social_stream_upload_service.dart
+          git commit -m "fix: stream picked media ranges on web and mobile"
+          git push origin HEAD:fix/social-stream-realtime-closure
