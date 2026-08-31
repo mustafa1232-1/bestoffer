@@ -1,0 +1,34 @@
+name: web-preview-build
+
+on:
+  push:
+    branches:
+      - build/web-preview-20260831
+
+jobs:
+  build-web-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Flutter pub get
+        run: flutter pub get
+      - name: Build release web
+        run: flutter build web --release
+      - name: Add preview metadata
+        run: |
+          cat > build/web/PREVIEW_INFO.txt <<'EOF'
+          Maslaki Web Preview
+          Source branch: maslaki-final-v
+          Preview branch: build/web-preview-20260831
+          Purpose: Story/Reels performance and editor validation
+          EOF
+      - name: Upload web build
+        uses: actions/upload-artifact@v4
+        with:
+          name: maslaki-web-preview
+          path: build/web
+          if-no-files-found: error
+          retention-days: 3
