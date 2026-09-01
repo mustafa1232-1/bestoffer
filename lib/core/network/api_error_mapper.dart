@@ -18,6 +18,10 @@ const Map<String, String> _defaultApiMessages = {
       'انتهى الاشتراك. يرجى تسديد المستحقات لإعادة التفعيل.',
   'DELIVERY_SUBSCRIPTION_PAYMENT_PENDING':
       'تم إرسال طلب الدفع. بانتظار موافقة الإدارة.',
+  'TAXI_CAPTAIN_RIDE_CREDITS_EXHAUSTED':
+      'انتهى رصيد رحلاتك. سدّد 10,000 د.ع لإضافة 15 رحلة.',
+  'TAXI_CAPTAIN_PAYMENT_NOT_PENDING':
+      'لا يوجد طلب تسديد معلّق لهذا الكابتن، أو سبق اعتماده.',
   'TAXI_ACTIVE_RIDE_EXISTS': 'لديك رحلة نشطة بالفعل.',
   'TAXI_RIDE_NOT_ACCEPTING_BIDS': 'هذا الطلب لا يستقبل عروضًا حاليًا.',
   'TAXI_RIDE_OUT_OF_RANGE': 'الكابتن خارج نطاق الطلب.',

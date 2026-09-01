@@ -1180,6 +1180,47 @@ export async function ensureSchema() {
       );
     `);
 
+    // Taxi access is sold as ride credits (10,000 IQD = 15 completed rides).
+    // The legacy date columns stay in place so this can be rolled out without
+    // breaking old clients or losing the historic payment audit trail.
+    await q(`
+      ALTER TABLE taxi_captain_subscription
+        ADD COLUMN IF NOT EXISTS package_price_iqd INTEGER NOT NULL DEFAULT 10000,
+        ADD COLUMN IF NOT EXISTS package_ride_count SMALLINT NOT NULL DEFAULT 15,
+        ADD COLUMN IF NOT EXISTS purchased_ride_credits INTEGER NOT NULL DEFAULT 15,
+        ADD COLUMN IF NOT EXISTS consumed_ride_credits INTEGER NOT NULL DEFAULT 0;
+    `);
+    await q(`
+      ALTER TABLE taxi_captain_subscription
+        DROP CONSTRAINT IF EXISTS chk_taxi_captain_credit_balance;
+    `);
+    await q(`
+      ALTER TABLE taxi_captain_subscription
+        ADD CONSTRAINT chk_taxi_captain_credit_balance CHECK (
+          package_price_iqd >= 0 AND package_ride_count > 0 AND
+          purchased_ride_credits >= 0 AND consumed_ride_credits >= 0 AND
+          consumed_ride_credits <= purchased_ride_credits
+        );
+    `);
+    await q(`
+      ALTER TABLE taxi_ride_request
+        ADD COLUMN IF NOT EXISTS captain_credit_consumed_at TIMESTAMPTZ;
+    `);
+    await q(`
+      CREATE TABLE IF NOT EXISTS taxi_captain_credit_transaction (
+        id BIGSERIAL PRIMARY KEY,
+        captain_user_id BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+        delta INTEGER NOT NULL CHECK (delta <> 0),
+        transaction_type VARCHAR(32) NOT NULL CHECK (transaction_type IN ('payment','completed_ride','admin_adjustment')),
+        ride_request_id BIGINT REFERENCES taxi_ride_request(id) ON DELETE SET NULL,
+        amount_iqd INTEGER CHECK (amount_iqd IS NULL OR amount_iqd >= 0),
+        actor_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+        note TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await q(`CREATE UNIQUE INDEX IF NOT EXISTS uq_taxi_credit_completed_ride ON taxi_captain_credit_transaction (ride_request_id) WHERE transaction_type = 'completed_ride';`);
+
     await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_captain_subscription_cycle
       ON taxi_captain_subscription (current_cycle_end_at, cash_payment_pending, captain_user_id);

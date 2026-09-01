@@ -788,7 +788,12 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   Future<void> _cancelRide() async {
     final rideId = _readInt(_ride?['id']);
+    final status = _string(_ride?['status']);
     if (rideId == null) return;
+    if (status == 'ride_started') {
+      _showMessage('لا يمكن إلغاء الرحلة بعد بدئها. تواصل مع الدعم عند الطوارئ.');
+      return;
+    }
 
     setState(() {
       _submitting = true;
@@ -1656,8 +1661,7 @@ class _MapPageState extends ConsumerState<MapPage> {
     final canCancel =
         rideStatus == 'searching' ||
         rideStatus == 'captain_assigned' ||
-        rideStatus == 'captain_arriving' ||
-        rideStatus == 'ride_started';
+        rideStatus == 'captain_arriving';
 
     return Scaffold(
       resizeToAvoidBottomInset: false,
@@ -2416,6 +2420,17 @@ class _MapPageState extends ConsumerState<MapPage> {
                               ),
                             ],
                           ),
+                          if (rideStatus == 'ride_started') ...[
+                            const SizedBox(height: 8),
+                            const Text(
+                              'بدأت الرحلة؛ لا يمكن إلغاؤها من الزبون أو الكابتن. تواصل مع الدعم عند حدوث طارئ.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.orange,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ],
                       )
                     : _buildRideComposer(context),

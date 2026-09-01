@@ -77,4 +77,5 @@ taxiRouter.post("/rides/:rideId/bids", requireDelivery, c.createBid);
 taxiRouter.post("/rides/:rideId/arrive", requireDelivery, c.markArrived);
 taxiRouter.post("/rides/:rideId/start", requireDelivery, c.startRide);
 taxiRouter.post("/rides/:rideId/complete", requireDelivery, c.completeRide);
+taxiRouter.post("/rides/:rideId/captain-cancel", requireDelivery, c.cancelRideByCaptain);
 taxiRouter.post("/rides/:rideId/location", requireDelivery, c.updateLocation);

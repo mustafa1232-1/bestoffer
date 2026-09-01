@@ -437,7 +437,7 @@ class _TaxiCaptainDashboardScreenState
 
   Future<void> _advance(String action) async {
     if (_locked) {
-      _snack('الاشتراك منتهي. اطلب تسديد الاشتراك.');
+      _snack('نفد رصيد الرحلات. سدّد المستحقات لتفعيل 15 رحلة جديدة.');
       return;
     }
     final rideId = _asInt(_ride?['id']);
@@ -455,6 +455,92 @@ class _TaxiCaptainDashboardScreenState
     }
   }
 
+  Future<void> _captainCancelRide() async {
+    final rideId = _asInt(_ride?['id']);
+    final status = _str(_ride?['status']);
+    if (rideId == null) return;
+    if (status != 'captain_assigned' && status != 'captain_arriving') {
+      _snack('لا يمكن إلغاء الرحلة بعد بدئها. تواصل مع الدعم عند الطوارئ.');
+      return;
+    }
+
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('إلغاء الرحلة'),
+        content: TextField(
+          controller: reasonController,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'سبب الإلغاء',
+            hintText: 'اكتب سبباً واضحاً للزبون والإدارة',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('رجوع'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('تأكيد الإلغاء'),
+          ),
+        ],
+      ),
+    );
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
+    if (confirmed != true) return;
+    if (reason.length < 3) {
+      _snack('يرجى كتابة سبب الإلغاء');
+      return;
+    }
+
+    setState(() => _sending = true);
+    try {
+      await _api.captainCancelRide(rideId: rideId, reason: reason);
+      _snack('تم إلغاء الرحلة');
+      await _tick(full: true);
+    } on DioException catch (e) {
+      _snack(_err(e));
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  String? get _supportPhone {
+    final value =
+        _str(_sub?['supportPhone']) ?? _str(_subscription?['supportPhone']);
+    final normalized = value?.replaceAll(RegExp(r'[^0-9+]'), '');
+    return (normalized?.isNotEmpty ?? false) ? normalized : null;
+  }
+
+  String? get _supportWhatsapp {
+    final value = _str(_sub?['supportWhatsapp']) ??
+        _str(_subscription?['supportWhatsapp']) ??
+        _supportPhone;
+    final normalized = value?.replaceAll(RegExp(r'[^0-9+]'), '');
+    return (normalized?.isNotEmpty ?? false) ? normalized : null;
+  }
+
+  Future<void> _contactSupport({required bool whatsapp}) async {
+    final phone = whatsapp ? _supportWhatsapp : _supportPhone;
+    if (phone == null) {
+      _snack('رقم الدعم غير مهيأ حالياً');
+      return;
+    }
+    final normalized = phone.startsWith('0') ? '964${phone.substring(1)}' : phone;
+    final uri = whatsapp
+        ? Uri.parse(
+            'https://wa.me/$normalized?text=${Uri.encodeComponent('مرحباً، أريد تسديد مستحقات رصيد رحلات التكسي لحساب الكابتن.')}',
+          )
+        : Uri.parse('tel:$phone');
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened) _snack('تعذر فتح وسيلة التواصل');
+  }
+
   Future<void> _requestCashPayment() async {
     setState(() => _sending = true);
     try {
@@ -470,7 +556,7 @@ class _TaxiCaptainDashboardScreenState
 
   Future<void> _submitBid(Map<String, dynamic> ride) async {
     if (_locked) {
-      _snack('الاشتراك منتهي. اطلب التسديد أولاً.');
+      _snack('نفد رصيد الرحلات. سدّد المستحقات لتفعيل 15 رحلة جديدة.');
       return;
     }
     final rideId = _asInt(ride['id']);
@@ -1017,7 +1103,8 @@ class _TaxiCaptainDashboardScreenState
     return s is Map ? Map<String, dynamic>.from(s) : null;
   }
 
-  bool get _locked => _sub?['canAccess'] != true && _sub != null;
+  bool get _locked =>
+      (_sub?['canAcceptRides'] ?? _sub?['canAccess']) != true && _sub != null;
 
   @override
   Widget build(BuildContext context) {
@@ -1181,7 +1268,7 @@ class _TaxiCaptainDashboardScreenState
           ),
           if (_locked)
             const Text(
-              'الحساب موقوف بسبب الاشتراك',
+              'نفد رصيد الرحلات؛ يلزم تسديد المستحقات',
               style: TextStyle(
                 color: Colors.amber,
                 fontWeight: FontWeight.bold,
@@ -1330,6 +1417,22 @@ class _TaxiCaptainDashboardScreenState
             onPressed: _sending ? null : () => _advance('complete'),
             child: const Text('إنهاء الرحلة'),
           ),
+        if (status == 'captain_assigned' || status == 'captain_arriving') ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _sending ? null : _captainCancelRide,
+            icon: const Icon(Icons.cancel_outlined),
+            label: const Text('إلغاء الرحلة'),
+          ),
+        ],
+        if (status == 'ride_started') ...[
+          const SizedBox(height: 8),
+          const Text(
+            'بعد بدء الرحلة لا يمكن للزبون أو الكابتن إلغاؤها. تواصل مع الدعم عند الطوارئ.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.amber, fontWeight: FontWeight.w700),
+          ),
+        ],
       ],
     );
   }
@@ -1617,11 +1720,23 @@ class _TaxiCaptainDashboardScreenState
 
   Widget _subscriptionCard({required bool compact}) {
     final s = _sub;
-    final can = s?['canAccess'] == true;
+    final can = (s?['canAcceptRides'] ?? s?['canAccess']) == true;
     final pending = s?['cashPaymentPending'] == true;
-    final days = _asInt(s?['remainingDays']) ?? 0;
-    final fee = _asInt(s?['discountedMonthlyFeeIqd']) ?? 10000;
-    final discount = _asInt(s?['discountPercent']) ?? 0;
+    final packageRides =
+        _asInt(s?['packageRideLimit']) ??
+        _asInt(s?['packageRideCount']) ??
+        15;
+    final used = _asInt(s?['usedRides']) ??
+        _asInt(s?['consumedRideCredits']) ??
+        _asInt(s?['ridesUsed']) ??
+        0;
+    final remaining = _asInt(s?['remainingRides']) ??
+        _asInt(s?['remainingRideCredits']) ??
+        _asInt(s?['ridesRemaining']) ??
+        (packageRides - used).clamp(0, packageRides);
+    final fee = _asInt(s?['packagePriceIqd']) ??
+        _asInt(s?['dueAmountIqd']) ??
+        10000;
 
     return Container(
       padding: const EdgeInsets.all(10),
@@ -1636,8 +1751,8 @@ class _TaxiCaptainDashboardScreenState
         children: [
           Text(
             can
-                ? 'الاشتراك فعال'
-                : (pending ? 'بانتظار اعتماد التسديد' : 'الاشتراك منتهي'),
+                ? 'رصيد الرحلات فعال'
+                : (pending ? 'بانتظار اعتماد التسديد' : 'رصيد الرحلات منتهٍ'),
             style: const TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -1645,11 +1760,9 @@ class _TaxiCaptainDashboardScreenState
           ),
           const SizedBox(height: 4),
           Text(
-            can ? 'المتبقي: $days يوم' : 'المبلغ المطلوب: ${_money(fee)}',
-            style: const TextStyle(color: Colors.white70),
-          ),
-          Text(
-            'الخصم: $discount%',
+            can
+                ? 'المستخدم: $used رحلة  •  المتبقي: $remaining من $packageRides'
+                : 'المستحق: ${_money(fee)} مقابل $packageRides رحلة جديدة',
             style: const TextStyle(color: Colors.white70),
           ),
           if (!can)
@@ -1662,14 +1775,40 @@ class _TaxiCaptainDashboardScreenState
                 ),
               ),
             ),
-          if (!compact && can && days <= 7)
+          if (s?['isLastRide'] == true || remaining == 1)
             const Padding(
               padding: EdgeInsets.only(top: 6),
               child: Text(
-                'تنبيه: بقي أقل من أسبوع على انتهاء الاشتراك',
-                style: TextStyle(color: Colors.amber),
+                'تنبيه مهم: هذه آخر رحلة متاحة لك. سدّد المستحقات الآن لتجنب توقف استقبال الطلبات.',
+                style: TextStyle(
+                  color: Colors.amber,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
+          if (!compact && (remaining <= 1 || !can || pending)) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _supportPhone == null
+                      ? () => _snack('رقم الدعم غير مهيأ حالياً')
+                      : () => _contactSupport(whatsapp: false),
+                  icon: const Icon(Icons.call_rounded),
+                  label: const Text('الاتصال بالدعم'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _supportWhatsapp == null
+                      ? () => _snack('رقم الدعم غير مهيأ حالياً')
+                      : () => _contactSupport(whatsapp: true),
+                  icon: const Icon(Icons.chat_rounded),
+                  label: const Text('واتساب الدعم'),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -1864,7 +2003,8 @@ class _TaxiCaptainDashboardScreenState
       e,
       fallback: 'تعذر الوصول إلى الخادم. حاول مرة أخرى.',
       customMessages: const {
-        'DELIVERY_SUBSCRIPTION_EXPIRED': 'انتهى الاشتراك. يرجى طلب تسديد نقدي.',
+        'DELIVERY_SUBSCRIPTION_EXPIRED':
+            'نفد رصيد الرحلات. يرجى طلب تسديد المستحقات.',
         'DELIVERY_SUBSCRIPTION_PAYMENT_PENDING':
             'تم إرسال طلب التسديد. بانتظار موافقة الإدارة.',
         'DELIVERY_ACCOUNT_PENDING_APPROVAL': 'الحساب بانتظار موافقة الإدارة.',

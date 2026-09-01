@@ -91,6 +91,44 @@ export function validateTaxiCaptainDiscount(body) {
   };
 }
 
+export function validateTaxiAdminOverview(query = {}) {
+  const errors = [];
+  const allowedRideStatuses = [
+    "searching", "captain_assigned", "captain_arriving", "ride_started",
+    "completed", "cancelled", "expired",
+  ];
+  const allowedCaptainStatuses = [
+    "active", "online", "offline", "near_exhaustion", "exhausted", "payment_pending",
+  ];
+  const status = query.status ? String(query.status).trim() : null;
+  const captainStatus = query.captainStatus ? String(query.captainStatus).trim() : null;
+  const search = query.q ? String(query.q).trim() : "";
+  const limit = query.limit == null ? 50 : Number(query.limit);
+  const offset = query.offset == null ? 0 : Number(query.offset);
+  if (status && !allowedRideStatuses.includes(status)) errors.push("status");
+  if (captainStatus && !allowedCaptainStatuses.includes(captainStatus)) errors.push("captainStatus");
+  if (search.length > 120) errors.push("q");
+  if (!Number.isInteger(limit) || limit < 1 || limit > 200) errors.push("limit");
+  if (!Number.isInteger(offset) || offset < 0) errors.push("offset");
+  return { ok: errors.length === 0, errors, value: { status, captainStatus, search, limit, offset } };
+}
+
+export function validateTaxiAdminCancel(body = {}) {
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  const errors = [];
+  if (reason.length < 3 || reason.length > 500) errors.push("reason");
+  return { ok: errors.length === 0, errors, value: { reason } };
+}
+
+export function validateTaxiCreditAdjustment(body = {}) {
+  const delta = Number(body.delta);
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+  const errors = [];
+  if (!Number.isInteger(delta) || delta === 0 || delta < -1000 || delta > 1000) errors.push("delta");
+  if (reason.length < 3 || reason.length > 500) errors.push("reason");
+  return { ok: errors.length === 0, errors, value: { delta, reason } };
+}
+
 const allowedAdBoardCtaTypes = ["none", "merchant", "category", "taxi", "url"];
 
 function parseOptionalDate(value) {

@@ -1,4 +1,218 @@
-import { q } from "../../config/db.js";
+import { pool, q } from "../../config/db.js";
+
+const ACTIVE_TAXI_RIDE_STATUSES = [
+  "searching",
+  "captain_assigned",
+  "captain_arriving",
+  "ride_started",
+];
+
+export async function getTaxiAdminOverview({
+  status,
+  captainStatus,
+  search,
+  limit = 50,
+  offset = 0,
+}) {
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 50));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const normalizedSearch = String(search || "").trim();
+
+  const rideParams = [];
+  const rideWhere = [];
+  if (status) {
+    rideParams.push(status);
+    rideWhere.push(`r.status = $${rideParams.length}`);
+  }
+  if (normalizedSearch) {
+    rideParams.push(`%${normalizedSearch}%`);
+    const p = `$${rideParams.length}`;
+    rideWhere.push(`(
+      r.id::text ILIKE ${p} OR cu.full_name ILIKE ${p} OR cu.phone ILIKE ${p}
+      OR ca.full_name ILIKE ${p} OR ca.phone ILIKE ${p}
+    )`);
+  }
+  rideParams.push(safeLimit, safeOffset);
+  const rides = await q(
+    `SELECT r.id, r.status, r.customer_user_id, r.assigned_captain_user_id,
+            r.pickup_label, r.pickup_latitude, r.pickup_longitude,
+            r.dropoff_label, r.dropoff_latitude, r.dropoff_longitude,
+            r.proposed_fare_iqd, r.agreed_fare_iqd, r.created_at, r.updated_at,
+            r.started_at, r.completed_at, r.cancelled_at,
+            cu.full_name AS customer_full_name, cu.phone AS customer_phone,
+            ca.full_name AS captain_full_name, ca.phone AS captain_phone
+       FROM taxi_ride_request r
+       JOIN app_user cu ON cu.id = r.customer_user_id
+       LEFT JOIN app_user ca ON ca.id = r.assigned_captain_user_id
+       ${rideWhere.length ? `WHERE ${rideWhere.join(" AND ")}` : ""}
+       ORDER BY r.created_at DESC, r.id DESC
+       LIMIT $${rideParams.length - 1} OFFSET $${rideParams.length}`,
+    rideParams
+  );
+
+  const captainParams = [];
+  // Taxi captains currently share the legacy `delivery` role with couriers;
+  // the taxi profile is the reliable discriminator between the two products.
+  const captainWhere = [`u.role = 'delivery'`, `p.user_id IS NOT NULL`];
+  if (normalizedSearch) {
+    captainParams.push(`%${normalizedSearch}%`);
+    const p = `$${captainParams.length}`;
+    captainWhere.push(`(
+      u.id::text ILIKE ${p} OR u.full_name ILIKE ${p} OR u.phone ILIKE ${p}
+      OR p.plate_number ILIKE ${p} OR p.car_make ILIKE ${p} OR p.car_model ILIKE ${p}
+    )`);
+  }
+  const creditRemaining = `(COALESCE(s.purchased_ride_credits, 15) - COALESCE(s.consumed_ride_credits, 0))`;
+  if (captainStatus === "active") captainWhere.push(`${creditRemaining} > 1`);
+  if (captainStatus === "online") captainWhere.push(`COALESCE(pr.is_online, FALSE) = TRUE`);
+  if (captainStatus === "offline") captainWhere.push(`COALESCE(pr.is_online, FALSE) = FALSE`);
+  if (captainStatus === "near_exhaustion") captainWhere.push(`${creditRemaining} = 1`);
+  if (captainStatus === "exhausted") captainWhere.push(`${creditRemaining} <= 0`);
+  if (captainStatus === "payment_pending") captainWhere.push(`COALESCE(s.cash_payment_pending, FALSE) = TRUE`);
+  captainParams.push(safeLimit, safeOffset);
+  const captains = await q(
+    `SELECT u.id, u.full_name, u.phone, u.delivery_account_approved,
+            p.profile_image_url, p.car_image_url, p.vehicle_type, p.car_make,
+            p.car_model, p.car_year, p.car_color, p.plate_number,
+            pr.is_online, pr.last_seen_at,
+            COALESCE(s.package_price_iqd, 10000)::int AS package_price_iqd,
+            COALESCE(s.package_ride_count, 15)::int AS package_ride_count,
+            COALESCE(s.purchased_ride_credits, 15)::int AS purchased_ride_credits,
+            COALESCE(s.consumed_ride_credits, 0)::int AS consumed_ride_credits,
+            COALESCE(s.cash_payment_pending, FALSE) AS cash_payment_pending,
+            s.cash_payment_requested_at, s.last_cash_payment_confirmed_at,
+            COUNT(r.id)::int AS rides_total,
+            COUNT(r.id) FILTER (WHERE r.status = 'completed')::int AS rides_completed,
+            COUNT(r.id) FILTER (WHERE r.status = ANY($${captainParams.length + 1}::text[]))::int AS rides_active,
+            COUNT(r.id) FILTER (WHERE r.status = 'cancelled')::int AS rides_cancelled
+       FROM app_user u
+       LEFT JOIN taxi_captain_profile p ON p.user_id = u.id
+       LEFT JOIN taxi_captain_presence pr ON pr.captain_user_id = u.id
+       LEFT JOIN taxi_captain_subscription s ON s.captain_user_id = u.id
+       LEFT JOIN taxi_ride_request r ON r.assigned_captain_user_id = u.id
+       WHERE ${captainWhere.join(" AND ")}
+       GROUP BY u.id, p.user_id, pr.captain_user_id, s.captain_user_id
+       ORDER BY u.created_at DESC, u.id DESC
+       LIMIT $${captainParams.length - 1} OFFSET $${captainParams.length}`,
+    [...captainParams, ACTIVE_TAXI_RIDE_STATUSES]
+  );
+
+  const summary = await q(
+    `SELECT
+       (SELECT COUNT(*)::int FROM taxi_ride_request) AS rides_total,
+       (SELECT COUNT(*)::int FROM taxi_ride_request WHERE status = ANY($1::text[])) AS rides_active,
+       (SELECT COUNT(*)::int FROM taxi_ride_request WHERE status = 'searching') AS rides_searching,
+       (SELECT COUNT(*)::int FROM taxi_ride_request WHERE status = 'captain_assigned') AS rides_captain_assigned,
+       (SELECT COUNT(*)::int FROM taxi_ride_request WHERE status = 'captain_arriving') AS rides_captain_arriving,
+       (SELECT COUNT(*)::int FROM taxi_ride_request WHERE status = 'ride_started') AS rides_started,
+       (SELECT COUNT(*)::int FROM taxi_ride_request WHERE status = 'completed') AS rides_completed,
+       (SELECT COUNT(*)::int FROM taxi_ride_request WHERE status = 'cancelled') AS rides_cancelled,
+       (SELECT COUNT(*)::int FROM taxi_ride_request WHERE status = 'expired') AS rides_expired,
+       (SELECT COUNT(*)::int FROM app_user u JOIN taxi_captain_profile cp ON cp.user_id=u.id WHERE u.role='delivery') AS captains_total,
+       (SELECT COUNT(*)::int FROM app_user u JOIN taxi_captain_profile cp ON cp.user_id=u.id JOIN taxi_captain_presence p ON p.captain_user_id=u.id WHERE u.role='delivery' AND p.is_online=TRUE) AS captains_online,
+       (SELECT COUNT(*)::int FROM app_user u JOIN taxi_captain_profile cp ON cp.user_id=u.id LEFT JOIN taxi_captain_subscription s ON s.captain_user_id=u.id WHERE u.role='delivery' AND COALESCE(s.purchased_ride_credits,15)-COALESCE(s.consumed_ride_credits,0)=1) AS captains_near_exhaustion,
+       (SELECT COUNT(*)::int FROM app_user u JOIN taxi_captain_profile cp ON cp.user_id=u.id LEFT JOIN taxi_captain_subscription s ON s.captain_user_id=u.id WHERE u.role='delivery' AND COALESCE(s.purchased_ride_credits,15)-COALESCE(s.consumed_ride_credits,0)<=0) AS captains_exhausted,
+       (SELECT COUNT(*)::int FROM taxi_captain_subscription s JOIN taxi_captain_profile cp ON cp.user_id=s.captain_user_id WHERE s.cash_payment_pending=TRUE) AS captains_payment_pending`,
+    [ACTIVE_TAXI_RIDE_STATUSES]
+  );
+
+  return { summary: summary.rows[0], rides: rides.rows, captains: captains.rows };
+}
+
+export async function adminCancelTaxiRide({ rideId, adminUserId, reason }) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query(
+      `SELECT id, status, customer_user_id, assigned_captain_user_id
+       FROM taxi_ride_request WHERE id=$1 FOR UPDATE`,
+      [Number(rideId)]
+    );
+    const ride = locked.rows[0];
+    if (!ride) {
+      await client.query("ROLLBACK");
+      return { code: "NOT_FOUND" };
+    }
+    if (["completed", "cancelled", "expired"].includes(ride.status)) {
+      await client.query("ROLLBACK");
+      return { code: "ALREADY_CLOSED", ride };
+    }
+    const updated = await client.query(
+      `UPDATE taxi_ride_request SET status='cancelled', current_bid_id=NULL,
+              cancelled_at=NOW(), updated_at=NOW() WHERE id=$1
+       RETURNING id, status, customer_user_id, assigned_captain_user_id, cancelled_at`,
+      [Number(rideId)]
+    );
+    await client.query(
+      `UPDATE taxi_ride_bid SET status='expired', updated_at=NOW()
+       WHERE ride_request_id=$1 AND status IN ('active','waiting')`,
+      [Number(rideId)]
+    );
+    await client.query(
+      `INSERT INTO taxi_ride_event
+        (ride_request_id, actor_user_id, event_type, message, payload)
+       VALUES ($1,$2,'ride_cancelled_by_admin',$3,$4::jsonb)`,
+      [Number(rideId), Number(adminUserId), reason, JSON.stringify({ reason, previousStatus: ride.status })]
+    );
+    await client.query("COMMIT");
+    return { code: "OK", ride: updated.rows[0], previousStatus: ride.status };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function adjustCaptainRideCredits({ captainUserId, delta, adminUserId, reason }) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO taxi_captain_subscription (captain_user_id)
+       VALUES ($1) ON CONFLICT DO NOTHING`,
+      [Number(captainUserId)]
+    );
+    const r = await client.query(
+      `UPDATE taxi_captain_subscription
+         SET purchased_ride_credits = purchased_ride_credits + $2,
+             updated_at = NOW()
+       WHERE captain_user_id=$1
+         AND purchased_ride_credits + $2 >= consumed_ride_credits
+       RETURNING captain_user_id, package_price_iqd, package_ride_count,
+                 purchased_ride_credits, consumed_ride_credits, cash_payment_pending`,
+      [Number(captainUserId), Number(delta)]
+    );
+    const row = r.rows[0] || null;
+    if (!row) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    await client.query(
+      `INSERT INTO taxi_captain_credit_transaction
+        (captain_user_id, delta, transaction_type, actor_user_id, note)
+       VALUES ($1,$2,'admin_adjustment',$3,$4)`,
+      [Number(captainUserId), Number(delta), Number(adminUserId), reason]
+    );
+    await client.query("COMMIT");
+    return row;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function findTaxiCaptainById(captainUserId) {
+  const r = await q(
+    `SELECT u.id FROM app_user u
+     JOIN taxi_captain_profile p ON p.user_id=u.id
+     WHERE u.id=$1 AND u.role='delivery' LIMIT 1`,
+    [Number(captainUserId)]
+  );
+  return r.rows[0] || null;
+}
 
 export async function listAvailableOwnerAccounts() {
   const r = await q(

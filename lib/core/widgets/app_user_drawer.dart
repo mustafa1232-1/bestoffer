@@ -63,12 +63,14 @@ class AppUserDrawerItem {
   final IconData icon;
   final String label;
   final String? subtitle;
+  final String? section;
   final Future<void> Function(BuildContext context)? onTap;
 
   const AppUserDrawerItem({
     required this.icon,
     required this.label,
     this.subtitle,
+    this.section,
     this.onTap,
   });
 }
@@ -318,15 +320,45 @@ class AppUserDrawer extends ConsumerWidget {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                for (final item in items)
+                for (var index = 0; index < items.length; index++) ...[
+                  if (items[index].section != null &&
+                      (index == 0 ||
+                          items[index - 1].section != items[index].section))
+                    Padding(
+                      padding: const EdgeInsetsDirectional.fromSTEB(
+                        16,
+                        14,
+                        16,
+                        4,
+                      ),
+                      child: Text(
+                        _drawerAutoTranslate(strings, items[index].section),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
                   ListTile(
-                    leading: Icon(item.icon),
-                    title: Text(_drawerAutoTranslate(strings, item.label)),
-                    subtitle: item.subtitle == null
+                    dense: true,
+                    leading: Icon(items[index].icon),
+                    title: Text(
+                      _drawerAutoTranslate(strings, items[index].label),
+                    ),
+                    subtitle: items[index].subtitle == null
                         ? null
-                        : Text(_drawerAutoTranslate(strings, item.subtitle!)),
-                    onTap: item.onTap == null ? null : () => runItem(item),
+                        : Text(
+                            _drawerAutoTranslate(
+                              strings,
+                              items[index].subtitle!,
+                            ),
+                          ),
+                    onTap: items[index].onTap == null
+                        ? null
+                        : () => runItem(items[index]),
                   ),
+                ],
                 if (shouldShowCommunitySection) const Divider(height: 1),
                 if (shouldShowCommunitySection &&
                     (blockScopeCode != null ||

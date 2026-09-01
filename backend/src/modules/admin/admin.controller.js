@@ -6,6 +6,9 @@ import {
   validateApproveSettlement,
   validateTaxiCaptainCashPaymentApprove,
   validateTaxiCaptainDiscount,
+  validateTaxiAdminOverview,
+  validateTaxiAdminCancel,
+  validateTaxiCreditAdjustment,
   validateToggleMerchantDisabled,
 } from "./admin.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
@@ -214,6 +217,38 @@ export async function setTaxiCaptainDiscount(req, res, next) {
   } catch (e) {
     next(e);
   }
+}
+
+export async function taxiOverview(req, res, next) {
+  try {
+    const v = validateTaxiAdminOverview(req.query || {});
+    if (!v.ok) return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    res.json(await service.getTaxiAdminOverview(v.value));
+  } catch (e) { next(e); }
+}
+
+export async function adminCancelTaxiRide(req, res, next) {
+  try {
+    const v = validateTaxiAdminCancel(req.body || {});
+    if (!v.ok) return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    res.json(await service.adminCancelTaxiRide({
+      rideId: req.params.rideId,
+      adminUserId: req.userId,
+      reason: v.value.reason,
+    }));
+  } catch (e) { next(e); }
+}
+
+export async function adjustTaxiCaptainCredits(req, res, next) {
+  try {
+    const v = validateTaxiCreditAdjustment(req.body || {});
+    if (!v.ok) return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    res.json(await service.adjustTaxiCaptainCredits({
+      captainUserId: req.params.captainUserId,
+      adminUserId: req.userId,
+      ...v.value,
+    }));
+  } catch (e) { next(e); }
 }
 
 export async function adBoardItems(req, res, next) {

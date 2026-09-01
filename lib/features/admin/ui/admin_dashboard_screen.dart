@@ -19,6 +19,7 @@ import '../models/period_metrics_model.dart';
 import '../models/managed_merchant_model.dart';
 import '../state/admin_controller.dart';
 import 'admin_ad_board_screen.dart';
+import 'admin_taxi_center_screen.dart';
 import 'customer_insight_profile_screen.dart';
 
 enum AdminDashboardSection {
@@ -47,6 +48,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   final GlobalKey _settlementsSectionKey = GlobalKey();
   final GlobalKey _approvalsSectionKey = GlobalKey();
   final GlobalKey _customerInsightsSectionKey = GlobalKey();
+  final GlobalKey _merchantsSectionKey = GlobalKey();
+  final GlobalKey _deliverySectionKey = GlobalKey();
   bool _didApplyInitialSection = false;
 
   @override
@@ -259,45 +262,76 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       AppUserDrawerItem(
         icon: Icons.dashboard_outlined,
         label: strings.t('drawerHome'),
+        section: 'عام',
         onTap: (_) => _scrollToTop(),
-      ),
-      AppUserDrawerItem(
-        icon: Icons.pending_actions_outlined,
-        label: strings.t('drawerPendingApprovals'),
-        onTap: (_) => _scrollToSection(_approvalsSectionKey),
-      ),
-      AppUserDrawerItem(
-        icon: Icons.account_balance_wallet_outlined,
-        label: strings.t('drawerPendingSettlements'),
-        onTap: (_) => _scrollToSection(_settlementsSectionKey),
       ),
       AppUserDrawerItem(
         icon: Icons.refresh_rounded,
         label: strings.t('drawerRefresh'),
+        section: 'عام',
         onTap: (_) => ref.read(adminControllerProvider.notifier).bootstrap(),
       ),
-      if (isSuperAdmin)
-        AppUserDrawerItem(
-          icon: Icons.manage_search_rounded,
-          label: 'ملفات العملاء الذكية',
-          onTap: (_) => _scrollToSection(_customerInsightsSectionKey),
-        ),
-      if (isAdmin)
-        AppUserDrawerItem(
-          icon: Icons.person_add_alt_1_outlined,
-          label: strings.t('drawerCreateUser'),
-          onTap: (_) => _openCreateUserSheet(),
-        ),
+      AppUserDrawerItem(
+        icon: Icons.local_taxi_rounded,
+        label: 'مركز إدارة التكسي',
+        subtitle: 'الرحلات، الكباتن، الأرصدة والمستحقات',
+        section: 'التكسي',
+        onTap: (_) async {
+          await Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const AdminTaxiCenterScreen()),
+          );
+        },
+      ),
+      AppUserDrawerItem(
+        icon: Icons.pending_actions_outlined,
+        label: 'طلبات تسجيل المتاجر',
+        section: 'المتاجر',
+        onTap: (_) => _scrollToSection(_approvalsSectionKey),
+      ),
       if (isAdmin)
         AppUserDrawerItem(
           icon: Icons.store_mall_directory_outlined,
           label: strings.t('drawerCreateMerchant'),
+          section: 'المتاجر',
           onTap: (_) => _openCreateMerchant(),
         ),
+      AppUserDrawerItem(
+        icon: Icons.storefront_outlined,
+        label: 'إدارة المتاجر',
+        section: 'المتاجر',
+        onTap: (_) => _scrollToSection(_merchantsSectionKey),
+      ),
+      AppUserDrawerItem(
+        icon: Icons.account_balance_wallet_outlined,
+        label: strings.t('drawerPendingSettlements'),
+        section: 'المتاجر',
+        onTap: (_) => _scrollToSection(_settlementsSectionKey),
+      ),
+      if (isAdmin)
+        AppUserDrawerItem(
+          icon: Icons.person_add_alt_1_outlined,
+          label: strings.t('drawerCreateUser'),
+          section: 'المستخدمون',
+          onTap: (_) => _openCreateUserSheet(),
+        ),
+      if (isSuperAdmin)
+        AppUserDrawerItem(
+          icon: Icons.manage_search_rounded,
+          label: 'ملفات العملاء الذكية',
+          section: 'المستخدمون',
+          onTap: (_) => _scrollToSection(_customerInsightsSectionKey),
+        ),
+      AppUserDrawerItem(
+        icon: Icons.delivery_dining_outlined,
+        label: 'طلبات انضمام الدلفري',
+        section: 'التوصيل',
+        onTap: (_) => _scrollToSection(_deliverySectionKey),
+      ),
       if (isAdmin)
         AppUserDrawerItem(
           icon: Icons.campaign_outlined,
           label: 'لوحة الإعلانات',
+          section: 'التسويق والمحتوى',
           onTap: (_) async {
             await Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const AdminAdBoardScreen()),
@@ -382,29 +416,35 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _PendingDeliveryAccountsSection(
-                    saving: state.saving,
-                    canApprove: isAdmin,
-                    accounts: state.pendingDeliveryAccounts,
-                    onApprove: (deliveryUserId) async {
-                      await ref
-                          .read(adminControllerProvider.notifier)
-                          .approveDeliveryAccount(deliveryUserId);
-                    },
+                  KeyedSubtree(
+                    key: _deliverySectionKey,
+                    child: _PendingDeliveryAccountsSection(
+                      saving: state.saving,
+                      canApprove: isAdmin,
+                      accounts: state.pendingDeliveryAccounts,
+                      onApprove: (deliveryUserId) async {
+                        await ref
+                            .read(adminControllerProvider.notifier)
+                            .approveDeliveryAccount(deliveryUserId);
+                      },
+                    ),
                   ),
                   const SizedBox(height: 12),
-                  _MerchantsStatusSection(
-                    saving: state.saving,
-                    canManage: isAdmin,
-                    merchants: state.managedMerchants,
-                    onToggleDisabled: (merchantId, nextDisabled) async {
-                      await ref
-                          .read(adminControllerProvider.notifier)
-                          .toggleMerchantDisabled(
-                            merchantId: merchantId,
-                            isDisabled: nextDisabled,
-                          );
-                    },
+                  KeyedSubtree(
+                    key: _merchantsSectionKey,
+                    child: _MerchantsStatusSection(
+                      saving: state.saving,
+                      canManage: isAdmin,
+                      merchants: state.managedMerchants,
+                      onToggleDisabled: (merchantId, nextDisabled) async {
+                        await ref
+                            .read(adminControllerProvider.notifier)
+                            .toggleMerchantDisabled(
+                              merchantId: merchantId,
+                              isDisabled: nextDisabled,
+                            );
+                      },
+                    ),
                   ),
                   if (isSuperAdmin) const SizedBox(height: 12),
                   if (isSuperAdmin)

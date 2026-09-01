@@ -106,6 +106,20 @@ export async function cancelRide(req, res, next) {
   }
 }
 
+export async function cancelRideByCaptain(req, res, next) {
+  try {
+    const rideId = requireRideId(req, res);
+    if (!rideId) return;
+    const reason = String(req.body?.reason || "").trim().slice(0, 500) || null;
+    const ride = await service.cancelRideByCaptain({
+      captainUserId: req.userId,
+      rideId,
+      reason,
+    });
+    return res.json({ ride });
+  } catch (error) { return next(error); }
+}
+
 export async function rateRide(req, res, next) {
   try {
     const rideId = requireRideId(req, res);
@@ -569,5 +583,4 @@ export function stream(req, res, next) {
     next(error);
   }
 }
-
 

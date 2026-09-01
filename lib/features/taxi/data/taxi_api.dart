@@ -218,6 +218,17 @@ class TaxiApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> captainCancelRide({
+    required int rideId,
+    required String reason,
+  }) async {
+    final response = await dio.post(
+      '/api/taxi/rides/$rideId/captain-cancel',
+      data: {'reason': reason.trim()},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> rateRide({
     required int rideId,
     required int rating,

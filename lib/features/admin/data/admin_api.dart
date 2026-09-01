@@ -58,6 +58,57 @@ class AdminApi {
     await dio.patch('/api/admin/taxi-captains/$deliveryUserId/approve');
   }
 
+  Future<Map<String, dynamic>> taxiOverview({
+    String? status,
+    String? captainStatus,
+    String? search,
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/taxi/overview',
+      queryParameters: {
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (captainStatus != null && captainStatus.isNotEmpty)
+          'captainStatus': captainStatus,
+        if (search != null && search.trim().isNotEmpty) 'q': search.trim(),
+        'limit': limit,
+        'offset': offset,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<void> cancelTaxiRide({
+    required int rideId,
+    required String reason,
+  }) async {
+    await dio.post(
+      '/api/admin/taxi/rides/$rideId/cancel',
+      data: {'reason': reason.trim()},
+    );
+  }
+
+  Future<void> confirmTaxiCreditsPayment({
+    required int captainUserId,
+  }) async {
+    await dio.post(
+      '/api/admin/taxi-captains/$captainUserId/credits/confirm-payment',
+      data: const <String, dynamic>{},
+    );
+  }
+
+  Future<void> adjustTaxiCredits({
+    required int captainUserId,
+    required int delta,
+    required String reason,
+  }) async {
+    await dio.post(
+      '/api/admin/taxi-captains/$captainUserId/credits/adjust',
+      data: {'delta': delta, 'reason': reason.trim()},
+    );
+  }
+
   Future<void> approveSettlement(int settlementId, {String? adminNote}) async {
     await dio.patch(
       '/api/admin/settlements/$settlementId/approve',

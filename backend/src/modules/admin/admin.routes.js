@@ -11,6 +11,7 @@ export const adminRouter = Router();
 adminRouter.use(requireAuth, requireBackoffice);
 
 adminRouter.get("/analytics", c.analytics);
+adminRouter.get("/taxi/overview", requireAdmin, c.taxiOverview);
 adminRouter.get("/customers/insights", requireSuperAdmin, c.customerInsightsList);
 adminRouter.get("/ad-board/items", requireAdmin, c.adBoardItems);
 adminRouter.get(
@@ -39,6 +40,17 @@ adminRouter.patch(
   "/delivery/:deliveryUserId/approve",
   requireAdmin,
   c.approveDeliveryAccount
+);
+adminRouter.post("/taxi/rides/:rideId/cancel", requireAdmin, c.adminCancelTaxiRide);
+adminRouter.post(
+  "/taxi-captains/:captainUserId/credits/adjust",
+  requireAdmin,
+  c.adjustTaxiCaptainCredits
+);
+adminRouter.post(
+  "/taxi-captains/:captainUserId/credits/confirm-payment",
+  requireAdmin,
+  c.confirmTaxiCaptainCashPayment
 );
 adminRouter.patch(
   "/taxi-captains/:deliveryUserId/approve",

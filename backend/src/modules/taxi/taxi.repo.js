@@ -1061,7 +1061,7 @@ export async function cancelRide({ rideId, customerUserId }) {
       return { code: "RIDE_NOT_FOUND" };
     }
 
-    if (["completed", "cancelled", "expired"].includes(ride.status)) {
+    if (["ride_started", "completed", "cancelled", "expired"].includes(ride.status)) {
       await client.query("ROLLBACK");
       return { code: "RIDE_ALREADY_CLOSED" };
     }
@@ -1095,6 +1095,38 @@ export async function cancelRide({ rideId, customerUserId }) {
   } finally {
     client.release();
   }
+}
+
+export async function cancelRideByCaptain({ rideId, captainUserId, reason = null }) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const lock = await client.query(
+      `SELECT * FROM taxi_ride_request
+       WHERE id = $1 AND assigned_captain_user_id = $2 FOR UPDATE`,
+      [Number(rideId), Number(captainUserId)]
+    );
+    const ride = lock.rows[0];
+    if (!ride) { await client.query("ROLLBACK"); return { code: "RIDE_NOT_FOUND" }; }
+    if (!["captain_assigned", "captain_arriving"].includes(ride.status)) {
+      await client.query("ROLLBACK");
+      return { code: ride.status === "ride_started" ? "RIDE_ALREADY_STARTED" : "RIDE_ALREADY_CLOSED" };
+    }
+    await client.query(
+      `UPDATE taxi_ride_request SET status = 'cancelled', current_bid_id = NULL,
+       cancelled_at = NOW(), updated_at = NOW() WHERE id = $1`, [Number(rideId)]
+    );
+    await client.query(
+      `INSERT INTO taxi_ride_event (ride_request_id, actor_user_id, event_type, message, payload)
+       VALUES ($1, $2, 'ride_cancelled_by_captain', $3, $4::jsonb)`,
+      [Number(rideId), Number(captainUserId), "تم إلغاء الرحلة من قبل الكابتن.", JSON.stringify({ reason: reason || null })]
+    );
+    const full = await queryRideById(client, rideId);
+    await client.query("COMMIT");
+    return { code: "OK", ride: full };
+  } catch (error) {
+    await client.query("ROLLBACK"); throw error;
+  } finally { client.release(); }
 }
 
 export async function rateCompletedRideByCustomer({
@@ -1228,8 +1260,8 @@ export async function transitionRideStatus({ rideId, captainUserId, nextStatus }
     const current = ride.status;
     const allowed = {
       captain_arriving: ["captain_assigned"],
-      ride_started: ["captain_assigned", "captain_arriving"],
-      completed: ["ride_started", "captain_arriving"],
+      ride_started: ["captain_arriving"],
+      completed: ["ride_started"],
     };
 
     if (!allowed[nextStatus] || !allowed[nextStatus].includes(current)) {
@@ -1251,8 +1283,26 @@ export async function transitionRideStatus({ rideId, captainUserId, nextStatus }
 
     if (nextStatus === "completed") {
       setParts.push("completed_at = NOW()");
-      setParts.push("started_at = COALESCE(started_at, NOW())");
-      setParts.push("captain_arriving_at = COALESCE(captain_arriving_at, NOW())");
+      setParts.push("captain_credit_consumed_at = NOW()");
+      const debit = await client.query(
+        `UPDATE taxi_captain_subscription
+         SET consumed_ride_credits = consumed_ride_credits + 1, updated_at = NOW()
+         WHERE captain_user_id = $1
+           AND consumed_ride_credits < purchased_ride_credits
+         RETURNING purchased_ride_credits, consumed_ride_credits`,
+        [Number(captainUserId)]
+      );
+      if (!debit.rows[0]) {
+        await client.query("ROLLBACK");
+        return { code: "CAPTAIN_RIDE_CREDITS_EXHAUSTED", currentStatus: current };
+      }
+      await client.query(
+        `INSERT INTO taxi_captain_credit_transaction
+           (captain_user_id, delta, transaction_type, ride_request_id, actor_user_id, note)
+         VALUES ($1, -1, 'completed_ride', $2, $1, 'Ride credit consumed on completion')
+         ON CONFLICT (ride_request_id) WHERE transaction_type = 'completed_ride' DO NOTHING`,
+        [Number(captainUserId), Number(rideId)]
+      );
     }
 
     await client.query(
@@ -2028,6 +2078,10 @@ export async function getCaptainSubscription(captainUserId) {
        last_payment_approved_by_user_id,
        last_discount_set_by_user_id,
        last_expiry_reminder_on,
+       package_price_iqd,
+       package_ride_count,
+       purchased_ride_credits,
+       consumed_ride_credits,
        created_at,
        updated_at
      FROM taxi_captain_subscription
@@ -2085,24 +2139,34 @@ export async function setCaptainDiscountPercent({
 
 export async function confirmCaptainCashPayment({
   captainUserId,
-  cycleStartAt,
-  cycleEndAt,
   approvedByUserId,
 }) {
-  const r = await q(
-    `UPDATE taxi_captain_subscription
-     SET current_cycle_start_at = $2,
-         current_cycle_end_at = $3,
-         cash_payment_pending = FALSE,
-         cash_payment_requested_at = NULL,
-         last_cash_payment_confirmed_at = NOW(),
-         last_payment_approved_by_user_id = $4,
-         updated_at = NOW()
-     WHERE captain_user_id = $1
-     RETURNING captain_user_id, current_cycle_start_at, current_cycle_end_at`,
-    [Number(captainUserId), cycleStartAt, cycleEndAt, Number(approvedByUserId)]
-  );
-  return r.rows[0] || null;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const r = await client.query(
+      `UPDATE taxi_captain_subscription
+       SET purchased_ride_credits = purchased_ride_credits + package_ride_count,
+           cash_payment_pending = FALSE, cash_payment_requested_at = NULL,
+           last_cash_payment_confirmed_at = NOW(), last_payment_approved_by_user_id = $2,
+           updated_at = NOW()
+       WHERE captain_user_id = $1
+         AND cash_payment_pending = TRUE
+       RETURNING captain_user_id, package_price_iqd, package_ride_count,
+                 purchased_ride_credits, consumed_ride_credits`,
+      [Number(captainUserId), Number(approvedByUserId)]
+    );
+    const row = r.rows[0];
+    if (row) await client.query(
+      `INSERT INTO taxi_captain_credit_transaction
+         (captain_user_id, delta, transaction_type, amount_iqd, actor_user_id, note)
+       VALUES ($1, $2, 'payment', $3, $4, 'Cash package payment confirmed')`,
+      [Number(captainUserId), Number(row.package_ride_count), Number(row.package_price_iqd), Number(approvedByUserId)]
+    );
+    await client.query("COMMIT");
+    return row || null;
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
 }
 
 export async function getCaptainProfile(captainUserId) {
@@ -2182,6 +2246,10 @@ export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
        s.cash_payment_requested_at,
        s.last_cash_payment_confirmed_at,
        s.last_expiry_reminder_on,
+       s.package_price_iqd,
+       s.package_ride_count,
+       s.purchased_ride_credits,
+       s.consumed_ride_credits,
        u.full_name,
        u.phone,
        u.block,

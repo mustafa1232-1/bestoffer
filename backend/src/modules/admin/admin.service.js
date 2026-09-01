@@ -246,11 +246,27 @@ export async function confirmTaxiCaptainCashPayment({
   cycleDays,
   adminUserId,
 }) {
-  return taxiService.confirmCaptainCashPaymentByAdmin({
+  const result = await taxiService.confirmCaptainCashPaymentByAdmin({
     captainUserId: Number(captainUserId),
     adminUserId: Number(adminUserId),
     cycleDays: Number(cycleDays) || 30,
   });
+  const subscription = result.subscription || {};
+  return {
+    ...result,
+    credits: {
+      packagePriceIqd: Number(subscription.packagePriceIqd || 10000),
+      packageRideCount: Number(subscription.packageRideLimit || 15),
+      used: Number(subscription.usedRides || 0),
+      remaining: Number(subscription.remainingRides || 0),
+      status: Number(subscription.remainingRides || 0) <= 0
+        ? "exhausted"
+        : Number(subscription.remainingRides || 0) === 1
+          ? "near_exhaustion"
+          : "active",
+      cashPaymentPending: subscription.cashPaymentPending === true,
+    },
+  };
 }
 
 export async function setTaxiCaptainDiscount({
@@ -263,6 +279,102 @@ export async function setTaxiCaptainDiscount({
     discountPercent: Number(discountPercent),
     adminUserId: Number(adminUserId),
   });
+}
+
+function mapTaxiCredit(row) {
+  const purchased = Number(row.purchased_ride_credits ?? 15);
+  const used = Number(row.consumed_ride_credits ?? 0);
+  const remaining = Math.max(0, purchased - used);
+  return {
+    packagePriceIqd: Number(row.package_price_iqd ?? 10000),
+    packageRideCount: Number(row.package_ride_count ?? 15),
+    purchased,
+    used,
+    remaining,
+    status: remaining <= 0 ? "exhausted" : remaining === 1 ? "near_exhaustion" : "active",
+    cashPaymentPending: row.cash_payment_pending === true,
+    cashPaymentRequestedAt: row.cash_payment_requested_at || null,
+    lastPaymentConfirmedAt: row.last_cash_payment_confirmed_at || null,
+  };
+}
+
+export async function getTaxiAdminOverview(query) {
+  const data = await adminRepo.getTaxiAdminOverview(query);
+  const s = data.summary || {};
+  return {
+    summary: {
+      rides: {
+        total: Number(s.rides_total || 0),
+        active: Number(s.rides_active || 0),
+        searching: Number(s.rides_searching || 0),
+        captainAssigned: Number(s.rides_captain_assigned || 0),
+        captainArriving: Number(s.rides_captain_arriving || 0),
+        rideStarted: Number(s.rides_started || 0),
+        completed: Number(s.rides_completed || 0),
+        cancelled: Number(s.rides_cancelled || 0),
+        expired: Number(s.rides_expired || 0),
+      },
+      captains: {
+        total: Number(s.captains_total || 0),
+        online: Number(s.captains_online || 0),
+        nearExhaustion: Number(s.captains_near_exhaustion || 0),
+        exhausted: Number(s.captains_exhausted || 0),
+        paymentPending: Number(s.captains_payment_pending || 0),
+      },
+      credits: { packagePriceIqd: 10000, packageRideCount: 15 },
+    },
+    rides: data.rides.map((r) => ({
+      id: Number(r.id), status: r.status,
+      customer: { id: Number(r.customer_user_id), fullName: r.customer_full_name, phone: r.customer_phone || null },
+      captain: r.assigned_captain_user_id ? { id: Number(r.assigned_captain_user_id), fullName: r.captain_full_name, phone: r.captain_phone || null } : null,
+      pickup: { label: r.pickup_label, latitude: Number(r.pickup_latitude), longitude: Number(r.pickup_longitude) },
+      dropoff: { label: r.dropoff_label, latitude: Number(r.dropoff_latitude), longitude: Number(r.dropoff_longitude) },
+      proposedFareIqd: Number(r.proposed_fare_iqd), agreedFareIqd: r.agreed_fare_iqd == null ? null : Number(r.agreed_fare_iqd),
+      createdAt: r.created_at, updatedAt: r.updated_at, startedAt: r.started_at || null,
+      completedAt: r.completed_at || null, cancelledAt: r.cancelled_at || null,
+    })),
+    captains: data.captains.map((r) => ({
+      id: Number(r.id), fullName: r.full_name, phone: r.phone || null,
+      approved: r.delivery_account_approved === true, online: r.is_online === true,
+      lastSeenAt: r.last_seen_at || null,
+      vehicle: { type: r.vehicle_type || null, make: r.car_make || null, model: r.car_model || null,
+        year: r.car_year == null ? null : Number(r.car_year), color: r.car_color || null,
+        plateNumber: r.plate_number || null, profileImageUrl: r.profile_image_url || null, carImageUrl: r.car_image_url || null },
+      credits: mapTaxiCredit(r),
+      rides: { total: Number(r.rides_total || 0), completed: Number(r.rides_completed || 0),
+        active: Number(r.rides_active || 0), cancelled: Number(r.rides_cancelled || 0) },
+    })),
+    pagination: { limit: query.limit, offset: query.offset, ridesReturned: data.rides.length, captainsReturned: data.captains.length },
+  };
+}
+
+export async function adminCancelTaxiRide({ rideId, adminUserId, reason }) {
+  const result = await adminRepo.adminCancelTaxiRide({ rideId, adminUserId, reason });
+  if (result.code === "NOT_FOUND") {
+    const err = new Error("TAXI_RIDE_NOT_FOUND"); err.status = 404; throw err;
+  }
+  if (result.code === "ALREADY_CLOSED") {
+    const err = new Error("TAXI_RIDE_ALREADY_CLOSED"); err.status = 409; throw err;
+  }
+  const recipients = [result.ride.customer_user_id, result.ride.assigned_captain_user_id].filter(Boolean);
+  await createManyNotifications(recipients.map((userId) => ({
+    userId: Number(userId), type: "taxi.ride.cancelled_by_admin", title: "ألغت الإدارة الرحلة",
+    body: `تم إلغاء الرحلة من الإدارة. السبب: ${reason}`,
+    payload: { rideId: Number(result.ride.id), reason, cancelledByUserId: Number(adminUserId) },
+  })));
+  return { ride: { id: Number(result.ride.id), status: result.ride.status, cancelledAt: result.ride.cancelled_at },
+    reason, cancelledByUserId: Number(adminUserId), previousStatus: result.previousStatus };
+}
+
+export async function adjustTaxiCaptainCredits({ captainUserId, adminUserId, delta, reason }) {
+  const captain = await adminRepo.findTaxiCaptainById(Number(captainUserId));
+  if (!captain) { const err = new Error("TAXI_CAPTAIN_NOT_FOUND"); err.status = 404; throw err; }
+  const row = await adminRepo.adjustCaptainRideCredits({ captainUserId, adminUserId, delta, reason });
+  if (!row) { const err = new Error("TAXI_CREDIT_ADJUSTMENT_EXCEEDS_BALANCE"); err.status = 409; throw err; }
+  await createManyNotifications([{ userId: Number(captainUserId), type: "taxi.captain.credits.adjusted",
+    title: "تم تعديل رصيد رحلاتك", body: `${reason} (${delta > 0 ? "+" : ""}${delta} رحلة)`,
+    payload: { delta, reason, remaining: Number(row.purchased_ride_credits) - Number(row.consumed_ride_credits) } }]);
+  return { captainUserId: Number(captainUserId), credits: mapTaxiCredit(row) };
 }
 
 function mapAdBoardItem(row) {

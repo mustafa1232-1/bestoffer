@@ -2,6 +2,7 @@
 import { emitToUser } from "../../shared/realtime/live-events.js";
 import { AppError } from "../../shared/utils/errors.js";
 import * as repo from "./taxi.repo.js";
+import { evaluateCaptainRideCredits } from "./taxi-credit.js";
 
 const FIRST_SEARCH_RADIUS_M = 2000;
 const EXPANDED_SEARCH_RADIUS_M = 4000;
@@ -25,64 +26,21 @@ function calcDiscountedFee(monthlyFeeIqd, discountPercent) {
   return Math.max(0, Math.round((fee * (100 - discount)) / 100));
 }
 
-function evaluateCaptainSubscription(raw) {
-  const now = new Date();
-  const trialDays = Math.max(0, Number(raw?.trial_days) || 30);
-  const trialStartedAt = raw?.trial_started_at ? new Date(raw.trial_started_at) : now;
-  const trialEndsAt = addDays(trialStartedAt, trialDays);
-
-  const cycleStartAt = raw?.current_cycle_start_at
-    ? new Date(raw.current_cycle_start_at)
-    : null;
-  const cycleEndsAt = raw?.current_cycle_end_at ? new Date(raw.current_cycle_end_at) : null;
-
-  const isTrialActive = now <= trialEndsAt;
-  const isCycleActive = cycleEndsAt != null && now <= cycleEndsAt;
-  const canAccess = isTrialActive || isCycleActive;
-
-  const activeEndsAt = isCycleActive ? cycleEndsAt : trialEndsAt;
-  const remainingMs = Math.max(0, activeEndsAt.getTime() - now.getTime());
-  const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
-
-  const monthlyFeeIqd = Math.max(
-    0,
-    Number(raw?.monthly_fee_iqd) || CAPTAIN_SUBSCRIPTION_MONTHLY_FEE_IQD
-  );
-  const discountPercent = Math.max(0, Math.min(100, Number(raw?.discount_percent) || 0));
-  const discountedMonthlyFeeIqd = calcDiscountedFee(monthlyFeeIqd, discountPercent);
-
-  return {
-    canAccess,
-    phase: isTrialActive ? "trial" : isCycleActive ? "paid" : "expired",
-    monthlyFeeIqd,
-    discountPercent,
-    discountedMonthlyFeeIqd,
-    dueAmountIqd: canAccess ? 0 : discountedMonthlyFeeIqd,
-    trialStartedAt,
-    trialEndsAt,
-    cycleStartAt,
-    cycleEndsAt,
-    activeEndsAt,
-    remainingDays,
-    cashPaymentPending: raw?.cash_payment_pending === true,
-    cashPaymentRequestedAt: raw?.cash_payment_requested_at || null,
-    lastCashPaymentConfirmedAt: raw?.last_cash_payment_confirmed_at || null,
-    lastExpiryReminderOn: raw?.last_expiry_reminder_on || null,
-  };
+export function evaluateCaptainSubscription(raw) {
+  return evaluateCaptainRideCredits(raw, {
+      phone: process.env.TAXI_SUPPORT_PHONE || null,
+      whatsapp: process.env.TAXI_SUPPORT_WHATSAPP || process.env.TAXI_SUPPORT_PHONE || null,
+  });
 }
 
 async function maybeSendCaptainSubscriptionReminder(captainUserId, profile, subscriptionStatus) {
-  if (!subscriptionStatus?.canAccess) return;
-  if (subscriptionStatus.remainingDays <= 0 || subscriptionStatus.remainingDays > 7) return;
+  if (!subscriptionStatus?.isLastRide) return;
 
   const today = new Date().toISOString().slice(0, 10);
   if (subscriptionStatus.lastExpiryReminderOn === today) return;
 
-  const title = "تنبيه انتهاء اشتراك الكابتن";
-  const body =
-    subscriptionStatus.remainingDays === 1
-      ? "باقي يوم واحد على انتهاء اشتراكك الشهري. راجع الإدارة للتسديد النقدي."
-      : `باقي ${subscriptionStatus.remainingDays} أيام على انتهاء اشتراكك الشهري. راجع الإدارة للتسديد النقدي.`;
+  const title = "هذه آخر رحلة متاحة لك";
+  const body = "تبقت لك رحلة واحدة. يرجى تسديد 10,000 د.ع لإضافة 15 رحلة جديدة أو التواصل مع الدعم.";
 
   queueNotification({
     userId: Number(captainUserId),
@@ -90,7 +48,7 @@ async function maybeSendCaptainSubscriptionReminder(captainUserId, profile, subs
     title,
     body,
     payload: {
-      remainingDays: subscriptionStatus.remainingDays,
+      remainingRides: subscriptionStatus.remainingRides,
       dueAmountIqd: subscriptionStatus.discountedMonthlyFeeIqd,
     },
   });
@@ -774,7 +732,7 @@ export async function assertCaptainSubscriptionAccess(captainUserId) {
     });
   }
 
-  throw new AppError("DELIVERY_SUBSCRIPTION_EXPIRED", {
+  throw new AppError("TAXI_CAPTAIN_RIDE_CREDITS_EXHAUSTED", {
     status: 403,
     details: {
       dueAmountIqd: ctx.subscription.discountedMonthlyFeeIqd,
@@ -1752,6 +1710,24 @@ export async function cancelRide({ customerUserId, rideId }) {
   return result.ride;
 }
 
+export async function cancelRideByCaptain({ captainUserId, rideId, reason = null }) {
+  const result = await repo.cancelRideByCaptain({ rideId, captainUserId, reason });
+  if (result.code !== "OK") {
+    if (result.code === "RIDE_NOT_FOUND") throw new AppError("TAXI_RIDE_NOT_FOUND", { status: 404 });
+    if (result.code === "RIDE_ALREADY_STARTED") throw new AppError("TAXI_RIDE_CANNOT_CANCEL_AFTER_START", { status: 409 });
+    throw new AppError("TAXI_RIDE_ALREADY_CLOSED", { status: 409 });
+  }
+  await emitRideUpdate(result.ride, "ride_cancelled_by_captain", { reason: reason || null });
+  queueNotification({
+    userId: result.ride.customerUserId,
+    type: "taxi.ride.cancelled_by_captain",
+    title: "تم إلغاء الرحلة",
+    body: "ألغى الكابتن الرحلة قبل بدئها.",
+    payload: { rideId: result.ride.id, reason: reason || null },
+  });
+  return result.ride;
+}
+
 export async function rateRideByCustomer({
   customerUserId,
   rideId,
@@ -1836,6 +1812,9 @@ async function transitionRideStatus({ captainUserId, rideId, nextStatus, eventTy
     }
     if (result.code === "RIDE_NOT_ASSIGNED_TO_CAPTAIN") {
       throw new AppError("TAXI_RIDE_NOT_ASSIGNED_TO_CAPTAIN", { status: 403 });
+    }
+    if (result.code === "CAPTAIN_RIDE_CREDITS_EXHAUSTED") {
+      throw new AppError("TAXI_CAPTAIN_RIDE_CREDITS_EXHAUSTED", { status: 403 });
     }
     throw new AppError("TAXI_INVALID_STATUS_TRANSITION", {
       status: 409,
@@ -2122,8 +2101,8 @@ export async function requestCaptainCashPayment(captainUserId) {
     backofficeUsers.map((userId) => ({
       userId,
       type: "taxi.captain.subscription.cash_payment_requested",
-      title: "طلب تسديد اشتراك كابتن",
-      body: `${current.full_name || "كابتن"} طلب تسديد نقدي لاشتراك التكسي.`,
+      title: "طلب تسديد باقة رحلات",
+      body: `${current.full_name || "كابتن"} طلب تسديد 10,000 د.ع لإضافة 15 رحلة.`,
       payload: {
         captainUserId: Number(captainUserId),
         dueAmountIqd: subscription.discountedMonthlyFeeIqd,
@@ -2174,38 +2153,30 @@ export async function setCaptainDiscountByAdmin({
 export async function confirmCaptainCashPaymentByAdmin({
   captainUserId,
   adminUserId,
-  cycleDays = 30,
 }) {
   const captain = await repo.getCaptainProfile(captainUserId);
   if (!captain) {
     throw new AppError("TAXI_CAPTAIN_NOT_FOUND", { status: 404 });
   }
 
-  const now = new Date();
-  const safeCycleDays = Math.max(1, Math.min(365, Number(cycleDays) || 30));
-  const cycleEndAt = addDays(now, safeCycleDays);
-
   const updated = await repo.confirmCaptainCashPayment({
     captainUserId,
-    cycleStartAt: now.toISOString(),
-    cycleEndAt: cycleEndAt.toISOString(),
     approvedByUserId: adminUserId,
   });
 
   if (!updated) {
-    throw new AppError("TAXI_CAPTAIN_SUBSCRIPTION_NOT_FOUND", { status: 404 });
+    throw new AppError("TAXI_CAPTAIN_PAYMENT_NOT_PENDING", { status: 409 });
   }
 
   const { subscription } = await loadCaptainSubscriptionContext(captainUserId);
   queueNotification({
     userId: Number(captainUserId),
     type: "taxi.captain.subscription.cash_payment_confirmed",
-    title: "تم تأكيد تسديد الاشتراك",
-    body: `تم تفعيل اشتراكك لمدة ${safeCycleDays} يوم.`,
+    title: "تم تأكيد تسديد باقة الرحلات",
+    body: `تمت إضافة ${subscription.packageRideLimit} رحلة إلى رصيدك.`,
     payload: {
-      cycleStartAt: updated.current_cycle_start_at,
-      cycleEndAt: updated.current_cycle_end_at,
-      remainingDays: subscription.remainingDays,
+      addedRides: subscription.packageRideLimit,
+      remainingRides: subscription.remainingRides,
     },
   });
 
@@ -2237,4 +2208,3 @@ export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
     };
   });
 }
-
