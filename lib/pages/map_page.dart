@@ -4138,18 +4138,19 @@ out center 20;
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                retinaMode:
-                    (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) >
-                    1.0,
-                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                retinaMode: false,
                 userAgentPackageName: 'app.maslaki.user',
                 tileProvider: NetworkTileProvider(
                   headers: {
                     'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
                   },
                 ),
+              ),
+              const RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution('© OpenStreetMap contributors'),
+                ],
               ),
               if (_routePoints.length >= 2)
                 PolylineLayer(
