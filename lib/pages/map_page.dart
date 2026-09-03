@@ -4139,7 +4139,7 @@ out center 20;
             children: [
               TileLayer(
                 urlTemplate:
-                    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 retinaMode:
                     (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) >
                     1.0,
