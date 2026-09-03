@@ -5,42 +5,7 @@ on:
     branches: ["**"]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
-  cleanup-map-lint:
-    if: github.ref == 'refs/heads/fix/user-taxi-map-tiles' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fix/user-taxi-map-tiles
-          fetch-depth: 0
-      - name: Fix map analyzer lint
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('lib/pages/map_page.dart')
-          s = p.read_text(encoding='utf-8')
-          old = 'tileBuilder: (_, tileWidget, __) => ColorFiltered('
-          new = 'tileBuilder: (_, tileWidget, _) => ColorFiltered('
-          assert s.count(old) == 1, s.count(old)
-          p.write_text(s.replace(old, new, 1), encoding='utf-8')
-          PY
-          grep -F "tileBuilder: (_, tileWidget, _) => ColorFiltered(" lib/pages/map_page.dart
-      - name: Commit cleaned map and restore CI
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin maslaki-final-v
-          git checkout origin/maslaki-final-v -- .github/workflows/ci.yml
-          git add .github/workflows/ci.yml lib/pages/map_page.dart
-          git commit -m "fix(user): clean taxi map analyzer lint"
-          git push origin HEAD:fix/user-taxi-map-tiles
-
   backend:
     runs-on: ubuntu-latest
     defaults:

@@ -4148,7 +4148,7 @@ out center 20;
                   },
                 ),
                 // Maslaki navy night rendering; OSM coverage remains global.
-                tileBuilder: (_, tileWidget, __) => ColorFiltered(
+                tileBuilder: (_, tileWidget, _) => ColorFiltered(
                   colorFilter: const ColorFilter.matrix(<double>[
                     -0.197, -0.257, -0.026, 0, 139.79,
                     -0.089, -0.436, -0.030, 0, 164.37,
