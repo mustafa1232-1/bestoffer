@@ -15,5 +15,8 @@ void main() {
     expect(source, contains('backgroundColor: const Color(0xFF111A28)'));
     expect(source, contains('tileBuilder:'));
     expect(source, contains('ColorFilter.matrix'));
+    expect(source, contains('backgroundColor: const Color(0xFF111A28)'));
+    expect(source, contains('tileBuilder:'));
+    expect(source, contains('ColorFilter.matrix'));
   });
 }

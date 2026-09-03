@@ -5,39 +5,7 @@ on:
     branches: ["**"]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
-  patch-dark-taxi-map:
-    if: github.ref == 'refs/heads/fix/user-taxi-map-tiles' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fix/user-taxi-map-tiles
-          fetch-depth: 0
-      - name: Apply Maslaki dark map theme
-        run: |
-          set -euo pipefail
-          python3 -c "from pathlib import Path; p=Path('lib/pages/map_page.dart'); lines=p.read_text(encoding='utf-8').splitlines(); idx=[i for i,l in enumerate(lines) if l.strip()=='initialZoom: _initialZoom,']; assert len(idx)==1, idx; lines.insert(idx[0]+1, '              backgroundColor: const Color(0xFF111A28),'); p.write_text('\\n'.join(lines)+'\\n', encoding='utf-8')"
-          python3 -c "from pathlib import Path; p=Path('lib/pages/map_page.dart'); lines=p.read_text(encoding='utf-8').splitlines(); u=[i for i,l in enumerate(lines) if \"urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'\" in l]; assert len(u)==1, u; a=next(i for i in range(u[0]+1,len(lines)) if 'const RichAttributionWidget(' in lines[i]); closings=[i for i in range(u[0]+1,a) if lines[i]=='              ),']; assert len(closings)==1, closings; c=closings[0]; block=['                // Maslaki navy night rendering; OSM coverage remains global.','                tileBuilder: (_, tileWidget, __) => ColorFiltered(','                  colorFilter: const ColorFilter.matrix(<double>[','                    -0.197, -0.257, -0.026, 0, 139.79,','                    -0.089, -0.436, -0.030, 0, 164.37,','                    -0.103, -0.347, -0.196, 0, 194.10,','                    0, 0, 0, 1, 0,','                  ]),','                  child: tileWidget,','                ),']; lines[c:c]=block; p.write_text('\\n'.join(lines)+'\\n', encoding='utf-8')"
-          python3 -c "from pathlib import Path; p=Path('test/pages/taxi_map_tile_source_test.dart'); lines=p.read_text(encoding='utf-8').splitlines(); idx=[i for i,l in enumerate(lines) if \"expect(source, contains('© OpenStreetMap contributors'));\" in l]; assert len(idx)==1, idx; extras=[\"    expect(source, contains('backgroundColor: const Color(0xFF111A28)'));\",\"    expect(source, contains('tileBuilder:'));\",\"    expect(source, contains('ColorFilter.matrix'));\"]; lines[idx[0]+1:idx[0]+1]=extras; p.write_text('\\n'.join(lines)+'\\n', encoding='utf-8')"
-          grep -F "backgroundColor: const Color(0xFF111A28)" lib/pages/map_page.dart
-          grep -F "ColorFilter.matrix" lib/pages/map_page.dart
-          grep -F "tile.openstreetmap.org" lib/pages/map_page.dart
-          ! grep -F "basemaps.cartocdn.com" lib/pages/map_page.dart
-      - name: Commit final map and restore CI
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin maslaki-final-v
-          git checkout origin/maslaki-final-v -- .github/workflows/ci.yml
-          git add .github/workflows/ci.yml lib/pages/map_page.dart test/pages/taxi_map_tile_source_test.dart
-          git commit -m "feat(user): add Maslaki dark taxi map theme"
-          git push origin HEAD:fix/user-taxi-map-tiles
-
   backend:
     runs-on: ubuntu-latest
     defaults:
