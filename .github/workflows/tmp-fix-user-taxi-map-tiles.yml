@@ -1,0 +1,81 @@
+name: tmp-fix-user-taxi-map-tiles
+
+on:
+  push:
+    branches:
+      - fix/user-taxi-map-tiles
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/user-taxi-map-tiles
+      - name: Replace keyed CARTO raster tiles with OSM tiles
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path('lib/pages/map_page.dart')
+          text = path.read_text(encoding='utf-8')
+          old = """              TileLayer(
+                urlTemplate:
+                    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                retinaMode:
+                    (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) >
+                    1.0,
+                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'app.maslaki.user',
+                tileProvider: NetworkTileProvider(
+                  headers: {
+                    'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
+                  },
+                ),
+              ),
+"""
+          new = """              TileLayer(
+                // CARTO raster basemaps require an API key as of 2026. Use
+                // the public OpenStreetMap tile endpoint directly so a 200
+                // watermark response can never bypass flutter_map fallback.
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                retinaMode: false,
+                userAgentPackageName: 'app.maslaki.user',
+                tileProvider: NetworkTileProvider(
+                  headers: {
+                    'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
+                  },
+                ),
+              ),
+              const RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution('© OpenStreetMap contributors'),
+                ],
+              ),
+"""
+          if old not in text:
+              raise SystemExit('Expected CARTO TileLayer block was not found; refusing an unsafe patch.')
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one CARTO TileLayer block, found {text.count(old)}.')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+      - name: Verify only expected map source changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          ! grep -F "basemaps.cartocdn.com/dark_all" lib/pages/map_page.dart
+          grep -F "https://tile.openstreetmap.org/{z}/{x}/{y}.png" lib/pages/map_page.dart
+          grep -F "OpenStreetMap contributors" lib/pages/map_page.dart
+      - name: Commit map fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add lib/pages/map_page.dart
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(user): replace keyed taxi map tiles"
+          git push origin HEAD:fix/user-taxi-map-tiles
