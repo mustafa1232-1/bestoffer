@@ -5,38 +5,7 @@ on:
     branches: ["**"]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
-  dedupe-dark-taxi-map:
-    if: github.ref == 'refs/heads/fix/user-taxi-map-tiles' && github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fix/user-taxi-map-tiles
-          fetch-depth: 0
-      - name: Remove duplicate dark theme declarations
-        run: |
-          set -euo pipefail
-          python3 -c "from pathlib import Path; p=Path('lib/pages/map_page.dart'); lines=p.read_text(encoding='utf-8').splitlines(); bg=[i for i,l in enumerate(lines) if l.strip()=='backgroundColor: const Color(0xFF111A28),']; assert len(bg)==2, bg; del lines[bg[1]]; comments=[i for i,l in enumerate(lines) if l.strip()=='// Maslaki navy night rendering; OSM coverage remains global.']; assert len(comments)==2, comments; second=comments[1]; del lines[second:second+10]; p.write_text('\\n'.join(lines)+'\\n', encoding='utf-8')"
-          test "$(grep -Fc "backgroundColor: const Color(0xFF111A28)" lib/pages/map_page.dart)" -eq 1
-          test "$(grep -Fc "Maslaki navy night rendering; OSM coverage remains global." lib/pages/map_page.dart)" -eq 1
-          test "$(grep -Fc "ColorFilter.matrix" lib/pages/map_page.dart)" -eq 1
-          test "$(grep -Fc "tileBuilder:" lib/pages/map_page.dart)" -eq 1
-          ! grep -F "basemaps.cartocdn.com" lib/pages/map_page.dart
-      - name: Commit clean map and restore CI
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin maslaki-final-v
-          git checkout origin/maslaki-final-v -- .github/workflows/ci.yml
-          git add .github/workflows/ci.yml lib/pages/map_page.dart
-          git commit -m "fix(user): dedupe Maslaki dark taxi map theme"
-          git push origin HEAD:fix/user-taxi-map-tiles
-
   backend:
     runs-on: ubuntu-latest
     defaults:
