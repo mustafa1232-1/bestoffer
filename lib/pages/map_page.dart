@@ -4129,6 +4129,7 @@ out center 20;
             options: MapOptions(
               initialCenter: _bismayahCenter,
               initialZoom: _initialZoom,
+              backgroundColor: const Color(0xFF111A28),
               onTap: (_, point) => _onMapTap(point),
               interactionOptions: InteractionOptions(
                 flags: _sheetDragInProgress
@@ -4138,18 +4139,29 @@ out center 20;
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                retinaMode:
-                    (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) >
-                    1.0,
-                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                retinaMode: false,
                 userAgentPackageName: 'app.maslaki.user',
                 tileProvider: NetworkTileProvider(
                   headers: {
                     'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
                   },
                 ),
+                // Maslaki navy night rendering; OSM coverage remains global.
+                tileBuilder: (_, tileWidget, _) => ColorFiltered(
+                  colorFilter: const ColorFilter.matrix(<double>[
+                    -0.197, -0.257, -0.026, 0, 139.79,
+                    -0.089, -0.436, -0.030, 0, 164.37,
+                    -0.103, -0.347, -0.196, 0, 194.10,
+                    0, 0, 0, 1, 0,
+                  ]),
+                  child: tileWidget,
+                ),
+              ),
+              const RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution('© OpenStreetMap contributors'),
+                ],
               ),
               if (_routePoints.length >= 2)
                 PolylineLayer(
