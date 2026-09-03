@@ -2,107 +2,28 @@ name: tmp-dark-taxi-map
 
 on:
   push:
-    branches:
-      - fix/user-taxi-map-tiles
+    branches: ["fix/user-taxi-map-tiles"]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: fix/user-taxi-map-tiles
-
-      - name: Apply dark Maslaki map styling
-        shell: bash
+      - name: Patch map theme
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('lib/pages/map_page.dart')
-          text = path.read_text(encoding='utf-8')
-
-          old_options = """            options: MapOptions(
-              initialCenter: _bismayahCenter,
-              initialZoom: _initialZoom,
-              onTap: (_, point) => _onMapTap(point),
-"""
-          new_options = """            options: MapOptions(
-              initialCenter: _bismayahCenter,
-              initialZoom: _initialZoom,
-              backgroundColor: const Color(0xFF111A28),
-              onTap: (_, point) => _onMapTap(point),
-"""
-          if text.count(old_options) != 1:
-              raise SystemExit(f'Expected one MapOptions target, found {text.count(old_options)}')
-          text = text.replace(old_options, new_options, 1)
-
-          old_tiles = """              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                retinaMode: false,
-                userAgentPackageName: 'app.maslaki.user',
-                tileProvider: NetworkTileProvider(
-                  headers: {
-                    'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
-                  },
-                ),
-              ),
-"""
-          new_tiles = """              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                retinaMode: false,
-                userAgentPackageName: 'app.maslaki.user',
-                tileProvider: NetworkTileProvider(
-                  headers: {
-                    'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
-                  },
-                ),
-                // Keep OSM's worldwide coverage, but render its raster tiles
-                // in Maslaki's navy night palette. Route/markers stay unfiltered.
-                tileBuilder: (_, tileWidget, __) => ColorFiltered(
-                  colorFilter: const ColorFilter.matrix(<double>[
-                    -0.197, -0.257, -0.026, 0, 139.79,
-                    -0.089, -0.436, -0.030, 0, 164.37,
-                    -0.103, -0.347, -0.196, 0, 194.10,
-                    0, 0, 0, 1, 0,
-                  ]),
-                  child: tileWidget,
-                ),
-              ),
-"""
-          if text.count(old_tiles) != 1:
-              raise SystemExit(f'Expected one TileLayer target, found {text.count(old_tiles)}')
-          text = text.replace(old_tiles, new_tiles, 1)
-          path.write_text(text, encoding='utf-8')
-
-          test_path = Path('test/pages/taxi_map_tile_source_test.dart')
-          test = test_path.read_text(encoding='utf-8')
-          old_expect = """    expect(source, isNot(contains('basemaps.cartocdn.com')));
-    expect(source, contains('© OpenStreetMap contributors'));
-"""
-          new_expect = """    expect(source, isNot(contains('basemaps.cartocdn.com')));
-    expect(source, contains('© OpenStreetMap contributors'));
-    expect(source, contains('backgroundColor: const Color(0xFF111A28)'));
-    expect(source, contains('tileBuilder:'));
-    expect(source, contains('ColorFilter.matrix'));
-"""
-          if test.count(old_expect) != 1:
-              raise SystemExit(f'Expected one regression-test target, found {test.count(old_expect)}')
-          test_path.write_text(test.replace(old_expect, new_expect, 1), encoding='utf-8')
-          PY
-
+          python3 -c "from pathlib import Path; p=Path('lib/pages/map_page.dart'); s=p.read_text(); old='              initialZoom: _initialZoom,\\n              onTap: (_, point) => _onMapTap(point),'; new='              initialZoom: _initialZoom,\\n              backgroundColor: const Color(0xFF111A28),\\n              onTap: (_, point) => _onMapTap(point),'; assert s.count(old)==1, s.count(old); p.write_text(s.replace(old,new,1))"
+          python3 -c "from pathlib import Path; p=Path('lib/pages/map_page.dart'); s=p.read_text(); old=\"                ),\\n              ),\\n              const RichAttributionWidget(\"; ins=\"                ),\\n                // Maslaki navy night rendering; OSM coverage remains global.\\n                tileBuilder: (_, tileWidget, __) => ColorFiltered(\\n                  colorFilter: const ColorFilter.matrix(<double>[\\n                    -0.197, -0.257, -0.026, 0, 139.79,\\n                    -0.089, -0.436, -0.030, 0, 164.37,\\n                    -0.103, -0.347, -0.196, 0, 194.10,\\n                    0, 0, 0, 1, 0,\\n                  ]),\\n                  child: tileWidget,\\n                ),\\n              ),\\n              const RichAttributionWidget(\"; assert s.count(old)==1, s.count(old); p.write_text(s.replace(old,ins,1))"
+          python3 -c "from pathlib import Path; p=Path('test/pages/taxi_map_tile_source_test.dart'); s=p.read_text(); old=\"    expect(source, contains('© OpenStreetMap contributors'));\\n\"; new=\"    expect(source, contains('© OpenStreetMap contributors'));\\n    expect(source, contains('backgroundColor: const Color(0xFF111A28)'));\\n    expect(source, contains('tileBuilder:'));\\n    expect(source, contains('ColorFilter.matrix'));\\n\"; assert s.count(old)==1, s.count(old); p.write_text(s.replace(old,new,1))"
           grep -F "backgroundColor: const Color(0xFF111A28)" lib/pages/map_page.dart
           grep -F "ColorFilter.matrix" lib/pages/map_page.dart
-          grep -F "tile.openstreetmap.org" lib/pages/map_page.dart
           ! grep -F "basemaps.cartocdn.com" lib/pages/map_page.dart
-
-      - name: Commit dark map and remove temporary workflow
-        shell: bash
+      - name: Commit and self-remove
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
