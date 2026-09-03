@@ -10,64 +10,20 @@ permissions:
 
 jobs:
   patch-taxi-map:
-    if: github.ref == 'refs/heads/fix/user-taxi-map-tiles' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: fix/user-taxi-map-tiles
-      - name: Replace keyed CARTO tiles with OpenStreetMap
-        shell: bash
+      - name: Replace CARTO taxi tiles with OpenStreetMap
         run: |
-          python - <<'PY'
-          from pathlib import Path
-          path = Path('lib/pages/map_page.dart')
-          text = path.read_text(encoding='utf-8')
-          old = """              TileLayer(
-                urlTemplate:
-                    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                retinaMode:
-                    (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) >
-                    1.0,
-                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'app.maslaki.user',
-                tileProvider: NetworkTileProvider(
-                  headers: {
-                    'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
-                  },
-                ),
-              ),
-"""
-          new = """              TileLayer(
-                // CARTO raster basemaps require an API key. Use OSM directly
-                // so a successful watermark tile can never bypass fallback.
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                retinaMode: false,
-                userAgentPackageName: 'app.maslaki.user',
-                tileProvider: NetworkTileProvider(
-                  headers: {
-                    'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
-                  },
-                ),
-              ),
-              const RichAttributionWidget(
-                attributions: [
-                  TextSourceAttribution('© OpenStreetMap contributors'),
-                ],
-              ),
-"""
-          if old not in text:
-              raise SystemExit('Expected CARTO TileLayer block not found')
-          if text.count(old) != 1:
-              raise SystemExit(f'Unsafe patch: found {text.count(old)} matching blocks')
-          path.write_text(text.replace(old, new, 1), encoding='utf-8')
-          PY
+          set -euo pipefail
+          python3 -c "from pathlib import Path; p=Path('lib/pages/map_page.dart'); s=p.read_text(); old='https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'; new='https://tile.openstreetmap.org/{z}/{x}/{y}.png'; assert s.count(old) == 1, s.count(old); p.write_text(s.replace(old,new,1))"
           ! grep -F "basemaps.cartocdn.com/dark_all" lib/pages/map_page.dart
           grep -F "https://tile.openstreetmap.org/{z}/{x}/{y}.png" lib/pages/map_page.dart
-          grep -F "OpenStreetMap contributors" lib/pages/map_page.dart
       - name: Commit patched map
-        shell: bash
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add lib/pages/map_page.dart
