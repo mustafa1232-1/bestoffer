@@ -27,14 +27,13 @@ jobs:
           grep -F "ColorFilter.matrix" lib/pages/map_page.dart
           grep -F "tile.openstreetmap.org" lib/pages/map_page.dart
           ! grep -F "basemaps.cartocdn.com" lib/pages/map_page.dart
-      - name: Commit final map and restore workflows
+      - name: Commit final map and restore CI
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git fetch origin maslaki-final-v
           git checkout origin/maslaki-final-v -- .github/workflows/ci.yml
-          git rm -f .github/workflows/tmp-dark-taxi-map.yml
           git add .github/workflows/ci.yml lib/pages/map_page.dart test/pages/taxi_map_tile_source_test.dart
           git commit -m "feat(user): add Maslaki dark taxi map theme"
           git push origin HEAD:fix/user-taxi-map-tiles
