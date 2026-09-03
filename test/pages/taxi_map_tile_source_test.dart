@@ -18,5 +18,13 @@ void main() {
     );
     expect('tileBuilder:'.allMatches(source).length, 1);
     expect('ColorFilter.matrix'.allMatches(source).length, 1);
+    expect(
+      source,
+      contains('tileBuilder: (_, tileWidget, _) => ColorFiltered('),
+    );
+    expect(
+      source,
+      isNot(contains('tileBuilder: (_, tileWidget, __) => ColorFiltered(')),
+    );
   });
 }
