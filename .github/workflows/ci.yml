@@ -5,31 +5,7 @@ on:
     branches: ["**"]
   pull_request:
 
-permissions:
-  contents: write
-
 jobs:
-  patch-taxi-map:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: fix/user-taxi-map-tiles
-      - name: Finalize OSM taxi map layer
-        run: |
-          set -euo pipefail
-          python3 -c "from pathlib import Path; p=Path('lib/pages/map_page.dart'); s=p.read_text(); old=\"              TileLayer(\\n                urlTemplate:\\n                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',\\n                retinaMode:\\n                    (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) >\\n                    1.0,\\n                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',\\n                userAgentPackageName: 'app.maslaki.user',\\n                tileProvider: NetworkTileProvider(\\n                  headers: {\\n                    'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',\\n                  },\\n                ),\\n              ),\\n\"; new=\"              TileLayer(\\n                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',\\n                retinaMode: false,\\n                userAgentPackageName: 'app.maslaki.user',\\n                tileProvider: NetworkTileProvider(\\n                  headers: {\\n                    'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',\\n                  },\\n                ),\\n              ),\\n              const RichAttributionWidget(\\n                attributions: [\\n                  TextSourceAttribution('© OpenStreetMap contributors'),\\n                ],\\n              ),\\n\"; assert s.count(old)==1, s.count(old); p.write_text(s.replace(old,new,1))"
-          ! grep -F "basemaps.cartocdn.com" lib/pages/map_page.dart
-          grep -F "OpenStreetMap contributors" lib/pages/map_page.dart
-      - name: Commit finalized map
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add lib/pages/map_page.dart
-          git commit -m "fix(user): finalize OSM taxi map layer"
-          git push origin HEAD:fix/user-taxi-map-tiles
-
   backend:
     runs-on: ubuntu-latest
     defaults:
