@@ -109,16 +109,21 @@ test('new quick reveal advances after everyone acknowledges; old quick timings a
 });
 
 test('voice revokes before grants, bounds concurrency, and blocks left/data-channel bypass',async()=>{
-  const players=Array.from({length:14},(_,i)=>({id:i,user_id:i,life_status:'alive',team:i<3?'mafia':'town'}));
-  const room={id:1,status:'night',voice_room_name:'qa'};
+  // Three eliminated players lose the microphone; eleven living players speak.
+  const players=Array.from({length:14},(_,i)=>({id:i,user_id:i,life_status:i<3?'dead':'alive',team:i<3?'mafia':'town'}));
+  const room={id:1,status:'day_discussion',voice_room_name:'qa'};
   let inFlight=0,max=0;const calls=[];
   await syncMafiaVoicePermissions(room,players,[],{updateParticipant:async(_,identity,{permission})=>{
     inFlight++;max=Math.max(max,inFlight);await new Promise(r=>setTimeout(r,2));
     calls.push(permission);inFlight--;
   }});
   assert.ok(max>1 && max<=4);
-  assert.ok(calls.slice(0,11).every(p=>!p.canPublish&&!p.canSubscribe));
-  assert.ok(calls.slice(11).every(p=>p.canPublish));
+  assert.ok(calls.slice(0,3).every(p=>!p.canPublish&&p.canSubscribe));
+  assert.ok(calls.slice(3).every(p=>p.canPublish));
+  // At night nobody speaks on the shared table (mafia use the night room).
+  const night=[];
+  await syncMafiaVoicePermissions({...room,status:'night'},players,[],{updateParticipant:async(_,__,{permission})=>{night.push(permission);}});
+  assert.ok(night.length===14 && night.every(p=>!p.canPublish));
   assert.ok(calls.every(p=>!p.canPublishData));
   assert.equal(mafiaVoicePermissions({...room,status:'lobby'},{life_status:'left'}).roomJoin,false);
 });
@@ -135,8 +140,8 @@ test('chat during voice work does not schedule redundant permission writes',asyn
 
 test('superseded voice work cannot grant the old phase permissions',async()=>{
   let current=true;const permissions=[];
-  const players=[{id:1,user_id:1,life_status:'alive',team:'town'},{id:2,user_id:2,life_status:'alive',team:'mafia'}];
-  await assert.rejects(syncMafiaVoicePermissions({id:1,status:'night',voice_room_name:'qa'},players,[],{
+  const players=[{id:1,user_id:1,life_status:'dead',team:'town'},{id:2,user_id:2,life_status:'alive',team:'mafia'}];
+  await assert.rejects(syncMafiaVoicePermissions({id:1,status:'day_discussion',voice_room_name:'qa'},players,[],{
     updateParticipant:async(_room,_identity,{permission})=>{permissions.push(permission);current=false;},
   },{isCurrent:async()=>current}),/MAFIA_VOICE_SUPERSEDED/);
   assert.equal(permissions.length,1);assert.equal(permissions[0].canPublish,false);

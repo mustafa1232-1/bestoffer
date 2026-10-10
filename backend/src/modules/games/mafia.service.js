@@ -3,12 +3,16 @@ import crypto from "node:crypto";
 import { pool, q } from "../../config/db.js";
 import { AppError } from "../../shared/utils/errors.js";
 import { readMafiaState } from './mafia.snapshot.js';
+import { assertNoBlockedMembers, maskOffensiveText } from "./games.safety.js";
 import {
   issueMafiaVoiceToken,
   mafiaVoiceConfigured,
   mafiaVoiceRoomName,
 } from "./mafia.voice.js";
 
+// Accept player input this long after the displayed deadline (network grace).
+export const MAFIA_ACTION_GRACE_MS = 700;
+const MAFIA_KICK_IDLE_MS = 60_000;
 const INVITE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const ACTIVE_STATUSES = new Set([
   "role_reveal", "night", "day_discussion", "day_nomination",
@@ -457,7 +461,7 @@ export async function advanceMafiaRoom(roomId, { force = false } = {}) {
     await client.query("BEGIN");
     room = (await client.query('SELECT * FROM mafia_room WHERE id=$1 FOR UPDATE SKIP LOCKED', [safeRoomId])).rows[0];
     if (!room) { await client.query('COMMIT'); return {changed:false}; }
-    const expired = room.phase_ends_at && new Date(room.phase_ends_at).getTime() <= Date.now();
+    const expired = room.phase_ends_at && new Date(room.phase_ends_at).getTime() + MAFIA_ACTION_GRACE_MS <= Date.now();
     const earlyReveal = room.status === 'role_reveal' && settings(room).flowVersion === 2 &&
       Date.now()-new Date(room.phase_started_at).getTime() >= 4000 &&
       !(await client.query("SELECT 1 FROM mafia_player WHERE room_id=$1 AND life_status='alive' AND NOT role_acknowledged LIMIT 1", [safeRoomId])).rowCount;
@@ -602,6 +606,9 @@ export async function joinMafiaRoom(userId, rawCode) {
       if (Number(count.rows[0].count) >= Number(room.max_players)) {
         throw new AppError("MAFIA_ROOM_FULL", { status: 409 });
       }
+      const seated = await client.query(
+        `SELECT user_id FROM mafia_player WHERE room_id=$1 AND life_status<>'left'`, [room.id]);
+      await assertNoBlockedMembers(client, safeUserId, seated.rows.map((row) => row.user_id), "MAFIA_ROOM_BLOCKED");
       const seat = await client.query(
         `SELECT n FROM generate_series(1,14) n WHERE NOT EXISTS (
            SELECT 1 FROM mafia_player WHERE room_id=$1 AND seat_number=n AND life_status<>'left'
@@ -699,6 +706,48 @@ function assertAlive(player) {
   if (player.life_status !== "alive") throw new AppError("MAFIA_PLAYER_NOT_ALIVE", { status: 409 });
 }
 
+// When every eligible player has already decided, waiting out the rest of the
+// timer is dead air. Pull the deadline in to a short settle window instead
+// (enough to change one's mind); the worker then resolves the phase.
+const MAFIA_SETTLE_MS = 1000;
+export async function settleMafiaPhaseIfEveryoneActed(client, room) {
+  if (!room.phase_ends_at) return false;
+  const players = (await client.query(
+    `SELECT id,role FROM mafia_player WHERE room_id=$1 AND life_status='alive'`,
+    [room.id],
+  )).rows;
+  if (!players.length) return false;
+  let everyone = false;
+  if (["day_nomination", "day_vote", "day_revote"].includes(room.status)) {
+    const ballotType = room.status === "day_nomination" ? "nomination"
+      : room.status === "day_revote" ? "revote" : "vote";
+    const cast = await client.query(
+      `SELECT COUNT(DISTINCT voter_player_id)::int count FROM mafia_ballot
+       WHERE room_id=$1 AND day_number=$2 AND ballot_type=$3
+         AND voter_player_id=ANY($4::bigint[])`,
+      [room.id, room.day_number, ballotType, players.map((p) => Number(p.id))],
+    );
+    everyone = Number(cast.rows[0].count) >= players.length;
+  } else if (room.status === "night" && Number(room.day_number) >= 1) {
+    const done = (await client.query(
+      `SELECT actor_player_id,action_type FROM mafia_action WHERE room_id=$1 AND day_number=$2`,
+      [room.id, room.day_number],
+    )).rows;
+    const has = new Set(done.map((a) => `${a.actor_player_id}:${a.action_type}`));
+    const holders = players.filter((p) => mafiaActionsForRole(p.role).length > 0);
+    everyone = holders.length > 0 && holders.every((p) =>
+      mafiaActionsForRole(p.role).every((type) => has.has(`${p.id}:${type}`)));
+  }
+  if (!everyone) return false;
+  const updated = await client.query(
+    `UPDATE mafia_room SET phase_ends_at=clock_timestamp()+$2*INTERVAL '1 millisecond',updated_at=NOW()
+     WHERE id=$1 AND phase_version=$3
+       AND phase_ends_at>clock_timestamp()+$2*INTERVAL '1 millisecond' RETURNING id`,
+    [room.id, MAFIA_SETTLE_MS, room.phase_version],
+  );
+  return updated.rowCount > 0;
+}
+
 export async function submitMafiaAction(userId, roomId, input) {
   const safeRoomId = id(roomId);
   const targetPlayerId = input.targetPlayerId == null ? null : id(input.targetPlayerId);
@@ -720,7 +769,7 @@ export async function submitMafiaAction(userId, roomId, input) {
     if (input.phaseVersion != null && Number(input.phaseVersion) !== Number(room.phase_version)) {
       throw new AppError('MAFIA_PHASE_CHANGED', {status:409});
     }
-    if (room.phase_ends_at && new Date(room.phase_ends_at).getTime() <= Date.now()) {
+    if (room.phase_ends_at && new Date(room.phase_ends_at).getTime() + MAFIA_ACTION_GRACE_MS <= Date.now()) {
       throw new AppError("MAFIA_PHASE_EXPIRED", { status: 409 });
     }
     assertAlive(player);
@@ -807,6 +856,7 @@ export async function submitMafiaAction(userId, roomId, input) {
     }
     await client.query('INSERT INTO mafia_command_receipt(room_id,user_id,command_id,request) VALUES($1,$2,$3,$4::jsonb)',
       [safeRoomId,id(userId),safeCommandId,JSON.stringify(request)]);
+    await settleMafiaPhaseIfEveryoneActed(client, room);
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -819,7 +869,7 @@ export async function submitMafiaAction(userId, roomId, input) {
 
 export async function sendMafiaMessage(userId, roomId, input) {
   const safeRoomId = id(roomId);
-  const body = String(input.body || "").trim();
+  const body = maskOffensiveText(String(input.body || "").trim()).text;
   if (!body || body.length > 300) throw new AppError("MAFIA_MESSAGE_INVALID", { status: 400 });
   const key = input.clientMessageId == null ? null : commandId(input.clientMessageId);
   const result = await q(`WITH member AS MATERIALIZED (
@@ -862,6 +912,11 @@ export async function sendMafiaInteraction(userId, roomId, input) {
     const player = await loadPlayer(client, safeRoomId, safeUserId, true);
     if (player.life_status === "left") {
       throw new AppError("MAFIA_ROOM_FORBIDDEN", { status: 403 });
+    }
+    // A reaction or gift aimed at a living player is a public signal. Once
+    // eliminated, a player knows things the table must not learn from them.
+    if (!isHonor && room.status !== "lobby" && player.life_status !== "alive") {
+      throw new AppError("MAFIA_ELIMINATED_CANNOT_INTERACT", { status: 409 });
     }
     let target = null;
     if (input.targetPlayerId != null) {
@@ -969,9 +1024,19 @@ export async function reportMafiaPlayer(userId, roomId, input) {
       await client.query("COMMIT");
       return { ok: true, duplicate: true, reportId: Number(existing.rows[0].id) };
     }
+    // Snapshot what the reported player wrote, so moderators review evidence
+    // instead of a bare accusation (messages may be gone by review time).
+    const evidence = await client.query(
+      `SELECT channel,body,created_at FROM mafia_message
+       WHERE room_id=$1 AND sender_player_id=$2 ORDER BY id DESC LIMIT 20`,
+      [safeRoomId, target.id],
+    );
     const payload = {
       commandId: safeCommandId,
       status: "pending",
+      evidence: evidence.rows.reverse().map((row) => ({
+        channel: row.channel, body: row.body, createdAt: row.created_at,
+      })),
       reason: input.reason,
       details: input.details || null,
       reporterPlayerId: Number(reporter.id),
@@ -1134,6 +1199,14 @@ export async function kickMafiaPlayer(userId, roomId, playerId) {
     if (Number(target.user_id) === safeUserId) {
       throw new AppError("MAFIA_HOST_CANNOT_KICK_SELF", { status: 409 });
     }
+    // Mid-game, a kick changes the outcome (e.g. a mafia host removing the
+    // detective). Only players who stopped responding can be removed then;
+    // abuse by a connected player goes through reports.
+    const connected = target.disconnected_at == null &&
+      Date.now() - new Date(target.last_seen_at).getTime() < MAFIA_KICK_IDLE_MS;
+    if (room.status !== "lobby" && connected) {
+      throw new AppError("MAFIA_KICK_ACTIVE_PLAYER_FORBIDDEN", { status: 409 });
+    }
 
     const nextSettings = settings(room);
     const kickedUserIds = new Set(
@@ -1227,6 +1300,11 @@ export async function closeMafiaRoom(userId, roomId) {
     }
     if (room.status === "completed") {
       throw new AppError("MAFIA_ROOM_ALREADY_COMPLETED", { status: 409 });
+    }
+    // Cancelling a running game erases a result the host may be losing. The
+    // host can still leave (the game continues and the seat counts as lost).
+    if (ACTIVE_STATUSES.has(room.status)) {
+      throw new AppError("MAFIA_GAME_IN_PROGRESS", { status: 409 });
     }
     if (room.status !== "cancelled") {
       const updated = await client.query(

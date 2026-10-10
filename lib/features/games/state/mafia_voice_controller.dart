@@ -60,7 +60,14 @@ class MafiaVoiceController extends ChangeNotifier {
 
   bool get isConnected => state == MafiaVoiceState.connected;
   bool get microphoneRequested => _microphoneRequested;
-  bool get isInAfterlife => _afterlifeRoom != null;
+  bool get isInAfterlife =>
+      _afterlifeRoom != null && _secondaryChannel != 'night';
+
+  /// Alive mafia talk in a separate night-only room during the night phase.
+  bool get isInMafiaNightRoom =>
+      _afterlifeRoom != null && _secondaryChannel == 'night';
+  String? _secondaryChannel;
+  String? _secondaryRoomName;
   Set<int> get mutedUserIds => Set<int>.unmodifiable(_mutedUserIds);
 
   bool isUserMuted(int userId) => _mutedUserIds.contains(userId);
@@ -169,6 +176,8 @@ class MafiaVoiceController extends ChangeNotifier {
     if (afterlife.isNotEmpty) {
       final secondaryToken = '${afterlife['token'] ?? ''}'.trim();
       if (secondaryToken.isNotEmpty) {
+        _secondaryChannel = '${afterlife['channel'] ?? 'afterlife'}';
+        _secondaryRoomName = '${afterlife['roomName'] ?? ''}';
         final secondary = await _connectRoom(
           url: url,
           token: secondaryToken,
@@ -241,6 +250,17 @@ class MafiaVoiceController extends ChangeNotifier {
         if (channel == _VoiceChannel.main) _mainSpeakers = const {};
         if (channel == _VoiceChannel.afterlife) {
           _afterlifeSpeakers = const {};
+          _mergeActiveSpeakers();
+          // The server closes the night room every morning. Losing only the
+          // secondary room must not tear down the shared table audio: drop the
+          // handle and re-ask which secondary room (if any) this phase allows.
+          if (!_disposed && !_tearingDown && !_manualDisconnect &&
+              identical(room, _afterlifeRoom)) {
+            unawaited(
+              _disposeAfterlifeRoom().then((_) => refreshPermissions()),
+            );
+          }
+          return;
         }
         _mergeActiveSpeakers();
         if (!_disposed && !_tearingDown && !_manualDisconnect) {
@@ -311,7 +331,19 @@ class MafiaVoiceController extends ChangeNotifier {
       final afterlife = _map(access['afterlife']);
       _afterlifeCanPublish =
           _map(afterlife['permissions'])['canPublish'] == true;
+      // The night room is deleted by the server each morning; a dropped or
+      // different secondary room must be replaced, not kept as a dead handle.
+      final secondaryStale =
+          _afterlifeRoom != null &&
+          (_afterlifeRoom!.connectionState == ConnectionState.disconnected ||
+              _secondaryRoomName != '${afterlife['roomName'] ?? ''}');
+      if (afterlife.isNotEmpty && secondaryStale) {
+        await _disposeAfterlifeRoom();
+        if (!_current(generation)) return;
+      }
       if (afterlife.isNotEmpty && _afterlifeRoom == null) {
+        _secondaryChannel = '${afterlife['channel'] ?? 'afterlife'}';
+        _secondaryRoomName = '${afterlife['roomName'] ?? ''}';
         final url = '${access['url'] ?? ''}'.trim();
         final token = '${afterlife['token'] ?? ''}'.trim();
         if (url.isNotEmpty && token.isNotEmpty) {
@@ -569,6 +601,8 @@ class MafiaVoiceController extends ChangeNotifier {
     final room = _afterlifeRoom;
     _afterlifeListener = null;
     _afterlifeRoom = null;
+    _secondaryChannel = null;
+    _secondaryRoomName = null;
     _afterlifeCanPublish = false;
     _afterlifeSpeakers = const {};
     if (listener != null) await listener.dispose();

@@ -155,6 +155,8 @@ class KnowledgeFakeApi extends GamesApi {
     return Map.of(value);
   }
 
+  int? lastClientElapsedMs;
+
   @override
   Future<Map<String, dynamic>> answerKnowledgeQuestion(
     int matchId, {
@@ -163,8 +165,10 @@ class KnowledgeFakeApi extends GamesApi {
     required int roundId,
     required int questionId,
     required String idempotencyKey,
+    int? clientElapsedMs,
   }) async {
     answers++;
+    lastClientElapsedMs = clientElapsedMs;
     if (answerError != null) throw answerError!;
     saved = {
       'submitted': true,
@@ -223,6 +227,24 @@ DioException rejection(int status, String code) => DioException(
 );
 
 void main() {
+  test('the on-device reaction time is measured and sent with the answer', () async {
+    final api = KnowledgeFakeApi();
+    final c = KnowledgeMatchController(
+      api: api,
+      matchId: 1,
+      store: MemoryKnowledgeStore(),
+      polling: false,
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    c.selectDistrict('souk');
+    c.selectAnswer(1);
+    await c.submit();
+    expect(api.lastClientElapsedMs, isNotNull);
+    expect(api.lastClientElapsedMs, greaterThanOrEqualTo(100));
+    expect(api.lastClientElapsedMs, lessThan(5000));
+  });
   test('confirmed only after persistence, duplicate tap sends once', () async {
     final api = KnowledgeFakeApi()..pending = Completer();
     final c = KnowledgeMatchController(

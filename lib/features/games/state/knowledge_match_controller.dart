@@ -4,6 +4,9 @@ import 'dart:math';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+
+import 'game_feedback.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -114,6 +117,9 @@ class KnowledgeMatchController extends ChangeNotifier {
   Timer? _boundary;
   final _seenEvents = <String>{};
   final _clock = Stopwatch();
+  // Measures, on this device, how long the open question has been visible.
+  final _questionWatch = Stopwatch();
+  int? _questionWatchRound;
   DateTime _serverTime = DateTime.now().toUtc();
   DateTime? _lastEvent;
   bool _disposed = false,
@@ -242,15 +248,26 @@ class KnowledgeMatchController extends ChangeNotifier {
       },
     );
     final round = knowledgeMap(snapshot['round']);
-    final key = snapshot['phase'] == 'countdown'
+    final phase = snapshot['phase'];
+    final key = phase == 'countdown'
         ? 'startsAt'
-        : snapshot['phase'] == 'round_result'
+        : phase == 'round_result'
         ? 'nextAt'
         : 'deadlineAt';
-    final time = DateTime.tryParse('${round[key]}');
-    if (time != null && time.isAfter(serverNow)) {
+    var time = DateTime.tryParse('${round[key]}');
+    // After the deadline the server waits out the in-flight answer grace
+    // (1.5s) before scoring; look again right after it.
+    if (time != null && phase == 'resolving') {
+      time = time.add(const Duration(milliseconds: 1700));
+    }
+    if (time != null) {
+      final wait = time.difference(serverNow);
+      // Already past the boundary (clock skew or a slow response): retry
+      // quickly instead of waiting for the multi-second fallback.
       _boundary = Timer(
-        time.difference(serverNow) + const Duration(milliseconds: 250),
+        wait.isNegative
+            ? const Duration(milliseconds: 200)
+            : wait + const Duration(milliseconds: 60),
         () => unawaited(refresh()),
       );
     }
@@ -324,6 +341,15 @@ class KnowledgeMatchController extends ChangeNotifier {
     _clock
       ..reset()
       ..start();
+    final visibleQuestion = knowledgeMap(value['question']);
+    if (value['phase'] == 'question_open' &&
+        '${visibleQuestion['text'] ?? ''}'.isNotEmpty &&
+        _questionWatchRound != roundId) {
+      _questionWatchRound = roundId;
+      _questionWatch
+        ..reset()
+        ..start();
+    }
     final own = knowledgeMap(value['ownAnswer']);
     if (value['answered'] == true) {
       submission = KnowledgeSubmission.confirmed;
@@ -360,6 +386,7 @@ class KnowledgeMatchController extends ChangeNotifier {
 
   void selectAnswer(int value) {
     if (canSelect) {
+      gameFeedback(HapticFeedback.selectionClick);
       selectedAnswer = value;
       submission = KnowledgeSubmission.selected;
       _notify();
@@ -368,6 +395,7 @@ class KnowledgeMatchController extends ChangeNotifier {
 
   void selectDistrict(String value) {
     if (canSelect) {
+      gameFeedback(HapticFeedback.selectionClick);
       selectedDistrict = value;
       submission = KnowledgeSubmission.selected;
       _notify();
@@ -389,12 +417,15 @@ class KnowledgeMatchController extends ChangeNotifier {
       24,
       (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
+    gameFeedback(HapticFeedback.mediumImpact);
     _attempt = {
       'roundId': roundId,
       'questionId': knowledgeInt(knowledgeMap(snapshot['question'])['id']),
       'answerIndex': selectedAnswer,
       'districtId': selectedDistrict,
       'idempotencyKey': key,
+      if (_questionWatchRound == roundId)
+        'clientElapsedMs': _questionWatch.elapsedMilliseconds,
     };
     await _sendAttempt();
   }
@@ -424,6 +455,9 @@ class KnowledgeMatchController extends ChangeNotifier {
             answerIndex: knowledgeInt(attempt['answerIndex']),
             districtId: '${attempt['districtId']}',
             idempotencyKey: '${attempt['idempotencyKey']}',
+            clientElapsedMs: attempt['clientElapsedMs'] == null
+                ? null
+                : knowledgeInt(attempt['clientElapsedMs']),
           );
           _confirm(receipt, attempt);
           return;

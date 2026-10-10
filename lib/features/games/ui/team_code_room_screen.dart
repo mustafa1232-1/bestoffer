@@ -470,7 +470,7 @@ class _LobbyView extends ConsumerWidget {
         ),
         const SizedBox(height: 18),
         FilledButton.icon(
-          onPressed: acting ? null : () => controller.setReady(!ready),
+          onPressed: () => controller.setReady(!ready),
           icon: Icon(
             ready
                 ? Icons.check_circle_rounded
@@ -794,8 +794,17 @@ class _ProposalPanel extends ConsumerWidget {
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
-          Text(
-            '${votes.where((vote) => vote['vote'] == 'approve').length} موافقة من ${_listOfMaps(snapshot['members']).where((member) => member['isConnected'] == true).length}',
+          Builder(
+            builder: (context) {
+              final active = _listOfMaps(
+                snapshot['members'],
+              ).where((member) => member['isActive'] == true).length;
+              final required = active ~/ 2 + 1;
+              final approvals = votes
+                  .where((vote) => vote['vote'] == 'approve')
+                  .length;
+              return Text('$approvals موافقة من $required مطلوبة (أغلبية الفريق)');
+            },
           ),
           if (!alreadyVoted) ...[
             const SizedBox(height: 10),
@@ -803,9 +812,7 @@ class _ProposalPanel extends ConsumerWidget {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: acting
-                        ? null
-                        : () => controller.vote(_int(proposal['id']), true),
+                    onPressed: () => controller.vote(_int(proposal['id']), true),
                     icon: const Icon(Icons.check_rounded),
                     label: const Text('موافقة'),
                   ),
@@ -813,9 +820,7 @@ class _ProposalPanel extends ConsumerWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: acting
-                        ? null
-                        : () => controller.vote(_int(proposal['id']), false),
+                    onPressed: () => controller.vote(_int(proposal['id']), false),
                     icon: const Icon(Icons.close_rounded),
                     label: const Text('رفض'),
                   ),
@@ -1152,9 +1157,13 @@ class _MessageLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mine = _int(message['userId']) == meUserId;
+    final pending = message['pending'] == true;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
+      child: AnimatedOpacity(
+        duration: const Duration(milliseconds: 160),
+        opacity: pending ? .6 : 1,
+        child: Container(
         margin: const EdgeInsets.symmetric(vertical: 3),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
         constraints: const BoxConstraints(maxWidth: 280),
@@ -1174,6 +1183,7 @@ class _MessageLine extends StatelessWidget {
             Text('${message['body']}'),
           ],
         ),
+      ),
       ),
     );
   }

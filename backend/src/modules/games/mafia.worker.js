@@ -1,11 +1,14 @@
 import { q } from '../../config/db.js';
 import { emitRealtimeToUser } from '../../shared/realtime/realtime-gateway.js';
-import { advanceMafiaRoom } from './mafia.service.js';
+import { advanceMafiaRoom, MAFIA_ACTION_GRACE_MS } from './mafia.service.js';
+import { createWorkerLoop } from './games.worker-loop.js';
 import { closeMafiaVoiceRoom, removeMafiaVoiceParticipant, syncMafiaVoicePermissions } from './mafia.voice.js';
 
 export async function runMafiaPhases() {
+  // Deadlines close after a short grace so a tap made just before zero, still in
+  // flight on a slow network, is counted instead of rejected.
   const rooms = await q(`SELECT id FROM mafia_room r WHERE
-    (phase_ends_at<=NOW() AND status NOT IN('lobby','completed','cancelled')) OR
+    (phase_ends_at+${MAFIA_ACTION_GRACE_MS}*INTERVAL '1 millisecond'<=NOW() AND status NOT IN('lobby','completed','cancelled')) OR
     (status='role_reveal' AND settings->>'flowVersion'='2' AND phase_started_at<=NOW()-INTERVAL '4 seconds'
       AND NOT EXISTS(SELECT 1 FROM mafia_player p WHERE p.room_id=r.id AND life_status='alive' AND NOT role_acknowledged))
     ORDER BY phase_ends_at LIMIT 32`);
@@ -15,6 +18,17 @@ export async function runMafiaPhases() {
     catch (error) { console.warn(JSON.stringify({ event:'mafia_phase_retry',roomId:Number(room.id),code:error.code || 'FAILED' })); }
   }
   return changed;
+}
+
+async function nextMafiaDueMs() {
+  const due = await q(`SELECT GREATEST(0,EXTRACT(EPOCH FROM MIN(t)-clock_timestamp())*1000)::int AS ms FROM (
+      SELECT phase_ends_at+${MAFIA_ACTION_GRACE_MS}*INTERVAL '1 millisecond' AS t FROM mafia_room
+      WHERE status NOT IN('lobby','completed','cancelled') AND phase_ends_at IS NOT NULL
+      UNION ALL
+      SELECT phase_started_at+INTERVAL '4 seconds' FROM mafia_room
+      WHERE status='role_reveal' AND settings->>'flowVersion'='2') due`);
+  const ms = due.rows[0]?.ms;
+  return ms == null ? null : Number(ms);
 }
 
 async function syncVoice(room, players, isCurrent) {
@@ -66,32 +80,32 @@ export async function deliverMafiaChanges(kind = 'notify', { publish = publishMa
   return { processed: jobs.rowCount, failed: results.filter(r => r.status === 'rejected').length };
 }
 
-let stopped = true;
-const tasks = new Set(), timers = new Set();
+const phaseLoop = createWorkerLoop('mafia_phase', async () => {
+  const changed = await runMafiaPhases();
+  if (changed > 0) { notifyLoop.wake(); voiceLoop.wake(); return { busy: true }; }
+  return { nextDueMs: await nextMafiaDueMs() };
+});
+const notifyLoop = createWorkerLoop('mafia_notify', async () => {
+  const result = await deliverMafiaChanges('notify');
+  return { busy: result.processed > 0, failed: result.failed };
+}, { maxDelayMs: 750 });
+const voiceLoop = createWorkerLoop('mafia_voice', async () => {
+  const result = await deliverMafiaChanges('voice');
+  return { busy: result.processed > 0, failed: result.failed };
+}, { maxDelayMs: 1000 });
+
+// Request handlers call this after committing a mafia write: the realtime hint
+// and voice permission change go out now, not at the next poll.
+export function wakeMafiaWorkers() {
+  phaseLoop.wake();
+  notifyLoop.wake();
+  voiceLoop.wake();
+}
 export function startMafiaWorker() {
-  if (!stopped) return;
-  stopped = false;
-  const loop = (work, delay, name) => {
-    if (stopped) return;
-    const running = work().then(result => {
-      if (result?.failed) console.warn(JSON.stringify({ event: `mafia_${name}_retry`, failed: result.failed }));
-    }).catch(error => console.warn(JSON.stringify({ event: `mafia_${name}_error`, code: error.code || 'FAILED' })))
-      .finally(() => {
-        tasks.delete(running);
-        if (!stopped) {
-          const timer = setTimeout(() => { timers.delete(timer); loop(work, delay, name); }, delay);
-          timer.unref?.(); timers.add(timer);
-        }
-      });
-    tasks.add(running);
-  };
-  loop(runMafiaPhases, 150, 'phase');
-  loop(() => deliverMafiaChanges('notify'), 150, 'notify');
-  loop(() => deliverMafiaChanges('voice'), 200, 'voice');
+  phaseLoop.start();
+  notifyLoop.start();
+  voiceLoop.start();
 }
 export async function stopMafiaWorker() {
-  stopped = true;
-  for (const timer of timers) clearTimeout(timer);
-  timers.clear();
-  await Promise.allSettled([...tasks]);
+  await Promise.allSettled([phaseLoop.stop(), notifyLoop.stop(), voiceLoop.stop()]);
 }

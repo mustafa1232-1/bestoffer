@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/games_api.dart';
 import '../state/team_code_voice_controller.dart';
+import '../state/game_feedback.dart';
 import '../state/knowledge_match_controller.dart';
 import 'knowledge_match_board.dart';
 import 'knowledge_series_picker.dart';
@@ -962,7 +963,8 @@ class _KnowledgeMatchScreenState extends ConsumerState<KnowledgeMatchScreen>
     with WidgetsBindingObserver {
   static const _forest = Color(0xFF174C3A);
   late final KnowledgeMatchController _controller;
-  bool _sendingChat = false;
+  // Messages shown the instant they are sent, until the server's copy lands.
+  final List<Map<String, dynamic>> _pendingChat = [];
   bool _rematching = false;
   bool _reducedMotion = false, _effects = true, _haptics = false;
   int? _confirmedRound;
@@ -1165,26 +1167,32 @@ class _KnowledgeMatchScreenState extends ConsumerState<KnowledgeMatchScreen>
 
   Future<void> _sendKnowledgeMessage() async {
     final body = _chatInput.text.trim();
-    if (body.isEmpty || _sendingChat) return;
-    setState(() => _sendingChat = true);
+    if (body.isEmpty) return;
+    final channel = _chatChannel;
+    final local = <String, dynamic>{
+      'id': -DateTime.now().microsecondsSinceEpoch,
+      'channel': channel,
+      'body': body,
+      'name': 'أنت',
+      'pending': true,
+    };
+    gameFeedback(HapticFeedback.selectionClick);
+    _chatInput.clear();
+    setState(() => _pendingChat.add(local));
     try {
       await ref
           .read(gamesApiProvider)
-          .sendKnowledgeMessage(
-            widget.matchId,
-            channel: _chatChannel,
-            body: body,
-          );
-      _chatInput.clear();
+          .sendKnowledgeMessage(widget.matchId, channel: channel, body: body);
       await _load(quiet: true);
     } catch (error) {
       if (mounted) {
+        if (_chatInput.text.trim().isEmpty) _chatInput.text = body;
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(knowledgeErrorText(error))));
       }
     } finally {
-      if (mounted) setState(() => _sendingChat = false);
+      if (mounted) setState(() => _pendingChat.remove(local));
     }
   }
 
@@ -1217,10 +1225,10 @@ class _KnowledgeMatchScreenState extends ConsumerState<KnowledgeMatchScreen>
     final consent = _map(chat['consent']);
     final ownTeam = _map(consent['ownTeam']);
     final otherTeam = _map(consent['opponentTeam']);
-    final messages = (chat['messages'] as List? ?? const [])
-        .map(_map)
-        .where((message) => message['channel'] == _chatChannel)
-        .toList();
+    final messages = [
+      ...(chat['messages'] as List? ?? const []).map(_map),
+      ..._pendingChat,
+    ].where((message) => message['channel'] == _chatChannel).toList();
     final reactions = (chat['reactions'] as List? ?? const [])
         .map(_map)
         .toList();
@@ -1285,13 +1293,16 @@ class _KnowledgeMatchScreenState extends ConsumerState<KnowledgeMatchScreen>
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final message = messages[messages.length - index - 1];
-                    return ListTile(
-                      dense: true,
-                      title: Text(
-                        '${message['name'] ?? 'لاعب'}',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
+                    return Opacity(
+                      opacity: message['pending'] == true ? .6 : 1,
+                      child: ListTile(
+                        dense: true,
+                        title: Text(
+                          '${message['name'] ?? 'لاعب'}',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        subtitle: Text('${message['body'] ?? ''}'),
                       ),
-                      subtitle: Text('${message['body'] ?? ''}'),
                     );
                   },
                 ),
@@ -1315,19 +1326,11 @@ class _KnowledgeMatchScreenState extends ConsumerState<KnowledgeMatchScreen>
                 const SizedBox(width: 8),
                 IconButton.filled(
                   onPressed:
-                      !active ||
-                          _sendingChat ||
-                          (_chatChannel == 'public' && !publicEnabled)
+                      !active || (_chatChannel == 'public' && !publicEnabled)
                       ? null
                       : _sendKnowledgeMessage,
                   tooltip: 'إرسال',
-                  icon: _sendingChat
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.send_rounded),
+                  icon: const Icon(Icons.send_rounded),
                 ),
               ],
             ),

@@ -5,6 +5,7 @@ import { env } from "../../config/env.js";
 import { pool, q } from "../../config/db.js";
 import { AppError } from "../../shared/utils/errors.js";
 import { emitRealtimeToUsers } from "../../shared/realtime/realtime-gateway.js";
+import { assertNoBlockedMembers, maskOffensiveText } from "./games.safety.js";
 import { KNOWLEDGE_DIFFICULTY_SECONDS, MASLAKI_KNOWLEDGE_QUESTION_BANK, validateKnowledgeQuestionBank } from "./knowledge.question-bank.js";
 import { buildTournamentBracket, knowledgeDuelCanStart, knowledgePublicChatIsConsented, knowledgeTeamJoinAction } from "./knowledge-game.logic.js";
 import { resolveKnowledgeVotes } from './knowledge-game.logic.js';
@@ -54,9 +55,15 @@ export async function seedKnowledgeQuestionBank() {
             `INSERT INTO maslaki_quiz_question
                (question_key,category,difficulty,question_ar,options_json,answer_index,explanation_ar,time_limit_seconds,fact_key)
              VALUES ${rows.join(",")}
-             ON CONFLICT(question_key) DO UPDATE SET fact_key=EXCLUDED.fact_key
+             ON CONFLICT(question_key) DO UPDATE SET fact_key=EXCLUDED.fact_key,
+               options_json=EXCLUDED.options_json,answer_index=EXCLUDED.answer_index
                WHERE maslaki_quiz_question.question_ar=EXCLUDED.question_ar
-                 AND maslaki_quiz_question.fact_key IS DISTINCT FROM EXCLUDED.fact_key`,
+                 AND (maslaki_quiz_question.fact_key IS DISTINCT FROM EXCLUDED.fact_key
+                   OR maslaki_quiz_question.options_json IS DISTINCT FROM EXCLUDED.options_json
+                   OR maslaki_quiz_question.answer_index IS DISTINCT FROM EXCLUDED.answer_index)
+                 -- Never reshuffle options under players who are answering right now.
+                 AND NOT EXISTS(SELECT 1 FROM maslaki_quiz_round live
+                   WHERE live.question_id=maslaki_quiz_question.id AND live.finalized_at IS NULL)`,
             values,
           );
         }
@@ -269,6 +276,9 @@ export async function joinKnowledgeRoomSeat(userId, eventId, side, accessCode = 
     }
     if (!team) throw new AppError("ROOM_SEAT_UNAVAILABLE", { status: 409 });
     if (Number(team.occupied) >= Number(event.team_size)) throw new AppError("ROOM_SEAT_UNAVAILABLE", { status: 409 });
+    const seated = await client.query(
+      "SELECT user_id FROM maslaki_quiz_team_member WHERE event_id=$1", [safeEventId]);
+    await assertNoBlockedMembers(client, safeUserId, seated.rows.map((row) => row.user_id), "ROOM_BLOCKED_PLAYER");
     await client.query(
       "INSERT INTO maslaki_quiz_team_member(team_id,event_id,user_id) VALUES($1,$2,$3)",
       [team.id, safeEventId, safeUserId],
@@ -812,10 +822,10 @@ export async function sendKnowledgeChatMessage(userId, matchId, { channel, body 
   const result = await q(
     `INSERT INTO maslaki_quiz_chat_message(match_id,team_id,channel,user_id,body)
      VALUES($1,$2,$3,$4,$5) RETURNING id,created_at`,
-    [match.id, channel === "team" ? match.team_id : null, channel, id(userId), body],
+    [match.id, channel === "team" ? match.team_id : null, channel, id(userId), maskOffensiveText(body).text],
   );
   await notifyKnowledgeMatch(matchId, "knowledge_chat_message", { channel });
-  return { id: Number(result.rows[0].id), channel, body, createdAt: result.rows[0].created_at };
+  return { id: Number(result.rows[0].id), channel, body: maskOffensiveText(body).text, createdAt: result.rows[0].created_at };
 }
 
 export async function sendKnowledgeReaction(userId, matchId, kind) {

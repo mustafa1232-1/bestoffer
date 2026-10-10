@@ -318,6 +318,13 @@ test("host kick during a live round removes gameplay and voice access", async (t
   const target = targetResult.rows[0];
   assert.ok(target);
 
+  // A connected player cannot be removed once the game runs (outcome abuse).
+  await assert.rejects(
+    () => kickMafiaPlayer(users[0], roomId, Number(target.id)),
+    (error) => error?.code === "MAFIA_KICK_ACTIVE_PLAYER_FORBIDDEN",
+  );
+  // Once they stop responding, the host may free the seat.
+  await q(`UPDATE mafia_player SET last_seen_at=NOW()-INTERVAL '2 minutes' WHERE id=$1`, [target.id]);
   const snapshot = await kickMafiaPlayer(users[0], roomId, Number(target.id));
   const kicked = snapshot.players.find((player) => player.playerId === Number(target.id));
   assert.equal(kicked.lifeStatus, "left");
@@ -329,5 +336,49 @@ test("host kick during a live round removes gameplay and voice access", async (t
   await assert.rejects(
     () => getMafiaVoiceAccess(Number(target.user_id), roomId),
     (error) => error?.code === "MAFIA_ROOM_FORBIDDEN",
+  );
+});
+
+test("fair play: votes settle early, the eliminated cannot signal, a running game cannot be cancelled", async (t) => {
+  const users = [];
+  for (let index = 0; index < 7; index += 1) users.push(await createUser(index + 300));
+  t.after(async () => {
+    await q(`DELETE FROM mafia_room WHERE host_user_id=ANY($1::bigint[])`, [users]).catch(() => null);
+    await q(`DELETE FROM app_user WHERE id=ANY($1::bigint[])`, [users]).catch(() => null);
+  });
+  const created = await createMafiaRoom(users[0], { ruleset: "standard", maxPlayers: 14 });
+  const roomId = created.room.id;
+  for (const userId of users.slice(1)) await joinMafiaRoom(userId, created.room.inviteCode);
+  for (const userId of users) await setMafiaReady(userId, roomId, true);
+  await startMafiaRoom(users[0], roomId);
+  await assert.rejects(() => closeMafiaRoom(users[0], roomId), (error) => error?.code === "MAFIA_GAME_IN_PROGRESS");
+
+  await advanceMafiaRoom(roomId, { force: true }); // night 0
+  await advanceMafiaRoom(roomId, { force: true }); // day 1 discussion
+  await advanceMafiaRoom(roomId, { force: true }); // nomination
+  const players = (await q(`SELECT id,user_id FROM mafia_player WHERE room_id=$1 ORDER BY seat_number`, [roomId])).rows;
+  const target = players[1];
+  const before = (await q(`SELECT phase_ends_at FROM mafia_room WHERE id=$1`, [roomId])).rows[0].phase_ends_at;
+  for (const [index, player] of players.entries()) {
+    await submitMafiaAction(Number(player.user_id), roomId, {
+      type: "nominate",
+      targetPlayerId: Number(player.id === target.id ? players[2].id : target.id),
+      commandId: `settle-${index}-${randomUUID()}`,
+    });
+  }
+  const after = (await q(
+    `SELECT phase_ends_at,EXTRACT(EPOCH FROM phase_ends_at-clock_timestamp()) AS left_s FROM mafia_room WHERE id=$1`,
+    [roomId],
+  )).rows[0];
+  // Everyone decided: the remaining nomination time collapses to a short settle.
+  assert.ok(new Date(after.phase_ends_at) < new Date(before));
+  assert.ok(Number(after.left_s) <= 1.2, `left ${after.left_s}s`);
+
+  await q(`UPDATE mafia_player SET life_status='dead' WHERE id=$1`, [target.id]);
+  await assert.rejects(
+    () => sendMafiaInteraction(Number(target.user_id), roomId, {
+      interactionType: "gift", kind: "rose", commandId: `ghost-${randomUUID()}`, targetPlayerId: Number(players[2].id),
+    }),
+    (error) => error?.code === "MAFIA_ELIMINATED_CANNOT_INTERACT",
   );
 });

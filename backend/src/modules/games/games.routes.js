@@ -4,13 +4,25 @@ import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { createRateLimiter } from "../../shared/middleware/rate-limit.middleware.js";
 import { requirePermission } from "../../shared/middleware/permission.middleware.js";
 import * as controller from "./games.controller.js";
+import { wakeMafiaWorkers } from "./mafia.worker.js";
 
 export const gamesRouter = Router();
 
 gamesRouter.use(requireAuth);
 gamesRouter.use(
-  createRateLimiter({ windowMs: 60_000, maxRequests: 120, keyPrefix: "games" }),
+  createRateLimiter({ windowMs: 60_000, maxRequests: 240, keyPrefix: "games" }),
 );
+
+// A committed mafia write queues a delivery row (DB trigger). Wake the workers
+// as the response finishes so other players see it now, not at the next poll.
+gamesRouter.use("/mafia", (req, res, next) => {
+  if (req.method !== "GET") {
+    res.on("finish", () => {
+      if (res.statusCode < 400) wakeMafiaWorkers();
+    });
+  }
+  next();
+});
 
 gamesRouter.get("/status", controller.status);
 gamesRouter.post("/rooms", controller.create);

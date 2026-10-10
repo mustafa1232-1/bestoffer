@@ -55,7 +55,9 @@ export function campaignBody(body = {}) {
   const value = {};
   if (typeof body.enabled === "boolean") value.enabled = body.enabled;
   for (const key of ["startsAt", "endsAt"]) {
-    if (body[key] != null) {
+    // An explicit null clears the bound (open-ended campaign).
+    if (body[key] === null) value[key] = null;
+    else if (body[key] != null) {
       const date = new Date(body[key]);
       if (Number.isNaN(date.getTime())) return null;
       value[key] = date.toISOString();
@@ -67,7 +69,8 @@ export function campaignBody(body = {}) {
     value.rewardType = rewardType;
   }
   for (const key of ["rewardValue", "rewardValidDays", "claimLimit"]) {
-    if (body[key] != null) {
+    if (key === "claimLimit" && body[key] === null) value[key] = null;
+    else if (body[key] != null) {
       const number = Number(body[key]);
       if (!Number.isFinite(number) || number < 0) return null;
       value[key] = number;
@@ -213,10 +216,14 @@ export function knowledgeAnswerBody(body = {}) {
   const roundId = Number(body.roundId);
   const questionId = Number(body.questionId);
   const idempotencyKey = typeof body.idempotencyKey === 'string' ? body.idempotencyKey : '';
+  // Optional on-device reaction time; the database clamps it (lag compensation).
+  const rawClientMs = Number(body.clientElapsedMs);
+  const clientElapsedMs = body.clientElapsedMs != null && Number.isInteger(rawClientMs)
+    && rawClientMs >= 0 && rawClientMs <= 60_000 ? rawClientMs : null;
   return body.answerIndex != null && Number.isInteger(answerIndex) && answerIndex >= 0 && answerIndex <= 3 && districtId
     && Number.isSafeInteger(roundId) && roundId > 0 && Number.isSafeInteger(questionId) && questionId > 0
     && /^[a-zA-Z0-9_-]{16,80}$/.test(idempotencyKey)
-    ? { answerIndex, districtId, roundId, questionId, idempotencyKey }
+    ? { answerIndex, districtId, roundId, questionId, idempotencyKey, clientElapsedMs }
     : null;
 }
 

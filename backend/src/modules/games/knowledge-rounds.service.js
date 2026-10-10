@@ -6,14 +6,13 @@ import { emitRealtimeToUsers } from '../../shared/realtime/realtime-gateway.js';
 import { KNOWLEDGE_DISTRICTS, nextDistricts, knowledgeScoringRules } from './knowledge-game.logic.js';
 import { KNOWLEDGE_CATEGORY_LABELS } from './knowledge.question-bank.js';
 import { finalizeKnowledgeQuestionTx, knowledgeTieBreakTx, advanceTournamentTx } from './knowledge.service.js';
+import { createWorkerLoop } from './games.worker-loop.js';
 
 const adjacency = JSON.stringify(Object.fromEntries(KNOWLEDGE_DISTRICTS.map(d => [d.id, d.neighbors])));
+// Must match the grace in maslaki_knowledge_accept_answer (sql/232): a tap made
+// before the deadline may still be in flight, so the round closes a bit later.
+export const KNOWLEDGE_ANSWER_GRACE_MS = 1500;
 const duration = (start) => Math.round((performance.now() - start) * 1000) / 1000;
-let timer;
-let running;
-let publishTimer;
-let publishing;
-let stopped = true;
 
 // These timings use one process clock. They contain no answers, names or tokens.
 export async function acceptKnowledgeAnswer(userId, matchId, input, { traceId = crypto.randomUUID(), observe } = {}) {
@@ -25,8 +24,9 @@ export async function acceptKnowledgeAnswer(userId, matchId, input, { traceId = 
   try {
     const queryStart = performance.now();
     // Autocommit finishes before pg resolves: an acknowledgement is durable, not optimistic.
-    const result = await client.query('SELECT maslaki_knowledge_accept_answer($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb) AS receipt',
-      [userId, matchId, input.roundId, input.questionId, input.idempotencyKey, input.answerIndex, input.districtId, traceId, adjacency]);
+    const result = await client.query('SELECT maslaki_knowledge_accept_answer($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10::int) AS receipt',
+      [userId, matchId, input.roundId, input.questionId, input.idempotencyKey, input.answerIndex, input.districtId, traceId, adjacency,
+        Number.isInteger(input.clientElapsedMs) ? input.clientElapsedMs : null]);
     const receipt = result.rows[0].receipt;
     const metric = { event: 'knowledge_answer_timing', traceId, matchId: Number(matchId), roundId: input.roundId,
       poolMs, queryCommitMs: duration(queryStart), totalMs: duration(started), gateMs: Number(receipt.gateMs || 0),
@@ -35,6 +35,7 @@ export async function acceptKnowledgeAnswer(userId, matchId, input, { traceId = 
     if (process.env.KNOWLEDGE_TIMING_LOGS === '1' || metric.totalMs > 500) console.info(JSON.stringify(metric));
     if (receipt.error) throw new AppError(receipt.error, { status: receipt.error === 'MATCH_NOT_FOUND_OR_FORBIDDEN' ? 404 : 409 });
     delete receipt.gateMs;
+    if (!receipt.replayed) wakeKnowledgeWorkers();
     return receipt;
   } finally { client.release(); }
 }
@@ -110,7 +111,7 @@ export async function advanceKnowledgeMatch(matchId) {
         await startRound(client, match);
       }
     } else {
-      const state = (await client.query(`SELECT clock_timestamp()>=$2::timestamptz AS expired,
+      const state = (await client.query(`SELECT clock_timestamp()>=$2::timestamptz+${KNOWLEDGE_ANSWER_GRACE_MS}*INTERVAL '1 millisecond' AS expired,
         clock_timestamp()>=$3::timestamptz AS opened,COUNT(*)::int AS submitted
         FROM maslaki_quiz_submission WHERE round_id=$1`, [round.id, round.deadline_at, round.starts_at])).rows[0];
       if (state.expired || state.submitted >= round.expected_answers) {
@@ -119,11 +120,13 @@ export async function advanceKnowledgeMatch(matchId) {
         await client.query(`INSERT INTO maslaki_quiz_answer(match_id,question_id,team_id,user_id,answer_index,
           district_id,is_timeout,response_ms,is_correct,points,answered_at)
           SELECT $1,$2,tm.team_id,tm.user_id,COALESCE(s.answer_index,0),COALESCE(s.district_id,'none'),
-            s.user_id IS NULL,COALESCE(s.response_ms,q.time_limit_seconds*1000),FALSE,0,COALESCE(s.received_at,$5)
+            s.user_id IS NULL,COALESCE(s.response_ms,q.time_limit_seconds*1000),FALSE,0,
+            -- Speed and tie order use the lag-compensated credited time.
+            COALESCE($7::timestamptz+s.response_ms*INTERVAL '1 millisecond',$5)
           FROM maslaki_quiz_team_member tm JOIN maslaki_quiz_question q ON q.id=$2
           LEFT JOIN maslaki_quiz_submission s ON s.user_id=tm.user_id AND s.round_id=$3
           WHERE tm.team_id IN($4,$6) ON CONFLICT(match_id,question_id,user_id) DO NOTHING`,
-        [match.id, round.question_id, round.id, match.team_a_id, round.deadline_at, match.team_b_id]);
+        [match.id, round.question_id, round.id, match.team_a_id, round.deadline_at, match.team_b_id, round.starts_at]);
         const outcome = await finalizeKnowledgeQuestionTx(client, match);
         if (!outcome) throw new Error('KNOWLEDGE_ROUND_INCOMPLETE');
         const scores = (await client.query('SELECT score_a,score_b FROM maslaki_quiz_match WHERE id=$1', [match.id])).rows[0];
@@ -202,38 +205,60 @@ export async function runKnowledgeCycle({ publish = emitRealtimeToUsers } = {}) 
     (SELECT * FROM maslaki_quiz_round WHERE match_id=m.id ORDER BY round_number DESC LIMIT 1) r ON TRUE
     WHERE m.protocol_version=2 AND m.status IN('pending','active') AND
       (r.id IS NULL OR (r.phase='countdown' AND r.starts_at<=NOW()) OR
-       (r.finalized_at IS NULL AND (r.deadline_at<=NOW() OR
+       (r.finalized_at IS NULL AND (r.deadline_at+${KNOWLEDGE_ANSWER_GRACE_MS}*INTERVAL '1 millisecond'<=NOW() OR
          (SELECT COUNT(*) FROM maslaki_quiz_submission s WHERE s.round_id=r.id)>=r.expected_answers)) OR r.next_at<=NOW())
     ORDER BY m.updated_at,m.id LIMIT 64`);
   const failures = [];
+  let advanced = 0;
   for (let offset = 0; offset < work.rows.length; offset += 4) {
     const results = await Promise.allSettled(work.rows.slice(offset, offset + 4).map(row => advanceKnowledgeMatch(row.id)));
     failures.push(...results.filter(item => item.status === 'rejected'));
+    advanced += results.filter(item => item.status === 'fulfilled' && item.value === true).length;
   }
   const outbox = publish ? await publishKnowledgeEvents(publish) : { events: 0, failed: 0 };
   if (failures.length || outbox.failed) console.warn(JSON.stringify({ event: 'knowledge_worker_retry', failures: failures.length, unpublished: outbox.failed }));
-  return { processed: work.rowCount, failures: failures.length, ...outbox };
+  return { processed: work.rowCount, advanced, failures: failures.length, ...outbox };
 }
 
+// Milliseconds until the earliest timer of any live match: a countdown that
+// opens, a deadline (+grace) that closes, or a result screen that advances.
+async function nextKnowledgeDueMs() {
+  const due = await q(`SELECT GREATEST(0,EXTRACT(EPOCH FROM MIN(t)-clock_timestamp())*1000)::int AS ms FROM (
+      SELECT CASE WHEN r.finalized_at IS NULL AND r.phase='countdown' THEN r.starts_at
+        WHEN r.finalized_at IS NULL THEN r.deadline_at+${KNOWLEDGE_ANSWER_GRACE_MS}*INTERVAL '1 millisecond'
+        ELSE r.next_at END AS t
+      FROM maslaki_quiz_match m JOIN LATERAL
+        (SELECT * FROM maslaki_quiz_round WHERE match_id=m.id ORDER BY round_number DESC LIMIT 1) r ON TRUE
+      WHERE m.protocol_version=2 AND m.status IN('pending','active')) due WHERE t IS NOT NULL`);
+  const ms = due.rows[0]?.ms;
+  return ms == null ? null : Number(ms);
+}
+
+const knowledgeLoop = createWorkerLoop('knowledge_worker', async () => {
+  const result = await runKnowledgeCycle({ publish: null });
+  if (result.advanced > 0) {
+    knowledgePublisher.wake();
+    return { busy: true, failed: result.failures };
+  }
+  return { nextDueMs: await nextKnowledgeDueMs(), failed: result.failures };
+});
+// A slow broadcast provider must not stop deadlines or authoritative scoring.
+const knowledgePublisher = createWorkerLoop('knowledge_publish', async () => {
+  const result = await publishKnowledgeEvents();
+  return { busy: result.events > 0, failed: result.failed };
+}, { maxDelayMs: 750 });
+
+// Called after a committed answer: an all-answered round resolves immediately
+// and the acknowledgement fan-out does not wait for the next poll.
+export function wakeKnowledgeWorkers() {
+  knowledgeLoop.wake();
+  knowledgePublisher.wake();
+}
 export function startKnowledgeWorker() {
-  if (!stopped) return;
-  stopped = false;
-  const tick = () => {
-    if (stopped) return;
-    running = runKnowledgeCycle({ publish: null }).catch(error => console.warn(JSON.stringify({ event: 'knowledge_worker_error', code: error.code || 'FAILED' })))
-      .finally(() => { running = null; if (!stopped) { timer = setTimeout(tick, 150); timer.unref?.(); } });
-  };
-  // A slow broadcast provider must not stop deadlines or authoritative scoring.
-  const publishTick = () => {
-    if (stopped) return;
-    publishing = publishKnowledgeEvents().catch(error => console.warn(JSON.stringify({ event: 'knowledge_publish_error', code: error.code || 'FAILED' })))
-      .finally(() => { publishing = null; if (!stopped) { publishTimer = setTimeout(publishTick, 150); publishTimer.unref?.(); } });
-  };
-  tick();
-  publishTick();
+  knowledgeLoop.start();
+  knowledgePublisher.start();
 }
-
-export async function stopKnowledgeWorker() { stopped = true; clearTimeout(timer); clearTimeout(publishTimer); await Promise.allSettled([running,publishing]); }
+export async function stopKnowledgeWorker() { await Promise.allSettled([knowledgeLoop.stop(), knowledgePublisher.stop()]); }
 
 export async function readKnowledgeSnapshot(userId, matchId) {
   // One MVCC snapshot, no writes and no row locks in the read path.
@@ -295,7 +320,9 @@ export async function readKnowledgeSnapshot(userId, matchId) {
       status: m.status, teamSize: Number(m.team_size), mySide: side, winnerTeamId: m.winner_team_id == null ? null : Number(m.winner_team_id),
       teams: { a: team('a'), b: team('b') }, territories: { a: owned('a'), b: owned('b') }, districts: KNOWLEDGE_DISTRICTS,
       availableDistricts: nextDistricts(KNOWLEDGE_DISTRICTS, owned(side)).filter(d => !territories.some(t => t.districtId === d.id)) },
-    question: m.question?.id ? { ...m.question, id: Number(m.question.id), scoring: knowledgeScoringRules(m.question.difficulty), categoryLabel: KNOWLEDGE_CATEGORY_LABELS[m.question.category] || 'المعرفة' } : null,
+    // The question body stays on the server until the shared start instant; the
+    // board shows "get ready" during the countdown anyway.
+    question: m.question?.id ? { ...m.question, ...(phase === 'countdown' ? { text: null, options: [] } : {}), id: Number(m.question.id), scoring: knowledgeScoringRules(m.question.difficulty), categoryLabel: KNOWLEDGE_CATEGORY_LABELS[m.question.category] || 'المعرفة' } : null,
     answered: m.own_answer != null, ownAnswer: m.own_answer, lastAnswer: { submitted: m.submitted, total: team(side).members.length }, result: m.result,
     chat: { messages: (m.messages || []).reverse().filter(x => x.channel === 'team' || publicEnabled), publicEnabled,
       consent: { enabled: (m.consents || []).some(c => Number(c.user_id) === Number(userId) && c.enabled),

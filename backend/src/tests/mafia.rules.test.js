@@ -124,10 +124,12 @@ test("voice grants isolate mafia night and silence eliminated players", () => {
     { ...room, status: "day_discussion" },
     { id: 3, team: "town", life_status: "dead" },
   );
-  assert.equal(mafia.canPublish, true);
+  // Nobody speaks on the shared table at night; mafia talk in a separate
+  // night-only room (see the token test), so the table carries no secrets.
+  assert.equal(mafia.canPublish, false);
   assert.equal(mafia.canSubscribe, true);
   assert.equal(citizen.canPublish, false);
-  assert.equal(citizen.canSubscribe, false);
+  assert.equal(citizen.canSubscribe, true);
   assert.equal(dead.canPublish, false);
   assert.equal(dead.canSubscribe, true);
   const deadAtNight = mafiaVoicePermissions(

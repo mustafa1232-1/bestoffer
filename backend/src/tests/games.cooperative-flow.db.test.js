@@ -198,3 +198,48 @@ test("empty cooperative room resumes inside grace window and expires after ten m
   assert.equal(snapshot.room.status, "abandoned");
   assert.equal(snapshot.session.status, "abandoned");
 });
+
+test("a three-player team decides by majority, so one player cannot veto every proposal", async (t) => {
+  const ids = [await createUser("maj_a"), await createUser("maj_b"), await createUser("maj_c")];
+  t.after(async () => {
+    await q(`DELETE FROM app_user WHERE id=ANY($1::bigint[])`, [ids]).catch(() => null);
+  });
+  const host = await createGame(ids[0], "cooperative");
+  const roomId = host.room.id;
+  for (const id of ids.slice(1)) await joinRoom(id, host.room.inviteCode);
+  for (const id of ids) await setReady(id, roomId, true);
+  await startRoom(ids[0], roomId);
+
+  const solution = await solutionFor(roomId, 1);
+  let snapshot = await createProposal(ids[0], roomId, { kind: "code", code: solution, commandId: `maj-${randomUUID()}` });
+  const proposalId = snapshot.proposal.id;
+  // One rejection out of three no longer kills the proposal...
+  snapshot = await voteProposal(ids[1], roomId, proposalId, "reject");
+  assert.equal(snapshot.proposal?.id, proposalId);
+  // ...the third player's approval makes the majority and opens the vault.
+  snapshot = await voteProposal(ids[2], roomId, proposalId, "approve");
+  assert.equal(snapshot.round.index, 2);
+});
+
+test("a paused room keeps its remaining round time", async (t) => {
+  const hostId = await createUser("pause_host");
+  t.after(async () => {
+    await q(`DELETE FROM app_user WHERE id=$1`, [hostId]).catch(() => null);
+  });
+  const solo = await createGame(hostId, "solo");
+  const roomId = solo.room.id;
+  const before = solo.round.remainingSeconds;
+  // Simulate five minutes away while paused: longer than any round limit.
+  await q(`UPDATE game_room SET status='paused',paused_at=NOW()-INTERVAL '5 minutes' WHERE id=$1`, [roomId]);
+  await q(`UPDATE game_session SET status='paused' WHERE room_id=$1`, [roomId]);
+  await q(
+    `UPDATE game_round gr SET started_at=gr.started_at-INTERVAL '5 minutes'
+     FROM game_session gs WHERE gs.id=gr.session_id AND gs.room_id=$1 AND gr.status='active'`,
+    [roomId],
+  );
+  const resumed = await getRoomSnapshot(roomId, hostId);
+  assert.equal(resumed.room.status, "active");
+  assert.equal(resumed.round.status, "active");
+  assert.ok(Math.abs(resumed.round.remainingSeconds - before) <= 2,
+    `remaining ${resumed.round.remainingSeconds} vs ${before}`);
+});

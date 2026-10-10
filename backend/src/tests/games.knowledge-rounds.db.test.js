@@ -161,7 +161,8 @@ test('failure after scoring rolls back the whole resolution; restart recovers on
 
 test('expired rounds progress without a read or a connected player, and events retry after failure', async () => {
   const f = await fixture(); await openRound(f);
-  await q(`UPDATE maslaki_quiz_round SET starts_at=NOW()-INTERVAL '21 seconds',deadline_at=NOW()-INTERVAL '1 second' WHERE id=$1`, [f.snapshot.round.id]);
+  // Past the deadline *and* the in-flight grace window.
+  await q(`UPDATE maslaki_quiz_round SET starts_at=NOW()-INTERVAL '22 seconds',deadline_at=NOW()-INTERVAL '2 seconds' WHERE id=$1`, [f.snapshot.round.id]);
   await assert.rejects(game.answerKnowledgeQuestion(f.users[0], f.matchId, input(f)), /QUESTION_EXPIRED/);
   await runKnowledgeCycle({ publish: async () => { throw new Error('offline'); } });
   assert.equal((await game.knowledgeMatchSnapshot(f.users[0], f.matchId)).phase, 'round_result');
@@ -255,4 +256,35 @@ test('historical protocol-one results remain readable without inventing a round'
   assert.equal(history.question, null);
   await q("UPDATE maslaki_quiz_match SET status='active' WHERE id=$1", [f.matchId]);
   await assert.rejects(game.knowledgeMatchSnapshot(f.users[0], f.matchId), /GAME_UPDATE_REQUIRED/);
+});
+
+test('lag compensation credits on-device reaction time inside a bounded window', async () => {
+  const f = await fixture();
+  // The question body never leaves the server before the shared start instant.
+  assert.equal(f.snapshot.phase, 'countdown');
+  assert.equal(f.snapshot.question.text, null);
+  assert.deepEqual(f.snapshot.question.options, []);
+  await q(`UPDATE maslaki_quiz_round SET starts_at=clock_timestamp()-INTERVAL '5 seconds',
+    deadline_at=clock_timestamp()+INTERVAL '15 seconds',phase='question_open' WHERE id=$1`, [f.snapshot.round.id]);
+  f.snapshot = await game.knowledgeMatchSnapshot(f.users[0], f.matchId);
+  assert.ok(f.snapshot.question.text);
+  // A forged "instant" tap can win back at most 1.5s of the observed 5s.
+  const forged = await game.answerKnowledgeQuestion(f.users[0], f.matchId, input(f, { clientElapsedMs: 100 }));
+  assert.ok(forged.creditedMs >= 3400 && forged.creditedMs <= 3900, `credited ${forged.creditedMs}`);
+  // A plausible device time inside the window is credited as measured.
+  const honest = await game.answerKnowledgeQuestion(f.users[1], f.matchId, input(f, { clientElapsedMs: 4200, districtId: 'arts' }));
+  assert.equal(honest.creditedMs, 4200);
+});
+
+test('a tap made before the deadline that arrives in the grace window still counts', async () => {
+  const f = await fixture();
+  await q(`UPDATE maslaki_quiz_round SET starts_at=clock_timestamp()-INTERVAL '20500 milliseconds',
+    deadline_at=clock_timestamp()-INTERVAL '500 milliseconds',phase='question_open' WHERE id=$1`, [f.snapshot.round.id]);
+  f.snapshot = await game.knowledgeMatchSnapshot(f.users[0], f.matchId);
+  // No device timing: the server receipt is after the deadline, so it is late.
+  await assert.rejects(game.answerKnowledgeQuestion(f.users[0], f.matchId, input(f)), /QUESTION_EXPIRED/);
+  // The device tapped at 19.2s of 20s; the request was slow but is accepted.
+  const late = await game.answerKnowledgeQuestion(f.users[0], f.matchId, input(f, { clientElapsedMs: 19200 }));
+  assert.equal(late.submitted, true);
+  assert.ok(late.creditedMs < 20000);
 });

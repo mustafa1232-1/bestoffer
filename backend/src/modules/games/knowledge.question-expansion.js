@@ -25,7 +25,7 @@ const authored = [
   ['culture','أي آلة موسيقية تحتوي على مفاتيح بيضاء وسوداء؟',['البيانو','العود','الناي','الطبلة'],'للبيانو لوحة مفاتيح بيضاء وسوداء.'],
   ['culture','أي آلة من هذه الآلات وترية؟',['الكمان','الناي','البوق','الدف'],'ينتج الكمان الصوت من اهتزاز الأوتار.'],
   ['culture','أي آلة من هذه الآلات إيقاعية؟',['الدف','العود','القانون','الناي'],'الدف آلة إيقاعية.'],
-  ['culture','ما اسم النص المكتوب الذي يؤديه الممثلون على المسرح؟',['النص المسرحي','الفهرس','المعجم','الخريطة'],'النص المسرحي يضم الحوار وتوجيهات الأداء.'],
+  ['culture','ما اسم النص المكتوب الذي يؤديه الممثلون على المسرح؟',['النص المسرحي','الفهرس الهجائي','المعجم اللغوي','الخريطة الذهنية'],'النص المسرحي يضم الحوار وتوجيهات الأداء.'],
   ['culture','ما الفن الذي يعتمد تشكيل مادة مثل الطين أو الحجر؟',['النحت','الخطابة','العزف','الشعر'],'النحت يشكل المواد لإنتاج مجسمات.'],
   ['culture','ما اسم السطرين اللذين يتكون منهما البيت الشعري التقليدي؟',['الصدر والعجز','المقدمة والفهرس','الاسم والفعل','العنوان والخاتمة'],'للبيت صدر وعجز.'],
   ['culture','ما نوع الكلمة «اكتب»؟',['فعل أمر','حرف جر','اسم إشارة','ضمير منفصل'],'اكتب طلب مباشر للفعل، لذلك هي فعل أمر.'],
@@ -51,8 +51,24 @@ function item(category, questionAr, options, explanationAr, difficulty, index) {
     answerIndex:(4-shift)%4, explanationAr };
 }
 const additions = authored.map((r,i) => item(r[0],r[1],r[2],r[3],i<30?'medium':'hard',i));
+// Distractors sit on both sides of the answer so neither "smallest" nor
+// "largest" reveals it. The pattern is deterministic per question, which keeps
+// question keys and seeded rows stable across deploys.
+const NUMERIC_OFFSET_PATTERNS = [
+  [1, 2, 3], [-1, 1, 2], [-2, -1, 1], [-3, -2, -1],
+  [1, 2, 4], [-2, 1, 3], [-3, -1, 2], [-4, -2, -1],
+];
+export function numericDistractors(answer, seed) {
+  const unit = Number.isInteger(answer) ? Math.max(1, Math.round(Math.abs(answer) / 20)) : 1;
+  const pattern = NUMERIC_OFFSET_PATTERNS[seed % NUMERIC_OFFSET_PATTERNS.length];
+  const values = pattern.map((offset) => answer + offset * unit);
+  // Values that would turn non-positive are mirrored above the answer.
+  const above = Math.max(answer, ...values);
+  return values.map((value, index) => (value > 0 ? value : above + (index + 1) * unit));
+}
 const numeric = (category,text,answer,explanation,difficulty='medium') => {
-  additions.push(item(category,text,[answer,answer+1,answer+3,answer+7],explanation,difficulty,additions.length));
+  const seed = additions.length;
+  additions.push(item(category,text,[answer,...numericDistractors(answer,seed)],explanation,difficulty,seed));
 };
 for(let i=1;i<=20;i++) {
   const price=(i+2)*100, side=i+2, length=i+4, step=i+1;

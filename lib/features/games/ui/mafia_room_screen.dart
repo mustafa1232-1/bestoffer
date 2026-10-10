@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:core_design_system/core_design_system.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -40,11 +41,19 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
   bool _refreshQueued = false;
   bool _foreground = true;
   bool _heartbeating = false;
-  bool _sendingMessage = false;
   String? _messageError;
-  String? _pendingMessageId;
-  String? _pendingMessageBody;
-  String? _pendingMessageChannel;
+  // Optimistic UI: the player's own choice and chat messages render the moment
+  // they tap. They are overlaid on every incoming snapshot until the server
+  // confirms them (or rolled back with a message if it refuses).
+  Map<String, dynamic>? _pendingSelection;
+  final List<Map<String, dynamic>> _pendingMessages = [];
+  Future<void> _selectionQueue = Future<void>.value();
+  DateTime _lastInteractionAt = DateTime.fromMillisecondsSinceEpoch(0);
+  // A message whose delivery ultimately failed keeps its id, so resending the
+  // same text can never create a duplicate if the first attempt did land.
+  String? _failedMessageId;
+  String? _failedMessageBody;
+  String? _failedMessageChannel;
   final ValueNotifier<int> _chatRevision = ValueNotifier(0);
   final Map<String, String> _channelDrafts = {};
   final Stopwatch _snapshotAge = Stopwatch();
@@ -57,7 +66,6 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
   String? _selectedNightAction;
   bool _roleDialogOpen = false;
   bool _removedFromRoom = false;
-  bool _sendingInteraction = false;
   int _lastEliminationId = 0;
   Map<String, dynamic>? _activeElimination;
 
@@ -194,11 +202,49 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
     }
   }
 
+  /// Re-applies not-yet-confirmed local intent on top of server state, so a
+  /// refresh that raced the request can never make a tap visibly "un-happen".
+  Map<String, dynamic> _withOptimistic(Map<String, dynamic> next) {
+    var out = next;
+    final pending = _pendingSelection;
+    if (pending != null) {
+      if (_int(_map(next['room'])['phaseVersion']) != pending['phaseVersion']) {
+        _pendingSelection = null;
+      } else {
+        final bucket = '${pending['bucket']}';
+        out = {
+          ...out,
+          bucket: {..._map(out[bucket]), '${pending['key']}': pending['target']},
+        };
+      }
+    }
+    final base = _list(out['messages'])
+        .where((m) => _map(m)['pending'] != true)
+        .toList();
+    if (_pendingMessages.isNotEmpty) {
+      final confirmed = base
+          .map((m) => '${_map(m)['clientMessageId'] ?? ''}')
+          .toSet();
+      _pendingMessages.removeWhere(
+        (m) => confirmed.contains('${m['clientMessageId']}'),
+      );
+    }
+    return {
+      ...out,
+      'messages': [...base, ..._pendingMessages],
+    };
+  }
+
+  static bool _isTransient(Object error) =>
+      error is DioException &&
+      (error.response == null || (error.response!.statusCode ?? 0) >= 500);
+
   void _applySnapshot(Map<String, dynamic> next, {bool initial = false}) {
     if (!mounted ||
         _int(next['stateVersion']) < _int(_snapshot?['stateVersion'])) {
       return;
     }
+    next = _withOptimistic(next);
     final firstSnapshot = _snapshot == null;
     final api = ref.read(gamesApiProvider);
     final room = _map(next['room']);
@@ -467,64 +513,205 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
       setState(() => _selectedPlayerId = null);
       return;
     }
-    await _run(
-      () => ref
+    final actionType = type;
+    final target = _selectedPlayerId;
+    final phaseVersion = _int(room['phaseVersion']);
+    final commandId = _commandId();
+    final bucket = phase == 'night' ? 'myActions' : 'myBallots';
+    final key = actionType == 'nominate'
+        ? 'nomination'
+        : actionType == 'vote'
+        ? (phase == 'day_revote' ? 'revote' : 'vote')
+        : actionType;
+    final previous = _map(snapshot[bucket])[key];
+    final hadPrevious = _map(snapshot[bucket]).containsKey(key);
+    HapticFeedback.selectionClick();
+    _pendingSelection = {
+      'commandId': commandId,
+      'phaseVersion': phaseVersion,
+      'bucket': bucket,
+      'key': key,
+      'target': target,
+    };
+    setState(() {
+      _snapshot = _withOptimistic(snapshot);
+      _selectedPlayerId = null;
+      _error = null;
+    });
+    // Sends are serialized so a quick change of mind reaches the server in
+    // the order the player made it.
+    final send = _selectionQueue.then((_) async {
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          final next = await ref
+              .read(gamesApiProvider)
+              .mafiaAction(
+                widget.roomId,
+                type: actionType,
+                targetPlayerId: target,
+                commandId: commandId,
+                phaseVersion: phaseVersion,
+              );
+          if (!mounted) return;
+          if (_pendingSelection?['commandId'] == commandId) {
+            _pendingSelection = null;
+          }
+          if (next['room'] is Map) {
+            _applySnapshot(next);
+          } else {
+            unawaited(_refresh());
+          }
+          return;
+        } catch (exception) {
+          if (!mounted) return;
+          // The server deduplicates by command id, so a retry is always safe.
+          if (_isTransient(exception) && attempt == 0) {
+            await Future<void>.delayed(const Duration(milliseconds: 350));
+            continue;
+          }
+          if (_pendingSelection?['commandId'] == commandId) {
+            _pendingSelection = null;
+            final current = _snapshot;
+            if (current != null) {
+              final restored = {..._map(current[bucket])};
+              if (hadPrevious) {
+                restored[key] = previous;
+              } else {
+                restored.remove(key);
+              }
+              setState(() {
+                _snapshot = {...current, bucket: restored};
+                _error = _friendlyError(exception);
+              });
+            }
+          }
+          unawaited(_refresh());
+          return;
+        }
+      }
+    });
+    _selectionQueue = send.catchError((_) {});
+    await send;
+  }
+
+  Future<void> _toggleReady(bool ready) async {
+    final snapshot = _snapshot;
+    if (snapshot == null) return;
+    HapticFeedback.selectionClick();
+    final me = _map(snapshot['me']);
+    Map<String, dynamic> withReady(Map<String, dynamic> base, bool value) => {
+      ...base,
+      'me': {..._map(base['me']), 'isReady': value},
+      'players': _list(base['players']).map((p) {
+        final player = _map(p);
+        return _int(player['playerId']) == _int(me['playerId'])
+            ? {...player, 'isReady': value}
+            : player;
+      }).toList(),
+    };
+    setState(() => _snapshot = withReady(snapshot, ready));
+    try {
+      final next = await ref
           .read(gamesApiProvider)
-          .mafiaAction(
-            widget.roomId,
-            type: type!,
-            targetPlayerId: _selectedPlayerId,
-            commandId: _commandId(),
-            phaseVersion: _int(room['phaseVersion']),
-          ),
-    );
+          .setMafiaReady(widget.roomId, ready);
+      if (mounted && next['room'] is Map) _applySnapshot(next);
+    } catch (exception) {
+      if (!mounted) return;
+      final current = _snapshot;
+      setState(() {
+        if (current != null) _snapshot = withReady(current, !ready);
+        _error = _friendlyError(exception);
+      });
+      unawaited(_refresh());
+    }
   }
 
   Future<void> _sendMessage(String channel) async {
     final body = _message.text.trim();
-    if (body.isEmpty || _sendingMessage) return;
-    if (_pendingMessageBody != body || _pendingMessageChannel != channel) {
-      _pendingMessageId = _commandId();
-      _pendingMessageBody = body;
-      _pendingMessageChannel = channel;
-    }
-    _sendingMessage = true;
+    final snapshot = _snapshot;
+    if (body.isEmpty || snapshot == null) return;
+    final clientMessageId =
+        _failedMessageId != null &&
+            _failedMessageBody == body &&
+            _failedMessageChannel == channel
+        ? _failedMessageId!
+        : _commandId();
+    final me = _map(snapshot['me']);
+    final mine = _list(snapshot['players'])
+        .map(_map)
+        .where((p) => _int(p['playerId']) == _int(me['playerId']))
+        .firstOrNull;
+    final local = <String, dynamic>{
+      'id': 'local-$clientMessageId',
+      'clientMessageId': clientMessageId,
+      'channel': channel,
+      'body': body,
+      'userId': me['userId'],
+      'seatNumber': me['seatNumber'],
+      'senderName': mine?['name'] ?? 'أنت',
+      'pending': true,
+    };
+    // The bubble appears and the field clears immediately; delivery happens
+    // behind it (WhatsApp-style), with one silent retry on a network blip.
+    HapticFeedback.selectionClick();
+    _pendingMessages.add(local);
+    _message.clear();
+    _channelDrafts.remove(channel);
     _messageError = null;
+    setState(() => _snapshot = _withOptimistic(snapshot));
     _chatRevision.value++;
-    try {
-      final response = await ref
-          .read(gamesApiProvider)
-          .sendMafiaMessage(
-            widget.roomId,
-            body: body,
-            channel: channel,
-            clientMessageId: _pendingMessageId,
-          );
-      if (!mounted) return;
-      if (_chatChannel(_snapshot) == channel && _message.text.trim() == body) {
-        _message.clear();
-      }
-      _channelDrafts.remove(channel);
-      final received = _map(response['message']);
-      if (received.isNotEmpty && _snapshot != null) {
-        final messages = _list(_snapshot!['messages']);
-        if (!messages.any((m) => _map(m)['id'] == received['id'])) {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final response = await ref
+            .read(gamesApiProvider)
+            .sendMafiaMessage(
+              widget.roomId,
+              body: body,
+              channel: channel,
+              clientMessageId: clientMessageId,
+            );
+        if (!mounted) return;
+        _failedMessageId = null;
+        _pendingMessages.removeWhere(
+          (m) => m['clientMessageId'] == clientMessageId,
+        );
+        final received = _map(response['message']);
+        final current = _snapshot;
+        if (received.isNotEmpty && current != null) {
+          final messages = _list(current['messages'])
+              .where((m) => _map(m)['clientMessageId'] != clientMessageId)
+              .toList();
           setState(
-            () => _snapshot = {
-              ..._snapshot!,
+            () => _snapshot = _withOptimistic({
+              ...current,
               'messages': [...messages, received],
-            },
+            }),
           );
+        } else {
+          unawaited(_refresh());
         }
-      } else {
-        unawaited(_refresh());
+        _chatRevision.value++;
+        return;
+      } catch (exception) {
+        if (!mounted) return;
+        if (_isTransient(exception) && attempt == 0) {
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+          continue;
+        }
+        _pendingMessages.removeWhere(
+          (m) => m['clientMessageId'] == clientMessageId,
+        );
+        // Nothing typed is lost: the text returns to the field for a resend.
+        if (_message.text.trim().isEmpty) _message.text = body;
+        _failedMessageId = clientMessageId;
+        _failedMessageBody = body;
+        _failedMessageChannel = channel;
+        _messageError = _friendlyError(exception);
+        final current = _snapshot;
+        if (current != null) setState(() => _snapshot = _withOptimistic(current));
+        _chatRevision.value++;
+        return;
       }
-      _pendingMessageBody = null;
-    } catch (exception) {
-      if (mounted) _messageError = _friendlyError(exception);
-    } finally {
-      _sendingMessage = false;
-      if (mounted) _chatRevision.value++;
     }
   }
 
@@ -575,8 +762,42 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
   }
 
   Future<void> _sendInteraction(String kind, {int? targetPlayerId}) async {
-    if (_sendingInteraction) return;
-    setState(() => _sendingInteraction = true);
+    // The animation plays instantly; the network send is spaced to respect the
+    // server's 1.2s cooldown, so quick taps are queued instead of refused.
+    final now = DateTime.now();
+    var wait = Duration.zero;
+    if (kind != 'mvp') {
+      final nextSlot = _lastInteractionAt.add(
+        const Duration(milliseconds: 1250),
+      );
+      wait = nextSlot.isAfter(now) ? nextSlot.difference(now) : Duration.zero;
+      if (wait > const Duration(milliseconds: 2600)) {
+        HapticFeedback.lightImpact();
+        return;
+      }
+      _lastInteractionAt = now.add(wait);
+    }
+    HapticFeedback.selectionClick();
+    final snapshot = _snapshot;
+    if (snapshot != null && kind != 'mvp') {
+      final me = _map(snapshot['me']);
+      final players = _list(snapshot['players']).map(_map).toList();
+      String nameOf(int? id) =>
+          '${players.where((p) => _int(p['playerId']) == id).firstOrNull?['name'] ?? ''}';
+      _interactions.playLocal({
+        'type': 'player_interaction',
+        'createdAt': DateTime.now().toUtc().toIso8601String(),
+        'payload': {
+          'kind': kind,
+          'senderPlayerId': _int(me['playerId']),
+          'senderName': nameOf(_int(me['playerId'])),
+          'targetPlayerId': targetPlayerId,
+          'targetName': nameOf(targetPlayerId),
+        },
+      });
+    }
+    if (wait > Duration.zero) await Future<void>.delayed(wait);
+    if (!mounted) return;
     try {
       final result = await ref
           .read(gamesApiProvider)
@@ -587,12 +808,16 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
             commandId: _commandId(),
           );
       if (!mounted) return;
-      // Animate the confirmed receipt immediately; the next snapshot is deduped.
       final event = _map(result['event']);
-      if (event.isNotEmpty) {
-        _interactions.ingest([event], silent: !_foreground);
+      if (kind == 'mvp') {
+        if (event.isNotEmpty) {
+          _interactions.ingest([event], silent: !_foreground);
+        } else {
+          await _refresh();
+        }
       } else {
-        await _refresh();
+        // Already animated locally; make sure the echo is not replayed.
+        _interactions.acknowledge(_int(event['id']));
       }
     } catch (exception) {
       if (!mounted) return;
@@ -601,12 +826,12 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
           ? 'تمهّل قليلًا قبل إرسال تفاعل آخر.'
           : rawError.contains('MAFIA_HONOR_ALREADY_CAST')
           ? 'سبق أن اخترت نجم هذه الجولة.'
+          : rawError.contains('MAFIA_ELIMINATED_CANNOT_INTERACT')
+          ? 'خرجت من الجولة، لذلك لا يمكنك إرسال تفاعلات للاعبين الآن.'
           : 'تعذر إرسال التفاعل الآن.';
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(message)));
-    } finally {
-      if (mounted) setState(() => _sendingInteraction = false);
     }
   }
 
@@ -851,9 +1076,20 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
                                 final own =
                                     _int(item['userId']) ==
                                     _int(_map(_snapshot?['me'])['userId']);
+                                final pending = item['pending'] == true;
                                 return Padding(
                                   padding: const EdgeInsets.only(bottom: 8),
-                                  child: ListTile(
+                                  child: AnimatedOpacity(
+                                    duration: const Duration(milliseconds: 160),
+                                    opacity: pending ? .62 : 1,
+                                    child: ListTile(
+                                    trailing: pending
+                                        ? const Icon(
+                                            Icons.schedule_rounded,
+                                            size: 16,
+                                            color: Color(0xFF6B7F74),
+                                          )
+                                        : null,
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
@@ -888,6 +1124,7 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
                                         height: 1.5,
                                       ),
                                     ),
+                                  ),
                                   ),
                                 );
                               },
@@ -927,17 +1164,8 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
                             backgroundColor: const Color(0xFF215540),
                             foregroundColor: Colors.white,
                           ),
-                          onPressed: _sendingMessage
-                              ? null
-                              : () => _sendMessage(channel),
-                          icon: _sendingMessage
-                              ? const SizedBox.square(
-                                  dimension: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.send_rounded),
+                          onPressed: () => _sendMessage(channel),
+                          icon: const Icon(Icons.send_rounded),
                         ),
                       ],
                     ),
@@ -1094,8 +1322,9 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
                         ],
                         const SizedBox(height: 12),
                         if (!isCompleted) ...[
+                          if (phase == 'lobby' || me['lifeStatus'] == 'alive')
                           _ReactionBar(
-                            busy: _sendingInteraction,
+                            busy: false,
                             isNight: isNight,
                             onReact: (kind) => _sendInteraction(kind),
                           ),
@@ -1251,13 +1480,7 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
           ),
           const SizedBox(height: 10),
           FilledButton.icon(
-            onPressed: _acting
-                ? null
-                : () => _run(
-                    () => ref
-                        .read(gamesApiProvider)
-                        .setMafiaReady(widget.roomId, me['isReady'] != true),
-                  ),
+            onPressed: () => _toggleReady(me['isReady'] != true),
             icon: Icon(
               me['isReady'] == true
                   ? Icons.check_circle_rounded
@@ -1314,7 +1537,7 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
         myPlayerId: _int(me['playerId']),
         summary: _map(snapshot['summary']),
         players: players,
-        busy: _sendingInteraction,
+        busy: false,
         onHonor: (playerId) =>
             _sendInteraction('mvp', targetPlayerId: playerId),
         onExit: () => Navigator.pop(context),
@@ -1407,10 +1630,9 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
             FilledButton.icon(
               key: const ValueKey('mafia-submit-action'),
               onPressed:
-                  !_acting &&
-                      (_selectedPlayerId != null ||
-                          phase == 'day_vote' ||
-                          phase == 'day_revote')
+                  _selectedPlayerId != null ||
+                      phase == 'day_vote' ||
+                      phase == 'day_revote'
                   ? _submitSelection
                   : null,
               icon: Icon(_phaseIcon(phase)),
@@ -1472,7 +1694,11 @@ class _HostControlsSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canKick = !const {'completed', 'cancelled'}.contains(room['status']);
+    final status = '${room['status']}';
+    final inLobby = status == 'lobby';
+    // Mid-game the server only allows removing players who stopped
+    // responding, and a running game cannot be cancelled; mirror that here.
+    final canKick = !const {'completed', 'cancelled'}.contains(status);
     final hostUserId = _int(room['hostUserId']);
     return SafeArea(
       child: FractionallySizedBox(
@@ -1561,7 +1787,10 @@ class _HostControlsSheet extends StatelessWidget {
                             : 'بانتظار الجاهزية',
                       ),
                       trailing:
-                          canKick && !isMe && player['lifeStatus'] != 'left'
+                          canKick &&
+                              !isMe &&
+                              player['lifeStatus'] != 'left' &&
+                              (inLobby || player['isConnected'] != true)
                           ? IconButton(
                               key: ValueKey('mafia-kick-player-$playerId'),
                               tooltip: 'طرد اللاعب',
@@ -1583,6 +1812,12 @@ class _HostControlsSheet extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 10),
+              if (!inLobby)
+                const Text(
+                  'الجولة جارية: لا يمكن إغلاقها للجميع. يمكن طرد لاعب منقطع فقط.',
+                  textAlign: TextAlign.center,
+                )
+              else
               FilledButton.icon(
                 key: const ValueKey('mafia-close-room'),
                 onPressed: () => Navigator.pop(
@@ -1788,7 +2023,9 @@ class _VoiceBar extends StatelessWidget {
                   : reconnecting
                   ? 'جارٍ تأمين الاتصال الصوتي...'
                   : connected
-                  ? controller.isInAfterlife
+                  ? controller.isInMafiaNightRoom
+                        ? 'قناة المافيا الليلية: لا يسمعكم أحد غير فريقكم'
+                        : controller.isInAfterlife
                         ? 'تسمع الجولة وتتحدث في قناة المستبعدين'
                         : controller.canPublish
                         ? controller.microphoneRequested
@@ -3572,6 +3809,18 @@ String _friendlyError(Object error) {
   }
   if (text.contains('MAFIA_HONOR_ALREADY_CAST')) {
     return 'سبق أن اخترت نجم هذه الجولة.';
+  }
+  if (text.contains('MAFIA_KICK_ACTIVE_PLAYER_FORBIDDEN')) {
+    return 'لا يمكن طرد لاعب متصل أثناء اللعب. يمكن طرده إذا انقطع، أو الإبلاغ عنه.';
+  }
+  if (text.contains('MAFIA_GAME_IN_PROGRESS')) {
+    return 'لا يمكن إغلاق جولة جارية. يمكنك مغادرة الغرفة وتستمر الجولة للآخرين.';
+  }
+  if (text.contains('MAFIA_ROOM_BLOCKED')) {
+    return 'لا يمكنك الانضمام: يوجد في الغرفة لاعب بينك وبينه حظر.';
+  }
+  if (text.contains('MAFIA_ELIMINATED_CANNOT_INTERACT')) {
+    return 'خرجت من الجولة، لذلك لا يمكنك إرسال تفاعلات للاعبين الآن.';
   }
   return 'تعذر تنفيذ القرار. تحقق من الاتصال وحاول مجدداً.';
 }

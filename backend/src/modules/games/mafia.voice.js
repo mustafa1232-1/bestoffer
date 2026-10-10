@@ -22,6 +22,15 @@ export function mafiaDeadVoiceRoomName(roomId) {
   return `${mafiaVoiceRoomName(roomId)}-afterlife`;
 }
 
+// Night talk happens in its own LiveKit room that only alive mafia can join.
+// Isolation by room (not by per-participant permission toggles inside the
+// shared room) means a stale or replayed day token can never hear it.
+export function mafiaNightVoiceRoomName(roomId) {
+  return `${mafiaVoiceRoomName(roomId)}-night`;
+}
+export function mafiaNightVoiceIdentity(roomId, userId) {
+  return `mafia:${Number(roomId)}:night:user:${Number(userId)}`;
+}
 export function mafiaDeadVoiceIdentity(roomId, userId) {
   return `mafia:${Number(roomId)}:dead:user:${Number(userId)}`;
 }
@@ -47,7 +56,6 @@ function participantIsOffline(error) {
 export function mafiaVoicePermissions(room, player, candidates = []) {
   const allowed = player.life_status !== 'left' && room.status !== 'cancelled';
   const alive = player.life_status === "alive";
-  const mafia = player.team === "mafia";
   const candidateIds = new Set((candidates || []).map(Number));
   let canPublish = false;
   let canSubscribe = true;
@@ -60,8 +68,9 @@ export function mafiaVoicePermissions(room, player, candidates = []) {
       canPublish = false;
       break;
     case "night":
-      canPublish = alive && mafia;
-      canSubscribe = !alive || (alive && mafia);
+      // The shared table is silent at night; mafia speak in the night room.
+      // Subscriptions stay on so morning audio resumes without renegotiation.
+      canPublish = false;
       break;
     case "day_discussion":
       canPublish = alive;
@@ -132,11 +141,11 @@ async function ensureMafiaDeadVoiceRoom(room) {
   return { enabled: true, roomName: name };
 }
 
-async function createVoiceToken({ identity, name, metadata, grant }) {
+async function createVoiceToken({ identity, name, metadata, grant, ttl }) {
   const token = new AccessToken(env.livekitApiKey, env.livekitApiSecret, {
     identity,
     name,
-    ttl: Number(env.livekitTokenTtlSec || 900),
+    ttl: ttl ?? Number(env.livekitTokenTtlSec || 900),
     metadata: JSON.stringify(metadata),
   });
   token.addGrant(grant);
@@ -174,7 +183,38 @@ export async function issueMafiaVoiceToken(room, player, displayName, candidates
     },
     expiresInSeconds: Number(env.livekitTokenTtlSec || 900),
   };
-  if (player.life_status === "dead" && !['completed', 'cancelled'].includes(room.status)) {
+  if (room.status === "night" && player.life_status === "alive" && player.team === "mafia") {
+    // The token outlives the night by at most a minute; the worker also deletes
+    // the night room as soon as the phase changes.
+    const remaining = room.phase_ends_at
+      ? Math.ceil((new Date(room.phase_ends_at).getTime() - Date.now()) / 1000)
+      : 60;
+    response.afterlife = {
+      channel: "night",
+      roomName: mafiaNightVoiceRoomName(room.id),
+      identity: mafiaNightVoiceIdentity(room.id, player.user_id),
+      token: await createVoiceToken({
+        identity: mafiaNightVoiceIdentity(room.id, player.user_id),
+        name: playerName,
+        ttl: Math.max(30, remaining + 60),
+        metadata: {
+          roomId: Number(room.id),
+          playerId: Number(player.id),
+          seatNumber: Number(player.seat_number),
+          channel: "night",
+        },
+        grant: {
+          roomJoin: true,
+          room: mafiaNightVoiceRoomName(room.id),
+          canPublish: true,
+          canSubscribe: true,
+          canPublishData: false,
+          canPublishSources: [TrackSource.MICROPHONE],
+        },
+      }),
+      permissions: { canPublish: true, canSubscribe: true },
+    };
+  } else if (player.life_status === "dead" && !['completed', 'cancelled'].includes(room.status)) {
     const afterlifeGrant = {
       roomJoin: true,
       room: mafiaDeadVoiceRoomName(room.id),
@@ -184,6 +224,7 @@ export async function issueMafiaVoiceToken(room, player, displayName, candidates
       canPublishSources: [TrackSource.MICROPHONE],
     };
     response.afterlife = {
+      channel: "afterlife",
       roomName: mafiaDeadVoiceRoomName(room.id),
       identity: mafiaDeadVoiceIdentity(room.id, player.user_id),
       token: await createVoiceToken({
@@ -232,11 +273,16 @@ export async function syncMafiaVoicePermissions(room, players, candidates = [], 
       if (failure) throw failure.reason;
     }
   }
-  // The completed table is public again; obsolete secondary publishers leave.
-  if (room.status === 'completed') {
-    try { await service.deleteRoom(mafiaDeadVoiceRoomName(room.id)); }
+  const deleteIfPresent = async (name) => {
+    if (typeof service.deleteRoom !== 'function') return;
+    try { await service.deleteRoom(name); }
     catch (error) { if (!participantIsOffline(error) && !/room.*not.?found|does not exist/i.test(String(error?.message))) throw error; }
-  }
+  };
+  // Night is over: disconnect every night-room participant immediately, so no
+  // private mafia channel survives into the day.
+  if (room.status !== 'night') await deleteIfPresent(mafiaNightVoiceRoomName(room.id));
+  // The completed table is public again; obsolete secondary publishers leave.
+  if (room.status === 'completed') await deleteIfPresent(mafiaDeadVoiceRoomName(room.id));
   return { enabled: true, updated };
 }
 
@@ -247,6 +293,7 @@ export async function removeMafiaVoiceParticipant(room, userId) {
   for (const [roomName, identity] of [
     [room.voice_room_name, mafiaVoiceIdentity(room.id, userId)],
     [mafiaDeadVoiceRoomName(room.id), mafiaDeadVoiceIdentity(room.id, userId)],
+    [mafiaNightVoiceRoomName(room.id), mafiaNightVoiceIdentity(room.id, userId)],
   ]) {
     try {
       await service.removeParticipant(roomName, identity);
@@ -265,6 +312,7 @@ export async function closeMafiaVoiceRoom(room) {
   for (const roomName of [
     room.voice_room_name,
     mafiaDeadVoiceRoomName(room.id),
+    mafiaNightVoiceRoomName(room.id),
   ]) {
     try {
       await service.deleteRoom(roomName);

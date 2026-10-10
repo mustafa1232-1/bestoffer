@@ -4,6 +4,7 @@ import { pool, q } from "../../config/db.js";
 import { AppError } from "../../shared/utils/errors.js";
 import { emitRealtimeToUsers } from "../../shared/realtime/realtime-gateway.js";
 import { TEAM_CODE_PUZZLES, validatePuzzleBank } from "./games.puzzle-bank.js";
+import { assertNoBlockedMembers, maskOffensiveText } from "./games.safety.js";
 import {
   issueTeamCodeVoiceToken,
   removeTeamCodeVoiceParticipant,
@@ -11,7 +12,13 @@ import {
 } from "./team-code.voice.js";
 
 const ROOM_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const RECONNECT_DETECT_SECONDS = 35;
+// Clients beat every 10s; several missed beats (weak signal, app switch) are
+// tolerated before a player is shown as reconnecting.
+const RECONNECT_DETECT_SECONDS = 45;
+// A code or vote sent just before zero may still be in flight.
+const ROUND_GRACE_MS = 1000;
+// Presence writes from snapshots are coalesced to at most one per this window.
+const PRESENCE_WRITE_SECONDS = 5;
 const RECONNECT_GRACE_SECONDS = 120;
 const EMPTY_ROOM_RETURN_MINUTES = 10;
 const ROUND_LIMIT_SECONDS = Object.freeze({ easy: 150, medium: 120, hard: 90 });
@@ -57,6 +64,11 @@ export function distributeClueIndexes(clueCount, membershipIds) {
   }));
 }
 
+export function teamCodeVotesRequired(activeMembers) {
+  const members = Math.max(1, Number(activeMembers) || 1);
+  return Math.floor(members / 2) + 1;
+}
+
 export function gameRoundLimitSeconds(difficulty, mode = "solo") {
   const base = ROUND_LIMIT_SECONDS[difficulty] || ROUND_LIMIT_SECONDS.medium;
   return base + (mode === "cooperative" ? 30 : 0);
@@ -74,18 +86,23 @@ function roundClock(round) {
   };
 }
 
+function roundPastGrace(round) {
+  const serverNow = new Date(round.server_now || Date.now()).getTime();
+  return serverNow >= roundClock(round).deadlineAt.getTime() + ROUND_GRACE_MS;
+}
+
 function assertRoundInTime(round) {
   if (round.status !== "active") {
     throw new AppError("GAME_ROUND_NOT_ACTIVE", { status: 409 });
   }
-  if (roundClock(round).remainingSeconds <= 0) {
+  if (roundPastGrace(round)) {
     throw new AppError("GAME_ROUND_TIMED_OUT", { status: 409 });
   }
 }
 
 export async function seedTeamCodePuzzles() {
   const validation = validatePuzzleBank();
-  if (!validation.valid || validation.count !== 30) {
+  if (!validation.valid || validation.count < 30) {
     throw new AppError("GAME_PUZZLE_BANK_INVALID", {
       status: 500,
       details: validation.results.filter((item) => !item.valid),
@@ -151,8 +168,18 @@ export async function seedTeamCodePuzzles() {
 
 async function ensureSeeded() {
   if (!seedPromise) {
-    seedPromise = seedTeamCodePuzzles().catch((error) => {
+    seedPromise = seedTeamCodePuzzles().catch(async (error) => {
       seedPromise = null;
+      // A bad bank edit must not take the game down when verified puzzles from
+      // an earlier deploy are already in the database.
+      const existing = await q(
+        `SELECT COUNT(*)::int count FROM game_puzzle_version WHERE is_verified=TRUE`,
+      ).catch(() => null);
+      if (Number(existing?.rows?.[0]?.count) >= 3) {
+        console.warn(JSON.stringify({ event: "team_code_seed_failed", code: error.code || "FAILED" }));
+        seedPromise = Promise.resolve(null);
+        return null;
+      }
       throw error;
     });
   }
@@ -201,7 +228,12 @@ async function requireEnabled(client = { query: q }) {
   return campaign;
 }
 
+let lastAbandonSweepAt = 0;
 async function abandonExpiredPausedRooms(client = { query: q }) {
+  // A table-wide sweep on every status/join request is wasted work; once per
+  // 30s per process is plenty for a 10-minute retention window.
+  if (Date.now() - lastAbandonSweepAt < 30_000) return;
+  lastAbandonSweepAt = Date.now();
   await client.query(
     `WITH abandoned AS (
        UPDATE game_room
@@ -387,9 +419,12 @@ async function expireMembershipsTx(client, roomId) {
       [roomId],
     );
     if (Number(active.rows[0].count) === 0) {
+      // The round clock stops from the moment the last player went silent, not
+      // from when the server noticed; resume adds the paused span back.
       await client.query(
-        `UPDATE game_room SET status='paused',paused_at=NOW(),updated_at=NOW(),
-           state_version=state_version+1 WHERE id=$1 AND status='active'`,
+        `UPDATE game_room SET status='paused',updated_at=NOW(),state_version=state_version+1,
+           paused_at=LEAST(NOW(),COALESCE((SELECT MAX(last_seen_at) FROM game_membership WHERE room_id=$1),NOW()))
+         WHERE id=$1 AND status='active'`,
         [roomId],
       );
       await client.query(
@@ -399,6 +434,18 @@ async function expireMembershipsTx(client, roomId) {
       );
     }
   }
+}
+
+// A paused room's round clock does not run: on resume, move the active round's
+// start forward by the paused span so the remaining time is what it was.
+async function resumeRoundClockTx(client, roomId) {
+  await client.query(
+    `UPDATE game_round gr SET started_at=gr.started_at+(NOW()-room.paused_at)
+     FROM game_session gs JOIN game_room room ON room.id=gs.room_id
+     WHERE gr.session_id=gs.id AND gs.room_id=$1 AND gr.status='active'
+       AND room.status='paused' AND room.paused_at IS NOT NULL AND gr.started_at IS NOT NULL`,
+    [roomId],
+  );
 }
 
 async function loadMembershipTx(client, roomId, userId, { lock = false } = {}) {
@@ -536,6 +583,11 @@ export async function joinRoom(userId, code) {
     if (!previous.rows[0] && Number(count.rows[0].count) >= Number(room.max_players)) {
       throw new AppError("GAME_ROOM_FULL", { status: 409 });
     }
+    if (!previous.rows[0]) {
+      const members = await client.query(
+        `SELECT user_id FROM game_membership WHERE room_id=$1 AND left_at IS NULL`, [roomId]);
+      await assertNoBlockedMembers(client, safeUserId, members.rows.map((row) => row.user_id));
+    }
     await insertMembershipTx(client, roomId, safeUserId);
     await client.query(
       `UPDATE game_room SET state_version=state_version+1, updated_at=NOW() WHERE id=$1`,
@@ -632,7 +684,7 @@ async function expireTimedRoundTx(client, roomId) {
     [roomId],
   );
   const round = result.rows[0];
-  if (!round || roundClock(round).remainingSeconds > 0) return false;
+  if (!round || !roundPastGrace(round)) return false;
   await client.query(
     `UPDATE game_round SET status='failed',completed_at=NOW() WHERE id=$1`,
     [round.id],
@@ -940,18 +992,24 @@ export async function voteProposal(userId, roomId, proposalId, vote) {
        ON CONFLICT (proposal_id,membership_id) DO UPDATE SET vote=EXCLUDED.vote,created_at=NOW()`,
       [safeProposalId, member.id, normalizedVote],
     );
-    if (normalizedVote === "reject") {
+    // Majority of the active team decides, so one player cannot veto every
+    // proposal until the clock runs out (2 players still need both).
+    const tally = await client.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE gv.vote='approve' AND m.is_active AND m.left_at IS NULL)::int approvals,
+         COUNT(*) FILTER (WHERE gv.vote='reject' AND m.is_active AND m.left_at IS NULL)::int rejections,
+         (SELECT COUNT(*)::int FROM game_membership
+          WHERE room_id=$2 AND left_at IS NULL AND is_active=TRUE) members
+       FROM game_vote gv JOIN game_membership m ON m.id=gv.membership_id
+       WHERE gv.proposal_id=$1`,
+      [safeProposalId, safeRoomId],
+    );
+    const { approvals, rejections, members } = tally.rows[0];
+    const required = teamCodeVotesRequired(members);
+    if (Number(rejections) > Number(members) - required) {
       await client.query(`UPDATE game_proposal SET status='rejected',resolved_at=NOW() WHERE id=$1`, [safeProposalId]);
     } else {
-      const tally = await client.query(
-        `SELECT
-           COUNT(*) FILTER (WHERE gv.vote='approve')::int approvals,
-           (SELECT COUNT(*)::int FROM game_membership
-            WHERE room_id=$2 AND left_at IS NULL AND is_active=TRUE) required
-         FROM game_vote gv WHERE gv.proposal_id=$1`,
-        [safeProposalId, safeRoomId],
-      );
-      if (Number(tally.rows[0].approvals) >= Number(tally.rows[0].required)) {
+      if (Number(approvals) >= required) {
         await client.query(`UPDATE game_proposal SET status='approved',resolved_at=NOW() WHERE id=$1`, [safeProposalId]);
         const round = await currentRoundTx(client, safeRoomId, { lock: true });
         if (proposal.kind === "hint") {
@@ -974,7 +1032,7 @@ export async function voteProposal(userId, roomId, proposalId, vote) {
 
 export async function sendMessage(userId, roomId, body) {
   const safeRoomId = numericId(roomId, "GAME_ROOM_ID_INVALID");
-  const normalized = String(body || "").trim().replace(/\s+/g, " ");
+  const normalized = maskOffensiveText(String(body || "").trim().replace(/\s+/g, " ")).text;
   if (!normalized || normalized.length > 300) throw new AppError("GAME_MESSAGE_INVALID", { status: 400 });
   const member = await q(
     `SELECT id FROM game_membership WHERE room_id=$1 AND user_id=$2
@@ -1109,6 +1167,7 @@ export async function continueAlone(userId, roomId) {
       [safeRoomId],
     );
     if (Number(active.rows[0].count) !== 1) throw new AppError("GAME_SOLO_CONTINUE_UNAVAILABLE", { status: 409 });
+    await resumeRoundClockTx(client, safeRoomId);
     await client.query(`UPDATE game_room SET mode='solo',status='active',paused_at=NULL,state_version=state_version+1 WHERE id=$1`, [safeRoomId]);
     await client.query(`UPDATE game_session SET status='active',state_version=state_version+1 WHERE room_id=$1`, [safeRoomId]);
     await client.query(
@@ -1137,11 +1196,16 @@ export async function getRoomSnapshot(roomId, userId) {
     const room = await loadRoomTx(client, safeRoomId);
     const me = await loadMembershipTx(client, safeRoomId, safeUserId);
     if (["lobby", "active", "paused"].includes(room.status)) {
+      // Polling must not turn every read into a write: refresh presence only
+      // when it is stale or the player was marked away.
       await client.query(
-        `UPDATE game_membership SET last_seen_at=NOW(),disconnected_at=NULL,is_active=TRUE WHERE id=$1`,
-        [me.id],
+        `UPDATE game_membership SET last_seen_at=NOW(),disconnected_at=NULL,is_active=TRUE
+         WHERE id=$1 AND (is_active=FALSE OR disconnected_at IS NOT NULL
+           OR last_seen_at < NOW() - ($2::int * INTERVAL '1 second'))`,
+        [me.id, PRESENCE_WRITE_SECONDS],
       );
       if (room.status === "paused") {
+        await resumeRoundClockTx(client, safeRoomId);
         await client.query(
           `UPDATE game_room SET status='active',paused_at=NULL,updated_at=NOW(),
              state_version=state_version+1 WHERE id=$1`,
@@ -1440,12 +1504,12 @@ export async function updateCampaign(actor, input) {
   const result = await q(
     `UPDATE game_campaign SET
        is_enabled=COALESCE($1,is_enabled),
-       starts_at=COALESCE($2,starts_at),
-       ends_at=COALESCE($3,ends_at),
+       starts_at=CASE WHEN $8 THEN $2::timestamptz ELSE COALESCE($2::timestamptz,starts_at) END,
+       ends_at=CASE WHEN $9 THEN $3::timestamptz ELSE COALESCE($3::timestamptz,ends_at) END,
        reward_type=COALESCE($4,reward_type),
        reward_value=COALESCE($5,reward_value),
        reward_valid_days=COALESCE($6,reward_valid_days),
-       claim_limit=COALESCE($7,claim_limit),
+       claim_limit=CASE WHEN $10 THEN $7::int ELSE COALESCE($7::int,claim_limit) END,
        updated_at=NOW()
      WHERE campaign_key='team_code_test' RETURNING *`,
     [
@@ -1456,6 +1520,10 @@ export async function updateCampaign(actor, input) {
       input.rewardValue == null ? null : Number(input.rewardValue),
       input.rewardValidDays == null ? null : Number(input.rewardValidDays),
       input.claimLimit == null ? null : Number(input.claimLimit),
+      // Explicit nulls clear the field instead of being ignored.
+      input.startsAt === null,
+      input.endsAt === null,
+      input.claimLimit === null,
     ],
   );
   return publicCampaign(result.rows[0]);

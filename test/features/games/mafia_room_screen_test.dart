@@ -290,7 +290,10 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('mafia-reaction-laugh')));
       await tester.pump();
       expect(api.snapshotReads, reads);
-      expect(find.byKey(const ValueKey('mafia-effect-87')), findsOneWidget);
+      // The effect plays from the tap itself (optimistic, local id) and the
+      // server's echo (87) is acknowledged rather than animated a second time.
+      expect(find.byKey(const ValueKey('mafia-effect--1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('mafia-effect-87')), findsNothing);
       await tester.pumpWidget(const SizedBox());
     },
   );
@@ -547,18 +550,22 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('host can kick a player during a live round and close the room', (
+  testWidgets('mid-game the host can remove only a disconnected player and cannot cancel', (
     tester,
   ) async {
-    final api = _FakeMafiaApi(
-      _snapshot(status: 'day_discussion', dayNumber: 1),
-    );
+    final snapshot = _snapshot(status: 'day_discussion', dayNumber: 1);
+    snapshot['players'] = (snapshot['players'] as List).map((item) {
+      final player = Map<String, dynamic>.from(item as Map);
+      return player['playerId'] == 2 ? {...player, 'isConnected': false} : player;
+    }).toList();
+    final api = _FakeMafiaApi(snapshot);
     await _pumpRoom(tester, api);
 
     await tester.tap(find.byKey(const ValueKey('mafia-host-controls')));
     await _pumpAnimatedRoom(tester);
     expect(find.text('إدارة الغرفة'), findsOneWidget);
-    expect(find.byKey(const ValueKey('mafia-close-room')), findsOneWidget);
+    expect(find.byKey(const ValueKey('mafia-close-room')), findsNothing);
+    expect(find.byKey(const ValueKey('mafia-kick-player-3')), findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('mafia-kick-player-2')));
     await _pumpAnimatedRoom(tester);
@@ -566,7 +573,12 @@ void main() {
     await _pumpAnimatedRoom(tester);
     expect(api.kickedPlayerId, 2);
     expect(find.text('لاعب 2'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
 
+  testWidgets('the host can close the room from the lobby', (tester) async {
+    final api = _FakeMafiaApi(_snapshot());
+    await _pumpRoom(tester, api);
     await tester.tap(find.byKey(const ValueKey('mafia-host-controls')));
     await _pumpAnimatedRoom(tester);
     await tester.tap(find.byKey(const ValueKey('mafia-close-room')));
@@ -616,6 +628,8 @@ void main() {
     await _pumpAnimatedRoom(tester);
     await tester.tap(find.byKey(const ValueKey('mafia-gift-rose')));
     await _pumpAnimatedRoom(tester);
+    // The second tap animates at once; its send waits out the server cooldown.
+    await tester.pump(const Duration(milliseconds: 1300));
     expect(api.interactionKind, 'rose');
     expect(api.interactionTargetPlayerId, 2);
     expect(tester.takeException(), isNull);

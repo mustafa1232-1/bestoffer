@@ -331,6 +331,7 @@ class GamesApi {
     required int roundId,
     required int questionId,
     required String idempotencyKey,
+    int? clientElapsedMs,
   }) async {
     final response = await dio.post(
       '/api/games/knowledge/matches/$matchId/answers',
@@ -340,6 +341,9 @@ class GamesApi {
         'roundId': roundId,
         'questionId': questionId,
         'idempotencyKey': idempotencyKey,
+        // Time from the question appearing on this device to the tap. The
+        // server clamps it, so network delay is not counted against players.
+        'clientElapsedMs': ?clientElapsedMs,
       },
       options: Options(
         receiveTimeout: const Duration(seconds: 8),

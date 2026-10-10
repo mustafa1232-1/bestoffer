@@ -80,6 +80,29 @@ class MafiaInteractionController extends ChangeNotifier {
     if (changed) notifyListeners();
   }
 
+  int _localSequence = 0;
+
+  /// Plays the player's own reaction or gift the instant they tap it. Local
+  /// events use negative ids so they never collide with server ids; the
+  /// server echo is registered with [acknowledge] and is not animated twice.
+  void playLocal(Map<String, dynamic> json) {
+    if (_disposed) return;
+    final id = -(++_localSequence);
+    final event = MafiaInteraction.fromJson({...json, 'id': id});
+    if (_active.length >= 32) _remove(_active.keys.first);
+    _active[id] = event;
+    _expiry[id] = Timer(const Duration(milliseconds: 2800), () {
+      if (_disposed) return;
+      _remove(id);
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  void acknowledge(int serverId) {
+    if (serverId > 0) _seen.add(serverId);
+  }
+
   void _remove(int id) {
     _expiry.remove(id)?.cancel();
     _active.remove(id);
