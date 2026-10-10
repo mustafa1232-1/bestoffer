@@ -51,6 +51,12 @@ class KnowledgeArena extends StatelessWidget {
         ? 'تم تسجيل إجابتك'
         : phase == 'resolving'
         ? 'انتهى الوقت، ننتظر النتيجة'
+        : c.autoSubmit && c.selectedAnswer == null && c.selectedDistrict == null
+        ? 'اختر الإجابة والمنطقة، وتُرسل تلقائيًا'
+        : c.autoSubmit && c.selectedAnswer == null
+        ? 'اختر الإجابة لإرسالها فورًا'
+        : c.autoSubmit && c.selectedDistrict == null
+        ? 'اختر المنطقة لإرسال إجابتك فورًا'
         : c.selectedDistrict == null
         ? 'اختر منطقة وإجابة'
         : 'اعتماد الإجابة';

@@ -98,12 +98,17 @@ class KnowledgeMatchController extends ChangeNotifier {
     this.realtime,
     KnowledgeAttemptStore? store,
     this.polling = true,
+    this.autoSubmit = false,
   }) : store = store ?? LocalKnowledgeAttemptStore();
   final GamesApi api;
   final int matchId;
   final MaslakiRealtimeClient? realtime;
   final KnowledgeAttemptStore store;
   final bool polling;
+
+  /// Sends the answer the moment both choices exist (answer + district, or
+  /// just the answer when no district is left), saving the confirm tap.
+  final bool autoSubmit;
   Map<String, dynamic> snapshot = {};
   KnowledgeSubmission submission = KnowledgeSubmission.idle;
   int? selectedAnswer;
@@ -377,10 +382,13 @@ class KnowledgeMatchController extends ChangeNotifier {
           : KnowledgeSubmission.selected;
       message = null;
     }
-    if (selectedDistrict == null &&
-        (knowledgeMap(value['match'])['availableDistricts'] as List? ?? [])
-            .isEmpty) {
+    final available =
+        knowledgeMap(value['match'])['availableDistricts'] as List? ?? [];
+    if (selectedDistrict == null && available.isEmpty) {
       selectedDistrict = 'none';
+    } else if (autoSubmit && selectedDistrict == null && available.length == 1) {
+      // Only one possible district: choose it so the answer tap alone sends.
+      selectedDistrict = '${knowledgeMap(available.first)['id']}';
     }
   }
 
@@ -390,6 +398,7 @@ class KnowledgeMatchController extends ChangeNotifier {
       selectedAnswer = value;
       submission = KnowledgeSubmission.selected;
       _notify();
+      _maybeAutoSubmit();
     }
   }
 
@@ -399,7 +408,12 @@ class KnowledgeMatchController extends ChangeNotifier {
       selectedDistrict = value;
       submission = KnowledgeSubmission.selected;
       _notify();
+      _maybeAutoSubmit();
     }
+  }
+
+  void _maybeAutoSubmit() {
+    if (autoSubmit && canSubmit && !_sending) unawaited(submit());
   }
 
   Future<void> _persist(Map<String, dynamic>? attempt) async {

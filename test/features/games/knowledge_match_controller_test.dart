@@ -245,6 +245,51 @@ void main() {
     expect(api.lastClientElapsedMs, greaterThanOrEqualTo(100));
     expect(api.lastClientElapsedMs, lessThan(5000));
   });
+  test('auto submit sends once, the moment both choices exist', () async {
+    final api = KnowledgeFakeApi();
+    (api.value['match'] as Map)['availableDistricts'] = [
+      {'id': 'souk', 'nameAr': 'سوق المعرفة'},
+      {'id': 'arts', 'nameAr': 'مسرح النخيل'},
+    ];
+    final c = KnowledgeMatchController(
+      api: api,
+      matchId: 1,
+      store: MemoryKnowledgeStore(),
+      polling: false,
+      autoSubmit: true,
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    c.selectAnswer(1);
+    await Future<void>.delayed(Duration.zero);
+    expect(api.answers, 0, reason: 'no district yet: nothing is sent');
+    c.selectDistrict('souk');
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(api.answers, 1);
+    expect(c.submission, KnowledgeSubmission.confirmed);
+    c.selectAnswer(2);
+    await c.submit();
+    expect(api.answers, 1, reason: 'a confirmed answer is final');
+  });
+  test('auto submit picks the only remaining district', () async {
+    final api = KnowledgeFakeApi();
+    (api.value['match'] as Map)['availableDistricts'] = [
+      {'id': 'arts', 'nameAr': 'مسرح النخيل'},
+    ];
+    final c = KnowledgeMatchController(
+      api: api,
+      matchId: 1,
+      store: MemoryKnowledgeStore(),
+      polling: false,
+      autoSubmit: true,
+    );
+    addTearDown(c.dispose);
+    await c.start();
+    expect(c.selectedDistrict, 'arts');
+    c.selectAnswer(0);
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(api.answers, 1);
+  });
   test('confirmed only after persistence, duplicate tap sends once', () async {
     final api = KnowledgeFakeApi()..pending = Completer();
     final c = KnowledgeMatchController(

@@ -983,6 +983,7 @@ class _KnowledgeMatchScreenState extends ConsumerState<KnowledgeMatchScreen>
       api: ref.read(gamesApiProvider),
       matchId: widget.matchId,
       realtime: ref.read(knowledgeRealtimeProvider),
+      autoSubmit: true,
     )..addListener(_controllerChanged);
     unawaited(_controller.start());
     unawaited(_readSettings());
