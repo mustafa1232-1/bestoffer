@@ -33,7 +33,10 @@ function shouldSkipEnsureSchema() {
   return ["1", "true", "yes", "on"].includes(raw);
 }
 
-async function getServiceCategoryPair(createdByUserId = null, seededCategoryIds = []) {
+async function getServiceCategoryPair(
+  createdByUserId = null,
+  seededCategoryIds = [],
+) {
   const result = await q(
     `SELECT
        parent.id AS main_category_id,
@@ -45,7 +48,7 @@ async function getServiceCategoryPair(createdByUserId = null, seededCategoryIds 
        AND child.is_active = TRUE
        AND child.is_public = TRUE
      ORDER BY parent.sort_order ASC, child.sort_order ASC, parent.id ASC, child.id ASC
-     LIMIT 1`
+     LIMIT 1`,
   );
 
   const first = result.rows[0] || null;
@@ -62,7 +65,7 @@ async function getServiceCategoryPair(createdByUserId = null, seededCategoryIds 
      WHERE is_active = TRUE
        AND is_public = TRUE
      ORDER BY level ASC, sort_order ASC, id ASC
-     LIMIT 2`
+     LIMIT 2`,
   );
   if (fallback.rows.length < 2) {
     const rootName = `Phase 2A Services Root ${buildRunTag("svc-root")}`;
@@ -82,7 +85,7 @@ async function getServiceCategoryPair(createdByUserId = null, seededCategoryIds 
         )
        VALUES (NULL,1,$1,1,TRUE,TRUE,$2,NOW(),NOW())
        RETURNING id`,
-      [rootName, createdByUserId == null ? null : Number(createdByUserId)]
+      [rootName, createdByUserId == null ? null : Number(createdByUserId)],
     );
     const childInsert = await q(
       `INSERT INTO service_categories
@@ -103,7 +106,7 @@ async function getServiceCategoryPair(createdByUserId = null, seededCategoryIds 
         Number(rootInsert.rows[0].id),
         childName,
         createdByUserId == null ? null : Number(createdByUserId),
-      ]
+      ],
     );
     const rootId = Number(rootInsert.rows[0].id);
     const childId = Number(childInsert.rows[0].id);
@@ -150,23 +153,23 @@ async function cleanupServiceArtifacts({
     await q(
       `DELETE FROM service_request_status_history
        WHERE request_id = ANY($1::bigint[])`,
-      [requestIds]
+      [requestIds],
     );
     await q(
       `DELETE FROM service_request_quotes
        WHERE id = ANY($1::bigint[])
           OR request_id = ANY($2::bigint[])`,
-      [quoteIds, requestIds]
+      [quoteIds, requestIds],
     );
     await q(
       `DELETE FROM service_request_attachments
        WHERE request_id = ANY($1::bigint[])`,
-      [requestIds]
+      [requestIds],
     );
     await q(
       `DELETE FROM service_requests
        WHERE id = ANY($1::bigint[])`,
-      [requestIds]
+      [requestIds],
     );
   }
 
@@ -174,17 +177,17 @@ async function cleanupServiceArtifacts({
     await q(
       `DELETE FROM service_offering_media
        WHERE offering_id = ANY($1::bigint[])`,
-      [offeringIds]
+      [offeringIds],
     );
     await q(
       `DELETE FROM service_pricing_options
        WHERE offering_id = ANY($1::bigint[])`,
-      [offeringIds]
+      [offeringIds],
     );
     await q(
       `DELETE FROM service_offerings
        WHERE id = ANY($1::bigint[])`,
-      [offeringIds]
+      [offeringIds],
     );
   }
 
@@ -192,17 +195,17 @@ async function cleanupServiceArtifacts({
     await q(
       `DELETE FROM service_provider_subscription_offers
        WHERE request_id = ANY($1::bigint[])`,
-      [subscriptionRequestIds]
+      [subscriptionRequestIds],
     );
     await q(
       `DELETE FROM service_provider_subscription_status_history
        WHERE request_id = ANY($1::bigint[])`,
-      [subscriptionRequestIds]
+      [subscriptionRequestIds],
     );
     await q(
       `DELETE FROM service_provider_subscription_requests
        WHERE id = ANY($1::bigint[])`,
-      [subscriptionRequestIds]
+      [subscriptionRequestIds],
     );
   }
 
@@ -210,7 +213,7 @@ async function cleanupServiceArtifacts({
     await q(
       `DELETE FROM service_provider_profiles
        WHERE user_id = ANY($1::bigint[])`,
-      [[Number(providerUserId)]]
+      [[Number(providerUserId)]],
     );
   }
 
@@ -219,12 +222,12 @@ async function cleanupServiceArtifacts({
       `DELETE FROM app_notification
        WHERE user_id = ANY($1::bigint[])
           OR type LIKE 'services.%'`,
-      [serviceUserIds]
+      [serviceUserIds],
     );
     await q(
       `DELETE FROM app_user
        WHERE id = ANY($1::bigint[])`,
-      [serviceUserIds.filter((id) => Number(id) !== Number(adminUserId))]
+      [serviceUserIds.filter((id) => Number(id) !== Number(adminUserId))],
     );
   }
 }
@@ -249,11 +252,13 @@ async function main() {
   const providerPin = "1234";
   const customerPin = "1234";
   const seededServiceCategoryIds = [];
-  const categoryPair = await getServiceCategoryPair(superAdminId, seededServiceCategoryIds);
+  const categoryPair = await getServiceCategoryPair(
+    superAdminId,
+    seededServiceCategoryIds,
+  );
 
   let server = null;
   let subscriptionRequestId = null;
-  let offerId = null;
   let providerUserId = null;
   let providerProfileId = null;
   let customerUserId = null;
@@ -273,135 +278,133 @@ async function main() {
     });
     assertStatus(response, 200, "admin login");
     admin.token = String(response.data?.token || "");
-    assert.equal(readId(response.data?.user), Number(superAdminId), "admin login user mismatch");
-
-    response = await request(baseUrl, providerActor, "POST", "/api/services/provider/register", {
-      fullName: `Services Provider ${runTag}`,
-      businessName: `Services Provider ${runTag}`,
-      phone: providerPhone,
-      pin: providerPin,
-      city: "Baghdad",
-      area: "Bismayah",
-      addressLine: "Service street 101",
-      mainCategoryId: categoryPair.mainCategoryId,
-      bookingPolicy: "approval_required",
-      pricingMode: "mixed",
-      hasEmergencyService: true,
-      servesAtHome: true,
-      servesAtShop: false,
-      servesRemote: false,
-      yearsExperience: 5,
-      hasTeam: false,
-      acceptsCash: true,
-      acceptsElectronic: false,
-      averageResponseMinutes: 20,
-      available247: false,
-      providerGender: "mixed",
-      languages: ["ar"],
-      areas: [{ city: "Baghdad", area: "Bismayah", note: "Service coverage" }],
-      availabilityRules: [],
-    });
-    assertStatus(response, 201, "provider register");
-    subscriptionRequestId = readId(response.data?.request);
-    assert.ok(subscriptionRequestId, "provider subscription request id missing");
-    assert.equal(String(response.data?.status || ""), "pending_offer");
-
-    response = await request(
-      baseUrl,
-      admin,
-      "GET",
-      "/api/admin/services/subscription-requests?subscriptionRequestStatus=pending_offer&limit=20"
+    assert.equal(
+      readId(response.data?.user),
+      Number(superAdminId),
+      "admin login user mismatch",
     );
-    assertStatus(response, 200, "admin list provider subscription requests");
-    assert.ok(
-      Array.isArray(response.data) &&
-        response.data.some(
-          (item) => Number(item?.id || 0) === Number(subscriptionRequestId)
-        ),
-      "admin should see provider subscription request"
-    );
-
-    response = await request(
-      baseUrl,
-      admin,
-      "POST",
-      `/api/admin/services/subscription-requests/${subscriptionRequestId}/offer`,
-      {
-        amount: 250000,
-        currency: "IQD",
-        title: `Services onboarding offer ${runTag}`,
-        description: "QA onboarding offer",
-        validUntil: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-        note: "Please review the onboarding offer",
-      }
-    );
-    assertStatus(response, 200, "admin send subscription offer");
-    assert.equal(String(response.data?.status || ""), "offer_sent");
-    offerId = readId(response.data?.activeOffer);
-    assert.ok(offerId, "subscription offer id missing");
-
-    response = await request(baseUrl, providerActor, "POST", "/api/services/provider/subscription/status", {
-      phone: providerPhone,
-      pin: providerPin,
-    });
-    assertStatus(response, 200, "provider subscription status");
-    assert.equal(String(response.data?.status || ""), "offer_sent");
-    assert.equal(Number(response.data?.activeOffer?.id || 0), Number(offerId));
 
     response = await request(
       baseUrl,
       providerActor,
       "POST",
-      `/api/services/provider/subscription/requests/${subscriptionRequestId}/respond-offer`,
+      "/api/services/provider/register",
+      {
+        fullName: `Services Provider ${runTag}`,
+        businessName: `Services Provider ${runTag}`,
+        phone: providerPhone,
+        pin: providerPin,
+        city: "Baghdad",
+        area: "Bismayah",
+        addressLine: "Service street 101",
+        mainCategoryId: categoryPair.mainCategoryId,
+        bookingPolicy: "approval_required",
+        pricingMode: "mixed",
+        hasEmergencyService: true,
+        servesAtHome: true,
+        servesAtShop: false,
+        servesRemote: false,
+        yearsExperience: 5,
+        hasTeam: false,
+        acceptsCash: true,
+        acceptsElectronic: false,
+        averageResponseMinutes: 20,
+        available247: false,
+        providerGender: "mixed",
+        languages: ["ar"],
+        areas: [
+          { city: "Baghdad", area: "Bismayah", note: "Service coverage" },
+        ],
+        availabilityRules: [],
+      },
+    );
+    assertStatus(response, 201, "provider register");
+    providerProfileId = readId(response.data?.application);
+    assert.ok(providerProfileId, "provider application id missing");
+    assert.equal(String(response.data?.status || ""), "approved");
+    assert.equal(response.data?.canLogin, true);
+    assert.equal(response.data?.requiresProviderAction, false);
+
+    response = await request(
+      baseUrl,
+      providerActor,
+      "POST",
+      "/api/services/provider/application/status",
+      {
+        phone: providerPhone,
+        pin: providerPin,
+      },
+    );
+    assertStatus(response, 200, "provider application status");
+    assert.equal(String(response.data?.status || ""), "approved");
+    assert.equal(response.data?.canLogin, true);
+
+    response = await request(
+      baseUrl,
+      providerActor,
+      "POST",
+      "/api/services/provider/subscription/requests/1/respond-offer",
       {
         phone: providerPhone,
         pin: providerPin,
         action: "accept",
-        offerId,
-      }
+      },
     );
-    assertStatus(response, 200, "provider accepts subscription offer");
-    assert.equal(String(response.data?.status || ""), "offer_accepted");
+    assertStatus(response, 410, "legacy provider payment endpoint disabled");
+    assert.equal(
+      response.data?.message,
+      "SERVICE_PROVIDER_EXTERNAL_PAYMENT_DISABLED",
+    );
 
     response = await request(
       baseUrl,
-      admin,
+      providerActor,
       "POST",
-      `/api/admin/services/subscription-requests/${subscriptionRequestId}/confirm-cash-payment`,
+      "/api/auth/login",
       {
-        note: "Cash onboarding confirmed for QA runtime",
-      }
+        phone: providerPhone,
+        pin: providerPin,
+      },
     );
-    assertStatus(response, 200, "admin confirm cash payment");
-    providerUserId = readId(response.data?.user);
-    assert.ok(providerUserId, "provider user id missing after confirmation");
-    assert.equal(String(response.data?.user?.role || ""), "service_provider");
-
-    response = await request(baseUrl, providerActor, "POST", "/api/auth/login", {
-      phone: providerPhone,
-      pin: providerPin,
-    });
     assertStatus(response, 200, "provider login");
     providerActor.token = String(response.data?.token || "");
-    assert.equal(readId(response.data?.user), Number(providerUserId));
+    providerUserId = readId(response.data?.user);
+    assert.ok(providerUserId, "provider user id missing after login");
     assert.equal(String(response.data?.user?.role || ""), "service_provider");
 
-    response = await request(baseUrl, providerActor, "GET", "/api/services/provider/workspace");
+    response = await request(
+      baseUrl,
+      providerActor,
+      "GET",
+      "/api/services/provider/workspace",
+    );
     assertStatus(response, 200, "provider workspace");
-    assert.equal(Number(response.data?.provider?.userId || 0), Number(providerUserId));
-    providerProfileId = Number(response.data?.provider?.id || 0);
+    assert.equal(
+      Number(response.data?.provider?.userId || 0),
+      Number(providerUserId),
+    );
+    assert.equal(
+      Number(response.data?.provider?.id || 0),
+      Number(providerProfileId),
+    );
     assert.ok(providerProfileId, "provider profile id missing from workspace");
 
-    response = await request(baseUrl, customerActor, "POST", "/api/auth/register", {
-      fullName: `Services Customer ${runTag}`,
-      phone: customerPhone,
-      pin: customerPin,
-      block: "A1",
-      buildingNumber: "A101",
-      apartment: "101",
-      analyticsConsentAccepted: true,
-      analyticsConsentVersion: "analytics_v1",
-    });
+    response = await request(
+      baseUrl,
+      customerActor,
+      "POST",
+      "/api/auth/register",
+      {
+        fullName: `Services Customer ${runTag}`,
+        phone: customerPhone,
+        pin: customerPin,
+        block: "A1",
+        buildingNumber: "A101",
+        apartment: "101",
+        analyticsConsentAccepted: true,
+        analyticsConsentVersion: "analytics_v1",
+      },
+    );
     assertStatus(response, 201, "customer register");
     customerActor.token = String(response.data?.token || "");
     customerUserId = readId(response.data?.user);
@@ -411,11 +414,11 @@ async function main() {
       baseUrl,
       customerActor,
       "GET",
-      "/api/services/provider/workspace"
+      "/api/services/provider/workspace",
     );
     assertStatus(response, 403, "customer forbidden from provider workspace");
 
-    response = await request(baseUrl, providerActor, "POST", "/api/services/provider/offerings", {
+    const offeringPayload = {
       mainCategoryId: categoryPair.mainCategoryId,
       subcategoryId: categoryPair.subcategoryId,
       name: `Runtime Services Offering ${runTag}`,
@@ -451,30 +454,75 @@ async function main() {
           sortOrder: 0,
         },
       ],
-    });
-    assertStatus(response, 201, "provider create offering");
-    offeringId = readId(response.data?.offering);
+    };
+    const concurrentCreates = await Promise.all([
+      request(
+        baseUrl,
+        providerActor,
+        "POST",
+        "/api/services/provider/offerings",
+        offeringPayload,
+      ),
+      request(
+        baseUrl,
+        providerActor,
+        "POST",
+        "/api/services/provider/offerings",
+        offeringPayload,
+      ),
+    ]);
+    for (const [index, createResponse] of concurrentCreates.entries()) {
+      assertStatus(
+        createResponse,
+        201,
+        `provider create offering concurrent request ${index + 1}`,
+      );
+    }
+    offeringId = readId(concurrentCreates[0].data?.offering);
     assert.ok(offeringId, "offering id missing");
-    assert.equal(String(response.data?.offering?.moderationStatus || ""), "approved");
+    assert.equal(
+      readId(concurrentCreates[1].data?.offering),
+      offeringId,
+      "concurrent duplicate create must return the existing offering",
+    );
+    assert.equal(
+      String(concurrentCreates[0].data?.offering?.moderationStatus || ""),
+      "approved",
+    );
+    const duplicateCount = await q(
+      `SELECT COUNT(*)::int AS count
+         FROM service_offerings
+        WHERE provider_id = $1
+          AND subcategory_id_resolved = $2
+          AND lower(name) = lower($3)`,
+      [providerProfileId, categoryPair.subcategoryId, offeringPayload.name],
+    );
+    assert.equal(
+      duplicateCount.rows[0]?.count,
+      1,
+      "concurrent create must persist exactly one offering",
+    );
 
     response = await request(
       baseUrl,
       publicActor,
       "GET",
-      `/api/services/public/search?q=Runtime%20Services%20Offering%20${encodeURIComponent(runTag)}&limit=20`
+      `/api/services/public/search?q=Runtime%20Services%20Offering%20${encodeURIComponent(runTag)}&limit=20`,
     );
     assertStatus(response, 200, "public search services");
     assert.ok(
       Array.isArray(response.data) &&
-        response.data.some((item) => Number(item?.id || 0) === Number(offeringId)),
-      "published offering should be visible in public search"
+        response.data.some(
+          (item) => Number(item?.id || 0) === Number(offeringId),
+        ),
+      "published offering should be visible in public search",
     );
 
     response = await request(
       baseUrl,
       publicActor,
       "GET",
-      `/api/services/public/providers/${providerProfileId}`
+      `/api/services/public/providers/${providerProfileId}`,
     );
     assertStatus(response, 200, "public provider view");
     assert.equal(Number(response.data?.id || 0), Number(providerProfileId));
@@ -483,28 +531,36 @@ async function main() {
       baseUrl,
       publicActor,
       "GET",
-      `/api/services/public/offerings/${offeringId}`
+      `/api/services/public/offerings/${offeringId}`,
     );
     assertStatus(response, 200, "public offering view");
     assert.equal(Number(response.data?.id || 0), Number(offeringId));
 
-    response = await request(baseUrl, customerActor, "POST", "/api/services/requests", {
-      offeringId,
-      providerId: providerProfileId,
-      requestedExecutionMode: "home",
-      requestedDate: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      requestedTime: "10:30",
-      quantity: 2,
-      durationHours: 1.5,
-      notes: `Need runtime services for ${runTag}`,
-      addressLine: "Customer address 1",
-      city: "Baghdad",
-      area: "Bismayah",
-      latitude: 33.3152,
-      longitude: 44.3661,
-      requiresHomeService: true,
-      requiresQuote: true,
-    });
+    response = await request(
+      baseUrl,
+      customerActor,
+      "POST",
+      "/api/services/requests",
+      {
+        offeringId,
+        providerId: providerProfileId,
+        requestedExecutionMode: "home",
+        requestedDate: new Date(Date.now() + 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10),
+        requestedTime: "10:30",
+        quantity: 2,
+        durationHours: 1.5,
+        notes: `Need runtime services for ${runTag}`,
+        addressLine: "Customer address 1",
+        city: "Baghdad",
+        area: "Bismayah",
+        latitude: 33.3152,
+        longitude: 44.3661,
+        requiresHomeService: true,
+        requiresQuote: true,
+      },
+    );
     assertStatus(response, 201, "customer create service request");
     serviceRequestId = readId(response.data);
     assert.ok(serviceRequestId, "service request id missing");
@@ -514,28 +570,41 @@ async function main() {
       baseUrl,
       providerActor,
       "GET",
-      "/api/services/provider/requests?limit=20&status=awaiting_provider"
+      "/api/services/provider/requests?limit=20&status=awaiting_provider",
     );
     assertStatus(response, 200, "provider list requests");
     assert.ok(
       Array.isArray(response.data) &&
-        response.data.some((item) => Number(item?.id || 0) === Number(serviceRequestId)),
-      "provider should see the new service request"
+        response.data.some(
+          (item) => Number(item?.id || 0) === Number(serviceRequestId),
+        ),
+      "provider should see the new service request",
     );
 
-    response = await request(baseUrl, providerActor, "POST", `/api/services/provider/requests/${serviceRequestId}/quotes`, {
-      pricingModel: "custom_quote",
-      pricingUnit: "visit",
-      amount: 45000,
-      currency: "IQD",
-      note: `Runtime quote for ${runTag}`,
-      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-    });
+    response = await request(
+      baseUrl,
+      providerActor,
+      "POST",
+      `/api/services/provider/requests/${serviceRequestId}/quotes`,
+      {
+        pricingModel: "custom_quote",
+        pricingUnit: "visit",
+        amount: 45000,
+        currency: "IQD",
+        note: `Runtime quote for ${runTag}`,
+        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+      },
+    );
     assertStatus(response, 201, "provider create quote");
     quoteId = readId(response.data);
     assert.ok(quoteId, "quote id missing");
 
-    response = await request(baseUrl, customerActor, "GET", "/api/services/requests/mine?limit=20");
+    response = await request(
+      baseUrl,
+      customerActor,
+      "GET",
+      "/api/services/requests/mine?limit=20",
+    );
     assertStatus(response, 200, "customer list requests");
     assert.ok(
       Array.isArray(response.data) &&
@@ -543,9 +612,11 @@ async function main() {
           (item) =>
             Number(item?.id || 0) === Number(serviceRequestId) &&
             Array.isArray(item?.quotes) &&
-            item.quotes.some((quote) => Number(quote?.id || 0) === Number(quoteId))
+            item.quotes.some(
+              (quote) => Number(quote?.id || 0) === Number(quoteId),
+            ),
         ),
-      "customer should see the received quote"
+      "customer should see the received quote",
     );
 
     response = await request(
@@ -556,7 +627,7 @@ async function main() {
       {
         action: "accepted",
         note: "Accepting runtime quote",
-      }
+      },
     );
     assertStatus(response, 200, "customer accept quote");
     assert.equal(String(response.data?.status || ""), "accepted");
@@ -571,7 +642,7 @@ async function main() {
       {
         status: "accepted",
         note: "Provider acknowledged acceptance",
-      }
+      },
     );
     assertStatus(response, 200, "provider acknowledge accepted request");
     assert.equal(String(response.data?.status || ""), "accepted");
@@ -584,7 +655,7 @@ async function main() {
       {
         status: "in_progress",
         note: "Provider started the service",
-      }
+      },
     );
     assertStatus(response, 200, "provider starts service");
     assert.equal(String(response.data?.status || ""), "in_progress");
@@ -597,12 +668,17 @@ async function main() {
       {
         status: "completed",
         note: "Provider completed the service",
-      }
+      },
     );
     assertStatus(response, 200, "provider completes service");
     assert.equal(String(response.data?.status || ""), "completed");
 
-    response = await request(baseUrl, customerActor, "GET", `/api/services/requests/${serviceRequestId}`);
+    response = await request(
+      baseUrl,
+      customerActor,
+      "GET",
+      `/api/services/requests/${serviceRequestId}`,
+    );
     assertStatus(response, 200, "customer gets service request detail");
     assert.equal(String(response.data?.status || ""), "completed");
     assert.equal(Number(response.data?.acceptedQuoteId || 0), Number(quoteId));
@@ -619,20 +695,26 @@ async function main() {
            'services.request.status.completed'
          )
        ORDER BY id ASC`,
-      [Number(customerUserId)]
+      [Number(customerUserId)],
     );
     assert.ok(
-      customerNotifications.rows.some((row) => row.type === "services.request.quote_received"),
-      "customer should receive quote notification"
+      customerNotifications.rows.some(
+        (row) => row.type === "services.request.quote_received",
+      ),
+      "customer should receive quote notification",
     );
     assert.ok(
-      customerNotifications.rows.some((row) => row.type === "services.request.status.completed"),
-      "customer should receive completed notification"
+      customerNotifications.rows.some(
+        (row) => row.type === "services.request.status.completed",
+      ),
+      "customer should receive completed notification",
     );
     assert.equal(
-      customerNotifications.rows.every((row) => row.payload?.target === "service_request_details"),
+      customerNotifications.rows.every(
+        (row) => row.payload?.target === "service_request_details",
+      ),
       true,
-      "customer notifications should deep-link to service request details"
+      "customer notifications should deep-link to service request details",
     );
 
     const providerNotifications = await q(
@@ -640,56 +722,35 @@ async function main() {
        FROM app_notification
        WHERE user_id = $1
         AND type IN (
-           'services.provider.subscription.account_created',
            'services.request.created'
          )
        ORDER BY id ASC`,
-      [Number(providerUserId)]
+      [Number(providerUserId)],
     );
     assert.ok(
-      providerNotifications.rows.some((row) => row.type === "services.provider.subscription.account_created"),
-      "provider should receive account creation notification"
-    );
-    assert.ok(
-      providerNotifications.rows.some((row) => row.type === "services.request.created"),
-      "provider should receive request created notification"
-    );
-
-    const adminNotifications = await q(
-      `SELECT type, payload
-       FROM app_notification
-       WHERE user_id = $1
-         AND type IN (
-           'services.provider.subscription.request_submitted',
-           'services.provider.subscription.offer_accepted'
-         )
-       ORDER BY id ASC`,
-      [Number(superAdminId)]
-    );
-    assert.ok(
-      adminNotifications.rows.some((row) => row.type === "services.provider.subscription.request_submitted"),
-      "admin should receive provider subscription request notification"
-    );
-    assert.ok(
-      adminNotifications.rows.some((row) => row.type === "services.provider.subscription.offer_accepted"),
-      "admin should receive provider offer accepted notification"
+      providerNotifications.rows.some(
+        (row) => row.type === "services.request.created",
+      ),
+      "provider should receive request created notification",
     );
 
     response = await request(
       baseUrl,
       publicActor,
       "GET",
-      `/api/services/public/search?q=${encodeURIComponent(`Runtime Services Offering ${runTag}`)}&limit=20`
+      `/api/services/public/search?q=${encodeURIComponent(`Runtime Services Offering ${runTag}`)}&limit=20`,
     );
     assertStatus(response, 200, "public search after approval");
     assert.ok(
       Array.isArray(response.data) &&
-        response.data.some((item) => Number(item?.id || 0) === Number(offeringId)),
-      "public search should still expose the published offering"
+        response.data.some(
+          (item) => Number(item?.id || 0) === Number(offeringId),
+        ),
+      "public search should still expose the published offering",
     );
 
     console.log(
-      `[services-e2e] passed subscriptionRequestId=${subscriptionRequestId} providerUserId=${providerUserId} customerUserId=${customerUserId} offeringId=${offeringId} requestId=${serviceRequestId} quoteId=${quoteId}`
+      `[services-e2e] passed subscriptionRequestId=${subscriptionRequestId} providerUserId=${providerUserId} customerUserId=${customerUserId} offeringId=${offeringId} requestId=${serviceRequestId} quoteId=${quoteId}`,
     );
   } finally {
     try {
@@ -708,7 +769,10 @@ async function main() {
         }
       }
     } catch (cleanupError) {
-      console.warn("[services-e2e] cleanup failed", cleanupError?.message || cleanupError);
+      console.warn(
+        "[services-e2e] cleanup failed",
+        cleanupError?.message || cleanupError,
+      );
     }
     await stopLocalServer(server);
   }

@@ -35,12 +35,17 @@ class _CouponManagementScreenState
     text: '0',
   );
   final TextEditingController _maxUsesCtrl = TextEditingController();
+  final TextEditingController _targetUserIdCtrl = TextEditingController();
+  final TextEditingController _popupTitleCtrl = TextEditingController();
+  final TextEditingController _popupMessageCtrl = TextEditingController();
 
   bool _loadingCoupons = false;
   bool _loadingStats = false;
   bool _saving = false;
   bool _activeOnly = false;
   String _discountType = 'percent';
+  String _surfaceScope = 'shopping';
+  bool _popupEnabled = false;
   DateTime? _validFrom;
   DateTime? _validUntil;
   final FormScrollCoordinator _scrollCoordinator = FormScrollCoordinator();
@@ -64,6 +69,9 @@ class _CouponManagementScreenState
     _discountValueCtrl.dispose();
     _minOrderTotalCtrl.dispose();
     _maxUsesCtrl.dispose();
+    _targetUserIdCtrl.dispose();
+    _popupTitleCtrl.dispose();
+    _popupMessageCtrl.dispose();
     _scrollCoordinator.dispose();
     super.dispose();
   }
@@ -174,7 +182,9 @@ class _CouponManagementScreenState
   Future<void> _createCoupon() async {
     final l10n = context.l10n;
     final code = _codeCtrl.text.trim().toUpperCase();
-    final discountValue = tryParseLocalizedDouble(_discountValueCtrl.text.trim());
+    final discountValue = tryParseLocalizedDouble(
+      _discountValueCtrl.text.trim(),
+    );
     final minOrderTotal =
         tryParseLocalizedDouble(_minOrderTotalCtrl.text.trim()) ?? 0;
     final maxUsesText = _maxUsesCtrl.text.trim();
@@ -257,6 +267,16 @@ class _CouponManagementScreenState
         ...?(_validUntil == null
             ? null
             : {'validUntil': _validUntil!.toUtc().toIso8601String()}),
+        if (widget.mode == CouponManagerMode.superAdmin) ...{
+          'surfaceScope': _surfaceScope,
+          'popupEnabled': _popupEnabled,
+          if (_targetUserIdCtrl.text.trim().isNotEmpty)
+            'targetUserId': int.tryParse(_targetUserIdCtrl.text.trim()),
+          if (_popupTitleCtrl.text.trim().isNotEmpty)
+            'popupTitle': _popupTitleCtrl.text.trim(),
+          if (_popupMessageCtrl.text.trim().isNotEmpty)
+            'popupMessage': _popupMessageCtrl.text.trim(),
+        },
       });
 
       _codeCtrl.clear();
@@ -266,6 +286,11 @@ class _CouponManagementScreenState
       _minOrderTotalCtrl.text = '0';
       _validFrom = null;
       _validUntil = null;
+      _targetUserIdCtrl.clear();
+      _popupTitleCtrl.clear();
+      _popupMessageCtrl.clear();
+      _surfaceScope = 'shopping';
+      _popupEnabled = false;
 
       if (!mounted) return;
       setState(() => _saving = false);
@@ -472,8 +497,7 @@ class _CouponManagementScreenState
   }
 
   String? _couponValidUntilText(Map<String, dynamic> coupon) {
-    final raw =
-        '${coupon['valid_until'] ?? coupon['validUntil'] ?? ''}'.trim();
+    final raw = '${coupon['valid_until'] ?? coupon['validUntil'] ?? ''}'.trim();
     if (raw.isEmpty) return null;
     final parsed = DateTime.tryParse(raw);
     if (parsed == null) return raw;
@@ -739,6 +763,71 @@ class _CouponManagementScreenState
                             _fieldErrors['validFrom'] ??
                             _fieldErrors['validUntil'],
                       ),
+                      if (isSuperAdmin) ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: _surfaceScope,
+                          decoration: const InputDecoration(
+                            labelText: 'يستخدم الخصم في',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'shopping',
+                              child: Text('التسوق'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'taxi',
+                              child: Text('التكسي'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'services',
+                              child: Text('الخدمات'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'all',
+                              child: Text('كل أقسام التطبيق'),
+                            ),
+                          ],
+                          onChanged: (value) => setState(
+                            () => _surfaceScope = value ?? 'shopping',
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: _targetUserIdCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'رقم المستخدم المستهدف (اختياري)',
+                            helperText: 'اتركه فارغاً ليصل العرض إلى الجميع',
+                          ),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: _popupEnabled,
+                          onChanged: (value) =>
+                              setState(() => _popupEnabled = value),
+                          title: const Text('إظهار بطاقة الخصم داخل التطبيق'),
+                          subtitle: const Text(
+                            'تظهر لكل مستخدم مستهدف مرة واحدة فقط',
+                          ),
+                        ),
+                        if (_popupEnabled) ...[
+                          TextField(
+                            controller: _popupTitleCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'عنوان بطاقة الخصم',
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: _popupMessageCtrl,
+                            maxLines: 3,
+                            decoration: const InputDecoration(
+                              labelText: 'رسالة بطاقة الخصم',
+                            ),
+                          ),
+                        ],
+                      ],
                       const SizedBox(height: 10),
                       FilledButton.icon(
                         onPressed: _saving ? null : _createCoupon,

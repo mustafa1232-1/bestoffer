@@ -9,6 +9,35 @@ export class AppError extends Error {
   }
 }
 
+export function isDatabaseUniqueViolation(error, constraintName = null) {
+  if (String(error?.code || "") !== "23505") return false;
+  if (!constraintName) return true;
+  return (
+    String(error?.constraint || "").trim().toLowerCase() ===
+    String(constraintName).trim().toLowerCase()
+  );
+}
+
+export function isDatabaseTemporarilyUnavailable(error) {
+  const code = String(error?.code || "").trim().toUpperCase();
+  if (
+    code === "57P03" ||
+    code === "53300" ||
+    code.startsWith("08") ||
+    ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].includes(code)
+  ) {
+    return true;
+  }
+
+  const message = String(error?.message || "").toLowerCase();
+  return (
+    message.includes("database system is starting up") ||
+    message.includes("database system is not yet accepting connections") ||
+    message.includes("terminating connection due to administrator command") ||
+    message.includes("connection terminated unexpectedly")
+  );
+}
+
 export function toAppError(error, fallbackMessage = "SERVER_ERROR") {
   if (!error) return new AppError(fallbackMessage);
   if (error instanceof AppError) return error;
@@ -19,6 +48,26 @@ export function toAppError(error, fallbackMessage = "SERVER_ERROR") {
     return new AppError(tooLarge ? "FILE_TOO_LARGE" : "UPLOAD_REJECTED", {
       status: tooLarge ? 413 : 400,
       code: error.code || "UPLOAD_REJECTED",
+      expose: true,
+    });
+  }
+
+  // A uniqueness conflict is expected application contention, not a crash.
+  // Known constraints should still be mapped to a more specific feature code.
+  if (isDatabaseUniqueViolation(error)) {
+    return new AppError("RESOURCE_ALREADY_EXISTS", {
+      status: 409,
+      code: "RESOURCE_ALREADY_EXISTS",
+      expose: true,
+    });
+  }
+
+  // A database restart or failover is an availability incident, not invalid
+  // credentials. The explicit 503 keeps clients in session recovery.
+  if (isDatabaseTemporarilyUnavailable(error)) {
+    return new AppError("DATABASE_TEMPORARILY_UNAVAILABLE", {
+      status: 503,
+      code: "DATABASE_TEMPORARILY_UNAVAILABLE",
       expose: true,
     });
   }

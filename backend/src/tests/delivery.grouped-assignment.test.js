@@ -164,6 +164,8 @@ test("completion releases courier for a second grouped job without relogin", asy
         courierUserId: fx.courierId,
         deliveryJobId: first.job.id,
         stopId: Number(stop.id),
+        merchantPaidActual: 0,
+        withoutReceipt: true,
       });
     }
     await headingToCustomer({
@@ -173,6 +175,7 @@ test("completion releases courier for a second grouped job without relogin", asy
     await markGroupedDelivered({
       courierUserId: fx.courierId,
       deliveryJobId: first.job.id,
+      customerReceivedActual: 0,
     });
 
     const closed = await c.query(
@@ -266,6 +269,8 @@ test("readiness starts after every active store accepts, but pickup waits for re
         courierUserId: fx.courierId,
         deliveryJobId: assigned.job.id,
         stopId: Number(assigned.stops[0].id),
+        merchantPaidActual: 0,
+        withoutReceipt: true,
       }),
       (error) => error.code === "PICKUP_STOP_NOT_READY"
     );
@@ -280,6 +285,8 @@ test("readiness starts after every active store accepts, but pickup waits for re
       courierUserId: fx.courierId,
       deliveryJobId: assigned.job.id,
       stopId: Number(assigned.stops[0].id),
+      merchantPaidActual: 0,
+      withoutReceipt: true,
     });
     assert.equal(collected.pickupStatus, "COLLECTED");
   } catch (error) {
@@ -382,6 +389,8 @@ test("pickup collection only starts from store-ready child statuses", async () =
           courierUserId: fx.courierId,
           deliveryJobId: assigned.job.id,
           stopId,
+          merchantPaidActual: 0,
+          withoutReceipt: true,
         });
         assert.equal(collected.pickupStatus, "COLLECTED", childStatus);
       } else {
@@ -390,6 +399,8 @@ test("pickup collection only starts from store-ready child statuses", async () =
             courierUserId: fx.courierId,
             deliveryJobId: assigned.job.id,
             stopId,
+            merchantPaidActual: 0,
+            withoutReceipt: true,
           }),
           (error) => error.code === expected,
           childStatus
@@ -416,6 +427,8 @@ test("pickup collection is idempotent only after the stop itself is collected", 
       courierUserId: fx.courierId,
       deliveryJobId: assigned.job.id,
       stopId,
+      merchantPaidActual: 0,
+      withoutReceipt: true,
     });
     assert.equal(first.pickupStatus, "COLLECTED");
 
@@ -427,6 +440,8 @@ test("pickup collection is idempotent only after the stop itself is collected", 
       courierUserId: fx.courierId,
       deliveryJobId: assigned.job.id,
       stopId,
+      merchantPaidActual: 0,
+      withoutReceipt: true,
     });
     assert.equal(second.pickupStatus, "COLLECTED");
   } finally {
@@ -453,6 +468,8 @@ test("one ready stop does not unlock another non-ready pickup stop", async () =>
       courierUserId: fx.courierId,
       deliveryJobId: assigned.job.id,
       stopId: Number(assigned.stops[0].id),
+      merchantPaidActual: 0,
+      withoutReceipt: true,
     });
     assert.equal(first.pickupStatus, "COLLECTED");
 
@@ -461,6 +478,8 @@ test("one ready stop does not unlock another non-ready pickup stop", async () =>
         courierUserId: fx.courierId,
         deliveryJobId: assigned.job.id,
         stopId: Number(assigned.stops[1].id),
+        merchantPaidActual: 0,
+        withoutReceipt: true,
       }),
       (error) => error.code === "PICKUP_STOP_NOT_READY"
     );

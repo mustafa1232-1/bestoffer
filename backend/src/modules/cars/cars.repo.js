@@ -14,7 +14,7 @@ function toInt(value) {
   return Math.floor(parsed);
 }
 
-function toListingRow(row) {
+function toListingRow(row, { exposeContact = false } = {}) {
   if (!row) return null;
   return {
     id: Number(row.id),
@@ -30,7 +30,7 @@ function toListingRow(row) {
     price: Number(row.price || 0),
     mileageKm: row.mileage_km == null ? null : Number(row.mileage_km),
     city: row.city || null,
-    phone: row.phone || null,
+    phone: exposeContact ? row.phone || null : null,
     transmission: String(row.transmission || "automatic"),
     fuelType: String(row.fuel_type || "fuel"),
     bodyType: String(row.body_type || "sedan"),
@@ -82,16 +82,23 @@ async function listMediaForListings(client, listingIds) {
   return map;
 }
 
-async function hydrateListings(client, rows) {
+async function hydrateListings(client, rows, { viewerUserId = null } = {}) {
   const mediaMap = await listMediaForListings(
     client,
     rows.map((row) => row.id)
   );
   return rows.map((row) =>
-    toListingRow({
-      ...row,
-      media: mediaMap.get(Number(row.id)) || [],
-    })
+    toListingRow(
+      {
+        ...row,
+        media: mediaMap.get(Number(row.id)) || [],
+      },
+      {
+        exposeContact:
+          viewerUserId != null &&
+          Number(viewerUserId) === Number(row.owner_user_id),
+      },
+    )
   );
 }
 
@@ -241,7 +248,10 @@ export async function getListingById(listingId, { viewerUserId = null } = {}) {
 
   if (viewerUserId != null && Number(viewerUserId) === Number(row.owner_user_id)) {
     const media = await listMediaForListings(null, [id]);
-    return toListingRow({ ...row, media: media.get(id) || [] });
+    return toListingRow(
+      { ...row, media: media.get(id) || [] },
+      { exposeContact: true },
+    );
   }
 
   if (row.status !== "active") return null;
@@ -281,10 +291,13 @@ export async function getWorkspace(userId) {
         return acc;
       }, {}),
       listings: rows.rows.map((row) =>
-        toListingRow({
-          ...row,
-          media: mediaMap.get(Number(row.id)) || [],
-        })
+        toListingRow(
+          {
+            ...row,
+            media: mediaMap.get(Number(row.id)) || [],
+          },
+          { exposeContact: true },
+        )
       ),
     };
   } catch (error) {

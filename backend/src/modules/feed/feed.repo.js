@@ -1553,6 +1553,8 @@ export async function insertPost({
   mediaAssetId = null,
   merchantId = null,
   reviewRating = null,
+  verifiedPurchase = false,
+  verifiedPurchaseOrderId = null,
   sharedEntity = null,
   audienceScopeType = "global",
   audienceScopeCode = null,
@@ -1569,6 +1571,9 @@ export async function insertPost({
         media_asset_id,
         merchant_id,
         review_rating,
+        verified_purchase,
+        verified_purchase_order_id,
+        verified_purchase_verified_at,
         shared_entity_type,
         shared_entity_id,
         shared_snapshot_json,
@@ -1576,7 +1581,7 @@ export async function insertPost({
         audience_scope_code,
         moderation_status
       )
-     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'approved')
+     VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10, $11, CASE WHEN $10 THEN NOW() ELSE NULL END, $12, $13, $14, $15, $16, 'approved')
      RETURNING *`,
     [
       Number(userId),
@@ -1588,6 +1593,8 @@ export async function insertPost({
       mediaAssetId == null ? null : Number(mediaAssetId),
       merchantId == null ? null : Number(merchantId),
       reviewRating == null ? null : Number(reviewRating),
+      verifiedPurchase === true,
+      verifiedPurchaseOrderId == null ? null : Number(verifiedPurchaseOrderId),
       sharedEntity?.type || null,
       sharedEntity?.id == null ? null : Number(sharedEntity.id),
       sharedEntity?.snapshot == null ? null : JSON.stringify(sharedEntity.snapshot),
@@ -2334,6 +2341,38 @@ export async function listPostsCommentedByUser({
   return r.rows;
 }
 
+// One round trip for the visible feed page. Each indexed lateral lookup stops
+// after two rows instead of loading every comment or issuing a request per card.
+export async function listPostCommentPreviews({ postIds, viewerUserId = null }) {
+  const ids = [...new Set(postIds.map(Number).filter((id) => Number.isSafeInteger(id) && id > 0))];
+  if (!ids.length) return [];
+  const result = await q(
+    `SELECT c.*, u.full_name AS user_full_name, u.username AS user_username,
+            u.image_url AS user_image_url, u.role AS user_role
+       FROM unnest($1::bigint[]) AS visible(post_id)
+       CROSS JOIN LATERAL (
+         SELECT comment.* FROM social_post_comment comment
+         JOIN app_user author ON author.id = comment.user_id
+         WHERE comment.post_id = visible.post_id
+           AND comment.is_deleted = FALSE
+           AND comment.moderation_status = 'approved'
+           AND comment.parent_comment_id IS NULL
+           AND COALESCE(author.is_account_disabled, FALSE) = FALSE
+           AND NOT EXISTS (
+             SELECT 1 FROM social_user_relation rel
+             WHERE rel.user_a_id = LEAST($2::bigint, comment.user_id)
+               AND rel.user_b_id = GREATEST($2::bigint, comment.user_id)
+               AND $2::bigint IS NOT NULL AND rel.status = 'blocked'
+           )
+         ORDER BY comment.id DESC LIMIT 2
+       ) c
+       JOIN app_user u ON u.id = c.user_id
+       ORDER BY c.post_id, c.id`,
+    [ids, viewerUserId]
+  );
+  return result.rows;
+}
+
 export async function listPostComments({
   postId,
   viewerUserId,
@@ -2675,7 +2714,25 @@ export async function hasUserOrderedMerchant({ customerUserId, merchantId }) {
 export async function getMerchantReviewEligibility({
   customerUserId,
   merchantId,
+  orderId = null,
+  productId = null,
 }) {
+  const params = [Number(customerUserId), Number(merchantId)];
+  let orderFilter = "";
+  let productFilter = "";
+  if (orderId != null) {
+    params.push(Number(orderId));
+    orderFilter = `AND o.id = $${params.length}`;
+  }
+  if (productId != null) {
+    params.push(Number(productId));
+    productFilter = `AND EXISTS (
+      SELECT 1
+      FROM order_item oi
+      WHERE oi.order_id = o.id
+        AND oi.product_id = $${params.length}
+    )`;
+  }
   const r = await q(
     `SELECT
        EXISTS (
@@ -2684,6 +2741,8 @@ export async function getMerchantReviewEligibility({
          WHERE o.customer_user_id = $1
            AND o.merchant_id = $2
            AND o.status IN ('delivered', 'completed')
+           ${orderFilter}
+           ${productFilter}
        ) AS can_review,
        COALESCE((
          SELECT COUNT(*)::int
@@ -2691,6 +2750,8 @@ export async function getMerchantReviewEligibility({
          WHERE o.customer_user_id = $1
            AND o.merchant_id = $2
            AND o.status IN ('delivered', 'completed')
+           ${orderFilter}
+           ${productFilter}
        ), 0)::int AS eligible_orders_count,
        (
          SELECT MAX(o.created_at)
@@ -2698,13 +2759,26 @@ export async function getMerchantReviewEligibility({
          WHERE o.customer_user_id = $1
            AND o.merchant_id = $2
            AND o.status IN ('delivered', 'completed')
-       ) AS last_eligible_order_at
+           ${orderFilter}
+           ${productFilter}
+       ) AS last_eligible_order_at,
+       (
+         SELECT o.id
+         FROM customer_order o
+         WHERE o.customer_user_id = $1
+           AND o.merchant_id = $2
+           AND o.status IN ('delivered', 'completed')
+           ${orderFilter}
+           ${productFilter}
+         ORDER BY o.created_at DESC, o.id DESC
+         LIMIT 1
+       ) AS eligible_order_id
      FROM merchant m
      WHERE m.id = $2
        AND COALESCE(m.is_disabled, FALSE) = FALSE
        AND COALESCE(m.is_approved, TRUE) = TRUE
      LIMIT 1`,
-    [Number(customerUserId), Number(merchantId)]
+    params
   );
   return r.rows[0] || null;
 }
@@ -2735,8 +2809,14 @@ export async function listUsersForSearch({ viewerUserId, search = "", limit = 60
        ON rel.user_a_id = LEAST($1::bigint, u.id)
       AND rel.user_b_id = GREATEST($1::bigint, u.id)
      WHERE u.id <> $1
+       AND u.role = 'user'
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
        AND COALESCE(u.is_internal_staff, FALSE) = FALSE
+       AND NOT EXISTS (
+         SELECT 1
+         FROM merchant merchant_account
+         WHERE merchant_account.owner_user_id = u.id
+       )
        AND (
          $2::text = ''
          OR LOWER(COALESCE(u.username, '')) LIKE LOWER('%' || $2 || '%')
@@ -3121,6 +3201,7 @@ export async function findLatestProfileCoreChangeRequestByUser(userId) {
      FROM social_profile_change_request
      WHERE user_id = $1
        AND change_kind = 'core_identity'
+       AND status = 'pending'
      ORDER BY created_at DESC, id DESC
      LIMIT 1`,
     [Number(userId)]
@@ -3194,6 +3275,25 @@ export async function updatePendingProfileCoreChangeRequest({
     ]
   );
   return r.rows[0] || null;
+}
+
+export async function cancelPendingProfileCoreChangeRequestsByUser({
+  userId,
+  note = "Superseded by immediate profile update",
+}) {
+  const r = await q(
+    `UPDATE social_profile_change_request
+     SET status = 'cancelled',
+         review_note = $2,
+         reviewed_at = NOW(),
+         updated_at = NOW()
+     WHERE user_id = $1
+       AND change_kind = 'core_identity'
+       AND status = 'pending'
+     RETURNING *`,
+    [Number(userId), String(note || "").trim().slice(0, 500) || null]
+  );
+  return r.rows;
 }
 
 export async function createResidenceChangeRequest({
@@ -3581,6 +3681,34 @@ export async function countTaggedPostsByUser(userId) {
   return Number(r.rows[0]?.total || 0);
 }
 
+async function ensurePairThreadMembersTx(client, thread) {
+  const threadId = Number(thread?.id);
+  const userAId = Number(thread?.user_a_id);
+  const userBId = Number(thread?.user_b_id);
+  const threadKind = String(thread?.thread_kind || "").trim().toLowerCase();
+  if (
+    !["private", "business"].includes(threadKind) ||
+    !Number.isInteger(threadId) ||
+    threadId <= 0 ||
+    !Number.isInteger(userAId) ||
+    userAId <= 0 ||
+    !Number.isInteger(userBId) ||
+    userBId <= 0
+  ) {
+    return;
+  }
+
+  await client.query(
+    `INSERT INTO social_chat_thread_member
+       (thread_id, user_id, member_role, added_by_user_id)
+     VALUES
+       ($1, $2, 'owner', $2),
+       ($1, $3, 'member', $2)
+     ON CONFLICT (thread_id, user_id) DO NOTHING`,
+    [threadId, userAId, userBId]
+  );
+}
+
 export async function createOrGetThread({
   userAId,
   userBId,
@@ -3655,8 +3783,10 @@ export async function createOrGetThread({
           Number(existing.rows[0].id),
         ]
       );
+      const thread = updated.rows[0] || existing.rows[0];
+      await ensurePairThreadMembersTx(client, thread);
       await client.query("COMMIT");
-      return updated.rows[0] || existing.rows[0];
+      return thread;
     }
 
     const inserted = await client.query(
@@ -3683,8 +3813,10 @@ export async function createOrGetThread({
         normalizedContextSnapshot,
       ]
     );
+    const thread = inserted.rows[0] || null;
+    await ensurePairThreadMembersTx(client, thread);
     await client.query("COMMIT");
-    return inserted.rows[0] || null;
+    return thread;
   } catch (error) {
     try {
       await client.query("ROLLBACK");
@@ -3852,7 +3984,7 @@ export async function listGroupThreadMembers({ threadId }) {
        m.user_id,
        m.member_role,
        m.added_by_user_id,
-       m.created_at AS member_created_at,
+       m.joined_at AS member_created_at,
        u.username,
        u.full_name,
        u.phone,
@@ -3868,9 +4000,16 @@ export async function listGroupThreadMembers({ threadId }) {
      FROM social_chat_thread_member m
      JOIN app_user u ON u.id = m.user_id
      LEFT JOIN social_user_presence presence ON presence.user_id = u.id
-     LEFT JOIN user_paid_upgrade_state premium
-       ON premium.user_id = u.id
-      AND premium.is_active = TRUE
+     LEFT JOIN LATERAL (
+       SELECT TRUE AS is_active
+       FROM paid_upgrade_subscription s
+       JOIN paid_upgrade_plan plan ON plan.id = s.plan_id
+       WHERE s.user_id = u.id
+         AND s.status = 'active'
+         AND s.expires_at > NOW()
+         AND plan.code = 'premium_monthly'
+       LIMIT 1
+     ) premium ON TRUE
      WHERE m.thread_id = $1
      ORDER BY
        CASE m.member_role
@@ -4384,10 +4523,7 @@ export async function hasActiveOrderChatAccess({ userId, otherUserId }) {
          (o.customer_user_id = $1 AND o.delivery_user_id = $2)
          OR (o.customer_user_id = $2 AND o.delivery_user_id = $1)
        )
-       AND (
-         o.status::text = ANY($3::text[])
-         OR (o.status = 'delivered' AND o.customer_confirmed_at IS NULL)
-       )
+       AND o.status::text = ANY($3::text[])
      LIMIT 1`,
     [
       Number(userId),
@@ -4890,19 +5026,12 @@ export async function listMessageReactionsForMessages({ messageIds, userId }) {
     `SELECT
        message_id,
        reaction,
-       COUNT(*)::int AS reaction_count
+       COUNT(*)::int AS reaction_count,
+       BOOL_OR(user_id = $2) AS is_mine
      FROM social_chat_message_reaction
      WHERE message_id = ANY($1::bigint[])
      GROUP BY message_id, reaction`,
-    [ids]
-  );
-
-  const mineRes = await q(
-    `SELECT message_id, reaction
-     FROM social_chat_message_reaction
-     WHERE user_id = $1
-       AND message_id = ANY($2::bigint[])`,
-    [Number(userId), ids]
+    [ids, Number(userId)]
   );
 
   const out = {};
@@ -4917,13 +5046,7 @@ export async function listMessageReactionsForMessages({ messageIds, userId }) {
     if (!out[messageId] || !reaction) continue;
     out[messageId].counts[reaction] = count;
     out[messageId].totalCount += count;
-  }
-
-  for (const row of mineRes.rows) {
-    const messageId = Number(row.message_id);
-    const reaction = String(row.reaction || "").trim();
-    if (!out[messageId] || !reaction) continue;
-    out[messageId].myReaction = reaction;
+    if (row.is_mine) out[messageId].myReaction = reaction;
   }
 
   return out;
@@ -5939,6 +6062,7 @@ function normalizeSocialCallSession(row) {
   return {
     id: Number(row.id),
     threadId: Number(row.thread_id),
+    voiceTransport: row.voice_transport || "webrtc",
     callerUserId: Number(row.caller_user_id),
     calleeUserId: Number(row.callee_user_id),
     status: row.status,
@@ -5992,6 +6116,7 @@ export async function createThreadCallSession({
   threadId,
   callerUserId,
   calleeUserId,
+  voiceTransport = "webrtc",
 }) {
   await q(
     `UPDATE social_call_session
@@ -6010,28 +6135,30 @@ export async function createThreadCallSession({
         thread_id,
         caller_user_id,
         callee_user_id,
+        voice_transport,
         status,
         started_at,
         created_at,
         updated_at
       )
-     VALUES ($1, $2, $3, 'ringing', NOW(), NOW(), NOW())
+     VALUES ($1, $2, $3, $4, 'ringing', NOW(), NOW(), NOW())
      RETURNING *`,
-    [Number(threadId), Number(callerUserId), Number(calleeUserId)]
+    [Number(threadId), Number(callerUserId), Number(calleeUserId), voiceTransport]
   );
   return normalizeSocialCallSession(r.rows[0]);
 }
 
-export async function markThreadCallAnswered({ sessionId }) {
+export async function markThreadCallAnswered({ sessionId, transport = "webrtc" }) {
   const r = await q(
     `UPDATE social_call_session
      SET status = 'active',
+         voice_transport = CASE WHEN voice_transport = 'auto' THEN $2 ELSE voice_transport END,
          answered_at = COALESCE(answered_at, NOW()),
          updated_at = NOW()
      WHERE id = $1
        AND status IN ('ringing', 'active')
      RETURNING *`,
-    [Number(sessionId)]
+    [Number(sessionId), transport]
   );
   return normalizeSocialCallSession(r.rows[0]);
 }
@@ -6721,6 +6848,7 @@ export async function listScopeChatMessages({
   scopeCode,
   limit = 60,
   beforeId = null,
+  afterId = null,
 }) {
   const r = await q(
     `SELECT
@@ -6772,9 +6900,12 @@ export async function listScopeChatMessages({
      WHERE m.scope_type = $1
        AND m.scope_code = $2
        AND ($3::bigint IS NULL OR m.id < $3::bigint)
-     ORDER BY m.id DESC
-     LIMIT $4`,
-    [scopeType, scopeCode, beforeId, Number(limit)]
+       AND ($4::bigint IS NULL OR m.id > $4::bigint)
+     ORDER BY
+       CASE WHEN $4::bigint IS NULL THEN m.id END DESC,
+       CASE WHEN $4::bigint IS NOT NULL THEN m.id END ASC
+     LIMIT $5`,
+    [scopeType, scopeCode, beforeId, afterId, Number(limit)]
   );
   return r.rows;
 }

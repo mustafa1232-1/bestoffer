@@ -411,6 +411,38 @@ void main() {
     },
   );
 
+  testWidgets('ride sheet remains draggable in both directions on mobile', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    await _pumpMapPage(tester);
+
+    final dragHint = find.text('Drag for ride details');
+    expect(dragHint, findsOneWidget);
+    expect(find.byType(DraggableScrollableSheet), findsOneWidget);
+
+    await tester.drag(dragHint, const Offset(0, -430));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 420));
+
+    expect(find.text('Drag down to see the map'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.drag(
+      find.text('Drag down to see the map'),
+      const Offset(0, 430),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 420));
+
+    expect(find.text('Drag for ride details'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('map page shows the searching ride shell without crashing', (
     tester,
   ) async {

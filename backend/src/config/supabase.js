@@ -7,7 +7,6 @@ import { env } from "./env.js";
 
 const VALID_REALTIME_MODES = new Set(["dual", "supabase_only", "sse_only"]);
 const DEFAULT_REALTIME_TOKEN_TTL_SEC = 15 * 60;
-const LOCAL_REALTIME_READINESS_OBJECTS = Object.freeze(["realtime_outbox"]);
 const SUPABASE_SHARED_TOPIC_READINESS_OBJECTS = Object.freeze([
   "realtime_channel_member",
   "realtime_channel_audit",
@@ -152,19 +151,57 @@ async function checkRailwayRealtimeSchema() {
   for (let attempt = 1; attempt <= RAILWAY_SCHEMA_RETRY_ATTEMPTS; attempt += 1) {
     try {
       const result = await dependencies.query(
-        `SELECT table_name
-         FROM information_schema.tables
-         WHERE table_schema = 'public'
-           AND table_name = ANY($1::text[])`,
-        [LOCAL_REALTIME_READINESS_OBJECTS]
+        `SELECT
+           to_regclass('public.realtime_outbox') IS NOT NULL AS outbox_table,
+           EXISTS (
+             SELECT 1
+             FROM information_schema.columns
+             WHERE table_schema = 'public'
+               AND table_name = 'realtime_outbox'
+               AND column_name = 'dedupe_key'
+           ) AS dedupe_column,
+           EXISTS (
+             SELECT 1
+             FROM pg_class AS index_class
+             JOIN pg_index AS index_meta
+               ON index_meta.indexrelid = index_class.oid
+             JOIN pg_class AS table_class
+               ON table_class.oid = index_meta.indrelid
+             JOIN pg_namespace AS table_namespace
+               ON table_namespace.oid = table_class.relnamespace
+             WHERE table_namespace.nspname = 'public'
+               AND table_class.relname = 'realtime_outbox'
+               AND index_class.relname = 'uq_realtime_outbox_dedupe_active'
+               AND index_meta.indisunique = TRUE
+               AND index_meta.indisvalid = TRUE
+           ) AS dedupe_index`,
+        []
       );
-      const existing = new Set((result.rows || []).map((row) => row.table_name));
-      const missingObjects = LOCAL_REALTIME_READINESS_OBJECTS.filter(
-        (tableName) => !existing.has(tableName)
-      );
+      const row = result.rows?.[0] || {};
+      const missingObjects = [];
+      if (row.outbox_table !== true) missingObjects.push("realtime_outbox");
+      if (row.dedupe_column !== true) {
+        missingObjects.push("realtime_outbox.dedupe_key");
+      }
+      if (row.dedupe_index !== true) {
+        missingObjects.push("uq_realtime_outbox_dedupe_active");
+      }
       return {
         ok: missingObjects.length === 0,
+        reason:
+          row.outbox_table !== true
+            ? "missing_outbox_table"
+            : row.dedupe_column !== true
+              ? "missing_outbox_dedupe_column"
+              : row.dedupe_index !== true
+                ? "missing_outbox_dedupe_index"
+                : "ok",
         missingObjects,
+        checks: {
+          outboxTable: row.outbox_table === true,
+          dedupeColumn: row.dedupe_column === true,
+          dedupeIndex: row.dedupe_index === true,
+        },
       };
     } catch (error) {
       lastError = error;
@@ -357,6 +394,8 @@ export async function getSupabaseRealtimeReadiness() {
         dualModeRequested,
         hasSupabaseEnv: status.configured,
         railwayOutboxTable: true,
+        railwayOutboxDedupeColumn: true,
+        railwayOutboxDedupeIndex: true,
         sharedTopicAuthorizationTables: true,
         realtimeTokenIssuance: true,
         outboxPumpEnabled: false,
@@ -391,7 +430,7 @@ export async function getSupabaseRealtimeReadiness() {
       missingKeys.length > 0
         ? "missing_config"
         : railwaySchemaStatus.ok !== true
-          ? "missing_outbox_table"
+          ? railwaySchemaStatus.reason || "missing_outbox_table"
           : tokenStatus.ok !== true
               ? tokenStatus.reason
               : outboxPumpEnabled !== true
@@ -410,7 +449,12 @@ export async function getSupabaseRealtimeReadiness() {
     checks: {
       dualModeRequested,
       hasSupabaseEnv: status.configured,
-      railwayOutboxTable: railwaySchemaStatus.ok === true,
+      railwayOutboxTable:
+        railwaySchemaStatus.checks?.outboxTable === true,
+      railwayOutboxDedupeColumn:
+        railwaySchemaStatus.checks?.dedupeColumn === true,
+      railwayOutboxDedupeIndex:
+        railwaySchemaStatus.checks?.dedupeIndex === true,
       sharedTopicAuthorizationTables: sharedTopicStatus.ok === true,
       realtimeTokenIssuance: tokenStatus.ok === true,
       outboxPumpEnabled,

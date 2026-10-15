@@ -66,6 +66,32 @@ final _companyUsersProvider = FutureProvider<List<Map<String, dynamic>>>((
   }
 });
 
+final _companyOrdersProvider = FutureProvider<List<Map<String, dynamic>>>((
+  ref,
+) async {
+  final bootstrap = await ref.watch(_companyPortalBootstrapProvider.future);
+  final companyId = _effectiveCompanyId(ref, bootstrap);
+  if (companyId == null) return const <Map<String, dynamic>>[];
+  try {
+    return await ref.read(_companyRuntimeApiProvider).currentOrders(companyId);
+  } catch (_) {
+    return const <Map<String, dynamic>>[];
+  }
+});
+
+final _companyNotificationsProvider =
+    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+      final auth = ref.watch(authControllerProvider);
+      if (auth.user == null || !auth.isCompany) {
+        return const <Map<String, dynamic>>[];
+      }
+      try {
+        return await ref.read(_companyRuntimeApiProvider).notifications();
+      } catch (_) {
+        return const <Map<String, dynamic>>[];
+      }
+    });
+
 void runAppCompany() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(
@@ -125,6 +151,8 @@ class _MaslakiCompanyAppState extends ConsumerState<MaslakiCompanyApp>
     ref.invalidate(_companyDashboardProvider);
     ref.invalidate(_companyBranchesProvider);
     ref.invalidate(_companyUsersProvider);
+    ref.invalidate(_companyOrdersProvider);
+    ref.invalidate(_companyNotificationsProvider);
   }
 
   @override
@@ -447,10 +475,26 @@ class _CompanyHomeScreen extends ConsumerWidget {
     final dashboard = ref.watch(_companyDashboardProvider);
     final branches = ref.watch(_companyBranchesProvider);
     final users = ref.watch(_companyUsersProvider);
+    final orders = ref.watch(_companyOrdersProvider);
+    final unreadNotifications = ref
+        .watch(_companyNotificationsProvider)
+        .maybeWhen(
+          data: (items) =>
+              items.where((item) => !_isNotificationRead(item)).length,
+          orElse: () => 0,
+        );
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.dashboardTitle(RuntimeAppScope.company)),
         actions: [
+          _NotificationBell(
+            unreadCount: unreadNotifications,
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const _CompanyNotificationsScreen(),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: l10n.commonRefresh,
@@ -459,6 +503,8 @@ class _CompanyHomeScreen extends ConsumerWidget {
               ref.invalidate(_companyDashboardProvider);
               ref.invalidate(_companyBranchesProvider);
               ref.invalidate(_companyUsersProvider);
+              ref.invalidate(_companyOrdersProvider);
+              ref.invalidate(_companyNotificationsProvider);
             },
           ),
           IconButton(
@@ -609,6 +655,15 @@ class _CompanyHomeScreen extends ConsumerWidget {
                         FilledButton.tonalIcon(
                           onPressed: () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
+                              builder: (_) => const _CompanyOrdersScreen(),
+                            ),
+                          ),
+                          icon: const Icon(Icons.receipt_long_rounded),
+                          label: Text(_lt(context, 'الطلبات', 'Orders')),
+                        ),
+                        FilledButton.tonalIcon(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
                               builder: (_) => const _CompanyUsersScreen(),
                             ),
                           ),
@@ -649,6 +704,48 @@ class _CompanyHomeScreen extends ConsumerWidget {
             ),
             loading: () => const _LoadingCard(),
             error: (_, _) => const SizedBox.shrink(),
+          ),
+          const SizedBox(height: 16),
+          orders.when(
+            data: (items) => _RuntimeListCard(
+              title: _lt(context, 'طلبات الفروع', 'Branch orders'),
+              emptyTitle: _lt(context, 'لا توجد طلبات حالية', 'No orders'),
+              emptySubtitle: _lt(
+                context,
+                'ستظهر هنا طلبات فروع الشركة عند وصولها.',
+                'New branch orders will appear here.',
+              ),
+              items: items
+                  .take(5)
+                  .map(
+                    (order) => _ListItemView(
+                      title:
+                          '${_lt(context, 'طلب', 'Order')} #${_intOf(order['id'])}',
+                      subtitle: _stringOf(
+                        order['merchant_name'] ?? order['merchantName'],
+                        fallback: _statusLabel(
+                          context,
+                          _stringOf(order['status']),
+                        ),
+                      ),
+                      trailing: _currencyText(
+                        _readInt(order, const ['total_amount', 'totalAmount']),
+                      ),
+                    ),
+                  )
+                  .toList(growable: false),
+            ),
+            loading: () => const _LoadingCard(),
+            error: (_, _) => _RuntimeListCard(
+              title: _lt(context, 'طلبات الفروع', 'Branch orders'),
+              emptyTitle: _lt(context, 'لا توجد طلبات حالية', 'No orders'),
+              emptySubtitle: _lt(
+                context,
+                'ستظهر هنا طلبات فروع الشركة عند وصولها.',
+                'New branch orders will appear here.',
+              ),
+              items: const <_ListItemView>[],
+            ),
           ),
           const SizedBox(height: 16),
           branches.when(
@@ -773,6 +870,519 @@ class _CompanyBranchesScreen extends ConsumerWidget {
   }
 }
 
+class _CompanyNotificationsScreen extends ConsumerWidget {
+  const _CompanyNotificationsScreen();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifications = ref.watch(_companyNotificationsProvider);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_lt(context, 'الإشعارات', 'Notifications')),
+        actions: [
+          IconButton(
+            onPressed: () => ref.invalidate(_companyNotificationsProvider),
+            tooltip: context.l10n.commonRefresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: notifications.when(
+        data: (items) {
+          if (items.isEmpty) {
+            return _RuntimeListCard(
+              title: _lt(context, 'الإشعارات', 'Notifications'),
+              emptyTitle: _lt(context, 'لا توجد إشعارات', 'No notifications'),
+              emptySubtitle: _lt(
+                context,
+                'ستظهر إشعارات طلبات الفروع هنا.',
+                'Branch order notifications will appear here.',
+              ),
+              items: const <_ListItemView>[],
+            );
+          }
+          return RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(_companyNotificationsProvider);
+              await ref.read(_companyNotificationsProvider.future);
+            },
+            child: ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: items.length,
+              itemBuilder: (context, index) {
+                final item = items[index];
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _RuntimeNotificationCard(
+                    notification: item,
+                    onTap: () async {
+                      final id = _intOf(item['id']);
+                      if (id > 0 && !_isNotificationRead(item)) {
+                        await ref
+                            .read(_companyRuntimeApiProvider)
+                            .markNotificationRead(id);
+                        ref.invalidate(_companyNotificationsProvider);
+                      }
+                    },
+                  ),
+                );
+              },
+            ),
+          );
+        },
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (error, _) => Center(child: Text('$error')),
+      ),
+    );
+  }
+}
+
+class _RuntimeNotificationCard extends StatelessWidget {
+  final Map<String, dynamic> notification;
+  final VoidCallback onTap;
+
+  const _RuntimeNotificationCard({
+    required this.notification,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final read = _isNotificationRead(notification);
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      color: read ? null : scheme.primaryContainer.withValues(alpha: 0.28),
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(
+          read ? Icons.notifications_none_rounded : Icons.notifications_rounded,
+        ),
+        title: Text(
+          _stringOf(
+            notification['title'],
+            fallback: _lt(context, 'إشعار', 'Notification'),
+          ),
+          style: TextStyle(
+            fontWeight: read ? FontWeight.w600 : FontWeight.w900,
+          ),
+        ),
+        subtitle: Text(
+          _stringOf(notification['body']),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing:
+            _intOf(notification['order_id'] ?? notification['orderId']) > 0
+            ? Text(
+                '#${_intOf(notification['order_id'] ?? notification['orderId'])}',
+              )
+            : null,
+      ),
+    );
+  }
+}
+
+class _NotificationBell extends StatelessWidget {
+  final int unreadCount;
+  final VoidCallback onPressed;
+
+  const _NotificationBell({required this.unreadCount, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        IconButton(
+          onPressed: onPressed,
+          tooltip: _lt(context, 'الإشعارات', 'Notifications'),
+          icon: const Icon(Icons.notifications_outlined),
+        ),
+        if (unreadCount > 0)
+          Positioned(
+            right: 7,
+            top: 7,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.error,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                unreadCount > 99 ? '99+' : '$unreadCount',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CompanyOrdersScreen extends ConsumerStatefulWidget {
+  const _CompanyOrdersScreen();
+
+  @override
+  ConsumerState<_CompanyOrdersScreen> createState() =>
+      _CompanyOrdersScreenState();
+}
+
+class _CompanyOrdersScreenState extends ConsumerState<_CompanyOrdersScreen> {
+  int? _selectedMerchantId;
+  int? _busyOrderId;
+
+  Future<void> _refresh() async {
+    ref.invalidate(_companyOrdersProvider);
+    ref.invalidate(_companyBranchesProvider);
+    await ref.read(_companyOrdersProvider.future);
+  }
+
+  Future<void> _updateStatus(Map<String, dynamic> order, String status) async {
+    final orderId = _intOf(order['id']);
+    if (orderId <= 0) return;
+    if (status == 'cancelled') {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text(_lt(context, 'رفض الطلب', 'Reject order')),
+          content: Text(
+            _lt(context, 'هل تريد رفض هذا الطلب؟', 'Reject this order?'),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(_lt(context, 'رجوع', 'Back')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(_lt(context, 'رفض', 'Reject')),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    }
+
+    setState(() => _busyOrderId = orderId);
+    try {
+      final bootstrap = await ref.read(_companyPortalBootstrapProvider.future);
+      final membership = _selectedMembership(ref, bootstrap);
+      final companyId = _readInt(membership, const ['companyId', 'company_id']);
+      if (companyId <= 0) return;
+      await ref
+          .read(_companyRuntimeApiProvider)
+          .updateOrderStatus(companyId, orderId, status);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_lt(context, 'تم تحديث الطلب.', 'Order updated.')),
+        ),
+      );
+      await _refresh();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${_lt(context, 'تعذر تحديث الطلب', 'Update failed')}: $error',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busyOrderId = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final branches =
+        ref.watch(_companyBranchesProvider).valueOrNull ??
+        const <Map<String, dynamic>>[];
+    final ordersValue = ref.watch(_companyOrdersProvider);
+    final allOrders = ordersValue.valueOrNull ?? const <Map<String, dynamic>>[];
+    final orders = _selectedMerchantId == null
+        ? allOrders
+        : allOrders
+              .where(
+                (order) =>
+                    _readInt(order, const ['merchant_id', 'merchantId']) ==
+                    _selectedMerchantId,
+              )
+              .toList(growable: false);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_lt(context, 'طلبات الفروع', 'Branch orders')),
+        actions: [
+          IconButton(
+            onPressed: _refresh,
+            tooltip: context.l10n.commonRefresh,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            DropdownButtonFormField<int?>(
+              initialValue: _selectedMerchantId,
+              decoration: InputDecoration(
+                labelText: _lt(context, 'الفرع', 'Branch'),
+                prefixIcon: const Icon(Icons.store_rounded),
+              ),
+              items: [
+                DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text(_lt(context, 'كل الفروع', 'All branches')),
+                ),
+                ...branches.map(
+                  (branch) => DropdownMenuItem<int?>(
+                    value: _intOf(branch['id']),
+                    child: Text(_stringOf(branch['name'])),
+                  ),
+                ),
+              ],
+              onChanged: (value) => setState(() => _selectedMerchantId = value),
+            ),
+            const SizedBox(height: 16),
+            if (ordersValue.isLoading && orders.isEmpty)
+              const _LoadingCard()
+            else if (orders.isEmpty)
+              _RuntimeListCard(
+                title: _lt(context, 'طلبات الفروع', 'Branch orders'),
+                emptyTitle: _lt(context, 'لا توجد طلبات حالية', 'No orders'),
+                emptySubtitle: _lt(
+                  context,
+                  'ستظهر هنا طلبات فروع الشركة عند وصولها.',
+                  'New branch orders will appear here.',
+                ),
+                items: const <_ListItemView>[],
+              )
+            else
+              ...orders.map(
+                (order) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _RuntimeOrderCard(
+                    order: order,
+                    busy: _busyOrderId == _intOf(order['id']),
+                    onAction: (status) => _updateStatus(order, status),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RuntimeOrderCard extends StatelessWidget {
+  final Map<String, dynamic> order;
+  final bool busy;
+  final ValueChanged<String> onAction;
+
+  const _RuntimeOrderCard({
+    required this.order,
+    required this.busy,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _normalizeStatus(_stringOf(order['status']));
+    final orderId = _intOf(order['id']);
+    final merchantName = _stringOf(
+      order['merchant_name'] ?? order['merchantName'],
+    );
+    final customerName = _stringOf(
+      order['customer_full_name'] ?? order['customerFullName'],
+      fallback: _lt(context, 'زبون', 'Customer'),
+    );
+    final total = _readNum(order, const ['total_amount', 'totalAmount']);
+    final items = _extractList(order, const ['items']);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const CircleAvatar(child: Icon(Icons.receipt_long_rounded)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${_lt(context, 'طلب', 'Order')} #$orderId',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 3),
+                      Text(merchantName),
+                    ],
+                  ),
+                ),
+                Chip(label: Text(_statusLabel(context, status))),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Chip(
+                  avatar: const Icon(Icons.person_rounded, size: 17),
+                  label: Text(customerName),
+                ),
+                Chip(
+                  avatar: const Icon(Icons.payments_rounded, size: 17),
+                  label: Text(_currencyText(total)),
+                ),
+              ],
+            ),
+            if (items.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ...items
+                  .take(3)
+                  .map(
+                    (item) => Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _stringOf(
+                              item['product_name'] ?? item['productName'],
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Text('x${_readInt(item, const ['quantity'])}'),
+                      ],
+                    ),
+                  ),
+            ],
+            const SizedBox(height: 12),
+            if (busy)
+              const LinearProgressIndicator(minHeight: 2)
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _actionsFor(order)
+                    .map(
+                      (action) => action.destructive
+                          ? OutlinedButton.icon(
+                              onPressed: () => onAction(action.status),
+                              icon: Icon(action.icon),
+                              label: Text(action.label(context)),
+                            )
+                          : FilledButton.icon(
+                              onPressed: () => onAction(action.status),
+                              icon: Icon(action.icon),
+                              label: Text(action.label(context)),
+                            ),
+                    )
+                    .toList(growable: false),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<_RuntimeOrderAction> _actionsFor(Map<String, dynamic> order) {
+    switch (_normalizeStatus(_stringOf(order['status']))) {
+      case 'pending':
+        return const [
+          _RuntimeOrderAction('approved', Icons.check_rounded, 'approve'),
+          _RuntimeOrderAction('cancelled', Icons.close_rounded, 'reject', true),
+        ];
+      case 'approved':
+        return const [
+          _RuntimeOrderAction(
+            'preparing',
+            Icons.restaurant_menu_rounded,
+            'prepare',
+          ),
+          _RuntimeOrderAction('cancelled', Icons.close_rounded, 'reject', true),
+        ];
+      case 'preparing':
+        return const [
+          _RuntimeOrderAction(
+            'ready_for_delivery',
+            Icons.done_all_rounded,
+            'ready',
+          ),
+          _RuntimeOrderAction('cancelled', Icons.close_rounded, 'reject', true),
+        ];
+      case 'ready_for_delivery':
+        if (order['is_merchant_delivery'] != true &&
+            order['isMerchantDelivery'] != true) {
+          return const [];
+        }
+        return const [
+          _RuntimeOrderAction(
+            'on_the_way',
+            Icons.delivery_dining_rounded,
+            'way',
+          ),
+        ];
+      case 'on_the_way':
+        return const [
+          _RuntimeOrderAction('arrived', Icons.location_on_rounded, 'arrived'),
+        ];
+      case 'arrived':
+        return const [
+          _RuntimeOrderAction('delivered', Icons.task_alt_rounded, 'delivered'),
+        ];
+      default:
+        return const [];
+    }
+  }
+}
+
+class _RuntimeOrderAction {
+  final String status;
+  final IconData icon;
+  final String key;
+  final bool destructive;
+
+  const _RuntimeOrderAction(
+    this.status,
+    this.icon,
+    this.key, [
+    this.destructive = false,
+  ]);
+
+  String label(BuildContext context) {
+    switch (key) {
+      case 'approve':
+        return _lt(context, 'قبول', 'Approve');
+      case 'reject':
+        return _lt(context, 'رفض', 'Reject');
+      case 'prepare':
+        return _lt(context, 'تجهيز', 'Prepare');
+      case 'ready':
+        return _lt(context, 'جاهز', 'Ready');
+      case 'way':
+        return _lt(context, 'بالطريق', 'On the way');
+      case 'arrived':
+        return _lt(context, 'وصل', 'Arrived');
+      case 'delivered':
+        return _lt(context, 'تم التسليم', 'Delivered');
+      default:
+        return status;
+    }
+  }
+}
+
 class _CompanyUsersScreen extends ConsumerWidget {
   const _CompanyUsersScreen();
 
@@ -864,6 +1474,42 @@ class _CompanyRuntimeApi {
       options: Options(headers: {'X-Company-Id': '$companyId'}),
     );
     return _extractList(response.data, const ['users', 'items', 'data']);
+  }
+
+  Future<List<Map<String, dynamic>>> currentOrders(int companyId) async {
+    final response = await _dio.get(
+      '/api/company/orders/current',
+      options: Options(headers: {'X-Company-Id': '$companyId'}),
+    );
+    return _extractList(response.data, const ['orders', 'items', 'data']);
+  }
+
+  Future<void> updateOrderStatus(
+    int companyId,
+    int orderId,
+    String status,
+  ) async {
+    await _dio.patch(
+      '/api/company/orders/$orderId/status',
+      options: Options(headers: {'X-Company-Id': '$companyId'}),
+      data: {'status': status},
+    );
+  }
+
+  Future<List<Map<String, dynamic>>> notifications() async {
+    final response = await _dio.get(
+      '/api/notifications',
+      queryParameters: {'unreadOnly': 0, 'limit': 80},
+    );
+    return _extractList(response.data, const [
+      'notifications',
+      'items',
+      'data',
+    ]);
+  }
+
+  Future<void> markNotificationRead(int notificationId) async {
+    await _dio.patch('/api/notifications/$notificationId/read');
   }
 }
 
@@ -1134,7 +1780,81 @@ int _intOf(dynamic value) {
   return int.tryParse('${value ?? ''}') ?? 0;
 }
 
-String _currencyText(int amount) {
+num _readNum(Map<String, dynamic>? data, List<String> keys) {
+  if (data == null) return 0;
+  for (final key in keys) {
+    final raw = data[key];
+    if (raw is num) return raw;
+    final value = num.tryParse('${raw ?? ''}');
+    if (value != null) return value;
+  }
+  return 0;
+}
+
+String _currencyText(num amount) {
   if (amount <= 0) return '-';
-  return '$amount IQD';
+  return '${amount.round()} IQD';
+}
+
+bool _isNotificationRead(Map<String, dynamic> notification) {
+  return notification['is_read'] == true ||
+      notification['isRead'] == true ||
+      notification['read_at'] != null ||
+      notification['readAt'] != null;
+}
+
+String _lt(BuildContext context, String ar, String en) {
+  return Localizations.localeOf(context).languageCode.toLowerCase() == 'ar'
+      ? ar
+      : en;
+}
+
+String _normalizeStatus(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'accepted_by_store':
+      return 'approved';
+    case 'courier_requested':
+    case 'courier_assigned':
+      return 'preparing';
+    case 'ready_for_pickup':
+      return 'ready_for_delivery';
+    case 'picked_up':
+      return 'on_the_way';
+    case 'delivered_by_courier':
+      return 'delivered';
+    case 'received_by_customer':
+    case 'completed':
+      return 'received';
+    case 'cancelled_by_customer':
+    case 'cancelled_by_store':
+    case 'cancelled_by_admin':
+      return 'cancelled';
+    default:
+      return status.trim().toLowerCase();
+  }
+}
+
+String _statusLabel(BuildContext context, String status) {
+  switch (_normalizeStatus(status)) {
+    case 'pending':
+      return _lt(context, 'قيد الانتظار', 'Pending');
+    case 'approved':
+      return _lt(context, 'تمت الموافقة', 'Approved');
+    case 'preparing':
+      return _lt(context, 'قيد التجهيز', 'Preparing');
+    case 'ready_for_delivery':
+      return _lt(context, 'جاهز للتوصيل', 'Ready');
+    case 'on_the_way':
+      return _lt(context, 'في الطريق', 'On the way');
+    case 'arrived':
+      return _lt(context, 'وصل', 'Arrived');
+    case 'delivered':
+      return _lt(context, 'تم التسليم', 'Delivered');
+    case 'cancelled':
+      return _lt(context, 'ملغي', 'Cancelled');
+    case 'received':
+      return _lt(context, 'تم الاستلام', 'Received');
+    default:
+      return status;
+  }
 }

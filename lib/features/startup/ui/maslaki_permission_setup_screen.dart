@@ -4,6 +4,7 @@ import '../../../core/i18n/locale_text.dart';
 import '../../../core/permissions/maslaki_permission_models.dart';
 import '../../../core/permissions/maslaki_permission_policy.dart';
 import '../../../core/permissions/maslaki_permission_service.dart';
+import '../../../core/theme/app_theme.dart';
 
 /// Premium first-run "Prepare Maslaki" readiness screen. Policy-driven: it shows
 /// only the permissions the [role] needs at first run, requests them one at a
@@ -80,6 +81,7 @@ class _MaslakiPermissionSetupScreenState
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     final requirements = _requirements;
     final allRequiredReady = requirements
         .where((r) => r.isRequired)
@@ -87,11 +89,15 @@ class _MaslakiPermissionSetupScreenState
 
     return Scaffold(
       body: Container(
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [Color(0xFF0E1C36), Color(0xFF16314D), Color(0xFF231A4A)],
+            colors: [
+              tokens.backgroundPrimary,
+              tokens.backgroundSecondary,
+              tokens.backgroundTertiary,
+            ],
           ),
         ),
         child: SafeArea(
@@ -108,8 +114,8 @@ class _MaslakiPermissionSetupScreenState
                         ar: 'تهيئة مسلكي لتجربة كاملة',
                         en: 'Prepare Maslaki for the full experience',
                       ),
-                      style: const TextStyle(
-                        color: Color(0xFFF8F0E2),
+                      style: TextStyle(
+                        color: tokens.textPrimary,
                         fontSize: 23,
                         fontWeight: FontWeight.w900,
                       ),
@@ -121,7 +127,7 @@ class _MaslakiPermissionSetupScreenState
                         en: 'We will request the permissions needed to run orders, taxi, delivery, notifications, stories and reels smoothly.',
                       ),
                       style: TextStyle(
-                        color: const Color(0xFFE9DEC9).withValues(alpha: 0.82),
+                        color: tokens.textSecondary,
                         height: 1.5,
                         fontSize: 14.5,
                       ),
@@ -152,8 +158,8 @@ class _MaslakiPermissionSetupScreenState
                   height: 56,
                   child: FilledButton(
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFD4AF37),
-                      foregroundColor: const Color(0xFF0D1B2A),
+                      backgroundColor: tokens.primaryAccent,
+                      foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(18),
                       ),
@@ -190,24 +196,47 @@ class _MaslakiPermissionSetupScreenState
   _PermMeta _metaFor(MaslakiPermission permission) {
     switch (permission) {
       case MaslakiPermission.notifications:
-        return const _PermMeta(Icons.notifications_active_rounded, 'الإشعارات',
-            'Notifications', 'تنبيهات الطلبات والتكسي والدلفري والرسائل');
+        return const _PermMeta(
+          Icons.notifications_active_rounded,
+          'الإشعارات',
+          'Notifications',
+          'تنبيهات الطلبات والتكسي والدلفري والرسائل',
+        );
       case MaslakiPermission.locationWhenInUse:
-        return const _PermMeta(Icons.my_location_rounded, 'الموقع',
-            'Location', 'لخدمات قريبة منك وتتبّع الطلبات والعناوين');
+        return const _PermMeta(
+          Icons.my_location_rounded,
+          'الموقع',
+          'Location',
+          'لخدمات قريبة منك وتتبّع الطلبات والعناوين',
+        );
       case MaslakiPermission.locationAlways:
-        return const _PermMeta(Icons.location_on_rounded,
-            'الموقع في الخلفية', 'Background location',
-            'لتتبّع الرحلات والتوصيل أثناء عمل التطبيق في الخلفية');
+        return const _PermMeta(
+          Icons.location_on_rounded,
+          'الموقع في الخلفية',
+          'Background location',
+          'لتتبّع الرحلات والتوصيل أثناء عمل التطبيق في الخلفية',
+        );
       case MaslakiPermission.camera:
-        return const _PermMeta(Icons.photo_camera_rounded, 'الكاميرا',
-            'Camera', 'للستوري والريلز والصور وإثبات التسليم');
+        return const _PermMeta(
+          Icons.photo_camera_rounded,
+          'الكاميرا',
+          'Camera',
+          'للستوري والريلز والصور وإثبات التسليم',
+        );
       case MaslakiPermission.microphone:
-        return const _PermMeta(Icons.mic_rounded, 'المايكروفون',
-            'Microphone', 'لصوت الفيديو والرسائل الصوتية والمكالمات');
+        return const _PermMeta(
+          Icons.mic_rounded,
+          'المايكروفون',
+          'Microphone',
+          'لصوت الفيديو والرسائل الصوتية والمكالمات',
+        );
       case MaslakiPermission.photos:
-        return const _PermMeta(Icons.photo_library_rounded, 'الصور والوسائط',
-            'Photos & media', 'لاختيار الصور والفيديو من المعرض');
+        return const _PermMeta(
+          Icons.photo_library_rounded,
+          'الصور والوسائط',
+          'Photos & media',
+          'لاختيار الصور والفيديو من المعرض',
+        );
     }
   }
 }
@@ -240,30 +269,38 @@ class _PermissionCard extends StatelessWidget {
     final granted = status?.isGranted ?? false;
     final permanentlyDenied =
         status == MaslakiPermissionStatus.permanentlyDenied;
-    const gold = Color(0xFFD4AF37);
+    final tokens = context.maslakiTokens;
+    final gold = tokens.secondaryAccent;
     final accent = granted
-        ? const Color(0xFF71DF89)
+        ? tokens.success
         : (permanentlyDenied ? const Color(0xFFFF8A80) : gold);
 
     final statusLabel = granted
         ? context.lt(ar: 'جاهز', en: 'Ready')
         : permanentlyDenied
-            ? context.lt(ar: 'مرفوض', en: 'Denied')
-            : requirement.isOptional
-                ? context.lt(ar: 'اختياري', en: 'Optional')
-                : context.lt(ar: 'يحتاج تفعيل', en: 'Needs enabling');
+        ? context.lt(ar: 'مرفوض', en: 'Denied')
+        : requirement.isOptional
+        ? context.lt(ar: 'اختياري', en: 'Optional')
+        : context.lt(ar: 'يحتاج تفعيل', en: 'Needs enabling');
 
     final ctaLabel = granted
         ? null
         : permanentlyDenied
-            ? context.lt(ar: 'فتح الإعدادات', en: 'Open settings')
-            : context.lt(ar: 'تفعيل', en: 'Enable');
+        ? context.lt(ar: 'فتح الإعدادات', en: 'Open settings')
+        : context.lt(ar: 'تفعيل', en: 'Enable');
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: tokens.cardPrimary.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: accent.withValues(alpha: 0.30)),
+        boxShadow: [
+          BoxShadow(
+            color: tokens.textPrimary.withValues(alpha: 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -288,8 +325,8 @@ class _PermissionCard extends StatelessWidget {
                     children: [
                       Text(
                         context.isEnglishLocale ? meta.en : meta.ar,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: tokens.textPrimary,
                           fontWeight: FontWeight.w800,
                           fontSize: 16,
                         ),
@@ -300,7 +337,7 @@ class _PermissionCard extends StatelessWidget {
                             ? meta.rationaleAr
                             : meta.en,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.7),
+                          color: tokens.textSecondary,
                           fontSize: 12.5,
                           height: 1.35,
                         ),
@@ -308,7 +345,11 @@ class _PermissionCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                _StatusChip(label: statusLabel, color: accent, granted: granted),
+                _StatusChip(
+                  label: statusLabel,
+                  color: accent,
+                  granted: granted,
+                ),
               ],
             ),
             if (ctaLabel != null) ...[
@@ -318,7 +359,7 @@ class _PermissionCard extends StatelessWidget {
                 child: OutlinedButton(
                   onPressed: busy ? null : onTap,
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.white,
+                    foregroundColor: accent,
                     side: BorderSide(color: accent.withValues(alpha: 0.8)),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(14),

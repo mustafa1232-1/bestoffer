@@ -103,7 +103,15 @@ function withSla(ticket) {
 }
 
 function supportPayload(ticketId, extra = {}) {
-  return { ticketId: Number(ticketId), target: "support_ticket", ...extra };
+  const id = Number(ticketId || extra.ticketId || extra.id);
+  return {
+    ticketId: id,
+    requestId: id,
+    target: "support_ticket",
+    targetEntity: "support_ticket",
+    entityId: id,
+    ...extra,
+  };
 }
 
 function notifyTicketUser(ticket, type, title, body, extra = {}) {
@@ -112,7 +120,11 @@ function notifyTicketUser(ticket, type, title, body, extra = {}) {
     type,
     title,
     body,
-    payload: supportPayload(ticket.id, extra),
+    payload: supportPayload(ticket.id, {
+      targetModule: "customer",
+      roleScope: "customer",
+      ...extra,
+    }),
   });
   queueRealtime(Number(ticket.user_id), "support_ticket", {
     type,
@@ -129,7 +141,11 @@ function notifyAssignee(ticket, type, title, body, extra = {}) {
     type,
     title,
     body,
-    payload: supportPayload(ticket.id, extra),
+    payload: supportPayload(ticket.id, {
+      targetModule: "admin",
+      roleScope: "admin",
+      ...extra,
+    }),
   });
   queueRealtime(Number(ticket.assigned_user_id), "support_ticket", {
     type,
@@ -148,7 +164,11 @@ function notifyAgents(agents, type, title, body, extra = {}) {
       type,
       title,
       body,
-      payload: supportPayload(extra.ticketId || extra.id, extra),
+      payload: supportPayload(extra.ticketId || extra.id, {
+        targetModule: "admin",
+        roleScope: "admin",
+        ...extra,
+      }),
     });
     queueRealtime(userId, "support_ticket", {
       type,
@@ -208,9 +228,14 @@ async function autoRouteTicket(ticket) {
   queueNotification({
     userId: Number(agent.agent_user_id),
     type: "support.ticket.auto_assigned",
-    title: "New support ticket assigned",
-    body: `Ticket ${ticket.ticket_number || ticket.id}`,
-    payload: supportPayload(ticket.id, { team, strategy: "auto_least_busy" }),
+    title: "طلب دعم جديد",
+    body: `تم إسناد التذكرة ${ticket.ticket_number || ticket.id} إليك.`,
+    payload: supportPayload(ticket.id, {
+      team,
+      strategy: "auto_least_busy",
+      targetModule: "admin",
+      roleScope: "admin",
+    }),
   });
   queueRealtime(Number(agent.agent_user_id), "support_ticket", {
     type: "support.ticket.auto_assigned",
@@ -572,6 +597,8 @@ export async function createCallback({
       payload: supportPayload(ticket.id, {
         callbackId: Number(callback.id),
         scheduledAt,
+        targetModule: "admin",
+        roleScope: "admin",
       }),
     });
   }

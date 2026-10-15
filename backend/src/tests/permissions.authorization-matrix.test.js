@@ -86,6 +86,31 @@ test("role template grants exactly its keys (taxi_monitoring)", async () => {
   assert.equal((await perms.checkPermission(id, "payroll.release")).allowed, false);
 });
 
+test("delivery_monitoring grants courier monitoring without taxi permissions", async () => {
+  const id = await makeUser("user", { adminRoleKey: "delivery_monitoring" });
+  assert.equal(
+    (await perms.checkPermission(id, "delivery.couriers.read")).allowed,
+    true
+  );
+  assert.equal((await perms.checkPermission(id, "orders.read")).allowed, true);
+  assert.equal((await perms.checkPermission(id, "taxi.rides.read")).allowed, false);
+  assert.equal(
+    (await perms.checkPermission(id, "taxi.rides.emergency_cancel")).allowed,
+    false
+  );
+});
+
+test("ads_manager grants ad management and basic support", async () => {
+  const id = await makeUser("staff", { adminRoleKey: "ads_manager" });
+  assert.equal((await perms.checkPermission(id, "ads.manage")).allowed, true);
+  assert.equal((await perms.checkPermission(id, "support.tickets.read")).allowed, true);
+  assert.equal((await perms.checkPermission(id, "support.tickets.reply")).allowed, true);
+  assert.equal((await perms.checkPermission(id, "support.tickets.resolve")).allowed, true);
+  assert.equal((await perms.checkPermission(id, "coupons.manage")).allowed, false);
+  assert.equal((await perms.checkPermission(id, "competitions.manage")).allowed, false);
+  assert.equal((await perms.checkPermission(id, "reports.export")).allowed, false);
+});
+
 test("per-user grant adds a permission and revoke removes an inherited one", async () => {
   const id = await makeUser("user", { adminRoleKey: "taxi_monitoring" });
 

@@ -46,6 +46,9 @@ class MaslakiPermissionService {
 
   Future<MaslakiPermissionStatus> getStatus(MaslakiPermission permission) async {
     try {
+      if (permission == MaslakiPermission.photos) {
+        return MaslakiPermissionStatus.granted;
+      }
       if (_isLocation(permission)) {
         final service = await Permission.location.serviceStatus;
         if (service == ServiceStatus.disabled) {
@@ -64,6 +67,9 @@ class MaslakiPermissionService {
   /// when-in-use is granted, so callers should request when-in-use first.
   Future<MaslakiPermissionStatus> request(MaslakiPermission permission) async {
     try {
+      if (permission == MaslakiPermission.photos) {
+        return MaslakiPermissionStatus.granted;
+      }
       final status = await _platform(permission).request();
       return _normalize(status);
     } catch (_) {
@@ -110,13 +116,13 @@ class MaslakiPermissionService {
   Future<bool> ensureMicrophonePermission() =>
       _ensure(MaslakiPermission.microphone);
 
-  Future<bool> ensureMediaImagesPermission() =>
-      _ensure(MaslakiPermission.photos);
+  /// Media selection is handled by Android Photo Picker / platform document
+  /// pickers, so it must not trigger broad gallery permissions.
+  Future<bool> ensureMediaImagesPermission() async => true;
 
   /// On Android the gallery video picker uses the same Photo Picker surface as
   /// images (permissionless), so this maps to the photos permission.
-  Future<bool> ensureMediaVideoPermission() =>
-      _ensure(MaslakiPermission.photos);
+  Future<bool> ensureMediaVideoPermission() async => true;
 
   Future<bool> ensureLocationPermission() =>
       _ensure(MaslakiPermission.locationWhenInUse);

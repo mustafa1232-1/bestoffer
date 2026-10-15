@@ -23,9 +23,17 @@ import {
 
 // Maps a job role to its HR department bucket (company_employee_profile enum).
 const JOB_ROLE_DEPARTMENT = Object.freeze({
+  orders_support: "customer_service",
+  staff_monitoring: "monitoring",
+  taxi_monitoring: "monitoring",
+  jobs_monitoring: "monitoring",
+  services_monitoring: "monitoring",
+  marketplace_monitoring: "monitoring",
+  social_media_moderator: "marketing",
   follow_up_manager: "management",
   sales_agent: "marketing",
   marketing_agent: "marketing",
+  ads_manager: "marketing",
   subscriptions_monitor: "monitoring",
   residents_moderator: "monitoring",
 });

@@ -72,7 +72,9 @@ class _SocialReelsV3ConnectorState
     Future.delayed(Duration(seconds: 2 * attempt), () async {
       if (!mounted) return;
       _guestBackgroundRetryScheduled = false;
-      await ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
+      await ref
+          .read(socialReelsControllerProvider.notifier)
+          .load(refresh: true);
     });
   }
 
@@ -91,6 +93,9 @@ class _SocialReelsV3ConnectorState
   }
 
   Future<void> _bootstrap() async {
+    final refreshFuture = ref
+        .read(socialReelsControllerProvider.notifier)
+        .refreshIfStale();
     final reelId = widget.initialReelId;
     if (reelId != null && reelId > 0) {
       try {
@@ -106,7 +111,7 @@ class _SocialReelsV3ConnectorState
         // fall back to the explore feed below
       }
     }
-    await ref.read(socialReelsControllerProvider.notifier).load(refresh: true);
+    await refreshFuture;
     if (mounted) setState(() => _bootstrapped = true);
   }
 
@@ -135,16 +140,18 @@ class _SocialReelsV3ConnectorState
     return false;
   }
 
-  Future<void> _save(ReelV3ViewData reel) async {
+  Future<bool> _save(ReelV3ViewData reel) async {
     if (!_hasAuthenticatedUser) {
       await _promptLoginRequired();
-      return;
+      return false;
     }
     try {
       await ref
           .read(socialApiProvider)
           .toggleSaved(entityType: 'reel', entityId: reel.postId);
+      return true;
     } catch (_) {}
+    return false;
   }
 
   SocialPost? _postFor(int postId) {
@@ -166,6 +173,7 @@ class _SocialReelsV3ConnectorState
   }
 
   Future<void> _share(ReelV3ViewData reel) async {
+    if (!reel.sharingEnabled) return;
     await ShareSheetV3.show(
       context,
       target: ShareTargetV3(
@@ -328,50 +336,52 @@ class _SocialReelsV3ConnectorState
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.copy_rounded),
-              title: Text(isRtl ? 'نسخ الرابط' : 'Copy link'),
-              onTap: () async {
-                await Clipboard.setData(
-                  ClipboardData(
-                    text: links.guardShareUrl(links.reel(reel.postId)),
-                  ),
-                );
-                if (!sheetContext.mounted) return;
-                Navigator.of(sheetContext).pop();
-                messenger.showSnackBar(
-                  SnackBar(content: Text(l10n.commonCopied)),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.add_circle_outline),
-              title: Text(isRtl ? 'إضافة إلى القصة' : 'Add to story'),
-              onTap: () {
-                Navigator.of(sheetContext).pop();
-                if (!_hasAuthenticatedUser) {
-                  unawaited(_promptLoginRequired());
-                  return;
-                }
-                openStoryComposerV3WithReel(
-                  context,
-                  reel: SharedReelSource(
-                    reelId: reel.postId,
-                    originalOwnerId: reel.authorId,
-                    playbackUrl: reel.media.videoPlaybackUrl,
-                    thumbnailUrl: reel.media.posterImageUrl,
-                    posterUrl: reel.media.posterImageUrl,
-                    width: reel.media.width,
-                    height: reel.media.height,
-                    caption: reel.caption,
-                    available: true,
-                    authorName: reel.authorName,
-                    authorAvatarUrl: reel.authorAvatarUrl,
-                    authorHandle: reel.authorHandle,
-                  ),
-                );
-              },
-            ),
+            if (reel.sharingEnabled)
+              ListTile(
+                leading: const Icon(Icons.copy_rounded),
+                title: Text(isRtl ? 'نسخ الرابط' : 'Copy link'),
+                onTap: () async {
+                  await Clipboard.setData(
+                    ClipboardData(
+                      text: links.guardShareUrl(links.reel(reel.postId)),
+                    ),
+                  );
+                  if (!sheetContext.mounted) return;
+                  Navigator.of(sheetContext).pop();
+                  messenger.showSnackBar(
+                    SnackBar(content: Text(l10n.commonCopied)),
+                  );
+                },
+              ),
+            if (reel.sharingEnabled)
+              ListTile(
+                leading: const Icon(Icons.add_circle_outline),
+                title: Text(isRtl ? 'إضافة إلى القصة' : 'Add to story'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  if (!_hasAuthenticatedUser) {
+                    unawaited(_promptLoginRequired());
+                    return;
+                  }
+                  openStoryComposerV3WithReel(
+                    context,
+                    reel: SharedReelSource(
+                      reelId: reel.postId,
+                      originalOwnerId: reel.authorId,
+                      playbackUrl: reel.media.videoPlaybackUrl,
+                      thumbnailUrl: reel.media.posterImageUrl,
+                      posterUrl: reel.media.posterImageUrl,
+                      width: reel.media.width,
+                      height: reel.media.height,
+                      caption: reel.caption,
+                      available: true,
+                      authorName: reel.authorName,
+                      authorAvatarUrl: reel.authorAvatarUrl,
+                      authorHandle: reel.authorHandle,
+                    ),
+                  );
+                },
+              ),
             if (!isOwner)
               ListTile(
                 leading: const Icon(Icons.report_outlined),
@@ -652,6 +662,7 @@ class _SocialReelsV3ConnectorState
 
     return SocialReelsScreenV3(
       reels: reels,
+      playbackEnabledListenable: widget.playbackEnabledListenable,
       onLike: _like,
       onSave: _save,
       onComments: _comments,

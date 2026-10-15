@@ -29,11 +29,31 @@ adminRouter.use(requireAuth, requireBackoffice);
 adminRouter.get("/analytics", c.analytics);
 adminRouter.get("/approval-inbox", c.approvalInbox);
 adminRouter.get("/audit-feed", c.auditFeed);
+adminRouter.get(
+  "/ai/chat-users",
+  requireSuperAdmin,
+  c.aiChatReviewUsers
+);
+adminRouter.get(
+  "/ai/chat-users/:customerUserId/sessions",
+  requireSuperAdmin,
+  c.aiChatReviewUserSessions
+);
+adminRouter.get(
+  "/ai/chat-sessions",
+  requireSuperAdmin,
+  c.aiChatReviewSessions
+);
+adminRouter.get(
+  "/ai/chat-sessions/:sessionId/messages",
+  requireSuperAdmin,
+  c.aiChatReviewMessages
+);
 adminRouter.get("/customers/insights", requireSuperAdmin, c.customerInsightsList);
-adminRouter.get("/ad-board/items", requireAdmin, c.adBoardItems);
+adminRouter.get("/ad-board/items", requirePermission("ads.manage"), c.adBoardItems);
 adminRouter.get(
   "/ad-board/merchants/:merchantId/products",
-  requireAdmin,
+  requirePermission("ads.manage"),
   c.adBoardMerchantProducts
 );
 adminRouter.get(
@@ -120,14 +140,19 @@ adminRouter.get(
   requirePermission("orders.read"),
   monitoring.orderDetail
 );
+adminRouter.post(
+  "/monitoring/orders/:orderId/assign-courier",
+  requirePermission("orders.modify"),
+  monitoring.assignOrderCourier
+);
 adminRouter.get(
   "/monitoring/delivery/couriers",
-  requirePermission("orders.read"),
+  requirePermission("delivery.couriers.read"),
   monitoring.deliveryCouriers
 );
 adminRouter.get(
   "/monitoring/delivery/couriers/:courierId",
-  requirePermission("orders.read"),
+  requirePermission("delivery.couriers.read"),
   monitoring.deliveryCourierDetail
 );
 adminRouter.get(
@@ -566,6 +591,11 @@ adminRouter.get(
   auditCtrl.listAuditEvents
 );
 adminRouter.get(
+  "/audit/employee-activity",
+  requirePermission("audit.read"),
+  auditCtrl.listEmployeeActivityEvents
+);
+adminRouter.get(
   "/rbac/users/:userId/permissions",
   requirePermission("employees.permissions.manage"),
   rbac.getUserPermissions
@@ -627,6 +657,9 @@ adminRouter.get(
 );
 
 adminRouter.post("/users", requireAdmin, imageUpload.single("imageFile"), c.createUser);
+adminRouter.get("/pin-reset-requests", requireAdmin, c.pinResetRequests);
+adminRouter.post("/pin-reset-requests/:requestId/approve", requireAdmin, c.approvePinReset);
+adminRouter.post("/pin-reset-requests/:requestId/reject", requireAdmin, c.rejectPinReset);
 // إنشاء حساب متجر كامل من قبل الإدمن (اعتماد تلقائي + شروط مالية inline).
 adminRouter.post(
   "/accounts/store",
@@ -648,7 +681,7 @@ adminRouter.post(
 );
 adminRouter.post(
   "/ad-board/items",
-  requireAdmin,
+  requirePermission("ads.manage"),
   imageUpload.single("imageFile"),
   c.createAdBoardItem
 );
@@ -660,7 +693,7 @@ adminRouter.patch(
 );
 adminRouter.patch(
   "/ad-board/items/:itemId",
-  requireAdmin,
+  requirePermission("ads.manage"),
   imageUpload.single("imageFile"),
   c.updateAdBoardItem
 );
@@ -851,7 +884,11 @@ adminRouter.patch(
   requireAdmin,
   c.approveSettlement
 );
-adminRouter.delete("/ad-board/items/:itemId", requireAdmin, c.deleteAdBoardItem);
+adminRouter.delete(
+  "/ad-board/items/:itemId",
+  requirePermission("ads.manage"),
+  c.deleteAdBoardItem
+);
 adminRouter.delete("/taxi/coupons/:id", requireAdmin, taxiAdmin.deleteCoupon);
 adminRouter.delete(
   "/taxi/contests/:contestId",

@@ -30,7 +30,7 @@ function parseBuilding(buildingCode) {
   const buildingNo = Number(match[3]);
 
   if (letter === "B" && sector > 8) return null;
-  if (!isBuildingWithinRange(letter, buildingNo)) return null;
+  if (!isBuildingWithinRange(letter, sector, buildingNo)) return null;
 
   return {
     normalized,
@@ -65,11 +65,30 @@ function normalizeBuildingWithBlock(buildingCode, parsedBlock) {
   return null;
 }
 
-function isBuildingWithinRange(letter, buildingNo) {
+const BUILDING_COUNTS = Object.freeze({
+  A1: 12,
+  A2: 14,
+  A3: 14,
+  A4: 12,
+  A5: 12,
+  A6: 12,
+  A7: 13,
+  A8: 15,
+  A9: 15,
+  B1: 12,
+  B2: 18,
+  B3: 18,
+  B4: 12,
+  B5: 18,
+  B6: 21,
+  B7: 16,
+  B8: 12,
+});
+
+function isBuildingWithinRange(letter, sector, buildingNo) {
   if (!Number.isInteger(buildingNo)) return false;
-  if (letter === "A") return buildingNo >= 1 && buildingNo <= 12;
-  if (letter === "B") return buildingNo >= 1 && buildingNo <= 22;
-  return false;
+  const count = BUILDING_COUNTS[`${letter}${sector}`];
+  return Number.isInteger(count) && buildingNo >= 1 && buildingNo <= count;
 }
 
 function isApartmentValid(apartmentCode) {
@@ -179,13 +198,17 @@ export function validateBasmayaAddress(address = {}) {
     const sameSector =
       buildingLetter === parsedBlock.letter &&
       buildingSector === parsedBlock.sector;
-    if (!sameSector || !isBuildingWithinRange(buildingLetter, buildingNo)) {
+    if (
+      !sameSector ||
+      !isBuildingWithinRange(buildingLetter, buildingSector, buildingNo)
+    ) {
       errors.push("buildingNumber");
     }
   } else {
     const buildingLetter = buildingMatch[1];
     const buildingNo = Number(buildingMatch[3]);
-    if (!isBuildingWithinRange(buildingLetter, buildingNo)) {
+    const buildingSector = Number(buildingMatch[2]);
+    if (!isBuildingWithinRange(buildingLetter, buildingSector, buildingNo)) {
       errors.push("buildingNumber");
     }
   }

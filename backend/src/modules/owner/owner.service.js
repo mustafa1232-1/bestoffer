@@ -15,6 +15,7 @@ import * as offersRepo from "./merchant-offers.repo.js";
 import * as repo from "./owner.repo.js";
 import { env } from "../../config/env.js";
 import { validateBasmayaAddress } from "../../shared/utils/basmaya-address.js";
+import { assertPointInsideServiceArea } from "../../shared/utils/service-area.js";
 import { createNotification } from "../notifications/notifications.repo.js";
 import { AppError } from "../../shared/utils/errors.js";
 import {
@@ -132,6 +133,8 @@ export function mapMerchant(m) {
     tagline: m.tagline,
     workingHours: m.working_hours,
     serviceAreaNote: m.service_area_note,
+    latitude: m.latitude == null ? null : Number(m.latitude),
+    longitude: m.longitude == null ? null : Number(m.longitude),
     financialTermsSentAt: m.financial_terms_sent_at,
     financialTermsAcceptedAt: m.financial_terms_accepted_at,
     financialTermsRejectedAt: m.financial_terms_rejected_at,
@@ -819,6 +822,18 @@ export async function createOwnerAccountWithMerchant(dto) {
     throw err;
   }
 
+  if (env.serviceAreaRegistrationEnforced === true) {
+    assertPointInsideServiceArea({
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+  } else if (dto.latitude != null || dto.longitude != null) {
+    assertPointInsideServiceArea({
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+  }
+
   const exists = await findUserByPhone(phone);
   if (exists) {
     const err = new Error("PHONE_EXISTS");
@@ -859,6 +874,8 @@ export async function createOwnerAccountWithMerchant(dto) {
         merchantTagline: normalizeOptional(dto.merchantTagline),
         merchantWorkingHours: normalizeOptional(dto.merchantWorkingHours),
         merchantServiceAreaNote,
+        latitude: dto.latitude == null ? null : Number(dto.latitude),
+        longitude: dto.longitude == null ? null : Number(dto.longitude),
         merchantServiceFlags: merchantCapabilities.serviceFlags,
         merchantSupportsChat: merchantCapabilities.supportsChat === true,
         merchantSupportsAttachments:
@@ -1214,6 +1231,20 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
   if (dto.serviceAreaNote !== undefined) {
     patch.serviceAreaNote = normalizeOptional(dto.serviceAreaNote);
   }
+  if (dto.latitude !== undefined || dto.longitude !== undefined) {
+    const latitude =
+      dto.latitude === undefined ? currentMerchant.latitude : dto.latitude;
+    const longitude =
+      dto.longitude === undefined ? currentMerchant.longitude : dto.longitude;
+    if (latitude == null || longitude == null) {
+      patch.latitude = null;
+      patch.longitude = null;
+    } else {
+      assertPointInsideServiceArea({ latitude, longitude });
+      patch.latitude = Number(latitude);
+      patch.longitude = Number(longitude);
+    }
+  }
   if (dto.serviceFlags !== undefined) {
     patch.serviceFlags =
       dto.serviceFlags && typeof dto.serviceFlags === "object" && !Array.isArray(dto.serviceFlags)
@@ -1276,6 +1307,153 @@ export async function getOwnerProduct(ownerUserId, productId) {
   }
   const products = await repo.hydrateOwnerProducts([row]);
   return products[0] || row;
+}
+
+function mapOwnerInventorySettings(row) {
+  return {
+    inventoryEnabled: row?.inventory_enabled === true,
+    dailyUpdateMode: row?.daily_update_mode || "strict_daily",
+    lowStockThreshold:
+      row?.low_stock_threshold == null ? 5 : Number(row.low_stock_threshold),
+    autoDisableOutOfStock: row?.auto_disable_out_of_stock !== false,
+    showAllWithoutAutoDisable: row?.show_all_without_auto_disable === true,
+    lastDailyCheckAt: row?.last_daily_check_at || null,
+    lastStockUpdateAt: row?.last_stock_update_at || null,
+  };
+}
+
+function mapOwnerDailyCheck(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    merchantId: row.merchant_id,
+    checkDate: row.check_date,
+    confirmedByUserId: row.confirmed_by_user_id,
+    modeAtCheck: row.mode_at_check,
+    note: row.note,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function computeOwnerInventoryState({
+  quantity,
+  requestedAvailable = true,
+  threshold = 5,
+}) {
+  const normalizedQuantity = Math.max(0, Math.trunc(Number(quantity) || 0));
+  const normalizedThreshold = Math.max(0, Math.trunc(Number(threshold) || 0));
+  const manualDisabled = requestedAvailable === false;
+  const productIsAvailable = manualDisabled ? false : normalizedQuantity > 0;
+  const autoDisabled = !manualDisabled && normalizedQuantity <= 0;
+  let stockStatus = "in_stock";
+  if (manualDisabled) {
+    stockStatus = "manual_disabled";
+  } else if (normalizedQuantity <= 0) {
+    stockStatus = "out_of_stock";
+  } else if (normalizedQuantity <= normalizedThreshold) {
+    stockStatus = "low_stock";
+  }
+  return {
+    quantity: normalizedQuantity,
+    reorderThreshold: normalizedThreshold,
+    manualDisabled,
+    autoDisabled,
+    stockStatus,
+    productIsAvailable,
+  };
+}
+
+export const __ownerInventoryTestables = {
+  computeOwnerInventoryState,
+};
+
+export async function getOwnerDailyInventory(ownerUserId) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "view_products");
+  const [settings, todayCheck, products] = await Promise.all([
+    companyRepo.getInventorySettings(merchant.id),
+    repo.findTodayInventoryDailyCheck(merchant.id),
+    repo.listOwnerProductSummaries(ownerUserId),
+  ]);
+  return {
+    merchantId: merchant.id,
+    settings: mapOwnerInventorySettings(settings),
+    todayCheck: mapOwnerDailyCheck(todayCheck),
+    products,
+  };
+}
+
+export async function updateOwnerDailyInventoryItem(ownerUserId, productId, dto) {
+  const resolvedProductId = Number(productId);
+  if (!Number.isInteger(resolvedProductId) || resolvedProductId <= 0) {
+    throw new AppError("PRODUCT_NOT_FOUND", { status: 404 });
+  }
+  const ownerMerchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, ownerMerchant.id, "edit_products");
+  const current = await repo.findMerchantProductById(ownerMerchant.id, resolvedProductId);
+  if (!current || current.deleted_at) {
+    throw new AppError("PRODUCT_NOT_FOUND", { status: 404 });
+  }
+  const [settings, currentItem] = await Promise.all([
+    companyRepo.getInventorySettings(ownerMerchant.id),
+    repo.findMerchantInventoryItem(ownerMerchant.id, resolvedProductId),
+  ]);
+  const threshold =
+    dto.reorderThreshold ??
+    currentItem?.reorder_threshold ??
+    settings?.low_stock_threshold ??
+    5;
+  const computed = computeOwnerInventoryState({
+    quantity: dto.quantity,
+    requestedAvailable:
+      dto.isAvailable === undefined
+        ? Number(dto.quantity || 0) > 0
+        : dto.isAvailable === true,
+    threshold,
+  });
+  const result = await repo.updateOwnerDailyInventoryItem({
+    merchantId: ownerMerchant.id,
+    productId: resolvedProductId,
+    quantity: computed.quantity,
+    reorderThreshold: computed.reorderThreshold,
+    manualDisabled: computed.manualDisabled,
+    autoDisabled: computed.autoDisabled,
+    stockStatus: computed.stockStatus,
+    productIsAvailable: computed.productIsAvailable,
+    actorUserId: ownerUserId,
+    oldValue: {
+      quantity: currentItem?.quantity == null ? null : Number(currentItem.quantity),
+      stockStatus: currentItem?.stock_status || null,
+      manualDisabled: currentItem?.manual_disabled === true,
+      autoDisabled: currentItem?.auto_disabled === true,
+      productIsAvailable: current.is_available !== false,
+    },
+    note: dto.note,
+  });
+  await invalidateMerchantCatalogCache(ownerMerchant.id);
+  return {
+    merchantId: ownerMerchant.id,
+    product: result.product,
+    item: result.item,
+    settings: mapOwnerInventorySettings(result.settings),
+  };
+}
+
+export async function confirmOwnerDailyInventoryCheck(ownerUserId, dto = {}) {
+  const merchant = await getOwnerMerchant(ownerUserId);
+  await ensureMerchantPermission(ownerUserId, merchant.id, "edit_products");
+  const result = await repo.confirmOwnerDailyInventoryCheck({
+    merchantId: merchant.id,
+    actorUserId: ownerUserId,
+    modeAtCheck: "strict_daily",
+    note: dto.note,
+  });
+  return {
+    merchantId: merchant.id,
+    settings: mapOwnerInventorySettings(result.settings),
+    todayCheck: mapOwnerDailyCheck(result.check),
+  };
 }
 
 /**
@@ -2252,6 +2430,7 @@ export async function updateOrderStatus(
     throw err;
   }
   invalidateOrderListCacheForUser(updated.customer_user_id);
+  return updated;
 }
 
 /**
@@ -2348,9 +2527,32 @@ export async function markOrderItemUnavailable(
       productId: Number(target.product_id),
       productName: target.product_name,
       merchantName: target.merchant_name,
+      previousTotalAmount: Number(target.previous_total_amount || 0),
+      nextTotalAmount: Number(target.next_total_amount || 0),
       target: "order_tracking",
     },
   });
+  if (target.delivery_user_id) {
+    await createNotification({
+      userId: target.delivery_user_id,
+      type: "delivery_order_invoice_updated",
+      title: "Order invoice updated",
+      body: `Removed ${target.product_name} from order #${target.order_id} because it is unavailable.`,
+      orderId: Number(target.order_id),
+      merchantId: Number(target.merchant_id),
+      payload: {
+        orderId: Number(target.order_id),
+        productId: Number(target.product_id),
+        productName: target.product_name,
+        merchantName: target.merchant_name,
+        previousTotalAmount: Number(target.previous_total_amount || 0),
+        nextTotalAmount: Number(target.next_total_amount || 0),
+        target: "delivery_order_detail",
+      },
+    });
+    invalidateOrderListCacheForUser(target.delivery_user_id);
+  }
+  invalidateOrderListCacheForUser(target.customer_user_id);
   await invalidateMerchantCatalogCache(target.merchant_id);
 
   return repo.findOwnerProductById(ownerUserId, Number(productId));

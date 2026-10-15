@@ -5,10 +5,12 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_linux
   charset_converter
+  ffmpeg_kit_flutter_new
   file_selector_linux
   flutter_secure_storage_linux
   flutter_webrtc
   gtk
+  livekit_client
   printing
   record_linux
   sentry_flutter

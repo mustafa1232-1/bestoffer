@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/i18n/app_localizations_context.dart';
 import '../../models/social_models.dart';
+import '../../../../core/i18n/locale_text.dart';
+import 'social_design_theme.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -33,7 +35,8 @@ class SocialStoriesStrip extends StatelessWidget {
       return const SizedBox.shrink();
     }
     return SizedBox(
-      height: 104,
+      height:
+          98 + (MediaQuery.textScalerOf(context).scale(11) - 11).clamp(0, 22),
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
@@ -83,7 +86,6 @@ class _AddStoryCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,
@@ -96,17 +98,18 @@ class _AddStoryCircle extends StatelessWidget {
               height: 68,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.12),
-                border: Border.all(
-                  color: const Color(0xFF22D3EE).withValues(alpha: 0.9),
-                  width: 2,
-                ),
+                color: SocialDesignTheme.indigo,
+                border: Border.all(color: SocialDesignTheme.gold, width: 2),
               ),
-              child: const Icon(Icons.add_rounded, size: 28),
+              child: const Icon(
+                Icons.add_rounded,
+                size: 28,
+                color: SocialDesignTheme.gold,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
-              l10n.socialStoriesStripAdd,
+              context.lt(ar: 'قصتك', en: 'Your story'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
@@ -128,8 +131,8 @@ class _StoryCircle extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasImage = (group.author.imageUrl ?? '').trim().isNotEmpty;
     final ringColor = group.hasUnviewed
-        ? const Color(0xFF22D3EE)
-        : Colors.white.withValues(alpha: 0.38);
+        ? SocialDesignTheme.gold
+        : const Color(0xFFB9B7B1);
     return InkWell(
       borderRadius: BorderRadius.circular(14),
       onTap: onTap,

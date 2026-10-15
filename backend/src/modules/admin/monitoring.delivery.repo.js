@@ -172,6 +172,8 @@ export async function listCouriersForMonitoring({
        cp.total_completed_orders,
        p.is_online,
        p.updated_at AS presence_updated_at,
+       (p.is_online = TRUE AND p.updated_at >= NOW() - INTERVAL '90 seconds') AS presence_fresh,
+       ROUND(EXTRACT(EPOCH FROM NOW() - p.updated_at))::int AS presence_age_seconds,
        p.current_order_id,
        EXISTS (
          SELECT 1
@@ -185,6 +187,19 @@ export async function listCouriersForMonitoring({
          WHERE dj.delivery_user_id = cp.user_id
            AND dj.assignment_status = 'ASSIGNED'
        ) AS busy,
+       (
+         SELECT COUNT(*)::int
+         FROM customer_order active_order
+         WHERE active_order.delivery_user_id = cp.user_id
+           AND active_order.delivery_assignment_status = 'ASSIGNED'
+       ) AS active_order_count,
+       (
+         SELECT COUNT(*)::int
+         FROM courier_assignment open_assignment
+         WHERE open_assignment.courier_user_id = cp.user_id
+           AND open_assignment.ended_at IS NULL
+           AND open_assignment.status IN ('assigned','accepted')
+       ) AS open_assignment_count,
        (
          SELECT COUNT(*)::int
          FROM customer_order o

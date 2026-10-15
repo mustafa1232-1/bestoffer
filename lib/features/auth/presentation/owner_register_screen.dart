@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
@@ -14,6 +15,7 @@ import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/image_picker_field.dart';
 import '../../merchants/models/store_activity_model.dart';
 import '../../merchants/state/merchants_controller.dart';
@@ -770,6 +772,10 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
     final merchantPhone = merchantPhoneCtrl.text.trim();
     final phone = phoneCtrl.text.trim();
     FocusScope.of(context).unfocus();
+    final position = await _captureMerchantPosition();
+    if (position == null) {
+      return;
+    }
 
     try {
       await ref.read(authControllerProvider.notifier).registerOwner({
@@ -804,6 +810,8 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
         'merchantSupportsPharmacyWorkflow':
             selectedActivity.supportsPharmacyWorkflow,
         'merchantServiceAreaNote': serviceAreaNote,
+        'latitude': position.latitude,
+        'longitude': position.longitude,
         'analyticsConsentAccepted': true,
         'analyticsConsentVersion': 'analytics_v1',
       }, merchantImageFile: merchantImageFile);
@@ -827,6 +835,39 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
         _formError = next.error!.trim();
       });
     }
+  }
+
+  Future<Position?> _captureMerchantPosition() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _formError = context.localizedText(
+          ar: 'يرجى تشغيل خدمة الموقع لتحديد موقع المتجر على الخريطة.',
+          en: 'Please enable location services to set the store location.',
+        );
+      });
+      return null;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      setState(() {
+        _formError = context.localizedText(
+          ar: 'لا يمكن إنشاء المتجر بدون السماح بموقع المتجر.',
+          en: 'Store registration requires location permission.',
+        );
+      });
+      return null;
+    }
+
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+      timeLimit: const Duration(seconds: 12),
+    );
   }
 
   Widget _buildMerchantDetailsStep(
@@ -1176,31 +1217,29 @@ class _ConsentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final tokens = context.maslakiTokens;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: Colors.white.withOpacity(0.06),
-        border: Border.all(color: Colors.white.withOpacity(0.18)),
+        color: tokens.surfacePrimary.withValues(alpha: 0.82),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.76)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.privacy_tip_outlined,
-                color: Colors.white70,
+                color: tokens.primaryAccent,
                 size: 18,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   l10n.ownerRegisterConsentSummary,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 12.5,
-                  ),
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12.5),
                 ),
               ),
               TextButton(
@@ -1216,12 +1255,12 @@ class _ConsentCard extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
               controlAffinity: ListTileControlAffinity.leading,
               value: accepted,
-              activeColor: Colors.cyanAccent.shade400,
-              checkColor: Colors.black,
+              activeColor: tokens.primaryAccent,
+              checkColor: Colors.white,
               onChanged: (value) => onChanged(value == true),
               title: Text(
                 l10n.ownerRegisterConsentCheckbox,
-                style: const TextStyle(color: Colors.white, fontSize: 13),
+                style: TextStyle(color: tokens.textPrimary, fontSize: 13),
               ),
             ),
           ),

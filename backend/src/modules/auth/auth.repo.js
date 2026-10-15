@@ -9,7 +9,9 @@ async function cachedGet(key, ttlSec, fetcher) {
     try {
       const hit = await redis.get(key);
       if (hit !== null) return JSON.parse(hit);
-    } catch (_) { /* cache miss — fall through */ }
+    } catch (_) {
+      /* cache miss — fall through */
+    }
   }
   const value = await fetcher();
   if (redis && value !== null && value !== undefined) {
@@ -37,6 +39,7 @@ export async function findUserByPhone(phone) {
        u.building_number,
        u.apartment,
        u.image_url,
+       u.must_change_pin,
        u.work_title,
        u.work_company,
        u.is_super_admin,
@@ -57,7 +60,7 @@ export async function findUserByPhone(phone) {
      FROM app_user u
      WHERE u.phone_normalized = $1
      LIMIT 1`,
-    [phone]
+    [phone],
   );
 
   return r.rows[0] || null;
@@ -77,6 +80,7 @@ export async function findUserByIdWithAuthFields(id) {
        u.building_number,
        u.apartment,
        u.image_url,
+       u.must_change_pin,
        u.work_title,
        u.work_company,
        u.is_super_admin,
@@ -97,7 +101,7 @@ export async function findUserByIdWithAuthFields(id) {
      FROM app_user u
      WHERE u.id = $1
      LIMIT 1`,
-    [id]
+    [id],
   );
 
   return r.rows[0] || null;
@@ -119,8 +123,12 @@ export async function createUser({
   analyticsConsentVersion = null,
   analyticsConsentGrantedAt = null,
   chatQualityReviewConsent = false,
+  transactionClient = null,
 }) {
-  const r = await q(
+  const query = transactionClient
+    ? transactionClient.query.bind(transactionClient)
+    : q;
+  const r = await query(
     `INSERT INTO app_user
       (
         full_name,
@@ -157,21 +165,23 @@ export async function createUser({
       analyticsConsentVersion,
       analyticsConsentGrantedAt,
       chatQualityReviewConsent === true,
-    ]
+    ],
   );
 
   return r.rows[0];
 }
 
 export async function isUsernameTaken(username) {
-  const normalized = String(username || "").trim().toLowerCase();
+  const normalized = String(username || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) return false;
   const r = await q(
     `SELECT 1
      FROM app_user
      WHERE LOWER(username) = $1
      LIMIT 1`,
-    [normalized]
+    [normalized],
   );
   return Boolean(r.rows[0]);
 }
@@ -241,7 +251,7 @@ export async function upsertUserResidenceInfo({
       imageUrl,
       Number(extractionConfidence) || 0,
       extractedPayload || {},
-    ]
+    ],
   );
 
   return r.rows[0] || null;
@@ -263,6 +273,7 @@ export async function getUserPublicById(id) {
          u.work_title,
          u.work_company,
          u.is_super_admin,
+         u.must_change_pin,
          (EXISTS (
            SELECT 1
            FROM taxi_captain_profile tcp
@@ -270,13 +281,13 @@ export async function getUserPublicById(id) {
          ) AND u.role = 'taxi_captain') AS is_taxi_captain
        FROM app_user u
        WHERE u.id = $1`,
-      [id]
+      [id],
     );
     return r.rows[0] || null;
   });
 }
 
-export async function updateUserAccount({ id, phone, pinHash }) {
+export async function updateUserAccount({ id, phone, pinHash, mustChangePin = null }) {
   const fields = [];
   const values = [];
   let idx = 1;
@@ -291,6 +302,11 @@ export async function updateUserAccount({ id, phone, pinHash }) {
     values.push(pinHash.trim());
   }
 
+  if (typeof mustChangePin === "boolean") {
+    fields.push(`must_change_pin = $${idx++}`);
+    values.push(mustChangePin);
+  }
+
   if (fields.length === 0) return getUserPublicById(id);
 
   invalidateUserPublicCache(id);
@@ -300,14 +316,85 @@ export async function updateUserAccount({ id, phone, pinHash }) {
     `UPDATE app_user
      SET ${fields.join(", ")}
      WHERE id = $${idx}
-     RETURNING id, full_name, phone, preferred_locale, role, block, building_number, apartment, image_url, work_title, work_company, is_super_admin`,
-    values
+     RETURNING id, full_name, phone, preferred_locale, role, block, building_number, apartment, image_url, work_title, work_company, is_super_admin, must_change_pin`,
+    values,
   );
 
   return r.rows[0] || null;
 }
 
-export async function registerFailedLoginAttempt(userId, { maxAttempts, lockMinutes }) {
+export async function setMustChangePin(userId, mustChangePin) {
+  const r = await q(
+    `UPDATE app_user SET must_change_pin = $2 WHERE id = $1
+     RETURNING id, full_name, phone, preferred_locale, role, block,
+       building_number, apartment, image_url, work_title, work_company,
+       is_super_admin, must_change_pin`,
+    [Number(userId), mustChangePin === true],
+  );
+  return r.rows[0] || null;
+}
+
+export async function createPinResetRequest(userId) {
+  const r = await q(
+    `INSERT INTO internal_pin_reset_request (user_id)
+     VALUES ($1)
+     ON CONFLICT (user_id) WHERE status = 'pending'
+     DO UPDATE SET requested_at = NOW(), rejection_reason = NULL
+     RETURNING id, user_id, status, requested_at`,
+    [Number(userId)],
+  );
+  return r.rows[0];
+}
+
+export async function listPinResetRequests() {
+  const r = await q(
+    `SELECT r.id, r.user_id, r.status, r.requested_at, r.reviewed_at,
+       r.reviewed_by_user_id, r.rejection_reason,
+       u.full_name, u.phone, u.role, u.block, u.building_number, u.apartment
+     FROM internal_pin_reset_request r
+     JOIN app_user u ON u.id = r.user_id
+     ORDER BY CASE WHEN r.status = 'pending' THEN 0 ELSE 1 END,
+       r.requested_at DESC
+     LIMIT 200`,
+  );
+  return r.rows;
+}
+
+export async function approvePinResetRequest(requestId, reviewerUserId, pinHash) {
+  const r = await q(
+    `WITH target AS (
+       SELECT id, user_id FROM internal_pin_reset_request
+       WHERE id = $1 AND status = 'pending' FOR UPDATE
+     ), updated_user AS (
+       UPDATE app_user u SET pin_hash = $3, must_change_pin = TRUE
+       FROM target t WHERE u.id = t.user_id RETURNING u.id
+     )
+     UPDATE internal_pin_reset_request r
+     SET status = 'approved', reviewed_at = NOW(), reviewed_by_user_id = $2,
+         approved_temporary_pin_set_at = NOW()
+     FROM target t WHERE r.id = t.id
+     RETURNING r.id, r.user_id, r.status`,
+    [Number(requestId), Number(reviewerUserId), pinHash],
+  );
+  return r.rows[0] || null;
+}
+
+export async function rejectPinResetRequest(requestId, reviewerUserId, reason = null) {
+  const r = await q(
+    `UPDATE internal_pin_reset_request
+     SET status = 'rejected', reviewed_at = NOW(), reviewed_by_user_id = $2,
+         rejection_reason = $3
+     WHERE id = $1 AND status = 'pending'
+     RETURNING id, user_id, status`,
+    [Number(requestId), Number(reviewerUserId), reason ? String(reason).trim() : null],
+  );
+  return r.rows[0] || null;
+}
+
+export async function registerFailedLoginAttempt(
+  userId,
+  { maxAttempts, lockMinutes },
+) {
   const max = Math.max(1, Number(maxAttempts) || 1);
   const lock = Math.max(1, Number(lockMinutes) || 1);
   const r = await q(
@@ -323,7 +410,7 @@ export async function registerFailedLoginAttempt(userId, { maxAttempts, lockMinu
        END
      WHERE id = $1
      RETURNING failed_login_attempts, locked_until`,
-    [Number(userId), max, lock]
+    [Number(userId), max, lock],
   );
   return r.rows[0] || null;
 }
@@ -335,7 +422,7 @@ export async function resetLoginProtection(userId) {
          locked_until = NULL,
          last_login_at = NOW()
      WHERE id = $1`,
-    [Number(userId)]
+    [Number(userId)],
   );
 }
 
@@ -385,7 +472,7 @@ export async function createUserSession({
       deviceSessionId || null,
       recoverySecretHash || null,
       appSurface || null,
-    ]
+    ],
   );
   return r.rows[0] || null;
 }
@@ -438,7 +525,7 @@ export async function findActiveSessionByRefreshToken(refreshToken) {
        AND s.is_revoked = FALSE
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
      LIMIT 1`,
-    [token]
+    [token],
   );
   return r.rows[0] || null;
 }
@@ -503,7 +590,7 @@ export async function withAuthTransaction(callback) {
 
 export async function findRefreshSessionForUpdate(
   client,
-  { refreshToken, refreshTokenHash }
+  { refreshToken, refreshTokenHash },
 ) {
   const token = String(refreshToken || "").trim();
   const tokenHash = String(refreshTokenHash || "").trim();
@@ -523,7 +610,7 @@ export async function findRefreshSessionForUpdate(
      ORDER BY CASE WHEN s.refresh_token = $1 THEN 0 ELSE 1 END
      LIMIT 1
      FOR UPDATE OF s`,
-    [token, tokenHash]
+    [token, tokenHash],
   );
   return r.rows[0] || null;
 }
@@ -546,7 +633,7 @@ export async function rotateUserSessionTokensTx(
     deviceSessionId = null,
     recoverySecretHash = null,
     appSurface = null,
-  }
+  },
 ) {
   const r = await client.query(
     `UPDATE user_session
@@ -586,12 +673,16 @@ export async function rotateUserSessionTokensTx(
       appSurface || null,
       previousRefreshTokenHash || null,
       previousRefreshValidUntil || null,
-    ]
+    ],
   );
   return r.rows[0] || null;
 }
 
-export async function touchRefreshSessionTx(client, sessionId, { ipAddress, userAgent } = {}) {
+export async function touchRefreshSessionTx(
+  client,
+  sessionId,
+  { ipAddress, userAgent } = {},
+) {
   const r = await client.query(
     `UPDATE user_session
      SET ip = COALESCE($2, ip),
@@ -601,7 +692,7 @@ export async function touchRefreshSessionTx(client, sessionId, { ipAddress, user
      WHERE id = $1
        AND is_revoked = FALSE
      RETURNING id, user_id, token_jti, device_fingerprint, is_revoked, expires_at, access_expires_at, last_seen_at, device_session_id, recovery_secret_hash, app_surface, refresh_generation, previous_refresh_token_hash, previous_refresh_valid_until, last_recovered_at`,
-    [Number(sessionId), ipAddress || null, userAgent || null]
+    [Number(sessionId), ipAddress || null, userAgent || null],
   );
   return r.rows[0] || null;
 }
@@ -648,7 +739,7 @@ export async function rotateUserSessionTokens({
       deviceSessionId || null,
       recoverySecretHash || null,
       appSurface || null,
-    ]
+    ],
   );
   return r.rows[0] || null;
 }
@@ -700,12 +791,15 @@ export async function findRecoverableSessionByDeviceSession(deviceSessionId) {
      WHERE s.device_session_id = $1
        AND s.is_revoked = FALSE
      LIMIT 1`,
-    [id]
+    [id],
   );
   return r.rows[0] || null;
 }
 
-export async function findRecoverableSessionByDeviceSessionForUpdate(client, deviceSessionId) {
+export async function findRecoverableSessionByDeviceSessionForUpdate(
+  client,
+  deviceSessionId,
+) {
   const id = String(deviceSessionId || "").trim();
   if (!id) return null;
   const r = await client.query(
@@ -715,7 +809,7 @@ export async function findRecoverableSessionByDeviceSessionForUpdate(client, dev
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
      LIMIT 1
      FOR UPDATE OF s`,
-    [id]
+    [id],
   );
   return r.rows[0] || null;
 }
@@ -731,7 +825,7 @@ export async function recoverUserSessionTx(
     deviceFingerprint = null,
     deviceFingerprintSet = false,
     appSurface = null,
-  }
+  },
 ) {
   const r = await client.query(
     `UPDATE user_session
@@ -756,7 +850,7 @@ export async function recoverUserSessionTx(
       deviceFingerprintSet === true,
       deviceFingerprint || null,
       appSurface || null,
-    ]
+    ],
   );
   return r.rows[0] || null;
 }
@@ -795,12 +889,15 @@ export async function getActiveSessionByAccess({
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
        AND (s.token_jti IS NULL OR s.token_jti = $3)
      LIMIT 1`,
-    [Number(sessionId), Number(userId), tokenJti || null]
+    [Number(sessionId), Number(userId), tokenJti || null],
   );
   return r.rows[0] || null;
 }
 
-export async function touchUserSession(sessionId, { ipAddress, userAgent } = {}) {
+export async function touchUserSession(
+  sessionId,
+  { ipAddress, userAgent } = {},
+) {
   await q(
     `UPDATE user_session
      SET last_seen_at = NOW(),
@@ -809,7 +906,7 @@ export async function touchUserSession(sessionId, { ipAddress, userAgent } = {})
          updated_at = NOW()
      WHERE id = $1
        AND is_revoked = FALSE`,
-    [Number(sessionId), ipAddress || null, userAgent || null]
+    [Number(sessionId), ipAddress || null, userAgent || null],
   );
 }
 
@@ -828,7 +925,11 @@ export async function revokeUserSession({
        AND user_id = $1
        AND is_revoked = FALSE
      RETURNING id`,
-    [Number(userId), Number(sessionId), String(reason || "logout").slice(0, 80)]
+    [
+      Number(userId),
+      Number(sessionId),
+      String(reason || "logout").slice(0, 80),
+    ],
   );
   return r.rows[0] || null;
 }
@@ -854,7 +955,9 @@ export async function revokeAllUserSessionsDetailed({
   const r = await q(sql, params);
   return {
     revokedCount: r.rowCount || 0,
-    revokedSessionIds: r.rows.map((row) => Number(row.id)).filter((id) => id > 0),
+    revokedSessionIds: r.rows
+      .map((row) => Number(row.id))
+      .filter((id) => id > 0),
   };
 }
 
@@ -879,7 +982,7 @@ export async function listUserActiveSessions(userId) {
      WHERE user_id = $1
        AND is_revoked = FALSE
      ORDER BY last_seen_at DESC NULLS LAST, id DESC`,
-    [Number(userId)]
+    [Number(userId)],
   );
   return r.rows;
 }
@@ -894,6 +997,8 @@ export async function listCustomerAddresses(customerUserId) {
        block,
        building_number,
        apartment,
+       latitude,
+       longitude,
        is_default,
        is_active,
        created_at,
@@ -902,7 +1007,7 @@ export async function listCustomerAddresses(customerUserId) {
      WHERE customer_user_id = $1
        AND is_active = TRUE
      ORDER BY is_default DESC, id DESC`,
-    [Number(customerUserId)]
+    [Number(customerUserId)],
   );
   return r.rows;
 }
@@ -917,6 +1022,8 @@ export async function getCustomerAddressById(customerUserId, addressId) {
        block,
        building_number,
        apartment,
+       latitude,
+       longitude,
        is_default,
        is_active,
        created_at,
@@ -926,7 +1033,7 @@ export async function getCustomerAddressById(customerUserId, addressId) {
        AND id = $2
        AND is_active = TRUE
      LIMIT 1`,
-    [Number(customerUserId), Number(addressId)]
+    [Number(customerUserId), Number(addressId)],
   );
   return r.rows[0] || null;
 }
@@ -941,6 +1048,8 @@ export async function getCustomerDefaultAddress(customerUserId) {
        block,
        building_number,
        apartment,
+       latitude,
+       longitude,
        is_default,
        is_active,
        created_at,
@@ -950,22 +1059,27 @@ export async function getCustomerDefaultAddress(customerUserId) {
        AND is_active = TRUE
      ORDER BY is_default DESC, id DESC
      LIMIT 1`,
-    [Number(customerUserId)]
+    [Number(customerUserId)],
   );
   return r.rows[0] || null;
 }
 
-export async function createCustomerAddress(customerUserId, dto) {
-  const client = await pool.connect();
+export async function createCustomerAddress(
+  customerUserId,
+  dto,
+  transactionClient = null,
+) {
+  const ownsTransaction = transactionClient == null;
+  const client = transactionClient || (await pool.connect());
   try {
-    await client.query("BEGIN");
+    if (ownsTransaction) await client.query("BEGIN");
 
     const countResult = await client.query(
       `SELECT COUNT(*)::int AS count
        FROM customer_address
        WHERE customer_user_id = $1
          AND is_active = TRUE`,
-      [Number(customerUserId)]
+      [Number(customerUserId)],
     );
     const activeCount = Number(countResult.rows[0]?.count || 0);
     const makeDefault = dto.isDefault === true || activeCount === 0;
@@ -976,7 +1090,7 @@ export async function createCustomerAddress(customerUserId, dto) {
          SET is_default = FALSE
          WHERE customer_user_id = $1
            AND is_active = TRUE`,
-        [Number(customerUserId)]
+        [Number(customerUserId)],
       );
     }
 
@@ -989,19 +1103,23 @@ export async function createCustomerAddress(customerUserId, dto) {
           block,
           building_number,
           apartment,
+          latitude,
+          longitude,
           is_default,
           is_active
         )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,TRUE)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE)
        RETURNING
          id,
          customer_user_id,
          label,
          city,
          block,
-         building_number,
-         apartment,
-         is_default,
+          building_number,
+          apartment,
+          latitude,
+          longitude,
+          is_default,
          is_active,
          created_at,
          updated_at`,
@@ -1012,17 +1130,19 @@ export async function createCustomerAddress(customerUserId, dto) {
         dto.block,
         dto.buildingNumber,
         dto.apartment,
+        dto.latitude == null ? null : Number(dto.latitude),
+        dto.longitude == null ? null : Number(dto.longitude),
         makeDefault,
-      ]
+      ],
     );
 
-    await client.query("COMMIT");
+    if (ownsTransaction) await client.query("COMMIT");
     return insertResult.rows[0] || null;
   } catch (e) {
-    await client.query("ROLLBACK");
+    if (ownsTransaction) await client.query("ROLLBACK").catch(() => {});
     throw e;
   } finally {
-    client.release();
+    if (ownsTransaction) client.release();
   }
 }
 
@@ -1038,7 +1158,7 @@ export async function updateCustomerAddress(customerUserId, addressId, dto) {
          AND id = $2
          AND is_active = TRUE
        LIMIT 1`,
-      [Number(customerUserId), Number(addressId)]
+      [Number(customerUserId), Number(addressId)],
     );
     if (!targetResult.rows[0]) {
       await client.query("ROLLBACK");
@@ -1051,7 +1171,7 @@ export async function updateCustomerAddress(customerUserId, addressId, dto) {
          SET is_default = FALSE
          WHERE customer_user_id = $1
            AND is_active = TRUE`,
-        [Number(customerUserId)]
+        [Number(customerUserId)],
       );
     }
 
@@ -1065,6 +1185,8 @@ export async function updateCustomerAddress(customerUserId, addressId, dto) {
       block: "block",
       buildingNumber: "building_number",
       apartment: "apartment",
+      latitude: "latitude",
+      longitude: "longitude",
       isDefault: "is_default",
     };
 
@@ -1083,9 +1205,11 @@ export async function updateCustomerAddress(customerUserId, addressId, dto) {
            label,
            city,
            block,
-           building_number,
-           apartment,
-           is_default,
+            building_number,
+            apartment,
+            latitude,
+            longitude,
+            is_default,
            is_active,
            created_at,
            updated_at
@@ -1094,7 +1218,7 @@ export async function updateCustomerAddress(customerUserId, addressId, dto) {
            AND id = $2
            AND is_active = TRUE
          LIMIT 1`,
-        [Number(customerUserId), Number(addressId)]
+        [Number(customerUserId), Number(addressId)],
       );
       await client.query("COMMIT");
       return currentResult.rows[0] || null;
@@ -1114,12 +1238,14 @@ export async function updateCustomerAddress(customerUserId, addressId, dto) {
          city,
          block,
          building_number,
-         apartment,
-         is_default,
+          apartment,
+          latitude,
+          longitude,
+          is_default,
          is_active,
          created_at,
          updated_at`,
-      values
+      values,
     );
 
     await client.query("COMMIT");
@@ -1144,7 +1270,7 @@ export async function setCustomerDefaultAddress(customerUserId, addressId) {
          AND id = $2
          AND is_active = TRUE
        LIMIT 1`,
-      [Number(customerUserId), Number(addressId)]
+      [Number(customerUserId), Number(addressId)],
     );
     if (!targetResult.rows[0]) {
       await client.query("ROLLBACK");
@@ -1156,7 +1282,7 @@ export async function setCustomerDefaultAddress(customerUserId, addressId) {
        SET is_default = FALSE
        WHERE customer_user_id = $1
          AND is_active = TRUE`,
-      [Number(customerUserId)]
+      [Number(customerUserId)],
     );
 
     const updateResult = await client.query(
@@ -1177,7 +1303,7 @@ export async function setCustomerDefaultAddress(customerUserId, addressId) {
          is_active,
          created_at,
          updated_at`,
-      [Number(customerUserId), Number(addressId)]
+      [Number(customerUserId), Number(addressId)],
     );
 
     await client.query("COMMIT");
@@ -1202,7 +1328,7 @@ export async function deactivateCustomerAddress(customerUserId, addressId) {
          AND id = $2
          AND is_active = TRUE
        LIMIT 1`,
-      [Number(customerUserId), Number(addressId)]
+      [Number(customerUserId), Number(addressId)],
     );
     const target = targetResult.rows[0];
     if (!target) {
@@ -1216,7 +1342,7 @@ export async function deactivateCustomerAddress(customerUserId, addressId) {
            is_default = FALSE
        WHERE customer_user_id = $1
          AND id = $2`,
-      [Number(customerUserId), Number(addressId)]
+      [Number(customerUserId), Number(addressId)],
     );
 
     if (target.is_default) {
@@ -1227,7 +1353,7 @@ export async function deactivateCustomerAddress(customerUserId, addressId) {
            AND is_active = TRUE
          ORDER BY id DESC
          LIMIT 1`,
-        [Number(customerUserId)]
+        [Number(customerUserId)],
       );
       const nextId = nextDefaultResult.rows[0]?.id;
       if (nextId) {
@@ -1235,7 +1361,7 @@ export async function deactivateCustomerAddress(customerUserId, addressId) {
           `UPDATE customer_address
            SET is_default = TRUE
            WHERE id = $1`,
-          [Number(nextId)]
+          [Number(nextId)],
         );
       }
     }

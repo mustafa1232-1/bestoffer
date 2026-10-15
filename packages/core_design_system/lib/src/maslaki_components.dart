@@ -46,14 +46,21 @@ class MaslakiScreenFrame extends StatelessWidget {
                           title!,
                           textDirection: TextDirection.rtl,
                           style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w900),
+                              ?.copyWith(
+                                fontWeight: FontWeight.w900,
+                                color: context.maslakiTokens.textPrimary,
+                              ),
                         ),
                       if ((subtitle ?? '').trim().isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
                           subtitle!,
                           textDirection: TextDirection.rtl,
-                          style: Theme.of(context).textTheme.bodyMedium,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: context.maslakiTokens.textSecondary,
+                                fontWeight: FontWeight.w700,
+                              ),
                         ),
                       ],
                     ],
@@ -119,19 +126,24 @@ class MaslakiCard extends StatelessWidget {
       padding: padding,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(radius ?? shell.cardRadius),
-        color: backgroundColor ?? tokens.cardPrimary.withValues(alpha: 0.94),
+        color: backgroundColor ?? tokens.cardPrimary.withValues(alpha: 0.98),
         gradient: gradient,
         border: Border.all(
           color:
               borderColor ??
-              tokens.borderSubtle.withValues(alpha: elevated ? 1 : 0.74),
+              tokens.borderSubtle.withValues(alpha: elevated ? 1 : 0.88),
         ),
         boxShadow: elevated
             ? [
                 BoxShadow(
-                  color: visual.accentGold.withValues(alpha: 0.10),
-                  blurRadius: 24,
-                  offset: const Offset(0, 12),
+                  color: tokens.textPrimary.withValues(alpha: 0.07),
+                  blurRadius: 18,
+                  offset: const Offset(0, 8),
+                ),
+                BoxShadow(
+                  color: visual.accentGold.withValues(alpha: 0.08),
+                  blurRadius: 28,
+                  offset: const Offset(0, 14),
                 ),
               ]
             : const [],
@@ -180,9 +192,10 @@ class MaslakiSectionHeader extends StatelessWidget {
                 Text(
                   subtitle!,
                   textDirection: TextDirection.rtl,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: tokens.textMuted),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: tokens.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ],
             ],
@@ -217,7 +230,6 @@ class MaslakiTopBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.maslakiTokens;
-    final visual = context.visualTheme;
     return AppBar(
       toolbarHeight: 82,
       centerTitle: centerTitle,
@@ -260,7 +272,8 @@ class MaslakiTopBar extends StatelessWidget implements PreferredSizeWidget {
               overflow: TextOverflow.ellipsis,
               textDirection: TextDirection.rtl,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: visual.accentCyan.withValues(alpha: 0.84),
+                color: tokens.textSecondary,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -298,8 +311,9 @@ class MaslakiSearchField extends StatelessWidget {
     return MaslakiCard(
       elevated: false,
       radius: shell.fieldRadius,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      backgroundColor: tokens.surfaceSecondary.withValues(alpha: 0.76),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      backgroundColor: tokens.surfacePrimary,
+      borderColor: tokens.borderSubtle.withValues(alpha: 0.95),
       child: TextField(
         controller: controller,
         onChanged: onChanged,
@@ -315,6 +329,14 @@ class MaslakiSearchField extends StatelessWidget {
           enabledBorder: InputBorder.none,
           focusedBorder: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: tokens.textMuted,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+          color: tokens.textPrimary,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -402,7 +424,7 @@ class MaslakiStatusPill extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
         color: resolved.withValues(alpha: 0.12),
-        border: Border.all(color: resolved.withValues(alpha: 0.44)),
+        border: Border.all(color: resolved.withValues(alpha: 0.56)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -452,12 +474,12 @@ class MaslakiChip extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(context.maslakiShell.chipRadius),
           color: selected
-              ? tokens.primaryAccent.withValues(alpha: 0.18)
-              : tokens.surfaceSecondary.withValues(alpha: 0.64),
+              ? tokens.primaryAccent.withValues(alpha: 0.16)
+              : tokens.surfacePrimary.withValues(alpha: 0.98),
           border: Border.all(
             color: selected
-                ? tokens.primaryAccent.withValues(alpha: 0.76)
-                : tokens.borderSubtle.withValues(alpha: 0.84),
+                ? tokens.primaryAccent.withValues(alpha: 0.90)
+                : tokens.borderSubtle.withValues(alpha: 0.92),
           ),
         ),
         child: Row(
@@ -475,7 +497,7 @@ class MaslakiChip extends StatelessWidget {
               label,
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: selected ? tokens.primaryAccent : tokens.textSecondary,
-                fontWeight: FontWeight.w800,
+                fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
               ),
             ),
           ],
@@ -587,27 +609,42 @@ class MaslakiMetricCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.maslakiTokens;
     return MaslakiCard(
-      padding: const EdgeInsets.all(MaslakiSpacing.sm),
+      padding: const EdgeInsets.all(MaslakiSpacing.md),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Align(
             alignment: Alignment.centerLeft,
-            child: Icon(icon, color: tokens.primaryAccent),
+            child: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: tokens.primaryAccent.withValues(alpha: 0.12),
+                border: Border.all(
+                  color: tokens.primaryAccent.withValues(alpha: 0.24),
+                ),
+              ),
+              child: Icon(icon, color: tokens.primaryAccent, size: 21),
+            ),
           ),
-          const SizedBox(height: MaslakiSpacing.md),
+          const SizedBox(height: MaslakiSpacing.sm),
           Text(
             value,
             textDirection: TextDirection.rtl,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: tokens.textPrimary,
+              fontWeight: FontWeight.w900,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
             label,
             textDirection: TextDirection.rtl,
-            style: Theme.of(context).textTheme.bodySmall,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: tokens.textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -666,7 +703,8 @@ class MaslakiListRowCard extends StatelessWidget {
                     title,
                     textDirection: TextDirection.rtl,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      color: tokens.textPrimary,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
                   if ((subtitle ?? '').trim().isNotEmpty) ...[
@@ -674,7 +712,10 @@ class MaslakiListRowCard extends StatelessWidget {
                     Text(
                       subtitle!,
                       textDirection: TextDirection.rtl,
-                      style: Theme.of(context).textTheme.bodySmall,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: tokens.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ],

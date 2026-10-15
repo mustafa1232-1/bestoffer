@@ -73,6 +73,8 @@ class _FakeApi implements ReelUploadApi {
   int createCalls = 0;
   int publishCalls = 0;
   final List<String> publishKeys = [];
+  final List<String> sessionKeys = [];
+  int? lastSessionSize;
   Map<String, dynamic>? lastReelStyle;
 
   @override
@@ -85,6 +87,8 @@ class _FakeApi implements ReelUploadApi {
     final failure = createFailure;
     if (failure != null) throw failure;
     createCalls++;
+    sessionKeys.add(idempotencyKey);
+    lastSessionSize = sizeBytes;
     return (uploadUrl: 'https://upload.test/tus/x', assetId: 555);
   }
 
@@ -114,6 +118,39 @@ class _FakeApi implements ReelUploadApi {
   }
 }
 
+class _DelayedApi extends _FakeApi {
+  _DelayedApi({this.delaySession = false});
+  final bool delaySession;
+  final entered = Completer<void>();
+  final proceed = Completer<void>();
+
+  @override
+  Future<({String uploadUrl, int assetId})> createUploadSession({
+    required int sizeBytes,
+    required String mimeType,
+    required String fileName,
+    required String idempotencyKey,
+  }) async {
+    if (delaySession) {
+      entered.complete();
+      await proceed.future;
+    }
+    return super.createUploadSession(
+      sizeBytes: sizeBytes,
+      mimeType: mimeType,
+      fileName: fileName,
+      idempotencyKey: idempotencyKey,
+    );
+  }
+
+  @override
+  Future<String> pollStatus(int assetId) async {
+    entered.complete();
+    await proceed.future;
+    return 'ready';
+  }
+}
+
 const _video = PickedSocialMedia(
   path: '/tmp/reel.mp4',
   name: 'reel.mp4',
@@ -126,19 +163,207 @@ ReelComposerController _controller(_FakeApi api) {
   return ReelComposerController(
     api: api,
     idempotencyKey: 'idem-1',
-    tusFactory: ({required uploadUrl, required totalBytes, required assetId}) {
-      return TusUploadClient(
-        transport: _OkServer(totalBytes),
-        uploadUrl: uploadUrl,
-        totalBytes: totalBytes,
-        assetId: assetId,
-        chunkSize: totalBytes,
-      );
-    },
+    tusFactory:
+        ({
+          required uploadUrl,
+          required totalBytes,
+          required assetId,
+          required video,
+        }) {
+          return TusUploadClient(
+            transport: _OkServer(totalBytes),
+            uploadUrl: uploadUrl,
+            totalBytes: totalBytes,
+            assetId: assetId,
+            chunkSize: totalBytes,
+          );
+        },
   );
 }
 
 void main() {
+  test('edited media is used for both upload session and transport', () async {
+    final api = _FakeApi(statuses: const ['ready']);
+    const edited = PickedSocialMedia(
+      path: '/tmp/edited.mp4',
+      name: 'edited.mp4',
+      mimeType: 'video/mp4',
+      sizeBytes: 100,
+      type: PickedMediaType.video,
+    );
+    PickedSocialMedia? transported;
+    final controller = ReelComposerController(
+      api: api,
+      idempotencyKey: 'edited',
+      tusFactory:
+          ({
+            required uploadUrl,
+            required totalBytes,
+            required assetId,
+            required video,
+          }) {
+            transported = video;
+            expect(totalBytes, edited.sizeBytes);
+            return TusUploadClient(
+              transport: _OkServer(totalBytes),
+              uploadUrl: uploadUrl,
+              totalBytes: totalBytes,
+              assetId: assetId,
+              chunkSize: totalBytes,
+            );
+          },
+    );
+    final stages = <ReelComposerStage>[];
+    controller.addListener(() => stages.add(controller.stage));
+    await controller.publish(
+      video: _video,
+      caption: 'edited',
+      audience: 'public',
+      prepareVideo: (progress, cancellation) async {
+        progress(0.5);
+        return edited;
+      },
+    );
+    expect(transported, same(edited));
+    expect(api.lastSessionSize, edited.sizeBytes);
+    expect(stages.first, ReelComposerStage.preparing);
+    expect(controller.stage, ReelComposerStage.published);
+    controller.dispose();
+  });
+
+  test(
+    'changed source after failure receives a fresh upload session key',
+    () async {
+      final api = _FakeApi(statuses: const ['failed']);
+      final controller = _controller(api);
+      await controller.publish(video: _video, caption: '', audience: 'public');
+      await controller.publish(video: _video, caption: '', audience: 'public');
+      expect(api.sessionKeys[0], api.sessionKeys[1]);
+      const edited = PickedSocialMedia(
+        path: '/tmp/changed.mp4',
+        name: 'changed.mp4',
+        mimeType: 'video/mp4',
+        sizeBytes: 10,
+        type: PickedMediaType.video,
+      );
+      await controller.publish(video: edited, caption: '', audience: 'public');
+      expect(api.sessionKeys.last, isNot(api.sessionKeys.first));
+      controller.dispose();
+    },
+  );
+
+  test(
+    'cancelling preparation cancels exporter and never creates upload session',
+    () async {
+      final api = _FakeApi(statuses: const ['ready']);
+      final controller = _controller(api);
+      final started = Completer<CancelToken>();
+      final finished = Completer<PickedSocialMedia>();
+      final publishing = controller.publish(
+        video: _video,
+        caption: '',
+        audience: 'public',
+        prepareVideo: (progress, cancellation) {
+          started.complete(cancellation);
+          return finished.future;
+        },
+      );
+      final cancellation = await started.future;
+      controller.cancelUpload();
+      expect(cancellation.isCancelled, isTrue);
+      finished.complete(_video);
+      await publishing;
+      expect(controller.stage, ReelComposerStage.cancelled);
+      expect(api.createCalls, 0);
+      expect(api.publishCalls, 0);
+      controller.dispose();
+    },
+  );
+
+  test('preparation failure keeps a safe error and permits retry', () async {
+    final api = _FakeApi(statuses: const ['ready']);
+    final controller = _controller(api);
+    await controller.publish(
+      video: _video,
+      caption: '',
+      audience: 'public',
+      prepareVideo: (_, _) async => throw StateError('private file path'),
+    );
+    expect(controller.stage, ReelComposerStage.failed);
+    expect(controller.error, isNot(contains('private file path')));
+    expect(api.createCalls, 0);
+    await controller.publish(
+      video: _video,
+      caption: '',
+      audience: 'public',
+      prepareVideo: (_, _) async => _video,
+    );
+    expect(controller.stage, ReelComposerStage.published);
+    controller.dispose();
+  });
+  test(
+    'cancelling during session creation prevents upload and publication',
+    () async {
+      final api = _DelayedApi(delaySession: true);
+      final c = _controller(api);
+      final running = c.publish(video: _video, caption: '', audience: 'public');
+      await api.entered.future;
+      c.cancelUpload();
+      api.proceed.complete();
+      await running;
+      expect(c.stage, ReelComposerStage.cancelled);
+      expect(c.assetId, isNull);
+      expect(api.publishCalls, 0);
+      c.dispose();
+    },
+  );
+
+  test(
+    'cancelling while processing cannot publish after the asset becomes ready',
+    () async {
+      final api = _DelayedApi();
+      final c = _controller(api);
+      final running = c.publish(video: _video, caption: '', audience: 'public');
+      await api.entered.future;
+      c.cancelUpload();
+      api.proceed.complete();
+      await running;
+      expect(c.stage, ReelComposerStage.cancelled);
+      expect(api.publishCalls, 0);
+      c.dispose();
+    },
+  );
+
+  test(
+    'disposal while processing does not publish or notify a disposed controller',
+    () async {
+      final api = _DelayedApi();
+      final c = _controller(api);
+      final running = c.publish(video: _video, caption: '', audience: 'public');
+      await api.entered.future;
+      c.dispose();
+      api.proceed.complete();
+      await running;
+      expect(api.publishCalls, 0);
+    },
+  );
+
+  test(
+    'double publish while a session is pending creates one upload',
+    () async {
+      final api = _DelayedApi();
+      final c = _controller(api);
+      final first = c.publish(video: _video, caption: '', audience: 'public');
+      final second = c.publish(video: _video, caption: '', audience: 'public');
+      await api.entered.future;
+      api.proceed.complete();
+      await Future.wait([first, second]);
+      expect(api.createCalls, 1);
+      expect(api.publishCalls, 1);
+      c.dispose();
+    },
+  );
+
   test('full publish lifecycle reaches published', () async {
     final api = _FakeApi();
     final c = _controller(api);
@@ -275,7 +500,12 @@ void main() {
       api: api,
       idempotencyKey: 'idem-resume',
       tusFactory:
-          ({required uploadUrl, required totalBytes, required assetId}) {
+          ({
+            required uploadUrl,
+            required totalBytes,
+            required assetId,
+            required video,
+          }) {
             return TusUploadClient(
               transport: server,
               uploadUrl: uploadUrl,

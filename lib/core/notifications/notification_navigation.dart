@@ -1,11 +1,13 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../calls/in_app_call_overlay_coordinator.dart';
 import '../platform/app_flavor.dart';
 import '../platform/app_platform_capabilities.dart';
 import '../../features/accountant/ui/accountant_dashboard_screen.dart';
 import '../../features/admin/ui/admin_ad_board_screen.dart';
 import '../../features/admin/ui/admin_approvals_hub_screen.dart';
+import '../../features/admin/ui/admin_emergency_requests_screen.dart';
 import '../../features/admin/ui/admin_navigation_pages.dart';
 import '../../features/admin/ui/admin_merchant_approvals_screen.dart';
 import '../../features/admin/ui/admin_receivables_screen.dart';
@@ -14,8 +16,12 @@ import '../../features/admin/ui/admin_social_reports_screen.dart';
 import '../../features/admin/ui/admin_taxi_captain_requests_screen.dart';
 import '../../features/admin/ui/admin_taxi_cash_payments_screen.dart';
 import '../../features/admin/ui/admin_taxi_governance_screen.dart';
+import '../../features/admin/ui/monitoring_detail_screen.dart';
+import '../../features/admin/ui/monitoring_operations_list_screen.dart';
+import '../../features/admin/ui/monitoring_taxi_rides_screen.dart';
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/delivery/ui/courier_pages.dart';
+import '../../features/delivery/ui/delivery_reports_screens.dart';
 import '../../features/delivery/ui/delivery_restricted_screen.dart';
 import '../../features/hr/ui/hr_dashboard_screen.dart';
 import '../../features/hr/ui/hr_employee_portal_screen.dart';
@@ -40,6 +46,7 @@ import '../../features/services/ui/service_offering_details_screen.dart';
 import '../../features/services/ui/service_my_requests_screen.dart';
 import '../../features/services/ui/service_provider_profile_screen.dart';
 import '../../features/services/ui/service_request_details_screen.dart';
+import '../../features/services/ui/emergency_request_tracking_screen.dart';
 import '../../features/services/ui/service_provider_shell.dart';
 import '../../features/services/ui/service_provider_workspace_screen.dart';
 import '../../features/services/ui/services_marketplace_screen.dart';
@@ -52,6 +59,7 @@ import '../../features/social/ui/social_residence_change_screen.dart';
 import '../../features/social/ui/social_restrictions_screen.dart';
 import '../../features/social/ui/social_shell_screen.dart';
 import '../../features/social/ui/social_story_viewer_screen.dart';
+import '../../features/support/ui/support_tickets_screen.dart';
 import '../../features/taxi/ui/taxi_pages.dart';
 import '../../features/taxi/ui/taxi_shared_ride_tracking_screen.dart';
 import '../../features/tracking/ui/delivery_live_tracking_screen.dart';
@@ -82,7 +90,10 @@ class NotificationNavigation {
     final payload = model.payload;
     return NotificationTapPayload(
       requestId:
-          _parseInt(payload?['requestId']) ?? _parseInt(payload?['request_id']),
+          _parseInt(payload?['requestId']) ??
+          _parseInt(payload?['request_id']) ??
+          _parseInt(payload?['ticketId']) ??
+          _parseInt(payload?['ticket_id']),
       orderId:
           model.orderId ??
           _parseInt(payload?['orderId']) ??
@@ -142,6 +153,8 @@ class NotificationNavigation {
       entityId:
           _parseInt(payload?['entityId']) ??
           _parseInt(payload?['entity_id']) ??
+          _parseInt(payload?['ticketId']) ??
+          _parseInt(payload?['ticket_id']) ??
           _parseInt(payload?['listingId']) ??
           _parseInt(payload?['listing_id']),
       scopeType:
@@ -193,6 +206,30 @@ class NotificationNavigation {
     }
     final route = _resolveRoute(auth: auth, payload: payload);
     if (route == null) return;
+
+    final target = resolveTarget(
+      rawTarget: payload.target,
+      type: payload.type,
+      orderId: payload.orderId,
+    );
+    final threadId = payload.threadId;
+    if (target == 'social_call' &&
+        appInAppCallsEnabled &&
+        threadId != null &&
+        threadId > 0) {
+      final key = InAppCallOverlayCoordinator.socialKey(
+        threadId: threadId,
+        sessionId: payload.sessionId,
+      );
+      if (!InAppCallOverlayCoordinator.tryOpen(key)) return;
+      try {
+        await navigator.push(route);
+      } finally {
+        InAppCallOverlayCoordinator.close(key);
+      }
+      return;
+    }
+
     await navigator.push(route);
   }
 
@@ -210,6 +247,7 @@ class NotificationNavigation {
       _ => raw,
     };
     final current = flavor == AppFlavor.taxiCaptain ? 'taxi' : flavor.key;
+    if (flavor == AppFlavor.user && intended == 'company') return true;
     return intended == current;
   }
 
@@ -641,6 +679,7 @@ class NotificationNavigation {
     final isHr = auth.isHr;
     final isAccountant = auth.isAccountant;
     final isCustomer =
+        !auth.isAdminDashboardUser &&
         !auth.isBackoffice &&
         !auth.isOwner &&
         !auth.isDelivery &&
@@ -734,6 +773,15 @@ class NotificationNavigation {
           builder: (_) => const CustomerNotificationsPage(),
         );
       }
+      if (target == 'support_ticket') {
+        final ticketId = entityId ?? payload.requestId;
+        if (ticketId != null && ticketId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => SupportTicketDetailsScreen(ticketId: ticketId),
+          );
+        }
+        return MaterialPageRoute(builder: (_) => const SupportTicketsScreen());
+      }
       if (taxiOfferNotification || taxiChatNotification) {
         return MaterialPageRoute(builder: (_) => const MapPage());
       }
@@ -799,6 +847,9 @@ class NotificationNavigation {
               threadId: threadId,
               isCaller: false,
               initialSessionId: sessionId,
+              remoteDisplayName: payload.remoteDisplayName,
+              initialAction: payload.quickActionId,
+              notificationId: payload.notificationId,
             ),
           );
         }
@@ -937,6 +988,15 @@ class NotificationNavigation {
         return MaterialPageRoute(
           builder: (_) => const ServicesMarketplaceScreen(),
         );
+      }
+      if (target == 'customer_emergency_request') {
+        final requestId = payload.requestId ?? entityId;
+        if ((requestId ?? 0) > 0) {
+          return MaterialPageRoute(
+            builder: (_) =>
+                EmergencyRequestTrackingScreen(requestId: requestId!),
+          );
+        }
       }
       if (target == 'services_provider_workspace') {
         return MaterialPageRoute(
@@ -1126,7 +1186,66 @@ class NotificationNavigation {
       );
     }
 
-    if (auth.isBackoffice) {
+    if (auth.isBackoffice || auth.isStaff) {
+      if (target == 'admin_order_details' ||
+          target == 'admin_orders' ||
+          target == 'admin_orders_monitoring' ||
+          (target == 'order_tracking' && orderId != null)) {
+        if (orderId != null && orderId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => MonitoringDetailScreen(
+              mode: MonitoringDetailMode.order,
+              id: orderId,
+              title: 'Order #$orderId',
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const MonitoringOperationsListScreen(
+            mode: MonitoringOperationsMode.orders,
+          ),
+        );
+      }
+      if (target == 'admin_taxi_ride_details' ||
+          target == 'admin_taxi_rides' ||
+          target == 'admin_taxi_rides_monitoring') {
+        if (rideId != null && rideId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => MonitoringDetailScreen(
+              mode: MonitoringDetailMode.taxiRide,
+              id: rideId,
+              title: 'Ride #$rideId',
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const MonitoringTaxiRidesScreen(),
+        );
+      }
+      if (target == 'admin_marketplace_contacts') {
+        final entity = (payload.targetEntity ?? '').trim().toLowerCase();
+        if (entityId != null && entityId > 0) {
+          if (entity == 'car_listing') {
+            return MaterialPageRoute(
+              builder: (_) => MonitoringDetailScreen(
+                mode: MonitoringDetailMode.carListing,
+                id: entityId,
+                title: 'Car listing #$entityId',
+              ),
+            );
+          }
+          if (entity == 'real_estate_listing') {
+            return MaterialPageRoute(
+              builder: (_) => MonitoringDetailScreen(
+                mode: MonitoringDetailMode.realEstateListing,
+                id: entityId,
+                title: 'Real estate #$entityId',
+              ),
+            );
+          }
+        }
+        return MaterialPageRoute(builder: (_) => const AdminDashboardPage());
+      }
       if (target == 'admin_requests_inbox' ||
           target == 'admin_approval_requests' ||
           target == 'admin_profile_change_requests' ||
@@ -1150,6 +1269,7 @@ class NotificationNavigation {
         return MaterialPageRoute(builder: (_) => const AdminCompetitionsPage());
       }
       if (target == 'admin_support' ||
+          target == 'support_ticket' ||
           target == 'admin_complaints' ||
           target == 'order_revision') {
         return MaterialPageRoute(
@@ -1227,6 +1347,20 @@ class NotificationNavigation {
           target == 'admin_services_reports') {
         return MaterialPageRoute(
           builder: (_) => const AdminApprovalsHubScreen(),
+        );
+      }
+      if (target == 'admin_emergency_request') {
+        final requestId = payload.requestId ?? entityId;
+        if ((requestId ?? 0) > 0) {
+          return MaterialPageRoute(
+            builder: (_) => EmergencyRequestTrackingScreen(
+              requestId: requestId!,
+              adminMode: true,
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const AdminEmergencyRequestsScreen(),
         );
       }
       if (target == 'admin_services_offerings_pending') {
@@ -1322,6 +1456,7 @@ class NotificationNavigation {
         );
       }
       if ((target == 'merchant_order_details' ||
+              target == 'owner_order_details' ||
               target == 'order_tracking' ||
               target == 'order_revision') &&
           orderId != null &&
@@ -1488,6 +1623,11 @@ class NotificationNavigation {
       if (target == 'courier_reports') {
         return MaterialPageRoute(builder: (_) => const CourierReportsPage());
       }
+      if (target == 'courier_reconciliation') {
+        return MaterialPageRoute(
+          builder: (_) => const DeliveryReconciliationScreen(),
+        );
+      }
       if (target == 'courier_notifications') {
         return MaterialPageRoute(
           builder: (_) => const CourierNotificationsPage(),
@@ -1550,7 +1690,9 @@ class NotificationNavigation {
     bool allowsModule(String module) {
       if (module.isEmpty) return true;
       if (module == 'social' || module == 'jobs') return true;
-      if (auth.isBackoffice) return module == 'admin';
+      if (auth.isBackoffice || auth.isStaff || auth.isAdminDashboardUser) {
+        return module == 'admin';
+      }
       if (auth.isOwner) return module == 'merchant';
       if (auth.isHr) return module == 'hr';
       if (auth.isAccountant) return module == 'accountant';
@@ -1561,14 +1703,17 @@ class NotificationNavigation {
 
     bool allowsScope(String scope) {
       if (scope.isEmpty) return true;
-      if (scope == 'admin' || scope == 'deputy_admin') return auth.isBackoffice;
+      if (scope == 'admin' || scope == 'deputy_admin') {
+        return auth.isBackoffice || auth.isStaff || auth.isAdminDashboardUser;
+      }
       if (scope == 'owner' || scope == 'merchant') return auth.isOwner;
       if (scope == 'courier' || scope == 'delivery') return auth.isDelivery;
       if (scope == 'taxi' || scope == 'taxi_captain') return auth.isTaxiCaptain;
       if (scope == 'hr') return auth.isHr;
       if (scope == 'accountant') return auth.isAccountant;
       if (scope == 'customer' || scope == 'user') {
-        return !auth.isBackoffice &&
+        return !auth.isAdminDashboardUser &&
+            !auth.isBackoffice &&
             !auth.isOwner &&
             !auth.isDelivery &&
             !auth.isTaxiCaptain &&
@@ -1584,7 +1729,11 @@ class NotificationNavigation {
   static bool isFlavorAllowedForAuth(AppFlavor flavor, AuthState auth) {
     switch (flavor) {
       case AppFlavor.user:
-        return auth.isCustomer || auth.isGuest || auth.isServiceProvider;
+        return auth.isCustomer ||
+            auth.isGuest ||
+            auth.isServiceProvider ||
+            auth.isAdminDashboardUser ||
+            auth.isStaff;
       case AppFlavor.store:
         return auth.isOwner;
       case AppFlavor.delivery:
@@ -1619,10 +1768,11 @@ class NotificationNavigation {
         builder: (_) => const MerchantNotificationsPage(),
       );
     }
-    if (module == 'admin' && auth.isBackoffice) {
+    if (module == 'admin' &&
+        (auth.isBackoffice || auth.isStaff || auth.isAdminDashboardUser)) {
       return MaterialPageRoute(builder: (_) => const AdminRequestsInboxPage());
     }
-    if (auth.isBackoffice) {
+    if (auth.isBackoffice || auth.isStaff || auth.isAdminDashboardUser) {
       return MaterialPageRoute(builder: (_) => const AdminRequestsInboxPage());
     }
     if (auth.isOwner) {

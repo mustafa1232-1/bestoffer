@@ -108,7 +108,9 @@ class _AdminCollectionsReportScreenState
       _error = null;
     });
     try {
-      final raw = await ref.read(adminApiProvider).adminCollectionsReport(
+      final raw = await ref
+          .read(adminApiProvider)
+          .adminCollectionsReport(
             period: adminFinancialPeriodCode(_period),
             from: _iso(_from),
             to: _iso(_to, endOfDay: true),
@@ -169,6 +171,47 @@ class _AdminCollectionsReportScreenState
     );
   }
 
+  Future<void> _exportExcel() async {
+    final report = _report;
+    if (report == null) return;
+    final l10n = context.l10n;
+    final summary = [
+      '${l10n.commonPeriod}: ${_periodLabel(context)}',
+      '${l10n.adminCollectionsReportTotalCollected}: ${formatIqd(report.summary.totalCollected)}',
+      '${l10n.commonOperations}: ${report.summary.totalOperations}',
+      '${l10n.commonMerchantsCount}: ${report.summary.merchantsCount}',
+    ];
+    await exportAdminFinancialExcelReport(
+      title: l10n.adminCollectionsReportTitle,
+      periodLabel: _periodLabel(context),
+      summaryLines: summary,
+      filenamePrefix: 'admin-collections-report',
+      sheets: [
+        AdminFinancialExcelSheet(
+          name: 'التحصيلات حسب المتجر',
+          headers: [
+            l10n.commonMerchant,
+            l10n.commonOperations,
+            l10n.adminCollectionsReportTotalCollected,
+            l10n.adminCollectionsReportFirstCollection,
+            l10n.adminCollectionsReportLastCollection,
+          ],
+          rows: report.merchants
+              .map(
+                (row) => [
+                  row.merchantName,
+                  row.operationsCount,
+                  row.totalCollected,
+                  row.firstEventAt ?? '-',
+                  row.lastEventAt ?? '-',
+                ],
+              )
+              .toList(growable: false),
+        ),
+      ],
+    );
+  }
+
   void _openMerchant(AdminFinancialMerchantSummaryRow row) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -193,10 +236,7 @@ class _AdminCollectionsReportScreenState
       appBar: AppBar(
         title: Text(l10n.adminCollectionsReportTitle),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
       body: RefreshIndicator(
@@ -232,7 +272,10 @@ class _AdminCollectionsReportScreenState
                 ),
               ),
               const SizedBox(height: 8),
-              AdminFinancialPrintActions(onPrint: _print),
+              AdminFinancialPrintActions(
+                onPrintPdf: _print,
+                onExportExcel: _exportExcel,
+              ),
               const SizedBox(height: 8),
             ],
             if (_loading)
@@ -259,9 +302,7 @@ class _AdminCollectionsReportScreenState
             else if (report == null || report.merchants.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 30),
-                child: Center(
-                  child: Text(l10n.adminCollectionsReportNoData),
-                ),
+                child: Center(child: Text(l10n.adminCollectionsReportNoData)),
               )
             else
               ...report.merchants.map((row) {

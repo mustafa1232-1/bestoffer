@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -35,11 +37,16 @@ class MonitoringDetailScreen extends ConsumerStatefulWidget {
 
 class _MonitoringDetailScreenState
     extends ConsumerState<MonitoringDetailScreen> {
+  static const Duration _autoRefreshInterval = Duration(seconds: 15);
+
   bool _loading = true;
+  bool _loadInFlight = false;
   bool _includeSensitive = false;
+  bool _assigningCourier = false;
   String? _reason;
   String? _error;
   Map<String, dynamic>? _payload;
+  Timer? _autoRefreshTimer;
 
   bool get _canReveal => switch (widget.mode) {
     MonitoringDetailMode.taxiRide ||
@@ -55,13 +62,37 @@ class _MonitoringDetailScreenState
   void initState() {
     super.initState();
     _load();
+    if (_supportsAutoRefresh) {
+      _autoRefreshTimer = Timer.periodic(_autoRefreshInterval, (_) {
+        if (!mounted || _loadInFlight || _assigningCourier) return;
+        unawaited(_load(silent: true));
+      });
+    }
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  bool get _supportsAutoRefresh =>
+      widget.mode == MonitoringDetailMode.order ||
+      widget.mode == MonitoringDetailMode.deliveryCourier;
+
+  Future<void> _load({bool silent = false}) async {
+    if (_loadInFlight) return;
+    _loadInFlight = true;
+    if (silent) {
+      if (_error != null && mounted) {
+        setState(() => _error = null);
+      }
+    } else {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final api = ref.read(adminApiProvider);
       final data = switch (widget.mode) {
@@ -106,6 +137,7 @@ class _MonitoringDetailScreenState
       setState(() => _payload = data);
     } catch (error) {
       if (!mounted) return;
+      if (silent) return;
       setState(() {
         _error = mapAnyError(
           error,
@@ -113,7 +145,8 @@ class _MonitoringDetailScreenState
         );
       });
     } finally {
-      if (mounted) setState(() => _loading = false);
+      _loadInFlight = false;
+      if (mounted && !silent) setState(() => _loading = false);
     }
   }
 
@@ -138,6 +171,246 @@ class _MonitoringDetailScreenState
       'reports': reports['items'] ?? const <dynamic>[],
       'reports_total': reports['total'] ?? 0,
     };
+  }
+
+  Map<String, dynamic> get _orderPayload {
+    final order = _payload?['order'];
+    if (order is Map) return Map<String, dynamic>.from(order);
+    return const <String, dynamic>{};
+  }
+
+  int _asInt(Object? value) => int.tryParse('$value') ?? 0;
+
+  String _presenceLabel(Map<String, dynamic> courier) {
+    final online = courier['is_online'] == true;
+    final fresh = courier['presence_fresh'] == true;
+    final ageSeconds = _asInt(courier['presence_age_seconds']);
+    if (!online) return 'offline';
+    if (fresh) return 'fresh presence';
+    if (ageSeconds <= 0) return 'online, no fresh heartbeat';
+    if (ageSeconds < 60) return 'last heartbeat ${ageSeconds}s ago';
+    final minutes = ageSeconds ~/ 60;
+    if (minutes < 60) return 'last heartbeat ${minutes}m ago';
+    final hours = minutes ~/ 60;
+    final restMinutes = minutes % 60;
+    if (restMinutes == 0) return 'last heartbeat ${hours}h ago';
+    return 'last heartbeat ${hours}h ${restMinutes}m ago';
+  }
+
+  Future<void> _assignMonitoringCourier(
+    int? courierUserId, {
+    required bool allowBusyCourier,
+    String? note,
+  }) async {
+    if (_assigningCourier) return;
+    setState(() => _assigningCourier = true);
+    try {
+      final api = ref.read(adminApiProvider);
+      await api.assignMonitoringOrderCourier(
+        widget.id,
+        courierUserId: courierUserId,
+        allowBusyCourier: allowBusyCourier,
+        note: note,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            courierUserId == null
+                ? 'Courier removed from order.'
+                : 'Courier assigned to order.',
+          ),
+        ),
+      );
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(
+              error,
+              fallback: 'Unable to update courier assignment.',
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _assigningCourier = false);
+    }
+  }
+
+  Future<void> _openCourierPicker() async {
+    final api = ref.read(adminApiProvider);
+    List<Map<String, dynamic>> couriers = const <Map<String, dynamic>>[];
+    try {
+      final data = await api.monitoringDeliveryCouriers(
+        status: 'online',
+        limit: 100,
+      );
+      couriers = ((data['items'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(error, fallback: 'Unable to load couriers.'),
+          ),
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    final selected = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Assign courier'),
+          content: SizedBox(
+            width: 520,
+            height: 420,
+            child: couriers.isEmpty
+                ? const Center(child: Text('No couriers found.'))
+                : ListView.separated(
+                    itemCount: couriers.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final courier = couriers[index];
+                      final activeCount = _asInt(courier['active_order_count']);
+                      final busy = courier['busy'] == true || activeCount > 0;
+                      final fresh = courier['presence_fresh'] == true;
+                      final presenceLabel = _presenceLabel(courier);
+                      return ListTile(
+                        leading: Icon(
+                          busy
+                              ? Icons.delivery_dining_rounded
+                              : Icons.person_pin_circle_rounded,
+                        ),
+                        title: Text(
+                          '${courier['full_name'] ?? courier['user_id']}',
+                        ),
+                        subtitle: Text(
+                          '${courier['availability_status'] ?? '-'} - '
+                          '${courier['coverage_block'] ?? '-'} - '
+                          'active: $activeCount\n'
+                          '$presenceLabel',
+                        ),
+                        trailing: courier['is_online'] == true
+                            ? Icon(
+                                Icons.wifi_tethering_rounded,
+                                color: fresh ? Colors.green : Colors.orange,
+                              )
+                            : const Icon(Icons.wifi_off_rounded),
+                        onTap: () => Navigator.of(context).pop(courier),
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+    if (selected == null || !mounted) return;
+
+    final courierId = _asInt(selected['user_id']);
+    if (courierId <= 0) return;
+    final activeCount = _asInt(selected['active_order_count']);
+    final busy = selected['busy'] == true || activeCount > 0;
+    final stalePresence =
+        selected['is_online'] == true && selected['presence_fresh'] != true;
+    var allowBusy = false;
+    if (busy) {
+      allowBusy =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Courier already has an order'),
+              content: Text(
+                'This courier has $activeCount active order(s). Assign this order too?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Assign anyway'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!allowBusy) return;
+    }
+    if (!mounted) return;
+    if (stalePresence) {
+      final confirmed =
+          await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Courier presence is stale'),
+              content: Text(
+                '${_presenceLabel(selected)}. Assign this order anyway?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Assign anyway'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!confirmed) return;
+    }
+
+    await _assignMonitoringCourier(
+      courierId,
+      allowBusyCourier: allowBusy,
+      note: 'Monitoring manual assignment',
+    );
+  }
+
+  Future<void> _removeCourier() async {
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Remove courier'),
+            content: const Text('Remove the current courier from this order?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+    await _assignMonitoringCourier(
+      null,
+      allowBusyCourier: false,
+      note: 'Monitoring manual removal',
+    );
   }
 
   Future<void> _revealSensitive() async {
@@ -228,6 +501,18 @@ class _MonitoringDetailScreenState
         rows: _summaryRows(payload),
       ),
     ];
+
+    if (widget.mode == MonitoringDetailMode.order) {
+      children.add(const SizedBox(height: MaslakiSpacing.sm));
+      children.add(
+        _OrderCourierActions(
+          order: _orderPayload,
+          busy: _assigningCourier,
+          onAssign: _openCourierPicker,
+          onRemove: _removeCourier,
+        ),
+      );
+    }
 
     for (final entry in payload.entries) {
       if (_isScalar(entry.value)) continue;
@@ -481,6 +766,74 @@ class _MonitoringDetailScreenState
       return 'تسلسل الأحداث من الإنشاء حتى آخر تحديث.';
     }
     return null;
+  }
+}
+
+class _OrderCourierActions extends StatelessWidget {
+  const _OrderCourierActions({
+    required this.order,
+    required this.busy,
+    required this.onAssign,
+    required this.onRemove,
+  });
+
+  final Map<String, dynamic> order;
+  final bool busy;
+  final VoidCallback onAssign;
+  final VoidCallback onRemove;
+
+  int _asInt(Object? value) => int.tryParse('$value') ?? 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final deliveryUserId = _asInt(order['delivery_user_id']);
+    final hasCourier = deliveryUserId > 0;
+    final status = '${order['delivery_assignment_status'] ?? '-'}';
+    final name = '${order['delivery_name'] ?? '-'}';
+
+    return MaslakiCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.delivery_dining_rounded, size: 20),
+              const SizedBox(width: MaslakiSpacing.sm),
+              Expanded(
+                child: Text(
+                  'Courier assignment',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: MaslakiSpacing.sm),
+          Text('Current: $name - $status'),
+          const SizedBox(height: MaslakiSpacing.md),
+          Wrap(
+            spacing: MaslakiSpacing.sm,
+            runSpacing: MaslakiSpacing.sm,
+            children: [
+              FilledButton.icon(
+                onPressed: busy ? null : onAssign,
+                icon: busy
+                    ? const SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.person_search_rounded),
+                label: Text(hasCourier ? 'Change courier' : 'Assign courier'),
+              ),
+              OutlinedButton.icon(
+                onPressed: busy || !hasCourier ? null : onRemove,
+                icon: const Icon(Icons.person_remove_rounded),
+                label: const Text('Remove courier'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 }
 

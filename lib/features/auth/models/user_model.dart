@@ -14,7 +14,9 @@ class UserModel {
   final String? workCompany;
   final String? preferredLocale;
   final bool isSuperAdmin;
+  final bool isServicesOperator;
   final bool isTaxiCaptain;
+  final bool mustChangePin;
 
   UserModel({
     required this.id,
@@ -29,7 +31,9 @@ class UserModel {
     required this.workCompany,
     required this.preferredLocale,
     required this.isSuperAdmin,
+    this.isServicesOperator = false,
     this.isTaxiCaptain = false,
+    this.mustChangePin = false,
   });
 
   factory UserModel.fromJson(Map<String, dynamic> j) => UserModel(
@@ -52,8 +56,16 @@ class UserModel {
       j['is_super_admin'] ?? j['isSuperAdmin'] ?? j['sa'],
       fallback: false,
     ),
+    isServicesOperator: parseBool(
+      j['is_services_operator'] ?? j['isServicesOperator'],
+      fallback: false,
+    ),
     isTaxiCaptain: parseBool(
       j['is_taxi_captain'] ?? j['isTaxiCaptain'],
+      fallback: false,
+    ),
+    mustChangePin: parseBool(
+      j['mustChangePin'] ?? j['must_change_pin'],
       fallback: false,
     ),
   );
@@ -70,7 +82,9 @@ class UserModel {
     String? workCompany,
     String? preferredLocale,
     bool? isSuperAdmin,
+    bool? isServicesOperator,
     bool? isTaxiCaptain,
+    bool? mustChangePin,
     bool clearImageUrl = false,
     bool clearWorkTitle = false,
     bool clearWorkCompany = false,
@@ -90,7 +104,9 @@ class UserModel {
       workCompany: clearWorkCompany ? null : (workCompany ?? this.workCompany),
       preferredLocale: preferredLocale ?? this.preferredLocale,
       isSuperAdmin: isSuperAdmin ?? this.isSuperAdmin,
+      isServicesOperator: isServicesOperator ?? this.isServicesOperator,
       isTaxiCaptain: isTaxiCaptain ?? this.isTaxiCaptain,
+      mustChangePin: mustChangePin ?? this.mustChangePin,
     );
   }
 }

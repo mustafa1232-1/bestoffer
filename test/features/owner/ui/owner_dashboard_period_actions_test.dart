@@ -83,10 +83,10 @@ void main() {
         ),
       );
 
-      expect(find.text('إجمالي المبيعات'), findsWidgets);
+      expect(find.text('قيمة المنتجات'), findsWidgets);
       expect(find.text('تقارير الفترات'), findsOneWidget);
 
-      await tester.tap(find.text('إجمالي المبيعات').first);
+      await tester.tap(find.text('قيمة المنتجات').first);
       await tester.pumpAndSettle();
       expect(reportCalls.last['period'], 'all');
       expect(reportCalls.last['title'], 'الإجمالي');

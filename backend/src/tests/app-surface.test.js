@@ -7,6 +7,7 @@ import {
   isRoleAllowedForSurface,
   normalizeAppSurface,
   resolveRequestAppSurface,
+  resolveRouteAppSurface,
   resolveRoleAppSurface,
 } from "../shared/utils/app-surface.js";
 import { signAccessToken } from "../shared/utils/jwt.js";
@@ -40,8 +41,78 @@ test("resolveRequestAppSurface prefers flavor headers and falls back to routes",
       headers: {},
       originalUrl: "/api/hr/dashboard",
     }),
-    "company"
+    null
   );
+  assert.equal(resolveRouteAppSurface("/api/hr/dashboard"), null);
+});
+
+test("HR routes accept their two legitimate surfaces without weakening role matching", async () => {
+  const jwtSecretSnapshot = env.jwtSecret;
+  const legacySnapshot = env.authAllowLegacyTokens;
+  try {
+    if (!env.jwtSecret || String(env.jwtSecret).length < 32) {
+      env.jwtSecret = "unit-test-jwt-secret-0000000000000000";
+    }
+    env.authAllowLegacyTokens = true;
+
+    for (const entry of [
+      { role: "owner", surface: "store" },
+      { role: "hr", surface: "company" },
+    ]) {
+      const token = signAccessToken(
+        {
+          id: 99,
+          role: entry.role,
+          isSuperAdmin: false,
+          appSurface: entry.surface,
+        },
+        {}
+      );
+      const auth = await resolveAccessAuth(
+        {
+          headers: {
+            authorization: `Bearer ${token}`,
+            "x-app-flavor": entry.surface,
+            "x-client-platform": `flutter:${entry.surface}`,
+            "user-agent": "unit-test",
+          },
+          originalUrl: "/api/hr/dashboard",
+        },
+        { strict: true }
+      );
+      assert.equal(auth.role, entry.role);
+      assert.equal(auth.requestSurface, entry.surface);
+    }
+
+    const ownerToken = signAccessToken(
+      {
+        id: 99,
+        role: "owner",
+        isSuperAdmin: false,
+        appSurface: "store",
+      },
+      {}
+    );
+    await assert.rejects(
+      () =>
+        resolveAccessAuth(
+          {
+            headers: {
+              authorization: `Bearer ${ownerToken}`,
+              "x-app-flavor": "company",
+              "x-client-platform": "flutter:company",
+              "user-agent": "unit-test",
+            },
+            originalUrl: "/api/hr/dashboard",
+          },
+          { strict: true }
+        ),
+      (error) => error?.message === "FORBIDDEN_APP_SURFACE" && error?.status === 403
+    );
+  } finally {
+    env.jwtSecret = jwtSecretSnapshot;
+    env.authAllowLegacyTokens = legacySnapshot;
+  }
 });
 
 test("role to surface mapping rejects cross-flavor access", () => {

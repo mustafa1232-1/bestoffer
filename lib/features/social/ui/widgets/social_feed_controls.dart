@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/i18n/app_localizations_context.dart';
+import '../../../../core/i18n/locale_text.dart';
 
 class SocialFeedActionStrip extends StatelessWidget {
   const SocialFeedActionStrip({
@@ -187,14 +188,17 @@ class SocialFeedEmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Text(
-              l10n.socialFeedControlsEmptyTitle,
+              context.lt(ar: 'بعد ماكو منشورات هنا', en: 'No posts here yet'),
               style: Theme.of(
                 context,
               ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
             ),
             const SizedBox(height: 8),
             Text(
-              l10n.socialFeedControlsEmptyBody,
+              context.lt(
+                ar: 'اكتشف مجتمعك وتابع الأشخاص القريبين منك',
+                en: 'Explore your community and follow people around you',
+              ),
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: scheme.onSurfaceVariant,

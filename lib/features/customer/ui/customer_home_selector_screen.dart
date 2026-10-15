@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -26,6 +27,8 @@ import '../../customer/models/recent_activity.dart';
 import '../../customer/state/customer_ad_board_controller.dart';
 import '../../customer/state/customer_smart_experience_provider.dart';
 import '../../customer/state/recent_activity_controller.dart';
+import '../../coupons/ui/customer_coupons_hub_screen.dart';
+import '../../coupons/data/coupons_api.dart';
 import '../../jobs/ui/jobs_hub_screen.dart';
 import '../../merchants/models/merchant_model.dart';
 import '../../merchants/state/merchants_controller.dart';
@@ -99,7 +102,124 @@ class _CustomerHomeSelectorScreenState
       );
       unawaited(ref.read(recentActivityControllerProvider.notifier).load());
       unawaited(_loadOpenStores());
+      unawaited(_showPendingCouponPopup());
     });
+  }
+
+  Future<void> _showPendingCouponPopup() async {
+    final auth = ref.read(authControllerProvider);
+    if (!auth.isAuthed || !auth.isCustomer) return;
+    Map<String, dynamic>? popup;
+    try {
+      popup = await ref.read(couponsApiProvider).getPendingPopup();
+    } catch (_) {
+      return;
+    }
+    if (!mounted || popup == null) return;
+    final popupData = popup;
+    final couponId = int.tryParse('${popupData['couponId'] ?? ''}') ?? 0;
+    final code = '${popupData['code'] ?? ''}'.trim();
+    final scope = '${popupData['surfaceScope'] ?? 'shopping'}'.trim();
+    final userName = auth.user?.fullName.trim() ?? '';
+    await showGeneralDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: 'coupon',
+      barrierColor: Colors.black.withValues(alpha: 0.30),
+      transitionDuration: const Duration(milliseconds: 280),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) {
+        return BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+          child: Center(
+            child: Material(
+              color: Colors.transparent,
+              child: Container(
+                width: 340,
+                margin: const EdgeInsets.all(24),
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x33000000),
+                      blurRadius: 28,
+                      offset: Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.redeem_rounded,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '${popupData['title'] ?? 'مبروك، حصلت على خصم'}${userName.isEmpty ? '' : ' يا $userName'}',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '${popupData['message'] ?? ''}',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    SelectableText(
+                      code,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            fontWeight: FontWeight.w900,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        child: const Text('استخدم الخصم'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(
+          opacity: animation,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.94, end: 1).animate(animation),
+            child: child,
+          ),
+        );
+      },
+    );
+    if (couponId > 0) {
+      await ref
+          .read(couponsApiProvider)
+          .acknowledgePopup(couponId)
+          .catchError((_) {});
+    }
+    if (!mounted) return;
+    if (scope == 'services') {
+      await _openServicesEntry();
+    } else if (scope == 'taxi') {
+      await _openSection(HomeMainSection.taxi);
+    } else {
+      await _openCouponsHub();
+    }
   }
 
   @override
@@ -317,6 +437,13 @@ class _CustomerHomeSelectorScreenState
             : const ServicesMarketplaceScreen(),
       ),
     );
+  }
+
+  Future<void> _openCouponsHub() async {
+    if (!mounted) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CustomerCouponsHubScreen()));
   }
 
   Future<void> _openMerchant(
@@ -770,7 +897,20 @@ class _CustomerHomeSelectorScreenState
     });
 
     try {
-      final raw = await ref.read(merchantsApiProvider).list();
+      final position = await ref.read(merchantBrowsePositionProvider.future);
+      if (position == null) {
+        if (!mounted) return;
+        setState(() {
+          _bestStore = null;
+          _openStores = const <MerchantModel>[];
+          _openStoresState = OpenStoresUiState.empty;
+        });
+        return;
+      }
+
+      final raw = await ref
+          .read(merchantsApiProvider)
+          .list(latitude: position.latitude, longitude: position.longitude);
 
       final openStores =
           raw
@@ -1071,17 +1211,70 @@ class _CustomerHomeSelectorScreenState
                 padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
                 child: Column(
                   children: [
-                    HomeHeader(
-                      cityLabel: cityLabel,
-                      onMenuTap: useDesktop
-                          ? null
-                          : () {
-                              _scaffoldKey.currentState?.openEndDrawer();
-                            },
-                      onNotificationsTap: _openNotifications,
-                      onLocationTap: _openAddresses,
+                    HomeEntrance(
+                      order: 0,
+                      child: HomeHeader(
+                        cityLabel: cityLabel,
+                        onMenuTap: useDesktop
+                            ? null
+                            : () {
+                                _scaffoldKey.currentState?.openEndDrawer();
+                              },
+                        onNotificationsTap: _openNotifications,
+                        onLocationTap: _openAddresses,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    HomeEntrance(
+                      order: 1,
+                      child: HomeSearchBar(
+                        onTap: () => _openShopping(),
+                        onSubmitted: (query) => _openShopping(query: query),
+                      ),
                     ),
                     const SizedBox(height: 16),
+                    HomeEntrance(
+                      order: 2,
+                      child: HomeCategoryRail(items: categories),
+                    ),
+                    const SizedBox(height: 18),
+                    HomeEntrance(
+                      order: 3,
+                      child: HomePromoGrid(
+                        onTaxiTap: () => _openSection(HomeMainSection.taxi),
+                        onShoppingTap: () =>
+                            _openSection(HomeMainSection.shopping),
+                        onOffersTap: _openCouponsHub,
+                        onServicesTap: () =>
+                            _openSection(HomeMainSection.services),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    HomeEntrance(
+                      order: 4,
+                      child: PopularCategoriesSection(
+                        onRestaurantTap: () =>
+                            _openShopping(type: 'restaurant', title: 'مطاعم'),
+                        onMarketTap: () =>
+                            _openShopping(type: 'market', title: 'سوبرماركت'),
+                        onFashionTap: () =>
+                            _openShopping(query: 'أزياء', title: 'أزياء'),
+                        onElectronicsTap: () => _openShopping(
+                          query: 'إلكترونيات',
+                          title: 'إلكترونيات',
+                        ),
+                        onPharmacyTap: () =>
+                            _openShopping(query: 'صيدليات', title: 'صيدليات'),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    HomeEntrance(
+                      order: 5,
+                      child: BasmayaLifeBanner(onTap: () => _openShopping()),
+                    ),
+                    const SizedBox(height: 18),
+                    smartExperienceSection,
+                    const SizedBox(height: 18),
                     HomeAdCarousel(
                       state: adBoardState,
                       onTap: _handleAdTap,
@@ -1089,10 +1282,6 @@ class _CustomerHomeSelectorScreenState
                           .read(customerAdBoardControllerProvider.notifier)
                           .load(force: true),
                     ),
-                    const SizedBox(height: 18),
-                    MainCategoryGrid(items: categories),
-                    const SizedBox(height: 18),
-                    smartExperienceSection,
                     const SizedBox(height: 18),
                     BestStoreSpotlight(
                       state: _openStoresState,
@@ -1396,11 +1585,7 @@ class _HeaderMiniButton extends StatelessWidget {
             color: tokens.borderSubtle.withValues(alpha: 0.72),
           ),
         ),
-        child: Icon(
-          icon,
-          color: Colors.white.withValues(alpha: 0.96),
-          size: 19,
-        ),
+        child: Icon(icon, color: tokens.primaryAccent, size: 19),
       ),
     );
   }
@@ -1801,32 +1986,32 @@ List<List<Color>> _homeCategoryGradients(BuildContext context) {
   final baseB = tokens.cardPrimary;
   return <List<Color>>[
     <Color>[
-      Color.alphaBlend(visual.accentViolet.withValues(alpha: 0.66), baseA),
-      Color.alphaBlend(visual.accentCyan.withValues(alpha: 0.63), baseB),
+      Color.alphaBlend(visual.accentCyan.withValues(alpha: 0.13), baseA),
+      Color.alphaBlend(visual.accentGold.withValues(alpha: 0.08), baseB),
     ],
     <Color>[
-      Color.alphaBlend(visual.accentViolet.withValues(alpha: 0.72), baseA),
-      Color.alphaBlend(visual.accentBlue.withValues(alpha: 0.61), baseB),
+      Color.alphaBlend(visual.accentGold.withValues(alpha: 0.14), baseA),
+      Color.alphaBlend(visual.accentCyan.withValues(alpha: 0.08), baseB),
     ],
     <Color>[
-      Color.alphaBlend(visual.accentBlue.withValues(alpha: 0.65), baseA),
-      Color.alphaBlend(visual.accentCyan.withValues(alpha: 0.56), baseB),
+      Color.alphaBlend(visual.accentViolet.withValues(alpha: 0.44), baseA),
+      Color.alphaBlend(visual.accentCyan.withValues(alpha: 0.10), baseB),
     ],
     <Color>[
-      Color.alphaBlend(visual.accentViolet.withValues(alpha: 0.58), baseA),
-      Color.alphaBlend(visual.accentBlue.withValues(alpha: 0.68), baseB),
+      Color.alphaBlend(visual.accentBlue.withValues(alpha: 0.08), baseA),
+      Color.alphaBlend(visual.accentGold.withValues(alpha: 0.12), baseB),
     ],
     <Color>[
-      Color.alphaBlend(visual.accentBlue.withValues(alpha: 0.6), baseA),
-      Color.alphaBlend(visual.accentCyan.withValues(alpha: 0.62), baseB),
+      Color.alphaBlend(visual.accentCyan.withValues(alpha: 0.12), baseA),
+      Color.alphaBlend(visual.accentViolet.withValues(alpha: 0.48), baseB),
     ],
     <Color>[
-      Color.alphaBlend(visual.accentViolet.withValues(alpha: 0.7), baseA),
-      Color.alphaBlend(visual.accentCyan.withValues(alpha: 0.55), baseB),
+      Color.alphaBlend(visual.accentGold.withValues(alpha: 0.10), baseA),
+      Color.alphaBlend(visual.accentBlue.withValues(alpha: 0.06), baseB),
     ],
     <Color>[
-      Color.alphaBlend(visual.accentBlue.withValues(alpha: 0.72), baseA),
-      Color.alphaBlend(visual.accentViolet.withValues(alpha: 0.5), baseB),
+      Color.alphaBlend(visual.accentViolet.withValues(alpha: 0.42), baseA),
+      Color.alphaBlend(visual.accentGold.withValues(alpha: 0.10), baseB),
     ],
   ];
 }
@@ -1881,6 +2066,770 @@ class MainCategoryItem {
     this.isVisible = true,
     this.badgeLabel,
   });
+}
+
+class HomeEntrance extends StatelessWidget {
+  final int order;
+  final Widget child;
+
+  const HomeEntrance({super.key, required this.order, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    if (reduceMotion) return child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 420 + (order * 70)),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Opacity(
+          opacity: value,
+          child: Transform.translate(
+            offset: Offset(0, 18 * (1 - value)),
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+class HomeSearchBar extends StatelessWidget {
+  final VoidCallback onTap;
+  final ValueChanged<String> onSubmitted;
+
+  const HomeSearchBar({
+    super.key,
+    required this.onTap,
+    required this.onSubmitted,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return Container(
+      height: 60,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: tokens.cardPrimary.withValues(alpha: 0.98),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.78)),
+        boxShadow: [
+          BoxShadow(
+            color: tokens.textPrimary.withValues(alpha: 0.08),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: TextField(
+        readOnly: true,
+        onTap: onTap,
+        onSubmitted: onSubmitted,
+        textDirection: TextDirection.rtl,
+        cursorColor: tokens.primaryAccent,
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          hintText: 'ابحث عن مطاعم، متاجر، خدمات وأكثر...',
+          hintTextDirection: TextDirection.rtl,
+          hintStyle: TextStyle(
+            color: tokens.textMuted,
+            fontWeight: FontWeight.w600,
+          ),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            color: tokens.textPrimary,
+            size: 30,
+          ),
+          suffixIcon: Container(
+            margin: const EdgeInsetsDirectional.only(end: 8),
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: tokens.surfaceSecondary,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Icon(
+              Icons.tune_rounded,
+              color: tokens.primaryAccent,
+              size: 24,
+            ),
+          ),
+          contentPadding: const EdgeInsets.symmetric(vertical: 18),
+        ),
+      ),
+    );
+  }
+}
+
+class HomeCategoryRail extends StatelessWidget {
+  final List<MainCategoryItem> items;
+
+  const HomeCategoryRail({super.key, required this.items});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    final allItems = <MainCategoryItem>[
+      ...items,
+      MainCategoryItem(
+        title: 'المزيد',
+        subtitle: '',
+        icon: Icons.more_horiz_rounded,
+        gradient: [tokens.surfaceSecondary, tokens.cardPrimary],
+        onTap: () {},
+      ),
+    ];
+
+    return SizedBox(
+      height: 94,
+      child: ListView.separated(
+        reverse: true,
+        scrollDirection: Axis.horizontal,
+        itemCount: allItems.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
+        itemBuilder: (context, index) {
+          final item = allItems[index];
+          return InkWell(
+            onTap: item.onTap,
+            borderRadius: BorderRadius.circular(18),
+            child: SizedBox(
+              width: 72,
+              child: Column(
+                children: [
+                  Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: item.enabled
+                          ? tokens.primaryAccent.withValues(alpha: 0.10)
+                          : tokens.surfaceSecondary.withValues(alpha: 0.70),
+                      border: Border.all(
+                        color: item.enabled
+                            ? tokens.primaryAccent.withValues(alpha: 0.20)
+                            : tokens.borderSubtle.withValues(alpha: 0.50),
+                      ),
+                    ),
+                    child: Icon(
+                      item.icon,
+                      color: item.enabled
+                          ? tokens.primaryAccent
+                          : tokens.textMuted,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    item.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    textDirection: TextDirection.rtl,
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class HomePromoGrid extends StatelessWidget {
+  final VoidCallback onTaxiTap;
+  final VoidCallback onShoppingTap;
+  final VoidCallback onOffersTap;
+  final VoidCallback onServicesTap;
+
+  const HomePromoGrid({
+    super.key,
+    required this.onTaxiTap,
+    required this.onShoppingTap,
+    required this.onOffersTap,
+    required this.onServicesTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final spacing = constraints.maxWidth < 360 ? 10.0 : 12.0;
+        final itemWidth = (constraints.maxWidth - spacing) / 2;
+        final itemHeight = itemWidth.clamp(164.0, 186.0);
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            SizedBox(
+              width: itemWidth,
+              height: itemHeight,
+              child: HomePromoCard(
+                title: 'تسوّق الآن',
+                subtitle: 'متاجر، مطاعم وسوبرماركت في مكان واحد',
+                actionLabel: 'افتح السوق',
+                imageAsset: 'assets/brand/home_promo_shopping.png',
+                icon: Icons.shopping_bag_rounded,
+                accent: const Color(0xFFB88A2D),
+                onTap: onShoppingTap,
+              ),
+            ),
+            SizedBox(
+              width: itemWidth,
+              height: itemHeight,
+              child: HomePromoCard(
+                title: 'تكسي مسلكي',
+                subtitle: 'اطلب رحلة داخل بسمّاية بسرعة ووضوح',
+                actionLabel: 'اطلب رحلة',
+                imageAsset: 'assets/brand/home_promo_taxi.png',
+                icon: Icons.local_taxi_rounded,
+                accent: const Color(0xFF2F5D46),
+                onTap: onTaxiTap,
+              ),
+            ),
+            SizedBox(
+              width: itemWidth,
+              height: itemHeight,
+              child: HomePromoCard(
+                title: 'خدمات مسلكي',
+                subtitle: 'حرفيون ومهنيون للحجز والطلبات',
+                actionLabel: 'تصفح الخدمات',
+                imageAsset: 'assets/brand/home_promo_services.png',
+                icon: Icons.handyman_rounded,
+                accent: const Color(0xFF2F5D46),
+                onTap: onServicesTap,
+              ),
+            ),
+            SizedBox(
+              width: itemWidth,
+              height: itemHeight,
+              child: HomePromoCard(
+                title: 'العروض والكوبونات',
+                subtitle: 'خصومات المتاجر والتكسي في صفحة واحدة',
+                actionLabel: 'شاهد العروض',
+                imageAsset: 'assets/brand/home_promo_offers.png',
+                icon: Icons.local_offer_rounded,
+                accent: const Color(0xFFB88A2D),
+                onTap: onOffersTap,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PressScale extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final BorderRadius borderRadius;
+
+  const _PressScale({
+    required this.child,
+    required this.onTap,
+    required this.borderRadius,
+  });
+
+  @override
+  State<_PressScale> createState() => _PressScaleState();
+}
+
+class _PressScaleState extends State<_PressScale> {
+  bool _pressed = false;
+
+  void _setPressed(bool value) {
+    if (_pressed == value) return;
+    setState(() => _pressed = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Listener(
+      onPointerDown: (_) => _setPressed(true),
+      onPointerUp: (_) => _setPressed(false),
+      onPointerCancel: (_) => _setPressed(false),
+      child: AnimatedScale(
+        scale: _pressed ? 0.97 : 1,
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: widget.borderRadius,
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+class HomePromoCard extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String actionLabel;
+  final String imageAsset;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  const HomePromoCard({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.actionLabel,
+    required this.imageAsset,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return _PressScale(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.42)),
+          boxShadow: [
+            BoxShadow(
+              color: tokens.textPrimary.withValues(alpha: 0.16),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.asset(
+              imageAsset,
+              fit: BoxFit.cover,
+              alignment: Alignment.centerRight,
+              filterQuality: FilterQuality.medium,
+              errorBuilder: (context, error, stackTrace) => DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topRight,
+                    end: Alignment.bottomLeft,
+                    colors: [
+                      Color.alphaBlend(
+                        accent.withValues(alpha: 0.38),
+                        tokens.cardPrimary,
+                      ),
+                      Color.alphaBlend(
+                        accent.withValues(alpha: 0.24),
+                        tokens.cardElevated,
+                      ),
+                    ],
+                  ),
+                ),
+                child: Icon(icon, size: 62, color: Colors.white70),
+              ),
+            ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.centerRight,
+                  end: Alignment.centerLeft,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.68),
+                    accent.withValues(alpha: 0.42),
+                    Colors.black.withValues(alpha: 0.08),
+                  ],
+                  stops: const [0, 0.58, 1],
+                ),
+              ),
+            ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.bottomCenter,
+                  end: Alignment.topCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.36),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    title,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      height: 1.08,
+                      shadows: [
+                        Shadow(
+                          color: Color(0x99000000),
+                          blurRadius: 12,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  Text(
+                    subtitle,
+                    textDirection: TextDirection.rtl,
+                    textAlign: TextAlign.right,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.90),
+                      fontSize: 12,
+                      height: 1.25,
+                      fontWeight: FontWeight.w800,
+                      shadows: const [
+                        Shadow(
+                          color: Color(0x99000000),
+                          blurRadius: 10,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  Align(
+                    alignment: AlignmentDirectional.bottomStart,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.20),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.34),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.20),
+                            blurRadius: 12,
+                            offset: const Offset(0, 5),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 7,
+                        ),
+                        child: SizedBox(
+                          width: 110,
+                          child: Row(
+                            textDirection: TextDirection.rtl,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  actionLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textDirection: TextDirection.rtl,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                    shadows: [
+                                      Shadow(
+                                        color: Color(0x66000000),
+                                        blurRadius: 8,
+                                        offset: Offset(0, 1),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.arrow_back_rounded,
+                                color: Colors.white,
+                                size: 15,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class PopularCategoriesSection extends StatelessWidget {
+  final VoidCallback onRestaurantTap;
+  final VoidCallback onMarketTap;
+  final VoidCallback onFashionTap;
+  final VoidCallback onElectronicsTap;
+  final VoidCallback onPharmacyTap;
+
+  const PopularCategoriesSection({
+    super.key,
+    required this.onRestaurantTap,
+    required this.onMarketTap,
+    required this.onFashionTap,
+    required this.onElectronicsTap,
+    required this.onPharmacyTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      _PopularCategoryData(
+        'مطاعم',
+        'أشهى الأطباق',
+        Icons.lunch_dining_rounded,
+        onRestaurantTap,
+      ),
+      _PopularCategoryData(
+        'سوبرماركت',
+        'كل احتياجاتك',
+        Icons.shopping_cart_rounded,
+        onMarketTap,
+      ),
+      _PopularCategoryData(
+        'أزياء',
+        'لكل الأذواق',
+        Icons.checkroom_rounded,
+        onFashionTap,
+      ),
+      _PopularCategoryData(
+        'إلكترونيات',
+        'أحدث المنتجات',
+        Icons.headphones_rounded,
+        onElectronicsTap,
+      ),
+      _PopularCategoryData(
+        'صيدليات',
+        'صحة أفضل',
+        Icons.medication_rounded,
+        onPharmacyTap,
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionTitle(title: 'الفئات الأكثر طلباً'),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 112,
+          child: ListView.separated(
+            reverse: true,
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (context, index) =>
+                _PopularCategoryTile(data: items[index]),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PopularCategoryData {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _PopularCategoryData(this.title, this.subtitle, this.icon, this.onTap);
+}
+
+class _PopularCategoryTile extends StatelessWidget {
+  final _PopularCategoryData data;
+
+  const _PopularCategoryTile({required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return InkWell(
+      onTap: data.onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: 104,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Color.alphaBlend(
+            tokens.primaryAccent.withValues(alpha: 0.06),
+            tokens.cardPrimary,
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: tokens.primaryAccent.withValues(alpha: 0.16),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: tokens.primaryAccent.withValues(alpha: 0.08),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(data.icon, color: tokens.primaryAccent, size: 32),
+            const Spacer(),
+            Text(
+              data.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.w900,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              data.subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                color: tokens.textMuted,
+                fontWeight: FontWeight.w600,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class BasmayaLifeBanner extends StatelessWidget {
+  final VoidCallback onTap;
+
+  const BasmayaLifeBanner({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
+        height: 140,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          gradient: LinearGradient(
+            begin: Alignment.centerRight,
+            end: Alignment.centerLeft,
+            colors: [
+              Color.alphaBlend(
+                tokens.primaryAccent.withValues(alpha: 0.13),
+                tokens.cardPrimary,
+              ),
+              Color.alphaBlend(
+                tokens.secondaryAccent.withValues(alpha: 0.12),
+                tokens.cardElevated,
+              ),
+            ],
+          ),
+          border: Border.all(
+            color: tokens.borderSubtle.withValues(alpha: 0.74),
+          ),
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'بسمّاية .. حياة أسهل',
+                    textDirection: TextDirection.rtl,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'كل ما تحتاجه.. أقرب إليك',
+                    textDirection: TextDirection.rtl,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: AlignmentDirectional.centerEnd,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: tokens.primaryAccent,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: const Text(
+                        'استكشف بسمّاية',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Icon(
+              Icons.apartment_rounded,
+              color: tokens.primaryAccent.withValues(alpha: 0.72),
+              size: 70,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class MainCategoryGrid extends StatelessWidget {
@@ -1960,12 +2909,12 @@ class MainCategoryCard extends StatelessWidget {
             end: Alignment.bottomLeft,
           ),
           border: Border.all(
-            color: Colors.white.withValues(alpha: isEnabled ? 0.18 : 0.1),
+            color: tokens.borderSubtle.withValues(alpha: isEnabled ? 0.8 : 0.4),
           ),
           boxShadow: [
             BoxShadow(
-              color: item.gradient.first.withValues(
-                alpha: isEnabled ? 0.24 : 0.08,
+              color: tokens.textPrimary.withValues(
+                alpha: isEnabled ? 0.08 : 0.03,
               ),
               blurRadius: 20,
               offset: const Offset(0, 11),
@@ -1974,30 +2923,6 @@ class MainCategoryCard extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            Positioned(
-              right: -28,
-              top: -36,
-              child: Container(
-                width: 128,
-                height: 128,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.1),
-                ),
-              ),
-            ),
-            Positioned(
-              left: -18,
-              bottom: -22,
-              child: Container(
-                width: 84,
-                height: 84,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.black.withValues(alpha: 0.12),
-                ),
-              ),
-            ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -2014,14 +2939,21 @@ class MainCategoryCard extends StatelessWidget {
                             ),
                             decoration: BoxDecoration(
                               borderRadius: BorderRadius.circular(999),
-                              color: Colors.white.withValues(alpha: 0.2),
+                              color: tokens.secondaryAccent.withValues(
+                                alpha: 0.12,
+                              ),
+                              border: Border.all(
+                                color: tokens.secondaryAccent.withValues(
+                                  alpha: 0.26,
+                                ),
+                              ),
                             ),
                             child: Text(
                               item.badgeLabel!,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: tokens.secondaryAccent,
                                 fontWeight: FontWeight.w800,
                                 fontSize: 11,
                               ),
@@ -2041,15 +2973,19 @@ class MainCategoryCard extends StatelessWidget {
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            Colors.white.withValues(alpha: 0.26),
-                            Colors.white.withValues(alpha: 0.12),
+                            tokens.primaryAccent.withValues(alpha: 0.16),
+                            tokens.secondaryAccent.withValues(alpha: 0.10),
                           ],
                         ),
                         border: Border.all(
-                          color: Colors.white.withValues(alpha: 0.36),
+                          color: tokens.primaryAccent.withValues(alpha: 0.24),
                         ),
                       ),
-                      child: Icon(item.icon, color: Colors.white, size: 25),
+                      child: Icon(
+                        item.icon,
+                        color: tokens.primaryAccent,
+                        size: 25,
+                      ),
                     ),
                   ],
                 ),
@@ -2084,9 +3020,9 @@ class MainCategoryCard extends StatelessWidget {
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: Colors.white.withValues(
-                                  alpha: isEnabled ? 0.9 : 0.72,
-                                ),
+                                color: isEnabled
+                                    ? tokens.textSecondary
+                                    : tokens.textMuted,
                                 fontSize: 12,
                                 height: 1.2,
                                 fontWeight: FontWeight.w600,
@@ -2473,19 +3409,19 @@ class OpenNowStoreCard extends StatelessWidget {
               clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(13),
-                color: Colors.white.withValues(alpha: 0.1),
+                color: tokens.primaryAccent.withValues(alpha: 0.10),
               ),
               child: (store.imageUrl ?? '').trim().isNotEmpty
                   ? CachedAppImage(
                       imageUrl: store.imageUrl!,
                       cacheIdentity: 'merchant_${store.id}',
                       fit: BoxFit.cover,
-                      errorWidget: (context, url, error) => const Icon(
+                      errorWidget: (context, url, error) => Icon(
                         Icons.storefront_rounded,
-                        color: Colors.white,
+                        color: tokens.primaryAccent,
                       ),
                     )
-                  : const Icon(Icons.storefront_rounded, color: Colors.white),
+                  : Icon(Icons.storefront_rounded, color: tokens.primaryAccent),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -2546,11 +3482,11 @@ class OpenNowStoreCard extends StatelessWidget {
                                   ).withValues(alpha: 0.45),
                                 ),
                               ),
-                              child: const Text(
+                              child: Text(
                                 '\u0645\u0641\u062A\u0648\u062D \u0627\u0644\u0622\u0646',
                                 textDirection: TextDirection.rtl,
                                 style: TextStyle(
-                                  color: Color(0xFF7FF0AE),
+                                  color: tokens.success,
                                   fontSize: 11,
                                   fontWeight: FontWeight.w800,
                                 ),
@@ -2695,8 +3631,8 @@ class RecentActivityCard extends StatelessWidget {
               height: 44,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFD4AF37), Color(0xFF385472)],
+                gradient: LinearGradient(
+                  colors: [tokens.secondaryAccent, tokens.primaryAccent],
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
                 ),

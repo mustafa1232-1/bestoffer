@@ -6,11 +6,13 @@ list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   audioplayers_windows
   charset_converter
+  connectivity_plus
   ffmpeg_kit_flutter_new
   file_selector_windows
   flutter_secure_storage_windows
   flutter_webrtc
   geolocator_windows
+  livekit_client
   permission_handler_windows
   printing
   record_windows
@@ -20,6 +22,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
 )
 
 list(APPEND FLUTTER_FFI_PLUGIN_LIST
+  jni
 )
 
 set(PLUGIN_BUNDLED_LIBRARIES)

@@ -7,9 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/settings/app_settings_controller.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/maslaki_brand_mark.dart';
 import '../../../core/widgets/maslaki_wordmark.dart';
 import '../state/auth_controller.dart';
+import 'mandatory_pin_change_screen.dart';
 import 'owner_register_screen.dart';
 import 'taxi_captain_register_screen.dart';
 
@@ -62,6 +64,7 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
 
   Future<void> _submitLogin(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
     final l10n = context.l10n;
     FocusScope.of(context).unfocus();
 
@@ -96,7 +99,16 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
       RoleLoginScope.taxiCaptain => authAfter.isTaxiCaptain,
     };
 
-    if (isValidRole) return;
+    if (isValidRole) {
+      if (authAfter.user?.mustChangePin == true && mounted) {
+        await navigator.push(
+          MaterialPageRoute(
+            builder: (_) => MandatoryPinChangeScreen(initialPin: pinCtrl.text),
+          ),
+        );
+      }
+      return;
+    }
 
     if (authAfter.isAuthed) {
       await ref.read(authControllerProvider.notifier).logout();
@@ -107,6 +119,36 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
         RoleLoginScope.taxiCaptain => l10n.authTaxiCaptainOnlyAppError,
       };
       messenger.showSnackBar(SnackBar(content: Text(mismatch)));
+    }
+  }
+
+  Future<void> _requestPinReset(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final phoneError = _validatePhone(context, phoneCtrl.text);
+    if (phoneError != null) {
+      setState(() => _phoneError = phoneError);
+      return;
+    }
+
+    try {
+      await ref
+          .read(authControllerProvider.notifier)
+          .requestPinReset(phoneCtrl.text);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تم إرسال طلب إعادة تعيين الرمز. بعد موافقة الإدارة استخدم الرمز المؤقت 1234.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('تعذر إرسال الطلب، تحقق من الاتصال وحاول مرة أخرى.'),
+        ),
+      );
     }
   }
 
@@ -121,6 +163,7 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     final auth = ref.watch(authControllerProvider);
 
     return Scaffold(
@@ -142,9 +185,16 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(24),
                           border: Border.all(
-                            color: Colors.white.withOpacity(0.16),
+                            color: tokens.borderSubtle.withValues(alpha: 0.80),
                           ),
-                          color: Colors.white.withOpacity(0.08),
+                          color: tokens.cardPrimary.withValues(alpha: 0.96),
+                          boxShadow: [
+                            BoxShadow(
+                              color: tokens.textPrimary.withValues(alpha: 0.08),
+                              blurRadius: 24,
+                              offset: const Offset(0, 12),
+                            ),
+                          ],
                         ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -180,9 +230,9 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
                                 ),
                                 PopupMenuButton<String>(
                                   tooltip: context.l10n.commonLanguage,
-                                  icon: const Icon(
+                                  icon: Icon(
                                     Icons.translate_rounded,
-                                    color: Colors.white,
+                                    color: tokens.textPrimary,
                                   ),
                                   onSelected: (code) {
                                     ref
@@ -212,8 +262,8 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
                             const SizedBox(height: 16),
                             Text(
                               context.l10n.authLoginTagline,
-                              style: const TextStyle(
-                                color: Colors.white70,
+                              style: TextStyle(
+                                color: tokens.textSecondary,
                                 fontSize: 13,
                               ),
                             ),
@@ -268,6 +318,16 @@ class _RoleLoginScreenState extends ConsumerState<RoleLoginScreen> {
                                   : Text(context.l10n.authLogin),
                             ),
                             const SizedBox(height: 8),
+                            TextButton(
+                              onPressed: auth.loading
+                                  ? null
+                                  : () => _requestPinReset(context),
+                              child: const Text(
+                                'نسيت الرمز الخاص بي',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
                             if (widget.scope == RoleLoginScope.owner)
                               TextButton(
                                 onPressed: () {
@@ -336,6 +396,7 @@ class _Field extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     return Directionality(
       textDirection: textDirection,
       child: TextFormField(
@@ -343,23 +404,23 @@ class _Field extends StatelessWidget {
         keyboardType: keyboardType,
         obscureText: obscure,
         onChanged: onChanged,
-        style: const TextStyle(color: Colors.white),
+        style: TextStyle(color: tokens.textPrimary),
         decoration: InputDecoration(
           labelText: label,
           errorText: errorText,
           hintText: hint,
-          hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-          labelStyle: TextStyle(color: Colors.white.withOpacity(0.85)),
+          hintStyle: TextStyle(color: tokens.textMuted),
+          labelStyle: TextStyle(color: tokens.textSecondary),
           filled: true,
-          fillColor: Colors.white.withOpacity(0.10),
+          fillColor: tokens.surfacePrimary.withValues(alpha: 0.95),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.white.withOpacity(0.16)),
+            borderSide: BorderSide(color: tokens.borderSubtle),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.white.withOpacity(0.35)),
+            borderSide: BorderSide(color: tokens.primaryAccent),
           ),
         ),
       ),

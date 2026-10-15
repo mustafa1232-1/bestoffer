@@ -494,6 +494,7 @@ class _SocialPostCommentsSheetState
             .toList(growable: false);
         _loading = false;
       });
+      _syncFeedPreview();
     } catch (error) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -515,6 +516,24 @@ class _SocialPostCommentsSheetState
     return me != null && comment.userId == me && !comment.isDeleted;
   }
 
+  void _syncFeedPreview() {
+    final roots =
+        _comments
+            .where(
+              (comment) =>
+                  !comment.isDeleted && comment.parentCommentId == null,
+            )
+            .toList()
+          ..sort((a, b) => b.id.compareTo(a.id));
+    ref
+        .read(socialControllerProvider.notifier)
+        .patchCommentsCount(
+          postId: widget.post.id,
+          commentsCount: _count,
+          commentPreview: roots.take(2).toList().reversed.toList(),
+        );
+  }
+
   bool _canDeleteComment(SocialComment comment) {
     final me = _currentUserId;
     if (me == null) return false;
@@ -527,9 +546,11 @@ class _SocialPostCommentsSheetState
           .map((comment) => comment.id == next.id ? next : comment)
           .toList(growable: false);
     });
+    _syncFeedPreview();
   }
 
   Future<void> _send() async {
+    if (!widget.post.commentsEnabled) return;
     if (!await requireAuthBeforeAction(
       context,
       featureArabic: 'إرسال تعليق',
@@ -562,6 +583,7 @@ class _SocialPostCommentsSheetState
         _replyToCommentId = null;
       });
       _composerController.clear();
+      _syncFeedPreview();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1062,33 +1084,43 @@ class _SocialPostCommentsSheetState
                           ],
                         ),
                       ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: SocialMentionComposerField(
-                            controller: _composerController,
-                            minLines: 1,
-                            maxLines: 4,
-                            textInputAction: TextInputAction.send,
-                            onSubmitted: (_) => _send(),
-                            hintText: l10n.socialPostDetailsComposerHint,
+                    if (!widget.post.commentsEnabled)
+                      Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          Directionality.of(context) == TextDirection.rtl
+                              ? 'أوقف صاحب المنشور التعليقات.'
+                              : 'The author has turned off comments.',
+                        ),
+                      )
+                    else
+                      Row(
+                        children: [
+                          Expanded(
+                            child: SocialMentionComposerField(
+                              controller: _composerController,
+                              minLines: 1,
+                              maxLines: 4,
+                              textInputAction: TextInputAction.send,
+                              onSubmitted: (_) => _send(),
+                              hintText: l10n.socialPostDetailsComposerHint,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
-                        FilledButton(
-                          onPressed: _submitting ? null : _send,
-                          child: _submitting
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.send_rounded),
-                        ),
-                      ],
-                    ),
+                          const SizedBox(width: 10),
+                          FilledButton(
+                            onPressed: _submitting ? null : _send,
+                            child: _submitting
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.send_rounded),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),

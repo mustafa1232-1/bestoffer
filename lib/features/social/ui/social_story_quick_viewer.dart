@@ -160,19 +160,16 @@ Future<void> _prewarmStoryViewerLaunch({
   final selectedGroup = sourceGroups.isEmpty
       ? initialGroup
       : sourceGroups[selectedGroupIndex.clamp(0, sourceGroups.length - 1)];
-  final selectedStoryIndex =
-      initialStoryId == null || initialStoryId <= 0
+  final selectedStoryIndex = initialStoryId == null || initialStoryId <= 0
       ? 0
       : selectedGroup.stories.indexWhere((story) => story.id == initialStoryId);
-  final resolvedStoryIndex =
-      selectedStoryIndex < 0 ? 0 : selectedStoryIndex;
+  final resolvedStoryIndex = selectedStoryIndex < 0 ? 0 : selectedStoryIndex;
 
   if (selectedGroup.stories.isEmpty) return;
 
-  final currentStoryIndex = resolvedStoryIndex.clamp(
-    0,
-    selectedGroup.stories.length - 1,
-  ).toInt();
+  final currentStoryIndex = resolvedStoryIndex
+      .clamp(0, selectedGroup.stories.length - 1)
+      .toInt();
   final currentStory = selectedGroup.stories[currentStoryIndex];
 
   Future<void> warmPoster(SocialStory story) async {
@@ -182,80 +179,32 @@ Future<void> _prewarmStoryViewerLaunch({
                 story.mediaUrl ??
                 '')
             .trim();
-    if (posterUrl.isEmpty) return;
+    if (posterUrl.isEmpty || socialUrlIsVideoOrManifest(posterUrl)) return;
     try {
       if (!context.mounted) return;
-      final provider = appCachedImageProvider(
-        posterUrl,
-        cacheIdentity: 'story_launch_${story.id}',
-      );
+      final provider = appCachedImageProvider(posterUrl);
       if (provider != null) {
-        await precacheImage(provider, context).timeout(
-          const Duration(milliseconds: 220),
-          onTimeout: () {},
-        );
+        await precacheImage(
+          provider,
+          context,
+        ).timeout(const Duration(milliseconds: 220), onTimeout: () {});
       }
     } catch (_) {
       // Best-effort only.
     }
   }
 
-  Future<void> warmVideo(SocialStory story) async {
-    final playbackUrl =
-        (story.asset?.playbackUrl ?? story.mediaUrl ?? '').trim();
-    if ((story.mediaKind ?? '').trim().toLowerCase() != 'video' ||
-        playbackUrl.isEmpty) {
-      return;
-    }
-    try {
-      await MediaCacheService.instance.resolveVideoSource(
-        url: playbackUrl,
-        cacheIdentity: 'story_launch_${story.id}',
-        scope: MediaCacheScope.public,
+  unawaited(
+    warmPoster(currentStory).whenComplete(() {
+      onMetric?.call(
+        'storyTapToPosterMs',
+        DateTime.now().difference(launchStartedAt),
       );
-    } catch (_) {
-      // Best-effort only.
-    }
-  }
-
-  unawaited(warmPoster(currentStory).whenComplete(() {
-    onMetric?.call(
-      'storyTapToPosterMs',
-      DateTime.now().difference(launchStartedAt),
-    );
-  }));
-  unawaited(warmVideo(currentStory));
-
-  final neighboringStories = <SocialStory>{};
-  void addNeighbor(SocialStory? story) {
-    if (story == null) return;
-    if (story.id == currentStory.id) return;
-    neighboringStories.add(story);
-  }
-
-  addNeighbor(
-    selectedGroup.stories.length > 1
-        ? selectedGroup.stories[(currentStoryIndex + 1) % selectedGroup.stories.length]
-        : null,
+    }),
   );
-  addNeighbor(
-    selectedGroup.stories.length > 1
-        ? selectedGroup.stories[(currentStoryIndex - 1 + selectedGroup.stories.length) %
-            selectedGroup.stories.length]
-        : null,
-  );
-  if (selectedGroupIndex > 0 && sourceGroups[selectedGroupIndex - 1].stories.isNotEmpty) {
-    addNeighbor(sourceGroups[selectedGroupIndex - 1].stories.first);
-  }
-  if (selectedGroupIndex < sourceGroups.length - 1 &&
-      sourceGroups[selectedGroupIndex + 1].stories.isNotEmpty) {
-    addNeighbor(sourceGroups[selectedGroupIndex + 1].stories.first);
-  }
-
-  for (final story in neighboringStories) {
-    unawaited(warmPoster(story));
-    unawaited(warmVideo(story));
-  }
+  // The V3 viewer owns bounded lookahead after its active media is ready.
+  // A second preloader here used different cache keys and downloaded four
+  // neighboring stories concurrently with the story the user selected.
 }
 
 class SocialStoryQuickViewerScreen extends StatelessWidget {

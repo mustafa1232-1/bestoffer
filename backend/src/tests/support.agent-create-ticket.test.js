@@ -6,6 +6,7 @@ import { app } from "../app.js";
 import { q } from "../config/db.js";
 import { createUser } from "../modules/auth/auth.repo.js";
 import { hashPin } from "../shared/utils/hash.js";
+import * as supportService from "../modules/support/support.service.js";
 import {
   assertStatus,
   createActor,
@@ -143,5 +144,68 @@ test("unknown customer phone is rejected with 404", async () => {
   } finally {
     await stopLocalServer(server);
     await cleanup([Number(admin.id)]);
+  }
+});
+
+test("staff support account sees incoming customer tickets through public tickets route", async () => {
+  const { server, baseUrl } = await startLocalServer(app);
+  const runTag = `staff-support-compat-${Date.now().toString(36)}`;
+  const staffActor = createActor("staff", runTag);
+  staffActor.appFlavor = "user";
+  const staff = await mkUser("staff");
+  const customer = await mkUser("user");
+
+  try {
+    await q(`UPDATE app_user SET admin_role_key = 'orders_support' WHERE id = $1`, [
+      Number(staff.id),
+    ]);
+    const ticket = await supportService.createTicket({
+      userId: Number(customer.id),
+      domain: "ACCOUNT",
+      type: "QUESTION",
+      priority: "normal",
+      subject: `compat incoming ${runTag}`,
+      description: "opened from customer app",
+    });
+
+    const login = await request(baseUrl, staffActor, "POST", "/api/auth/login", {
+      phone: staff.phone,
+      pin: "1234",
+    });
+    assertStatus(login, 200, "staff login through user app");
+    staffActor.token = String(login.data?.token || "");
+
+    const list = await request(
+      baseUrl,
+      staffActor,
+      "GET",
+      `/api/support/tickets/mine?limit=50&search=${encodeURIComponent(runTag)}`
+    );
+    assertStatus(list, 200, "staff public support list compatibility");
+    assert.ok(
+      (list.data?.items || []).some((item) => Number(item.id) === Number(ticket.id)),
+      "incoming customer ticket is visible to staff"
+    );
+
+    const details = await request(
+      baseUrl,
+      staffActor,
+      "GET",
+      `/api/support/tickets/${ticket.id}`
+    );
+    assertStatus(details, 200, "staff public support details compatibility");
+
+    const reply = await request(
+      baseUrl,
+      staffActor,
+      "POST",
+      `/api/support/tickets/${ticket.id}/messages`,
+      { body: "follow up from staff" }
+    );
+    assertStatus(reply, 201, "staff public support reply compatibility");
+    assert.equal(reply.data?.message?.body, "follow up from staff");
+  } finally {
+    await stopLocalServer(server);
+    await cleanup([Number(customer.id), Number(staff.id)]);
   }
 });

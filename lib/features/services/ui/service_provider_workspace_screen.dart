@@ -2,14 +2,15 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:dio/dio.dart';
 
+import '../../../core/network/api_error_mapper.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
 import '../../../core/media/cached_app_image.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
-import '../../../core/widgets/image_picker_field.dart';
 import '../../../core/workspaces/workspace_permissions.dart';
 import '../data/services_api.dart';
 import '../models/service_models.dart';
@@ -20,10 +21,13 @@ import 'service_request_details_screen.dart';
 
 const double _servicePlatformCommissionRate = 0.10;
 
+String _serviceRequestLifecycleStatus(ServiceRequestModel request) {
+  final bookingStatus = (request.bookingStatus ?? '').trim();
+  return bookingStatus.isNotEmpty ? bookingStatus : request.status.trim();
+}
+
 bool _isCompletedServiceRequest(ServiceRequestModel request) {
-  final status = request.status.trim().toLowerCase();
-  final bookingStatus = request.bookingStatus?.trim().toLowerCase();
-  return status == 'completed' || bookingStatus == 'completed';
+  return _serviceRequestLifecycleStatus(request).toLowerCase() == 'completed';
 }
 
 double _serviceRequestGrossAmount(ServiceRequestModel request) {
@@ -59,7 +63,12 @@ String _formatIqd(num value) {
 }
 
 class ServiceProviderWorkspaceScreen extends ConsumerWidget {
-  const ServiceProviderWorkspaceScreen({super.key});
+  const ServiceProviderWorkspaceScreen({
+    super.key,
+    this.centralOperationsMode = false,
+  });
+
+  final bool centralOperationsMode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -68,25 +77,36 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
     final servicesSection = ref
         .watch(sectionAvailabilityControllerProvider)
         .entryFor(AppSectionKeys.services, displayName: 'الخدمات');
+    final sectionBlocked = !centralOperationsMode && servicesSection.isBlocked;
+    final sectionOpen = centralOperationsMode || servicesSection.isOpen;
     final workspace = state.workspace;
     final access = workspace?.access;
     final canCreateServices =
+        centralOperationsMode ||
         access?.isOwner == true ||
         access?.permissionMap['create_services'] == true;
     final canEditServices =
+        centralOperationsMode ||
         access?.isOwner == true ||
         access?.permissionMap['edit_services'] == true;
+    final canManageOffers =
+        centralOperationsMode ||
+        access?.isOwner == true ||
+        access?.permissionMap['manage_offers'] == true;
     final canViewRequests =
+        centralOperationsMode ||
         access?.isOwner == true ||
         access?.permissionMap['view_service_requests'] == true;
     final canManageEmployees =
+        centralOperationsMode ||
         access?.isOwner == true ||
         access?.permissionMap['manage_employees'] == true;
     final canViewAuditLog =
+        centralOperationsMode ||
         access?.isOwner == true ||
         access?.permissionMap['view_audit_log'] == true;
     final visibleRequests = canViewRequests
-        ? (servicesSection.isBlocked
+        ? (sectionBlocked
               ? state.requests
                     .where(
                       (request) => !<String>{
@@ -105,14 +125,15 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                     .toList(growable: false)
               : state.requests)
         : const <ServiceRequestModel>[];
-    if (servicesSection.isBlocked &&
-        !servicesSection.allowExistingActiveAccess) {
+    if (sectionBlocked && !servicesSection.allowExistingActiveAccess) {
       return SectionUnavailableScreen(entry: servicesSection);
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('لوحة صاحب الخدمة'),
+        title: Text(
+          centralOperationsMode ? 'نشر وإدارة خدمات مسلكي' : 'لوحة صاحب الخدمة',
+        ),
         actions: [
           IconButton(
             tooltip: 'تحديث',
@@ -124,7 +145,7 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
           ),
         ],
       ),
-      floatingActionButton: servicesSection.isOpen && canCreateServices
+      floatingActionButton: sectionOpen && canCreateServices
           ? FloatingActionButton.extended(
               heroTag: null,
               onPressed: () => _showCreateOfferingDialog(context, ref),
@@ -140,7 +161,7 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 96),
           children: [
-            if (servicesSection.isBlocked)
+            if (sectionBlocked)
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
@@ -263,7 +284,13 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                 canEditServices: canEditServices,
               ),
               const SizedBox(height: 12),
-              _promotionsSection(workspace.promotions),
+              _promotionsSection(
+                context,
+                ref,
+                workspace.promotions,
+                offerings: workspace.provider.offerings,
+                canManageOffers: canManageOffers,
+              ),
               const SizedBox(height: 12),
               _employeesSection(
                 context,
@@ -566,9 +593,27 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'الخدمات',
-              style: TextStyle(fontWeight: FontWeight.w900),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'الخدمات (${offerings.length})',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                if (offerings.length > 8)
+                  TextButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => _AllServiceOfferingsScreen(
+                          canEdit: canEditServices,
+                        ),
+                      ),
+                    ),
+                    icon: const Icon(Icons.view_list_outlined),
+                    label: const Text('عرض وإدارة الكل'),
+                  ),
+              ],
             ),
             const SizedBox(height: 8),
             if (offerings.isEmpty) const Text('لا توجد خدمات مضافة بعد.'),
@@ -599,20 +644,56 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+            if (offerings.length > 8)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: OutlinedButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          _AllServiceOfferingsScreen(canEdit: canEditServices),
+                    ),
+                  ),
+                  icon: const Icon(Icons.manage_search_rounded),
+                  label: Text('عرض بقية الخدمات (${offerings.length - 8})'),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
 
-  Widget _promotionsSection(List<ServicePromotionModel> promotions) {
+  Widget _promotionsSection(
+    BuildContext context,
+    WidgetRef ref,
+    List<ServicePromotionModel> promotions, {
+    required List<ServiceOfferingModel> offerings,
+    required bool canManageOffers,
+  }) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('العروض', style: TextStyle(fontWeight: FontWeight.w900)),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'العروض والأسعار المخفضة',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+                if (canManageOffers && offerings.isNotEmpty)
+                  FilledButton.tonalIcon(
+                    onPressed: () =>
+                        _showCreatePromotionDialog(context, ref, offerings),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('عرض جديد'),
+                  ),
+              ],
+            ),
             const SizedBox(height: 8),
             if (promotions.isEmpty) const Text('لا توجد عروض فعالة.'),
             ...promotions
@@ -630,6 +711,156 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _showCreatePromotionDialog(
+    BuildContext context,
+    WidgetRef ref,
+    List<ServiceOfferingModel> offerings,
+  ) async {
+    final titleCtrl = TextEditingController(text: 'عرض خاص');
+    final valueCtrl = TextEditingController();
+    var offeringId = offerings.first.id;
+    var discountType = 'percentage';
+    String? error;
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('إضافة سعر مخفض للخدمة'),
+          content: SizedBox(
+            width: 430,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<int>(
+                    initialValue: offeringId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: 'الخدمة'),
+                    items: offerings
+                        .map(
+                          (item) => DropdownMenuItem<int>(
+                            value: item.id,
+                            child: Text(
+                              item.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setDialogState(() => offeringId = value ?? offeringId),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: titleCtrl,
+                    decoration: const InputDecoration(labelText: 'عنوان العرض'),
+                  ),
+                  const SizedBox(height: 10),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(
+                        value: 'percentage',
+                        label: Text('نسبة خصم'),
+                      ),
+                      ButtonSegment(
+                        value: 'special_price',
+                        label: Text('سعر خاص'),
+                      ),
+                    ],
+                    selected: {discountType},
+                    onSelectionChanged: (values) =>
+                        setDialogState(() => discountType = values.first),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: valueCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: discountType == 'percentage'
+                          ? 'نسبة الخصم %'
+                          : 'السعر الجديد IQD',
+                    ),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('إلغاء'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final value = double.tryParse(valueCtrl.text.trim());
+                if (titleCtrl.text.trim().isEmpty ||
+                    value == null ||
+                    value <= 0 ||
+                    (discountType == 'percentage' && value > 100)) {
+                  setDialogState(() => error = 'أدخل عنواناً وقيمة خصم صحيحة.');
+                  return;
+                }
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text('نشر العرض'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (submitted != true) {
+      titleCtrl.dispose();
+      valueCtrl.dispose();
+      return;
+    }
+
+    try {
+      final value = double.parse(valueCtrl.text.trim());
+      final now = DateTime.now();
+      await ref.read(servicesApiProvider).createPromotion({
+        'title': titleCtrl.text.trim(),
+        'description': discountType == 'percentage'
+            ? 'خصم ${value.toStringAsFixed(0)}% على الخدمة'
+            : 'سعر خاص لفترة محدودة',
+        'discountType': discountType,
+        if (discountType == 'percentage') 'discountValue': value,
+        if (discountType == 'special_price') 'specialPrice': value,
+        'startsAt': now.toUtc().toIso8601String(),
+        'endsAt': now.add(const Duration(days: 30)).toUtc().toIso8601String(),
+        'offeringIds': [offeringId],
+      });
+      await ref
+          .read(serviceProviderWorkspaceControllerProvider.notifier)
+          .loadWorkspace();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم نشر العرض على الخدمة.')),
+        );
+      }
+    } catch (exception) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('تعذر نشر العرض: $exception')));
+      }
+    } finally {
+      titleCtrl.dispose();
+      valueCtrl.dispose();
+    }
   }
 
   Widget _employeesSection(
@@ -1164,6 +1395,11 @@ class _RequestCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final amount = _serviceRequestGrossAmount(request);
     final commission = _servicePlatformCommission(amount);
+    final lifecycleStatus = _serviceRequestLifecycleStatus(
+      request,
+    ).toLowerCase();
+    final isV2Booking =
+        (request.bookingFlowKind ?? '').trim().toUpperCase() == 'V2';
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(10),
@@ -1179,7 +1415,7 @@ class _RequestCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  _requestStatusLabel(request.status),
+                  _requestStatusLabel(_serviceRequestLifecycleStatus(request)),
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.primary,
                     fontWeight: FontWeight.w800,
@@ -1232,7 +1468,8 @@ class _RequestCard extends StatelessWidget {
                 if (<String>{
                   'pending',
                   'awaiting_provider',
-                }.contains(request.status.trim().toLowerCase()))
+                  'pending_provider_confirmation',
+                }.contains(lifecycleStatus))
                   OutlinedButton(
                     onPressed: () => onStatusTap('accepted'),
                     child: const Text('قبول'),
@@ -1240,20 +1477,24 @@ class _RequestCard extends StatelessWidget {
                 if (<String>{
                   'accepted',
                   'scheduled',
-                }.contains(request.status.trim().toLowerCase()))
+                  'confirmed',
+                }.contains(lifecycleStatus))
                   OutlinedButton(
                     onPressed: () => onStatusTap('in_progress'),
                     child: const Text('بدء التنفيذ'),
                   ),
-                if (request.status.trim().toLowerCase() == 'in_progress')
+                if (lifecycleStatus == 'in_progress')
                   OutlinedButton(
-                    onPressed: () => onStatusTap('completed'),
+                    onPressed: () => onStatusTap(
+                      isV2Booking ? 'PROVIDER_COMPLETED' : 'completed',
+                    ),
                     child: const Text('إكمال'),
                   ),
                 if (<String>{
                   'pending',
                   'awaiting_provider',
-                }.contains(request.status.trim().toLowerCase()))
+                  'pending_provider_confirmation',
+                }.contains(lifecycleStatus))
                   OutlinedButton(
                     onPressed: () => onStatusTap('rejected'),
                     child: const Text('رفض'),
@@ -1262,6 +1503,195 @@ class _RequestCard extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AllServiceOfferingsScreen extends ConsumerStatefulWidget {
+  const _AllServiceOfferingsScreen({required this.canEdit});
+
+  final bool canEdit;
+
+  @override
+  ConsumerState<_AllServiceOfferingsScreen> createState() =>
+      _AllServiceOfferingsScreenState();
+}
+
+class _AllServiceOfferingsScreenState
+    extends ConsumerState<_AllServiceOfferingsScreen> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _search = '';
+  String _status = 'all';
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(serviceProviderWorkspaceControllerProvider);
+    final offerings =
+        state.workspace?.provider.offerings ?? const <ServiceOfferingModel>[];
+    final query = _search.trim().toLowerCase();
+    final filtered = offerings
+        .where((offering) {
+          final matchesStatus =
+              _status == 'all' || offering.moderationStatus == _status;
+          if (!matchesStatus) return false;
+          if (query.isEmpty) return true;
+          return <String>[
+            offering.name,
+            offering.description ?? '',
+            offering.mainCategoryName ?? '',
+            offering.subcategoryName ?? '',
+          ].any((value) => value.toLowerCase().contains(query));
+        })
+        .toList(growable: false);
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('كل الخدمات (${offerings.length})'),
+        actions: [
+          IconButton(
+            tooltip: 'تحديث',
+            onPressed: state.loadingWorkspace
+                ? null
+                : () => ref
+                      .read(serviceProviderWorkspaceControllerProvider.notifier)
+                      .loadWorkspace(),
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: (value) => setState(() => _search = value),
+              decoration: InputDecoration(
+                labelText: 'البحث باسم الخدمة أو القسم',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: _search.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'مسح البحث',
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _search = '');
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+              ),
+            ),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'all', label: Text('الكل')),
+                ButtonSegment(value: 'approved', label: Text('منشورة')),
+                ButtonSegment(
+                  value: 'pending',
+                  label: Text('بانتظار المراجعة'),
+                ),
+                ButtonSegment(
+                  value: 'changes_requested',
+                  label: Text('تحتاج تعديل'),
+                ),
+                ButtonSegment(value: 'hidden', label: Text('مخفية')),
+              ],
+              selected: {_status},
+              onSelectionChanged: (value) {
+                if (value.isEmpty) return;
+                setState(() => _status = value.first);
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
+            child: Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                'النتائج: ${filtered.length}',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+          Expanded(
+            child: state.loadingWorkspace && offerings.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : filtered.isEmpty
+                ? const Center(child: Text('لا توجد خدمات مطابقة.'))
+                : RefreshIndicator(
+                    onRefresh: () => ref
+                        .read(
+                          serviceProviderWorkspaceControllerProvider.notifier,
+                        )
+                        .loadWorkspace(),
+                    child: ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final offering = filtered[index];
+                        final category =
+                            [
+                                  offering.mainCategoryName,
+                                  offering.subcategoryName,
+                                ]
+                                .whereType<String>()
+                                .where((value) => value.isNotEmpty)
+                                .join(' • ');
+                        return Card(
+                          child: ListTile(
+                            onTap: () => Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (_) => ServiceOfferingDetailsScreen(
+                                  offeringId: offering.id,
+                                ),
+                              ),
+                            ),
+                            leading: CircleAvatar(child: Text('${index + 1}')),
+                            title: Text(
+                              offering.name,
+                              textDirection: TextDirection.rtl,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                            subtitle: Text(
+                              [
+                                if (category.isNotEmpty) category,
+                                offering.displayPriceText,
+                                _offeringModerationStatusLabel(
+                                  offering.moderationStatus,
+                                ),
+                              ].join(' • '),
+                              textDirection: TextDirection.rtl,
+                            ),
+                            trailing: widget.canEdit
+                                ? IconButton(
+                                    tooltip: 'تعديل الخدمة',
+                                    onPressed: () => _showCreateOfferingDialog(
+                                      context,
+                                      ref,
+                                      existingOffering: offering,
+                                    ),
+                                    icon: const Icon(Icons.edit_outlined),
+                                  )
+                                : const Icon(Icons.chevron_right_rounded),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -1554,12 +1984,17 @@ String _requestStatusLabel(String? value) {
       return 'معلق';
     case 'awaiting_provider':
       return 'بانتظار مقدم الخدمة';
+    case 'pending_provider_confirmation':
+      return 'بانتظار قبول مقدم الخدمة';
     case 'accepted':
+    case 'confirmed':
       return 'مقبول';
     case 'scheduled':
       return 'مجدول';
     case 'in_progress':
       return 'قيد التنفيذ';
+    case 'provider_completed':
+      return 'تم الإنجاز - بانتظار تأكيد الزبون';
     case 'completed':
       return 'مكتمل';
     case 'cancelled':
@@ -1771,7 +2206,7 @@ Future<void> _showCreateOfferingDialog(
     return;
   }
 
-  await showDialog<void>(
+  final saved = await showDialog<bool>(
     context: context,
     builder: (_) => _CreateServiceOfferingDialog(
       roots: sortRoots(roots),
@@ -1781,9 +2216,21 @@ Future<void> _showCreateOfferingDialog(
   );
 
   if (!context.mounted) return;
-  await ref
-      .read(serviceProviderWorkspaceControllerProvider.notifier)
-      .loadWorkspace();
+  if (saved == true) {
+    await ref
+        .read(serviceProviderWorkspaceControllerProvider.notifier)
+        .loadWorkspace();
+    if (!context.mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          existingOffering == null
+              ? 'تم إنشاء الخدمة بنجاح.'
+              : 'تم حفظ تعديلات الخدمة بنجاح.',
+        ),
+      ),
+    );
+  }
 }
 
 class _CreateServiceOfferingDialog extends ConsumerStatefulWidget {
@@ -1808,13 +2255,15 @@ class _CreateServiceOfferingDialogState
   late final TextEditingController _nameCtrl;
   late final TextEditingController _descriptionCtrl;
   late final TextEditingController _startsFromCtrl;
+  late final TextEditingController _priceLabelCtrl;
   late List<ServiceCategoryModel> _roots;
-  LocalImageFile? _selectedMedia;
+  final List<LocalImageFile> _selectedMedia = <LocalImageFile>[];
   int? _selectedMainCategoryId;
   int? _selectedSubcategoryId;
   String _executionMode = 'both';
   String _pricingModel = 'custom_quote';
   String? _dialogError;
+  bool _submitting = false;
 
   @override
   void initState() {
@@ -1830,22 +2279,34 @@ class _CreateServiceOfferingDialogState
     _roots = widget.sortRoots(
       widget.roots.map((item) => item).toList(growable: true),
     );
+    final requestedMainCategoryId = offering?.mainCategoryId;
+    final matchingRoot = requestedMainCategoryId == null
+        ? null
+        : _roots
+              .where((item) => item.id == requestedMainCategoryId)
+              .firstOrNull;
+    final rootContainingSubcategory = offering?.subcategoryId == null
+        ? null
+        : _roots
+              .where(
+                (item) => item.children.any(
+                  (child) => child.id == offering!.subcategoryId,
+                ),
+              )
+              .firstOrNull;
     final initialMainCategoryId =
-        offering?.mainCategoryId ??
+        matchingRoot?.id ??
+        rootContainingSubcategory?.id ??
         (_roots.isNotEmpty ? _roots.first.id : null);
     _selectedMainCategoryId = initialMainCategoryId;
-    final selectedRoot = _roots.firstWhere(
-      (item) => item.id == _selectedMainCategoryId,
-      orElse: () => _roots.first,
-    );
-    final initialSubcategories = selectedRoot.children
-        .where((item) => item.level == 2 && item.isActive && item.isPublic)
-        .toList();
+    final initialChildren = _roots
+        .where((item) => item.id == initialMainCategoryId)
+        .expand((item) => item.children)
+        .toList(growable: false);
     _selectedSubcategoryId =
-        offering?.subcategoryId ??
-        (initialSubcategories.isNotEmpty
-            ? initialSubcategories.first.id
-            : null);
+        initialChildren.any((child) => child.id == offering?.subcategoryId)
+        ? offering?.subcategoryId
+        : null;
     _executionMode = offering?.executionMode ?? 'both';
     final pricingOptions =
         offering?.pricingOptions ?? const <ServicePricingOptionModel>[];
@@ -1857,13 +2318,14 @@ class _CreateServiceOfferingDialogState
           );
     if (leadPricing != null) {
       _pricingModel = leadPricing.pricingModel;
+      _priceLabelCtrl = TextEditingController(text: leadPricing.label ?? '');
       if (leadPricing.amount != null) {
         _startsFromCtrl.text = leadPricing.amount.toString();
       }
     } else {
       _pricingModel = 'custom_quote';
+      _priceLabelCtrl = TextEditingController();
     }
-    _selectedMedia = null;
   }
 
   @override
@@ -1871,87 +2333,13 @@ class _CreateServiceOfferingDialogState
     _nameCtrl.dispose();
     _descriptionCtrl.dispose();
     _startsFromCtrl.dispose();
+    _priceLabelCtrl.dispose();
     super.dispose();
   }
 
-  Future<String?> _promptCategoryName({
-    required String title,
-    required String hintText,
-  }) async {
-    return showDialog<String>(
-      context: context,
-      builder: (_) => _CategoryNameDialog(title: title, hintText: hintText),
-    ).then((value) {
-      final normalized = value?.trim();
-      if (normalized == null || normalized.isEmpty) return null;
-      return normalized;
-    });
-  }
-
-  ServiceCategoryModel _selectedRoot() {
-    for (final root in _roots) {
-      if (root.id == _selectedMainCategoryId) return root;
-    }
-    return _roots.first;
-  }
-
-  Future<void> _createSubcategory() async {
-    final parentId = _selectedMainCategoryId;
-    if (parentId == null) {
-      setState(() => _dialogError = 'يرجى اختيار الفئة الرئيسية أولاً.');
-      return;
-    }
-    final parent = _roots.firstWhere(
-      (item) => item.id == parentId,
-      orElse: () => _roots.first,
-    );
-    final name = await _promptCategoryName(
-      title: 'إضافة فئة فرعية',
-      hintText: 'مثال: تنظيف حمامات',
-    );
-    if (name == null) return;
-
-    try {
-      final raw = await ref
-          .read(servicesApiProvider)
-          .createPublicCategory(name: name, parentCategoryId: parentId);
-      final payload = raw['category'] is Map
-          ? Map<String, dynamic>.from(raw['category'] as Map)
-          : raw;
-      final created = ServiceCategoryModel.fromJson(
-        Map<String, dynamic>.from(payload),
-      );
-      final refreshedRows = await ref
-          .read(servicesApiProvider)
-          .listPublicCategories();
-      final refreshedRoots = refreshedRows
-          .map(ServiceCategoryModel.fromJson)
-          .where((item) => item.level == 1 && item.isActive && item.isPublic)
-          .toList();
-      if (!mounted) return;
-      setState(() {
-        _roots = widget.sortRoots(refreshedRoots);
-        _selectedMainCategoryId = parent.id;
-        _selectedSubcategoryId = created.id;
-        _dialogError = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _dialogError = 'تعذر إضافة الفئة الفرعية: $e');
-    }
-  }
-
   Future<void> _submit() async {
+    if (_submitting) return;
     final startsFromPrice = double.tryParse(_startsFromCtrl.text.trim());
-    final selectedRoot = _selectedRoot();
-    final subcategories = selectedRoot.children
-        .where((item) => item.level == 2 && item.isActive && item.isPublic)
-        .toList();
-    final selectedSubcategoryId =
-        _selectedSubcategoryId != null &&
-            subcategories.any((item) => item.id == _selectedSubcategoryId)
-        ? _selectedSubcategoryId
-        : (subcategories.isEmpty ? null : subcategories.first.id);
 
     if (_nameCtrl.text.trim().isEmpty) {
       setState(() => _dialogError = 'يرجى إدخال اسم الخدمة.');
@@ -1961,38 +2349,51 @@ class _CreateServiceOfferingDialogState
       setState(() => _dialogError = 'يرجى اختيار الفئة الرئيسية.');
       return;
     }
-    if (selectedSubcategoryId == null) {
-      setState(() => _dialogError = 'يرجى اختيار الفئة الفرعية.');
-      return;
-    }
-    if ((_pricingModel == 'starting_from' ||
-            _pricingModel == 'fixed_package') &&
+    if (!['custom_quote', 'inspection_required'].contains(_pricingModel) &&
         startsFromPrice == null) {
       setState(() => _dialogError = 'يرجى إدخال السعر لهذا النمط.');
       return;
     }
 
     try {
+      setState(() {
+        _submitting = true;
+        _dialogError = null;
+      });
       final payload = <String, dynamic>{
         'name': _nameCtrl.text.trim(),
         'description': _descriptionCtrl.text.trim(),
         'mainCategoryId': _selectedMainCategoryId,
-        'subcategoryId': selectedSubcategoryId,
+        if (_selectedSubcategoryId != null)
+          'subcategoryId': _selectedSubcategoryId,
         'executionMode': _executionMode,
         'startsFromPrice': startsFromPrice,
         'pricingOptions': [
           {
             'pricingModel': _pricingModel,
-            'pricingUnit': _pricingModel == 'fixed_package' ? 'package' : 'job',
-            if (_pricingModel == 'starting_from') 'amount': startsFromPrice,
-            if (_pricingModel == 'fixed_package') 'amount': startsFromPrice,
+            'pricingUnit': switch (_pricingModel) {
+              'per_hour' => 'hour',
+              'per_day' => 'day',
+              'per_device' => 'device',
+              'per_room' => 'room',
+              'per_meter' => 'meter',
+              'per_item' => 'item',
+              'per_visit' => 'visit',
+              'fixed_package' => 'package',
+              _ => 'job',
+            },
+            if (_priceLabelCtrl.text.trim().isNotEmpty)
+              'label': _priceLabelCtrl.text.trim(),
+            if (![
+              'custom_quote',
+              'inspection_required',
+            ].contains(_pricingModel))
+              'amount': startsFromPrice,
             'isDefault': true,
           },
         ],
       };
-      final mediaFiles = _selectedMedia == null
-          ? const <LocalImageFile>[]
-          : <LocalImageFile>[_selectedMedia!];
+      final mediaFiles = List<LocalImageFile>.unmodifiable(_selectedMedia);
       if (widget.existingOffering == null) {
         await ref
             .read(servicesApiProvider)
@@ -2006,28 +2407,40 @@ class _CreateServiceOfferingDialogState
               mediaFiles: mediaFiles,
             );
       }
+    } on DioException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _dialogError = mapDioError(
+          e,
+          fallback: widget.existingOffering != null
+              ? 'تعذر تعديل الخدمة. تحقق من البيانات ثم حاول مرة أخرى.'
+              : 'تعذر إنشاء الخدمة. تحقق من البيانات ثم حاول مرة أخرى.',
+        );
+      });
+      return;
     } catch (e) {
       if (!mounted) return;
-      setState(() => _dialogError = 'تعذر إنشاء الخدمة: $e');
+      setState(() {
+        _submitting = false;
+        _dialogError = 'تعذر حفظ الخدمة: $e';
+      });
       return;
     }
 
     if (!mounted) return;
-    Navigator.of(context).pop();
+    Navigator.of(context).pop(true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final selectedRoot = _selectedRoot();
-    final subcategories = selectedRoot.children
-        .where((item) => item.level == 2 && item.isActive && item.isPublic)
-        .toList();
-    final subcategoryIsValid =
-        _selectedSubcategoryId != null &&
-        subcategories.any((item) => item.id == _selectedSubcategoryId);
-    final effectiveSubcategoryId = subcategoryIsValid
-        ? _selectedSubcategoryId
-        : (subcategories.isEmpty ? null : subcategories.first.id);
+    final theme = Theme.of(context);
+    final dropdownMenuHeight = MediaQuery.sizeOf(context).height * 0.42;
+    final dropdownTextStyle = theme.textTheme.bodyLarge?.copyWith(
+      color: theme.colorScheme.onSurface,
+      fontWeight: FontWeight.w700,
+    );
+    final dropdownBorderRadius = BorderRadius.circular(14);
     final isEditing = widget.existingOffering != null;
     final existingMediaUrl =
         widget.existingOffering?.primaryMediaUrl ??
@@ -2070,33 +2483,133 @@ class _CreateServiceOfferingDialogState
                 decoration: const InputDecoration(labelText: 'الوصف'),
               ),
               const SizedBox(height: 8),
-              ImagePickerField(
-                title: 'صورة الخدمة',
-                selectedFile: _selectedMedia,
-                existingImageUrl: existingMediaUrl,
-                onPick: () async {
-                  final picked = await pickImageFromDevice();
-                  if (!mounted || picked == null) return;
-                  setState(() {
-                    _selectedMedia = picked;
-                    _dialogError = null;
-                  });
-                },
-                onClear: _selectedMedia != null
-                    ? () => setState(() => _selectedMedia = null)
-                    : null,
-                helperText:
-                    'يمكنك رفع صورة مميزة للخدمة لتظهر بشكل أوضح للمستخدمين.',
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'صور وفيديو الخدمة',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ),
               const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _selectedMedia.length >= 10
+                    ? null
+                    : () async {
+                        final picked = await pickMultipleImagesFromDevice(
+                          maxFiles: 10 - _selectedMedia.length,
+                        );
+                        if (!mounted || picked.isEmpty) return;
+                        setState(() {
+                          _selectedMedia.addAll(picked);
+                          _dialogError = null;
+                        });
+                      },
+                icon: const Icon(Icons.collections_outlined),
+                label: Text(
+                  _selectedMedia.isEmpty
+                      ? 'إضافة عدة صور'
+                      : 'إضافة صور أخرى (${_selectedMedia.length}/10)',
+                ),
+              ),
+              const SizedBox(height: 6),
+              OutlinedButton.icon(
+                onPressed: _selectedMedia.length >= 10
+                    ? null
+                    : () async {
+                        final picked = await pickVideoFromDevice();
+                        if (!mounted || picked == null) return;
+                        setState(() {
+                          _selectedMedia.add(picked);
+                          _dialogError = null;
+                        });
+                      },
+                icon: const Icon(Icons.video_library_outlined),
+                label: const Text('إضافة فيديو'),
+              ),
+              if (_selectedMedia.isEmpty &&
+                  (existingMediaUrl ?? '').trim().isNotEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 6),
+                  child: Text(
+                    'سيتم الاحتفاظ بالوسائط الحالية ما لم ترفع وسائط جديدة.',
+                  ),
+                ),
+              if (_selectedMedia.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 72,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _selectedMedia.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 6),
+                    itemBuilder: (context, index) {
+                      final file = _selectedMedia[index];
+                      return Stack(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: file.isVideo
+                                ? Container(
+                                    width: 72,
+                                    height: 72,
+                                    color: theme
+                                        .colorScheme
+                                        .surfaceContainerHighest,
+                                    alignment: Alignment.center,
+                                    child: const Icon(
+                                      Icons.play_circle_fill_rounded,
+                                      size: 34,
+                                    ),
+                                  )
+                                : Image.memory(
+                                    file.bytes!,
+                                    width: 72,
+                                    height: 72,
+                                    fit: BoxFit.cover,
+                                  ),
+                          ),
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            child: IconButton.filledTonal(
+                              tooltip: 'حذف',
+                              visualDensity: VisualDensity.compact,
+                              iconSize: 15,
+                              onPressed: () => setState(
+                                () => _selectedMedia.removeAt(index),
+                              ),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
               DropdownButtonFormField<int>(
+                key: const Key('service_main_category_dropdown'),
                 value: _selectedMainCategoryId,
-                decoration: const InputDecoration(labelText: 'الفئة الرئيسية'),
+                isExpanded: true,
+                menuMaxHeight: dropdownMenuHeight,
+                borderRadius: dropdownBorderRadius,
+                dropdownColor: theme.canvasColor,
+                style: dropdownTextStyle,
+                decoration: InputDecoration(
+                  labelText: 'القسم الرئيسي (${_roots.length})',
+                ),
                 items: _roots
                     .map(
                       (item) => DropdownMenuItem<int>(
                         value: item.id,
-                        child: Text(item.name),
+                        child: Text(
+                          item.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     )
                     .toList(),
@@ -2104,69 +2617,66 @@ class _CreateServiceOfferingDialogState
                   if (value == null) return;
                   setState(() {
                     _selectedMainCategoryId = value;
-                    final nextRoot = _roots.firstWhere(
-                      (item) => item.id == value,
-                      orElse: () => _roots.first,
-                    );
-                    final nextSubcategories = nextRoot.children
-                        .where(
-                          (item) =>
-                              item.level == 2 && item.isActive && item.isPublic,
-                        )
-                        .toList();
-                    _selectedSubcategoryId = nextSubcategories.isEmpty
-                        ? null
-                        : nextSubcategories.first.id;
+                    _selectedSubcategoryId = null;
                     _dialogError = null;
                   });
                 },
               ),
-              const SizedBox(height: 8),
-              DropdownButtonFormField<int>(
-                key: const Key('service_subcategory_dropdown'),
-                value: effectiveSubcategoryId,
-                decoration: const InputDecoration(labelText: 'الفئة الفرعية'),
-                items: subcategories
-                    .map(
-                      (item) => DropdownMenuItem<int>(
-                        value: item.id,
-                        child: Text(item.name),
-                      ),
-                    )
-                    .toList(),
-                onChanged: subcategories.isEmpty
-                    ? null
-                    : (value) => setState(() {
-                        _selectedSubcategoryId = value;
-                        _dialogError = null;
-                      }),
-              ),
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: FilledButton.tonalIcon(
-                  key: const Key('service_add_subcategory_button'),
-                  onPressed: _selectedMainCategoryId == null
-                      ? null
-                      : _createSubcategory,
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('إضافة فئة فرعية'),
-                ),
-              ),
-              if (subcategories.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 6),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: Text(
-                      'لا توجد فئات فرعية متاحة لهذه الفئة، يمكنك إضافتها الآن.',
-                      style: TextStyle(fontSize: 12),
-                    ),
+              if (_selectedMainCategoryId != null &&
+                  _roots
+                      .where((item) => item.id == _selectedMainCategoryId)
+                      .expand((item) => item.children)
+                      .isNotEmpty) ...[
+                const SizedBox(height: 8),
+                DropdownButtonFormField<int>(
+                  key: const Key('service_subcategory_dropdown'),
+                  value: _selectedSubcategoryId,
+                  isExpanded: true,
+                  menuMaxHeight: dropdownMenuHeight,
+                  borderRadius: dropdownBorderRadius,
+                  dropdownColor: theme.canvasColor,
+                  style: dropdownTextStyle,
+                  hint: const Text('اختر القسم الفرعي'),
+                  decoration: InputDecoration(
+                    labelText:
+                        'القسم الفرعي (${_roots.where((item) => item.id == _selectedMainCategoryId).expand((item) => item.children).length})',
+                    suffixIcon: _selectedSubcategoryId == null
+                        ? null
+                        : IconButton(
+                            tooltip: 'إلغاء اختيار القسم الفرعي',
+                            onPressed: () =>
+                                setState(() => _selectedSubcategoryId = null),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
                   ),
+                  items: _roots
+                      .where((item) => item.id == _selectedMainCategoryId)
+                      .expand((item) => item.children)
+                      .map(
+                        (item) => DropdownMenuItem<int>(
+                          value: item.id,
+                          child: Text(
+                            item.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                  onChanged: (value) => setState(() {
+                    _selectedSubcategoryId = value;
+                    _dialogError = null;
+                  }),
                 ),
+              ],
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 value: _executionMode,
+                isExpanded: true,
+                menuMaxHeight: dropdownMenuHeight,
+                borderRadius: dropdownBorderRadius,
+                dropdownColor: theme.canvasColor,
+                style: dropdownTextStyle,
                 items: const [
                   DropdownMenuItem(value: 'home', child: Text('منزلية')),
                   DropdownMenuItem(
@@ -2184,6 +2694,11 @@ class _CreateServiceOfferingDialogState
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
                 value: _pricingModel,
+                isExpanded: true,
+                menuMaxHeight: dropdownMenuHeight,
+                borderRadius: dropdownBorderRadius,
+                dropdownColor: theme.canvasColor,
+                style: dropdownTextStyle,
                 items: const [
                   DropdownMenuItem(
                     value: 'custom_quote',
@@ -2201,6 +2716,16 @@ class _CreateServiceOfferingDialogState
                     value: 'fixed_package',
                     child: Text('باقة ثابتة'),
                   ),
+                  DropdownMenuItem(value: 'per_hour', child: Text('بالساعة')),
+                  DropdownMenuItem(value: 'per_day', child: Text('باليوم')),
+                  DropdownMenuItem(
+                    value: 'per_device',
+                    child: Text('لكل جهاز'),
+                  ),
+                  DropdownMenuItem(value: 'per_room', child: Text('لكل غرفة')),
+                  DropdownMenuItem(value: 'per_meter', child: Text('بالمتر')),
+                  DropdownMenuItem(value: 'per_item', child: Text('لكل قطعة')),
+                  DropdownMenuItem(value: 'per_visit', child: Text('للزيارة')),
                 ],
                 onChanged: (value) => setState(() {
                   _pricingModel = value ?? 'custom_quote';
@@ -2208,13 +2733,28 @@ class _CreateServiceOfferingDialogState
                 decoration: const InputDecoration(labelText: 'نمط السعر'),
               ),
               const SizedBox(height: 8),
-              TextField(
-                controller: _startsFromCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
+              if (![
+                'custom_quote',
+                'inspection_required',
+              ].contains(_pricingModel)) ...[
+                TextField(
+                  key: const Key('service_price_field'),
+                  controller: _startsFromCtrl,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(labelText: 'السعر'),
                 ),
+                const SizedBox(height: 8),
+              ],
+              TextField(
+                key: const Key('service_price_label_field'),
+                controller: _priceLabelCtrl,
+                maxLength: 120,
                 decoration: const InputDecoration(
-                  labelText: 'السعر (اختياري حسب نمط التسعير)',
+                  labelText: 'السعر مقابل ماذا؟',
+                  hintText: 'مثال: للساعة، للمتر، للعملية كاملة، بعد المعاينة',
+                  counterText: '',
                 ),
               ),
             ],
@@ -2223,64 +2763,18 @@ class _CreateServiceOfferingDialogState
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
           child: const Text('إلغاء'),
         ),
         FilledButton(
-          onPressed: _submit,
-          child: Text(isEditing ? 'حفظ التعديلات' : 'إنشاء'),
-        ),
-      ],
-    );
-  }
-}
-
-class _CategoryNameDialog extends StatefulWidget {
-  final String title;
-  final String hintText;
-
-  const _CategoryNameDialog({required this.title, required this.hintText});
-
-  @override
-  State<_CategoryNameDialog> createState() => _CategoryNameDialogState();
-}
-
-class _CategoryNameDialogState extends State<_CategoryNameDialog> {
-  late final TextEditingController _nameCtrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _nameCtrl = TextEditingController();
-  }
-
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.title),
-      content: TextField(
-        controller: _nameCtrl,
-        autofocus: true,
-        decoration: InputDecoration(
-          labelText: 'اسم الفئة',
-          hintText: widget.hintText,
-        ),
-        onSubmitted: (_) => Navigator.of(context).pop(_nameCtrl.text.trim()),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('إلغاء'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_nameCtrl.text.trim()),
-          child: const Text('حفظ'),
+          onPressed: _submitting ? null : _submit,
+          child: _submitting
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Text(isEditing ? 'حفظ التعديلات' : 'إنشاء'),
         ),
       ],
     );

@@ -268,8 +268,15 @@ async function notifyAssignmentCommit({
       payload: {
         ...payloadBase,
         target: "courier_orders_current",
+        targetModule: "courier",
+        target_module: "courier",
         action: "open_assigned_order",
         roleScope: "courier",
+        role_scope: "courier",
+        targetEntity: "order",
+        target_entity: "order",
+        entityId: Number(orderRow.id),
+        entity_id: Number(orderRow.id),
       },
     });
   }

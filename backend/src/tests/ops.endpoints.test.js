@@ -35,17 +35,11 @@ test("ready and version endpoints respond", async () => {
     assert.ok(version.appEnv);
 
     const healthRes = await fetch(`${base}/health`);
-    assert.ok([200, 500].includes(healthRes.status));
-    if (healthRes.status === 200) {
-      const health = await healthRes.json();
-      assert.equal(health.status, "ok");
-      assert.equal(health.service, "maslaki-api");
-      assert.ok(health.db);
-      assert.ok(health.redis);
-      assert.ok(health.security?.requestSigning);
-      assert.ok(health.realtime);
-      assert.ok(health.uploads);
-    }
+    assert.equal(healthRes.status, 200);
+    const health = await healthRes.json();
+    assert.equal(health.status, "alive");
+    assert.equal(health.service, "maslaki-api");
+    assert.equal(Number.isInteger(health.uptimeSec), true);
   } finally {
     await new Promise((resolve) => server.close(resolve));
   }

@@ -17,6 +17,8 @@ class MerchantsApi {
     String? activityType,
     String? discoverySubcategory,
     String? department,
+    double? latitude,
+    double? longitude,
   }) async {
     final normalizedSearch = search?.trim();
     final params = <String, dynamic>{};
@@ -35,6 +37,10 @@ class MerchantsApi {
     }
     if (normalizedSearch != null && normalizedSearch.isNotEmpty) {
       params['search'] = normalizedSearch;
+    }
+    if (latitude != null && longitude != null) {
+      params['lat'] = latitude;
+      params['lng'] = longitude;
     }
     final response = await dio.get(
       '/api/merchants',
@@ -89,7 +95,9 @@ class MerchantsApi {
   }) async {
     final query = <String, dynamic>{};
     if (type != null && type.isNotEmpty) query['type'] = type;
-    if (placement != null && placement.isNotEmpty) query['placement'] = placement;
+    if (placement != null && placement.isNotEmpty) {
+      query['placement'] = placement;
+    }
     if (categoryKey != null && categoryKey.isNotEmpty) {
       query['categoryKey'] = categoryKey;
     }
@@ -141,10 +149,25 @@ class MerchantsApi {
     int merchantId, {
     int limit = 80,
     int offset = 0,
+    String? search,
+    int? categoryId,
+    List<int>? productIds,
+    bool onlyAvailable = false,
+    bool onlyOffers = false,
+    String sort = 'recommended',
   }) async {
     final response = await dio.get(
       '/api/merchants/$merchantId/products',
-      queryParameters: {'limit': limit, 'offset': offset},
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+        'categoryId': ?categoryId,
+        if (productIds != null) 'productIds': productIds.join(','),
+        if (onlyAvailable) 'onlyAvailable': true,
+        if (onlyOffers) 'onlyOffers': true,
+        'sort': sort,
+      },
       options: _publicOptions,
     );
     return List<dynamic>.from(response.data as List);

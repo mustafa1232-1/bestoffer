@@ -132,7 +132,16 @@ export function createRateLimiter({
   keyPrefix = "global",
   skip = null,
   requireRedis = false,
+  backend = "auto",
 } = {}) {
+  const backendMode = String(backend || "auto").trim().toLowerCase();
+  if (!new Set(["auto", "local", "redis"]).has(backendMode)) {
+    throw new TypeError(`Unsupported rate-limit backend: ${backend}`);
+  }
+  if (requireRedis && backendMode === "local") {
+    throw new TypeError("requireRedis cannot be combined with backend=local");
+  }
+
   return async function rateLimit(req, res, next) {
     if (typeof skip === "function" && skip(req) === true) {
       return next();
@@ -142,24 +151,30 @@ export function createRateLimiter({
     let mode = "local-fallback";
 
     try {
-      const redis = await getRedisClient();
-      if (redis) {
-        state = await consumeBucketRedis(redis, key, windowMs);
-        mode = "redis";
-      } else {
-        if (requireRedis) {
-          return next(
-            new AppError("RATE_LIMIT_BACKEND_UNAVAILABLE", {
-              status: 503,
-              details: { keyPrefix },
-            })
-          );
-        }
+      if (backendMode === "local") {
         cleanupBuckets();
         state = consumeBucketLocal({ key, windowMs });
+        mode = "local";
+      } else {
+        const redis = await getRedisClient();
+        if (redis) {
+          state = await consumeBucketRedis(redis, key, windowMs);
+          mode = "redis";
+        } else {
+          if (requireRedis || backendMode === "redis") {
+            return next(
+              new AppError("RATE_LIMIT_BACKEND_UNAVAILABLE", {
+                status: 503,
+                details: { keyPrefix },
+              })
+            );
+          }
+          cleanupBuckets();
+          state = consumeBucketLocal({ key, windowMs });
+        }
       }
     } catch (_) {
-      if (requireRedis) {
+      if (requireRedis || backendMode === "redis") {
         return next(
           new AppError("RATE_LIMIT_BACKEND_UNAVAILABLE", {
             status: 503,

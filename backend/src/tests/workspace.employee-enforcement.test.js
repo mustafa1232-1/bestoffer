@@ -542,7 +542,7 @@ test("workspace employee permission enforcement", async (t) => {
         )
       );
       assert.equal(approvedOrder.error, null);
-      assert.equal(approvedOrder.res.statusCode, 204);
+      assert.equal(approvedOrder.res.statusCode, 200);
 
       const trackedProduct = await ownerService.createOwnerProduct(
         storeFixture.user.id,
@@ -574,7 +574,7 @@ test("workspace employee permission enforcement", async (t) => {
         )
       );
       assert.equal(approvedTrackedOrder.error, null);
-      assert.equal(approvedTrackedOrder.res.statusCode, 204);
+      assert.equal(approvedTrackedOrder.res.statusCode, 200);
 
       const zeroStockProduct = await ownerService.createOwnerProduct(
         storeFixture.user.id,

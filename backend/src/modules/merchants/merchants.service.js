@@ -13,6 +13,10 @@ import {
 import { AppError } from "../../shared/utils/errors.js";
 import { env } from "../../config/env.js";
 import {
+  assertPointInsideServiceArea,
+  isPointInsideServiceArea,
+} from "../../shared/utils/service-area.js";
+import {
   buildMerchantCapabilities,
   listActivityRegistry,
   listDiscoveryOptions as listActivityDiscoveryOptions,
@@ -23,6 +27,10 @@ import {
   requireValidDiscoverySelection,
 } from "./store-activity.registry.js";
 import { resolveStoreDepartmentForWrite } from "./store-department.logic.js";
+import {
+  applyFreeDeliveryCampaignToMerchant,
+  applyFreeDeliveryCampaignToProduct,
+} from "../commerce/free-delivery-campaign.js";
 
 const merchantBrowseInflight = new Map();
 
@@ -125,6 +133,10 @@ function toBrowseMerchantPayload(row) {
   };
 }
 
+function decorateMerchantBrowsePayload(payload) {
+  return applyFreeDeliveryCampaignToMerchant(payload);
+}
+
 /// Parses to a non-negative integer, or null when absent/invalid. Never
 /// fabricates a default — a missing ETA stays unknown.
 function toNullableInt(value) {
@@ -205,6 +217,17 @@ export async function createMerchant(dto, approvedByUserId) {
     supportsPharmacyWorkflow: dto.supportsPharmacyWorkflow,
   });
 
+  let merchantLatitude = null;
+  let merchantLongitude = null;
+  if (dto.latitude != null || dto.longitude != null) {
+    assertPointInsideServiceArea({
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+    merchantLatitude = Number(dto.latitude);
+    merchantLongitude = Number(dto.longitude);
+  }
+
   const merchant = {
     name: dto.name.trim(),
     type: dto.type,
@@ -227,6 +250,8 @@ export async function createMerchant(dto, approvedByUserId) {
     deliveryEtaMaxMinutes: toNullableInt(dto.deliveryEtaMaxMinutes),
     deliveryFee: toNullableAmount(dto.deliveryFee),
     minimumOrder: toNullableAmount(dto.minimumOrder),
+    latitude: merchantLatitude,
+    longitude: merchantLongitude,
     isVerified: dto.isVerified === true,
   };
 
@@ -316,12 +341,12 @@ export async function listMerchants(type, search, options = {}) {
   };
   const cached = await repo.getCachedMerchantBrowseList(cacheContext);
   if (Array.isArray(cached)) {
-    return cached;
+    return cached.map(decorateMerchantBrowsePayload);
   }
   return runMerchantBrowseSingleFlight(cacheContext, async () => {
     const recached = await repo.getCachedMerchantBrowseList(cacheContext);
     if (Array.isArray(recached)) {
-      return recached;
+      return recached.map(decorateMerchantBrowsePayload);
     }
 
     const rows = await repo.getAllMerchants(requestedType, search, {
@@ -355,7 +380,7 @@ export async function listMerchants(type, search, options = {}) {
     if (mapped.length <= 1) {
       const payload = mapped.map(toBrowseMerchantPayload);
       await repo.setCachedMerchantBrowseList(cacheContext, payload);
-      return payload;
+      return payload.map(decorateMerchantBrowsePayload);
     }
 
     const prices = mapped
@@ -423,21 +448,23 @@ export async function listMerchants(type, search, options = {}) {
       });
     const payload = ranked.map(toBrowseMerchantPayload);
     await repo.setCachedMerchantBrowseList(cacheContext, payload);
-    return payload;
+    return payload.map(decorateMerchantBrowsePayload);
   });
 }
 
 /**
  * يعيد المنتجات العامة لمتجر واحد مع دمج العروض النشطة في السعر الظاهر.
  */
-export async function listMerchantProducts(merchantId, { limit, offset } = {}) {
-  const rows = await repo.getPublicMerchantProducts(merchantId, { limit, offset });
+export async function listMerchantProducts(merchantId, query = {}) {
+  const rows = await repo.getPublicMerchantProducts(merchantId, query);
   if (!rows.length) return rows;
-  const richCatalogMap = await loadProductRichCatalogByIds(rows.map((row) => row.id));
-  const activeOffers = await listLatestEligibleOffersByProductIds({
-    merchantId: Number(merchantId),
-    productIds: rows.map((row) => Number(row.id)),
-  });
+  const [richCatalogMap, activeOffers] = await Promise.all([
+    loadProductRichCatalogByIds(rows.map((row) => row.id)),
+    listLatestEligibleOffersByProductIds({
+      merchantId: Number(merchantId),
+      productIds: rows.map((row) => Number(row.id)),
+    }),
+  ]);
   const offerMap = new Map(
     activeOffers.map((offer) => [String(offer.product_id), offer])
   );
@@ -454,11 +481,12 @@ export async function listMerchantProducts(merchantId, { limit, offset } = {}) {
       attributes: rich?.attributes || [],
       summaryAttributes: rich?.summaryAttributes || rich?.highlights || [],
       variantGroups: rich?.variantGroups || [],
+      variants: rich?.variants || [],
       media: rich?.media || [],
       primaryMedia,
       hasVariants: rich?.hasVariants === true,
     };
-    if (!activeOffer) return base;
+    if (!activeOffer) return applyFreeDeliveryCampaignToProduct(base);
 
     const pricing = applyMerchantOfferPricing({
       baseUnitPrice: Number(row.price),
@@ -467,7 +495,7 @@ export async function listMerchantProducts(merchantId, { limit, offset } = {}) {
       fallbackDiscountedPrice: null,
     });
 
-    return {
+    return applyFreeDeliveryCampaignToProduct({
       ...base,
       discounted_price:
         activeOffer.offer_type === "buy_x_get_y"
@@ -489,7 +517,7 @@ export async function listMerchantProducts(merchantId, { limit, offset } = {}) {
         activeOffer.get_quantity == null
           ? null
           : Number(activeOffer.get_quantity),
-    };
+    });
   });
 }
 
@@ -498,7 +526,7 @@ export async function listMerchantCategories(merchantId) {
 }
 
 function mapPublicMerchantRow(row) {
-  return {
+  return applyFreeDeliveryCampaignToMerchant({
     ...row,
     id: Number(row.id),
     isOpen: row.is_open === true,
@@ -545,7 +573,7 @@ function mapPublicMerchantRow(row) {
       row.distance_km === null || row.distance_km === undefined
         ? null
         : Number(row.distance_km),
-  };
+  });
 }
 
 export async function getPublicMerchantSummary(merchantId) {
@@ -570,6 +598,11 @@ export async function listNearbyMerchants({
   }
   if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
     throw new AppError("LONGITUDE_INVALID", { status: 400 });
+  }
+
+  const serviceArea = isPointInsideServiceArea({ latitude: lat, longitude: lng });
+  if (!serviceArea.ok) {
+    return [];
   }
 
   const radius = Number.isFinite(Number(radiusKm))

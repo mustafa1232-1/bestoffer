@@ -19,11 +19,11 @@ final _customerCouponTaxiApiProvider = Provider<TaxiApi>(
   (ref) => TaxiApi(ref.read(dioClientProvider).dio),
 );
 
-class CustomerCouponsHubScreen extends StatelessWidget {
+class CustomerCouponsHubScreen extends ConsumerWidget {
   const CustomerCouponsHubScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
       appBar: AppBar(
         title: Text(context.lt(ar: 'الكوبونات', en: 'Coupons')),

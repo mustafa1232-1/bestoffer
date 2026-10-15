@@ -80,6 +80,10 @@ export function errorHandler(err, req, res, next) {
   const normalized = toAppError(err);
   const status = normalized.status >= 400 ? normalized.status : 500;
 
+  if (normalized.code === "DATABASE_TEMPORARILY_UNAVAILABLE") {
+    res.setHeader("Retry-After", "5");
+  }
+
   if (status >= 500) {
     void captureErrorToSentry(normalized, req);
   }

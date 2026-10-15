@@ -100,11 +100,15 @@ class _AdminReceivablesReportScreenState
       _error = null;
     });
     try {
-      final raw = await ref.read(adminApiProvider).adminReceivablesReport(
+      final raw = await ref
+          .read(adminApiProvider)
+          .adminReceivablesReport(
             period: adminFinancialPeriodCode(_period),
             from: _iso(_from),
             to: _iso(_to, endOfDay: true),
-            search: _searchCtrl.text.trim().isEmpty ? null : _searchCtrl.text.trim(),
+            search: _searchCtrl.text.trim().isEmpty
+                ? null
+                : _searchCtrl.text.trim(),
             limit: 200,
             offset: 0,
           );
@@ -160,6 +164,48 @@ class _AdminReceivablesReportScreenState
     );
   }
 
+  Future<void> _exportExcel() async {
+    final report = _report;
+    if (report == null) return;
+    final l10n = context.l10n;
+    final summary = [
+      '${l10n.commonPeriod}: ${_periodLabel(context)}',
+      '${l10n.adminReceivablesReportTotalSales}: ${formatIqd(report.summary.totalSales)}',
+      '${l10n.adminReceivablesReportTotalCollected}: ${formatIqd(report.summary.totalCollected)}',
+      '${l10n.adminReceivablesReportNetReceivables}: ${formatIqd(report.summary.netReceivables)}',
+      '${l10n.adminReceivablesReportOutstandingToCollect}: ${formatIqd(report.summary.outstandingToCollect)}',
+    ];
+    await exportAdminFinancialExcelReport(
+      title: l10n.adminReceivablesReportTitle,
+      periodLabel: _periodLabel(context),
+      summaryLines: summary,
+      filenamePrefix: 'admin-receivables-report',
+      sheets: [
+        AdminFinancialExcelSheet(
+          name: 'مستحقات المتاجر',
+          headers: [
+            l10n.commonMerchant,
+            l10n.commonSales,
+            l10n.commonCollected,
+            l10n.commonNet,
+            l10n.commonOutstanding,
+          ],
+          rows: report.merchants
+              .map(
+                (row) => [
+                  row.merchantName,
+                  row.totalSales,
+                  row.totalCollected,
+                  row.netReceivables,
+                  row.outstandingToCollect,
+                ],
+              )
+              .toList(growable: false),
+        ),
+      ],
+    );
+  }
+
   void _openMerchant(AdminFinancialMerchantSummaryRow row) {
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -183,10 +229,7 @@ class _AdminReceivablesReportScreenState
       appBar: AppBar(
         title: Text(l10n.adminReceivablesReportTitle),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
       body: RefreshIndicator(
@@ -222,7 +265,10 @@ class _AdminReceivablesReportScreenState
                 ),
               ),
               const SizedBox(height: 8),
-              AdminFinancialPrintActions(onPrint: _print),
+              AdminFinancialPrintActions(
+                onPrintPdf: _print,
+                onExportExcel: _exportExcel,
+              ),
               const SizedBox(height: 8),
             ],
             if (_loading)
@@ -249,9 +295,7 @@ class _AdminReceivablesReportScreenState
             else if (report == null || report.merchants.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 30),
-                child: Center(
-                  child: Text(l10n.adminReceivablesReportNoData),
-                ),
+                child: Center(child: Text(l10n.adminReceivablesReportNoData)),
               )
             else
               ...report.merchants.map((row) {

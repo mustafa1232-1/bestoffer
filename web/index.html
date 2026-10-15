@@ -22,6 +22,7 @@
   <meta name="description" content="Maslaki - Basmaya super-app for shopping, food, taxi, community, and daily services.">
   <meta name="theme-color" content="#F5EEE4">
   <meta name="color-scheme" content="light">
+  <meta name="assetBase" content="/web-assets-20261012/">
   <meta property="og:title" content="Maslaki">
   <meta property="og:description" content="Maslaki - Basmaya super-app for shopping, food, taxi, community, and daily services.">
   <meta property="og:type" content="website">
@@ -48,16 +49,45 @@
       overflow: hidden;
       overscroll-behavior: none;
     }
+    /* Flutter positions its accessibility overlay from the left. Arabic
+       layout and reading order are provided by Dart Directionality. */
+    flutter-view {
+      direction: ltr;
+    }
   </style>
 </head>
 <body>
   <script>
+    window.__MASLAKI_WEB_RELEASE__ = "1.0.13+59-web-20261013-call2";
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
+        navigator.serviceWorker.getRegistrations().then(function (registrations) {
+          registrations.forEach(function (registration) {
+            var url = registration.active && registration.active.scriptURL
+              ? registration.active.scriptURL
+              : "";
+            if (url.indexOf("flutter_service_worker.js") !== -1) {
+              registration.unregister();
+            }
+          });
+        });
+        if ("caches" in window) {
+          caches.keys().then(function (keys) {
+            keys.forEach(function (key) {
+              if (key.indexOf("flutter-app-cache") !== -1 ||
+                  key.indexOf("flutter-temp-cache") !== -1 ||
+                  key.indexOf("flutter-cache") !== -1) {
+                caches.delete(key);
+              }
+            });
+          });
+        }
         navigator.serviceWorker.register("/firebase-messaging-sw.js");
       });
     }
   </script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script src="maslaki_boot_diagnostics.js?v=1.0.13+59-web-20261013-call2"></script>
+  <script src="maslaki_web_update.js?v=1.0.13+59-web-20261013-call2"></script>
+  <script src="flutter_bootstrap.js?v=1.0.13+59-web-20261013-call2" async></script>
 </body>
 </html>

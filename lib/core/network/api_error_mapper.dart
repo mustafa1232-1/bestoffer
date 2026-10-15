@@ -158,6 +158,46 @@ String? _messageForCode(AppLocalizations l10n, String code) {
       return l10n.apiPhoneExists;
     case 'VALIDATION_ERROR':
       return l10n.apiValidationError;
+    case 'INFLUENCER_CODE_NOT_FOUND':
+      return l10n.localeName.startsWith('ar')
+          ? 'كود المؤثر غير موجود أو غير صحيح.'
+          : 'The influencer code does not exist or is invalid.';
+    case 'REFERRAL_ATTRIBUTION_LOCKED':
+      return l10n.localeName.startsWith('ar')
+          ? 'سبق تثبيت كود مؤثر على هذا الحساب ولا يمكن تبديله.'
+          : 'An influencer code is already locked to this account.';
+    case 'REFERRAL_DEVICE_ALREADY_ATTRIBUTED':
+      return l10n.localeName.startsWith('ar')
+          ? 'سبق احتساب إحالة من هذا الجهاز لحساب آخر.'
+          : 'A referral from this device was already counted for another account.';
+    case 'REFERRAL_CAMPAIGN_INACTIVE':
+      return l10n.localeName.startsWith('ar')
+          ? 'رمز إحالة هذا المؤثر متوقف حالياً.'
+          : 'This influencer referral code is currently inactive.';
+    case 'REFERRAL_NEW_CUSTOMERS_ONLY':
+      return l10n.localeName.startsWith('ar')
+          ? 'كود المؤثر مخصص للمستخدم الجديد قبل إكمال أول طلب.'
+          : 'The influencer code is for a new user before the first completed order.';
+    case 'REFERRAL_DEVICE_ID_REQUIRED':
+      return l10n.localeName.startsWith('ar')
+          ? 'تعذر التحقق من هذا الجهاز. حدّث التطبيق وحاول مجدداً.'
+          : 'This device could not be verified. Update the app and try again.';
+    case 'REFERRAL_CLAIM_REQUIRED':
+      return l10n.localeName.startsWith('ar')
+          ? 'يجب تثبيت كود المؤثر على الحساب أولاً.'
+          : 'The influencer code must be saved to the account first.';
+    case 'INFLUENCER_COUPON_PROTECTED':
+      return l10n.localeName.startsWith('ar')
+          ? 'يُدار هذا الكوبون من صفحة المؤثرين والمشاهير ويمكن إيقافه من هناك.'
+          : 'This coupon is managed from Influencers and can be paused there.';
+    case 'INFLUENCER_NOT_FOUND':
+      return l10n.localeName.startsWith('ar')
+          ? 'المؤثر المطلوب غير موجود.'
+          : 'The requested influencer was not found.';
+    case 'SERVICE_OFFERING_NAME_EXISTS':
+      return l10n.localeName.startsWith('ar')
+          ? 'توجد خدمة بهذا الاسم بالفعل. افتح الخدمة الموجودة وعدّلها بدل إنشاء نسخة مكررة.'
+          : 'A service with this name already exists. Edit the existing service instead of creating a duplicate.';
     case 'OWNER_ALREADY_HAS_MERCHANT':
       return l10n.addMerchantOwnerAlreadyLinked;
     case 'CATEGORY_REQUIRED':
@@ -451,7 +491,10 @@ bool _isSessionScopedAuthCode(String? code) {
   return normalized == 'INVALID_TOKEN' ||
       normalized == 'NO_TOKEN' ||
       normalized == 'INVALID_REFRESH_TOKEN' ||
+      normalized == 'SESSION_RECOVERY_REQUIRED' ||
+      normalized == 'PERMISSIONS_CHANGED' ||
       normalized == 'TOKEN_EXPIRED' ||
+      normalized == 'ACCESS_TOKEN_EXPIRED' ||
       normalized == 'SESSION_EXPIRED';
 }
 

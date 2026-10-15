@@ -3,6 +3,7 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
@@ -65,6 +66,39 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
   final FormScrollCoordinator _scrollCoordinator = FormScrollCoordinator();
   final Map<String, String> _fieldErrors = <String, String>{};
   String? _formError;
+
+  Future<Position?> _captureMerchantPosition() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _formError = context.localizedText(
+          ar: 'يرجى تشغيل خدمة الموقع لتحديد موقع المتجر.',
+          en: 'Please enable location services to set the store location.',
+        );
+      });
+      return null;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      setState(() {
+        _formError = context.localizedText(
+          ar: 'لا يمكن إنشاء متجر بدون السماح بالموقع.',
+          en: 'Store creation requires location permission.',
+        );
+      });
+      return null;
+    }
+
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+      timeLimit: const Duration(seconds: 12),
+    );
+  }
 
   @override
   void initState() {
@@ -494,6 +528,11 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
     });
 
     try {
+      final position = await _captureMerchantPosition();
+      if (position == null) {
+        setState(() => saving = false);
+        return;
+      }
       await ref
           .read(merchantsControllerProvider.notifier)
           .addMerchant(
@@ -517,6 +556,8 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
             supportsChat: merchantActivityType == 'pharmacy',
             supportsAttachments: merchantActivityType == 'pharmacy',
             supportsPharmacyWorkflow: merchantActivityType == 'pharmacy',
+            latitude: position.latitude,
+            longitude: position.longitude,
             merchantImageFile: merchantImageFile,
             ownerImageFile: ownerMode == _OwnerMode.createNew
                 ? ownerImageFile
@@ -977,8 +1018,9 @@ class _AddMerchantScreenState extends ConsumerState<AddMerchantScreen> {
                       const SizedBox(height: 6),
                       Text(
                         _fieldErrors['merchantDepartment']!,
-                        style:
-                            TextStyle(color: Theme.of(context).colorScheme.error),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ],
                   ],

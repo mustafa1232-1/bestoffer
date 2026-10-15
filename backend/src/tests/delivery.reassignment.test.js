@@ -88,7 +88,6 @@ test("§1A: ineligible new courier is rejected and preserves the old assignment"
   const cases = [
     ["unapproved", { approved: false }, "account_not_approved"],
     ["offline", { online: false }, "offline"],
-    ["stale", { ageSec: 9999 }, "presence_stale"],
     ["disabled", { disabled: true }, "account_disabled"],
     ["not_active", { active: false }, "account_not_active"],
   ];
@@ -107,6 +106,18 @@ test("§1A: ineligible new courier is rejected and preserves the old assignment"
     assert.equal(j.assignment_status, "ASSIGNED", `${label}: job still ASSIGNED`);
   }
 
+  const staleButOnline = await makeCandidate(c, "stale_ok", { ageSec: 9999 });
+  const reassigned = await reassignGroupedJob({
+    orderGroupId: fx.orderGroupId,
+    newCourierUserId: staleButOnline,
+    reason: "TEST_STALE_ONLINE",
+  });
+  assert.equal(
+    Number(reassigned.courierUserId),
+    Number(staleButOnline),
+    "stale-but-online courier can be explicitly reassigned"
+  );
+
   // Busy candidate holds another active grouped job (a second real group+job).
   const busy = await makeCandidate(c, "busy");
   const fx2 = await createMultiStoreFixture(c, { mark: MARK + "b_" });
@@ -120,7 +131,11 @@ test("§1A: ineligible new courier is rejected and preserves the old assignment"
     (e) => e.code === "COURIER_NOT_ELIGIBLE" && e.details?.reason === "busy_grouped_job",
     "busy candidate rejected"
   );
-  assert.equal(await activeHolder(c, job.id), Number(fx.courierId), "old assignment still preserved after busy rejection");
+  assert.equal(
+    await activeHolder(c, job.id),
+    Number(staleButOnline),
+    "current assignment still preserved after busy rejection"
+  );
   await cleanupMultiStoreFixture(c, MARK + "b_");
 });
 

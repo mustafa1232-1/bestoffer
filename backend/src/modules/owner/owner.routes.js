@@ -38,6 +38,10 @@ ownerRouter.post("/categories", c.createCategory);
 ownerRouter.put("/categories/:categoryId", c.updateCategory);
 ownerRouter.delete("/categories/:categoryId", c.deleteCategory);
 
+ownerRouter.get("/inventory/daily", c.getDailyInventory);
+ownerRouter.patch("/inventory/products/:productId", c.updateInventoryItem);
+ownerRouter.post("/inventory/daily-check", c.confirmDailyInventoryCheck);
+
 ownerRouter.get("/products", c.listProducts);
 ownerRouter.get("/products/:productId", c.getProduct);
 ownerRouter.get("/offers", c.listOffers);

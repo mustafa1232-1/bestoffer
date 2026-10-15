@@ -6,6 +6,7 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../auth/ui/add_merchant_screen.dart';
 import '../../coupons/ui/coupon_management_screen.dart';
+import 'admin_influencer_referrals_screen.dart';
 import 'admin_referral_coupons_screen.dart';
 import '../../jobs/ui/job_admin_jobs_reader_screen.dart';
 import '../../jobs/ui/job_super_admin_monitor_screen.dart';
@@ -16,6 +17,7 @@ import '../ui/admin_ad_board_screen.dart';
 import 'admin_customer_reliability_policy_screen.dart';
 import 'admin_companies_screen.dart';
 import 'admin_create_user_screen.dart';
+import 'admin_pin_reset_requests_screen.dart';
 
 class AdminAdvancedToolsHubScreen extends ConsumerWidget {
   const AdminAdvancedToolsHubScreen({super.key});
@@ -50,6 +52,17 @@ class AdminAdvancedToolsHubScreen extends ConsumerWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => const AdminCreateUserScreen(),
+                ),
+              ),
+            ),
+          if (isSuperAdmin || auth.isAdmin)
+            _ToolTile(
+              icon: Icons.lock_reset_rounded,
+              title: 'طلبات إعادة تعيين الرموز',
+              subtitle: 'مراجعة طلبات المستخدمين وتعيين رمز مؤقت',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AdminPinResetRequestsScreen(),
                 ),
               ),
             ),
@@ -95,6 +108,17 @@ class AdminAdvancedToolsHubScreen extends ConsumerWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => const AdminReferralCouponsScreen(),
+                ),
+              ),
+            ),
+          if (isSuperAdmin)
+            _ToolTile(
+              icon: Icons.campaign_rounded,
+              title: 'المؤثرون والمشاهير',
+              subtitle: 'إنشاء أكواد المشاهير ومراجعة المستخدمين والاستحقاقات',
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const AdminInfluencerReferralsScreen(),
                 ),
               ),
             ),

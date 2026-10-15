@@ -7,6 +7,8 @@ class DeliveryAddressModel {
   final String block;
   final String buildingNumber;
   final String apartment;
+  final double? latitude;
+  final double? longitude;
   final bool isDefault;
 
   const DeliveryAddressModel({
@@ -16,6 +18,8 @@ class DeliveryAddressModel {
     required this.block,
     required this.buildingNumber,
     required this.apartment,
+    this.latitude,
+    this.longitude,
     required this.isDefault,
   });
 
@@ -27,9 +31,19 @@ class DeliveryAddressModel {
       block: parseString(j['block']),
       buildingNumber: parseString(j['building_number'] ?? j['buildingNumber']),
       apartment: parseString(j['apartment']),
+      latitude: _parseOptionalDouble(j['latitude']),
+      longitude: _parseOptionalDouble(j['longitude']),
       isDefault: j['is_default'] ?? j['isDefault'] ?? false,
     );
   }
 
-  String get shortText => '$city - بلوك $block، عمارة $buildingNumber، شقة $apartment';
+  String get shortText =>
+      '$city - بلوك $block، عمارة $buildingNumber، شقة $apartment';
+}
+
+double? _parseOptionalDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  final parsed = double.tryParse('$value');
+  return parsed?.isFinite == true ? parsed : null;
 }

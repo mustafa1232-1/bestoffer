@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' as intl;
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
 import '../../../core/widgets/app_user_drawer.dart';
@@ -16,17 +18,34 @@ import '../../orders/models/order_model.dart';
 import '../../orders/ui/order_chat_screen.dart';
 import '../../orders/ui/widgets/order_item_widgets.dart';
 import '../../settings/ui/pages/settings_account_screen.dart';
-import '../../settings/ui/pages/settings_support_screen.dart';
+import '../../support/ui/support_tickets_screen.dart';
 import '../data/delivery_api.dart';
 import '../state/delivery_controller.dart';
 import '../state/grouped_delivery_controller.dart';
 import 'courier_pages.dart';
 import 'delivery_reports_screens.dart';
+import 'delivery_reconciliation_sheets.dart';
 import 'grouped_delivery_screens.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
 enum _DeliveryTab { dashboard, current, history, profile }
+
+Future<void> _openMapTarget({
+  double? latitude,
+  double? longitude,
+  required String label,
+  String? query,
+}) async {
+  final uri = latitude != null && longitude != null
+      ? Uri.parse(
+          'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude',
+        )
+      : Uri.parse(
+          'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(query ?? label)}',
+        );
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
 
 class DeliveryDashboardScreen extends ConsumerStatefulWidget {
   const DeliveryDashboardScreen({super.key});
@@ -88,13 +107,24 @@ class _DeliveryDashboardScreenState
     _deliveryController = ref.read(deliveryControllerProvider.notifier);
     Future.microtask(() async {
       if (!mounted) return;
-      await _deliveryController.bootstrap();
+      await _deliveryController.bootstrap(includeExtended: false);
       if (!mounted) return;
       _deliveryController.startLiveOrders();
-      // Grouped multi-store delivery bootstrap (Delivery surface only).
-      if (!mounted) return;
-      await ref.read(groupedDeliveryControllerProvider.notifier).bootstrap();
     });
+  }
+
+  void _showCurrentOrders() {
+    setState(() => activeTab = _DeliveryTab.current);
+    Future.microtask(
+      () => ref
+          .read(groupedDeliveryControllerProvider.notifier)
+          .bootstrap(silent: true),
+    );
+  }
+
+  void _showProfile() {
+    setState(() => activeTab = _DeliveryTab.profile);
+    Future.microtask(() => _deliveryController.bootstrap());
   }
 
   @override
@@ -126,7 +156,7 @@ class _DeliveryDashboardScreenState
   Future<void> _openSupportSettings() async {
     await Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const SettingsSupportScreen()));
+    ).push(MaterialPageRoute(builder: (_) => const SupportTicketsScreen()));
   }
 
   Future<void> _pickHistoryDate() async {
@@ -140,7 +170,10 @@ class _DeliveryDashboardScreenState
     if (picked == null) return;
     setState(() => historyDateFilter = picked);
     final date = intl.DateFormat('yyyy-MM-dd').format(picked);
-    await _deliveryController.bootstrap(historyDate: date);
+    await _deliveryController.bootstrap(
+      historyDate: date,
+      includeExtended: false,
+    );
   }
 
   @override
@@ -170,6 +203,7 @@ class _DeliveryDashboardScreenState
         _handleDashboardPop();
       },
       child: Scaffold(
+        backgroundColor: AppColors.brandIvory,
         // End-day readiness is fetched from backend so we can block closure
         // before the submit request if the delivery still owes the store.
         key: _scaffoldKey,
@@ -181,7 +215,10 @@ class _DeliveryDashboardScreenState
           items: [
             AppUserDrawerItem(
               icon: Icons.campaign_outlined,
-              label: context.lt(ar: 'الطلبات المعيّنة', en: 'Assigned deliveries'),
+              label: context.lt(
+                ar: 'الطلبات المعيّنة',
+                en: 'Assigned deliveries',
+              ),
               subtitle: context.lt(
                 ar: 'تظهر الطلبات المعيّنة لك فقط مع التحديث اللحظي.',
                 en: 'Only your assigned orders are shown with live updates.',
@@ -203,8 +240,7 @@ class _DeliveryDashboardScreenState
             AppUserDrawerItem(
               icon: Icons.local_shipping_outlined,
               label: l10n.deliveryCurrentOrders,
-              onTap: (_) async =>
-                  setState(() => activeTab = _DeliveryTab.current),
+              onTap: (_) async => _showCurrentOrders(),
             ),
             AppUserDrawerItem(
               icon: Icons.history_rounded,
@@ -215,8 +251,7 @@ class _DeliveryDashboardScreenState
             AppUserDrawerItem(
               icon: Icons.person_outline_rounded,
               label: l10n.drawerProfile,
-              onTap: (_) async =>
-                  setState(() => activeTab = _DeliveryTab.profile),
+              onTap: (_) async => _showProfile(),
             ),
             AppUserDrawerItem(
               icon: Icons.emoji_events_outlined,
@@ -255,8 +290,9 @@ class _DeliveryDashboardScreenState
             AppUserDrawerItem(
               icon: Icons.refresh_rounded,
               label: l10n.drawerRefresh,
-              onTap: (_) async =>
-                  ref.read(deliveryControllerProvider.notifier).bootstrap(),
+              onTap: (_) async => ref
+                  .read(deliveryControllerProvider.notifier)
+                  .bootstrap(includeExtended: false),
             ),
             AppUserDrawerItem(
               icon: Icons.archive_outlined,
@@ -268,18 +304,32 @@ class _DeliveryDashboardScreenState
           ],
         ),
         appBar: AppBar(
+          backgroundColor: AppColors.brandIvory,
+          foregroundColor: AppColors.brandNavy,
+          surfaceTintColor: Colors.transparent,
           title: Text(_tabTitle()),
           actions: [
-            IconButton(
-              key: const Key('open_grouped_history'),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const GroupedDeliveryHistoryScreen(),
+            if (activeTab == _DeliveryTab.dashboard)
+              IconButton(
+                key: const Key('delivery_online_toggle'),
+                onPressed: state.saving
+                    ? null
+                    : () => ref
+                          .read(deliveryControllerProvider.notifier)
+                          .setOnline(!state.isOnline),
+                icon: Icon(
+                  state.isOnline
+                      ? Icons.wifi_tethering_rounded
+                      : Icons.power_settings_new_rounded,
+                  color: state.isOnline
+                      ? AppColors.brandGreen
+                      : Colors.red.shade700,
+                ),
+                tooltip: context.lt(
+                  ar: state.isOnline ? 'أنت متصل' : 'أنت غير متصل',
+                  en: state.isOnline ? 'You are online' : 'You are offline',
                 ),
               ),
-              icon: const Icon(Icons.history),
-              tooltip: 'سجل المهام المجمّعة',
-            ),
             if (activeTab == _DeliveryTab.history)
               IconButton(
                 onPressed: _pickHistoryDate,
@@ -289,29 +339,28 @@ class _DeliveryDashboardScreenState
             const NotificationsBellButton(),
           ],
         ),
-        floatingActionButton:
-            activeTab == _DeliveryTab.dashboard ||
-                activeTab == _DeliveryTab.current
-            ? FloatingActionButton.extended(
-                heroTag: null,
-                onPressed:
-                    state.saving || state.endDayReadiness['canEndDay'] == false
-                    ? null
-                    : () async {
-                        await ref
-                            .read(deliveryControllerProvider.notifier)
-                            .endDay();
-                      },
-                icon: const Icon(Icons.archive_outlined),
-                label: Text(l10n.deliveryEndDay),
-              )
-            : null,
         body: RefreshIndicator(
-          onRefresh: () =>
-              ref.read(deliveryControllerProvider.notifier).bootstrap(),
-          child: state.loading
-              ? const Center(child: CircularProgressIndicator())
-              : _buildDeliveryTabBody(state: state, auth: auth),
+          onRefresh: () => ref
+              .read(deliveryControllerProvider.notifier)
+              .bootstrap(includeExtended: false),
+          child: Theme(
+            data: Theme.of(context).copyWith(
+              cardTheme: CardThemeData(
+                color: Colors.white.withValues(alpha: 0.96),
+                surfaceTintColor: Colors.transparent,
+                elevation: 2,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                  side: BorderSide(
+                    color: AppColors.brandGold.withValues(alpha: 0.28),
+                  ),
+                ),
+              ),
+            ),
+            child: state.loading
+                ? const Center(child: CircularProgressIndicator())
+                : _buildDeliveryTabBody(state: state, auth: auth),
+          ),
         ),
       ),
     );
@@ -414,136 +463,203 @@ class _DeliveryDashboardScreenState
   }
 
   Widget _buildDashboardBody(DeliveryState state) {
-    final l10n = context.l10n;
     final metrics = _CourierDashboardMetrics.fromState(state);
+    final month = _DeliveryPeriod.fromMap(state.analytics['month']);
+    final kpis = _extractDashboardKpis(state.dashboardV2);
+    final appDue = _readDouble(kpis, const ['appDueTotal', 'app_due_total']);
+    final monthEarnings = _readDouble(kpis, const [
+      'monthEarnings',
+      'month_earnings',
+    ]);
+    final openSettlements = _readInt(kpis, const [
+      'openSettlements',
+      'open_settlements',
+    ]);
+    final serviceFees = _readDouble(kpis, const [
+      'serviceFeeTotal',
+      'service_fee_total',
+    ]);
 
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        const GroupedDeliveryDashboardSection(),
-        _buildEndDayReadinessCard(state),
-        const SizedBox(height: 8),
-        _DeliveryInsights(analytics: state.analytics),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _DeliveryMetricTile(
-              icon: Icons.local_shipping_outlined,
-              label: l10n.deliveryCurrentOrders,
-              value: '${metrics.currentOrders}',
-              onTap: () => setState(() => activeTab = _DeliveryTab.current),
+    void openEarnings() => Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const DeliveryEarningsScreen()),
+    );
+
+    void openReconciliation() => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const DeliveryReconciliationScreen(),
+      ),
+    );
+
+    return SingleChildScrollView(
+      key: const Key('delivery_home_summary'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 32),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _DashboardSectionTitle(
+            title: context.lt(ar: 'الملخص المالي', en: 'Financial summary'),
+            subtitle: context.lt(
+              ar: 'كل بطاقة تفتح تقريرها التفصيلي',
+              en: 'Each card opens its detailed report',
             ),
-            _DeliveryMetricTile(
-              icon: Icons.two_wheeler_outlined,
-              label: l10n.deliveryOnTheWay,
-              value: '${metrics.onTheWay}',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CourierOrdersInDeliveryPage(),
-                ),
-              ),
-            ),
-            _DeliveryMetricTile(
-              icon: Icons.store_mall_directory_outlined,
-              label: l10n.deliveryWaitingPickup,
-              value: '${metrics.waitingPickup}',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CourierOrdersWaitingPickupPage(),
-                ),
-              ),
-            ),
-            _DeliveryMetricTile(
-              icon: Icons.archive_outlined,
-              label: l10n.deliveryCompletedToday,
-              value: '${metrics.completedToday}',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const CourierOrdersCompletedPage(),
-                ),
-              ),
-            ),
-            _DeliveryMetricTile(
-              icon: Icons.payments_outlined,
-              label: l10n.deliveryFeesToday,
-              value: formatIqd(metrics.todayFees),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const DeliveryEarningsScreen(),
-                ),
-              ),
-            ),
-            _DeliveryMetricTile(
-              icon: Icons.star_border_rounded,
-              label: l10n.deliveryRating,
-              value: metrics.rating.toStringAsFixed(1),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const DeliveryRatingsScreen(),
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-        _ActionCard(
-          title: l10n.deliveryQuickAccess,
-          child: Column(
+          ),
+          const SizedBox(height: 12),
+          _DeliveryCardGrid(
             children: [
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.campaign_outlined),
-                title: Text(context.lt(
-                  ar: 'الطلبات المعيّنة',
-                  en: 'Assigned deliveries',
-                )),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CourierOrdersNewPage(),
-                    ),
-                  );
-                },
+              _DeliveryHomeCard(
+                key: const Key('delivery_home_today_earnings'),
+                icon: Icons.payments_outlined,
+                label: context.lt(ar: 'أرباح اليوم', en: 'Today earnings'),
+                value: metrics.hasTodayEarnings
+                    ? formatIqd(metrics.todayFees)
+                    : '—',
+                hint: context.lt(ar: 'أجور التوصيل', en: 'Delivery fees'),
+                color: AppColors.brandGreen,
+                onTap: openEarnings,
               ),
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.local_shipping_outlined),
-                title: Text(l10n.deliveryOpenCurrentOrders),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => setState(() => activeTab = _DeliveryTab.current),
+              _DeliveryHomeCard(
+                key: const Key('delivery_home_app_due'),
+                icon: Icons.account_balance_wallet_outlined,
+                label: context.lt(ar: 'ذمة التطبيق', en: 'App due'),
+                value:
+                    kpis.containsKey('appDueTotal') ||
+                        kpis.containsKey('app_due_total')
+                    ? formatIqd(appDue)
+                    : '—',
+                hint: context.lt(ar: 'الصافي المطلوب', en: 'Net amount due'),
+                color: AppColors.brandGold,
+                onTap: openReconciliation,
               ),
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.history_rounded),
-                title: Text(l10n.deliveryOpenOrderHistory),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => setState(() => activeTab = _DeliveryTab.history),
+              _DeliveryHomeCard(
+                key: const Key('delivery_home_open_settlements'),
+                icon: Icons.receipt_long_outlined,
+                label: context.lt(ar: 'تسويات مفتوحة', en: 'Open settlements'),
+                value:
+                    kpis.containsKey('openSettlements') ||
+                        kpis.containsKey('open_settlements')
+                    ? '$openSettlements'
+                    : '—',
+                hint: context.lt(ar: 'بانتظار المراجعة', en: 'Awaiting review'),
+                color: Colors.deepOrange,
+                onTap: openReconciliation,
               ),
-              ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.emoji_events_outlined),
-                title: Text(l10n.deliveryOpenCompetitions),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () async {
-                  await Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const CourierCompetitionsPage(),
-                    ),
-                  );
-                },
+              _DeliveryHomeCard(
+                key: const Key('delivery_home_month_earnings'),
+                icon: Icons.calendar_month_outlined,
+                label: context.lt(ar: 'أرباح الشهر', en: 'Month earnings'),
+                value:
+                    kpis.containsKey('monthEarnings') ||
+                        kpis.containsKey('month_earnings')
+                    ? formatIqd(monthEarnings)
+                    : state.analytics.containsKey('month')
+                    ? formatIqd(month.deliveryFees)
+                    : '—',
+                hint: context.lt(ar: 'الشهر الحالي', en: 'Current month'),
+                color: AppColors.brandNavy,
+                onTap: openEarnings,
+              ),
+              _DeliveryHomeCard(
+                key: const Key('delivery_home_service_fees'),
+                icon: Icons.price_check_outlined,
+                label: context.lt(ar: 'رسوم الخدمة', en: 'Service fees'),
+                value:
+                    kpis.containsKey('serviceFeeTotal') ||
+                        kpis.containsKey('service_fee_total')
+                    ? formatIqd(serviceFees)
+                    : '—',
+                hint: context.lt(
+                  ar: 'المجمعة للتطبيق',
+                  en: 'Collected for app',
+                ),
+                color: Colors.teal.shade700,
+                onTap: openReconciliation,
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 80),
-      ],
+          const SizedBox(height: 22),
+          _DashboardSectionTitle(
+            title: context.lt(ar: 'الطلبات', en: 'Orders'),
+            subtitle: context.lt(
+              ar: 'افتح القائمة الكاملة لكل حالة',
+              en: 'Open the full list for each status',
+            ),
+          ),
+          const SizedBox(height: 12),
+          _DeliveryCardGrid(
+            children: [
+              _DeliveryHomeCard(
+                key: const Key('delivery_home_current'),
+                icon: Icons.local_shipping_rounded,
+                label: context.lt(ar: 'الطلبات الحالية', en: 'Current orders'),
+                value: metrics.hasAllOrderCounts
+                    ? '${metrics.currentOrders}'
+                    : '—',
+                hint: context.lt(ar: 'قيد التنفيذ', en: 'In progress'),
+                color: AppColors.brandGreen,
+                onTap: _showCurrentOrders,
+              ),
+              _DeliveryHomeCard(
+                key: const Key('delivery_home_completed'),
+                icon: Icons.task_alt_rounded,
+                label: context.lt(
+                  ar: 'الطلبات المنتهية',
+                  en: 'Completed orders',
+                ),
+                value: metrics.hasAllOrderCounts
+                    ? '${metrics.completedOrders}'
+                    : '—',
+                hint: context.lt(
+                  ar: 'كل الطلبات المكتملة',
+                  en: 'All completed',
+                ),
+                color: AppColors.brandNavy,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CourierOrdersCompletedPage(),
+                  ),
+                ),
+              ),
+              _DeliveryHomeCard(
+                key: const Key('delivery_home_cancelled'),
+                icon: Icons.cancel_outlined,
+                label: context.lt(
+                  ar: 'الطلبات الملغية',
+                  en: 'Cancelled orders',
+                ),
+                value: metrics.hasAllOrderCounts
+                    ? '${metrics.cancelledOrders}'
+                    : '—',
+                hint: context.lt(
+                  ar: 'الملغية والمتعثرة',
+                  en: 'Cancelled and failed',
+                ),
+                color: Colors.red.shade700,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CourierOrdersCancelledPage(),
+                  ),
+                ),
+              ),
+              _DeliveryHomeCard(
+                key: const Key('delivery_home_all_orders'),
+                icon: Icons.inventory_2_outlined,
+                label: context.lt(ar: 'إجمالي الطلبات', en: 'All orders'),
+                value: metrics.hasAllOrderCounts
+                    ? '${metrics.totalOrders}'
+                    : '—',
+                hint: context.lt(ar: 'السجل الكامل', en: 'Full order history'),
+                color: AppColors.brandGold,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const CourierOrdersAllPage(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -596,7 +712,7 @@ class _DeliveryDashboardScreenState
                     setState(() => historyDateFilter = null);
                     await ref
                         .read(deliveryControllerProvider.notifier)
-                        .bootstrap();
+                        .bootstrap(includeExtended: false);
                   },
                   child: Text(l10n.commonClear),
                 ),
@@ -657,18 +773,46 @@ class _DeliveryDashboardScreenState
               const SizedBox(height: 8),
               Text(
                 l10n.deliveryProfileCompletedToday(
-                  metrics.completedToday.toString(),
+                  metrics.hasDayAnalytics
+                      ? metrics.completedToday.toString()
+                      : '—',
                 ),
               ),
-              Text(l10n.deliveryProfileFeesToday(formatIqd(metrics.todayFees))),
+              Text(
+                l10n.deliveryProfileFeesToday(
+                  metrics.hasTodayEarnings ? formatIqd(metrics.todayFees) : '—',
+                ),
+              ),
               Text(
                 l10n.deliveryProfileRatingToday(
-                  metrics.rating.toStringAsFixed(1),
+                  metrics.hasDayAnalytics
+                      ? metrics.rating.toStringAsFixed(1)
+                      : '—',
                 ),
               ),
             ],
           ),
         ),
+        const SizedBox(height: 12),
+        _DeliveryAvailabilityCard(
+          state: state,
+          onChanged: (value) =>
+              ref.read(deliveryControllerProvider.notifier).setOnline(value),
+        ),
+        const SizedBox(height: 8),
+        _DeliveryEarningsKpiCard(
+          state: state,
+          onOpenEarnings: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const DeliveryEarningsScreen(),
+            ),
+          ),
+          onEndDay: state.saving || state.endDayReadiness['canEndDay'] == false
+              ? null
+              : () => ref.read(deliveryControllerProvider.notifier).endDay(),
+        ),
+        const SizedBox(height: 8),
+        _buildEndDayReadinessCard(state),
         const SizedBox(height: 12),
         _ActionCard(
           title: l10n.deliveryAccountManagement,
@@ -700,6 +844,155 @@ class _DeliveryDashboardScreenState
   }
 }
 
+class _DashboardSectionTitle extends StatelessWidget {
+  const _DashboardSectionTitle({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        title,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          color: AppColors.brandNavy,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      const SizedBox(height: 3),
+      Text(
+        subtitle,
+        style: TextStyle(
+          color: AppColors.brandNavy.withValues(alpha: 0.62),
+          fontSize: 12,
+        ),
+      ),
+    ],
+  );
+}
+
+class _DeliveryCardGrid extends StatelessWidget {
+  const _DeliveryCardGrid({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final width = (constraints.maxWidth - 12) / 2;
+      return Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: children
+            .map((child) => SizedBox(width: width, child: child))
+            .toList(growable: false),
+      );
+    },
+  );
+}
+
+class _DeliveryHomeCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final String hint;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _DeliveryHomeCard({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.hint,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textColor = AppColors.brandNavy;
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.13),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: color, size: 21),
+            ),
+            const Spacer(),
+            Icon(Icons.arrow_forward_rounded, color: color, size: 18),
+          ],
+        ),
+        const SizedBox(height: 14),
+        Text(
+          label,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: AppColors.brandNavy,
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            height: 1.25,
+          ),
+        ),
+        const Spacer(),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: Text(
+            value,
+            maxLines: 1,
+            style: TextStyle(
+              color: color,
+              fontSize: 23,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          hint,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: textColor.withValues(alpha: 0.58),
+            fontSize: 11,
+          ),
+        ),
+      ],
+    );
+
+    return Semantics(
+      button: true,
+      label: '$label: $value',
+      child: Material(
+        color: Colors.white.withValues(alpha: 0.97),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(color: color.withValues(alpha: 0.28)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            height: 174,
+            child: Padding(padding: const EdgeInsets.all(14), child: content),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _DeliveryMetricTile extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -716,8 +1009,11 @@ class _DeliveryMetricTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.white.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(12),
+      color: Colors.white.withValues(alpha: 0.94),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: AppColors.brandGold.withValues(alpha: 0.22)),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
@@ -733,10 +1029,10 @@ class _DeliveryMetricTile extends StatelessWidget {
                     Icon(icon, size: 18),
                     if (onTap != null) ...[
                       const Spacer(),
-                      Icon(
+                      const Icon(
                         Icons.chevron_right,
                         size: 16,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        color: AppColors.brandGreen,
                       ),
                     ],
                   ],
@@ -746,18 +1042,203 @@ class _DeliveryMetricTile extends StatelessWidget {
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12),
+                  style: TextStyle(
+                    color: AppColors.brandNavy.withValues(alpha: 0.72),
+                    fontSize: 12,
+                  ),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    color: AppColors.brandNavy,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DeliveryAvailabilityCard extends StatelessWidget {
+  final DeliveryState state;
+  final ValueChanged<bool> onChanged;
+
+  const _DeliveryAvailabilityCard({
+    required this.state,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isOnline = state.isOnline;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            CircleAvatar(
+              backgroundColor: (isOnline ? AppColors.brandGreen : Colors.red)
+                  .withValues(alpha: 0.14),
+              child: Icon(
+                isOnline ? Icons.wifi_tethering : Icons.power_settings_new,
+                color: isOnline ? AppColors.brandGreen : Colors.red.shade700,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    context.lt(
+                      ar: isOnline
+                          ? 'الدلفري online ويستقبل الطلبات'
+                          : 'الدلفري offline ولا يستقبل طلبات جديدة',
+                      en: isOnline
+                          ? 'Courier online and receiving orders'
+                          : 'Courier offline and not receiving new orders',
+                    ),
+                    style: const TextStyle(
+                      color: AppColors.brandNavy,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    context.lt(
+                      ar: 'الحالة ترسل للسيرفر وتؤثر على التعيين التلقائي.',
+                      en: 'This status is sent to the server and controls auto-assignment.',
+                    ),
+                    style: TextStyle(
+                      color: AppColors.brandNavy.withValues(alpha: 0.66),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Switch(value: isOnline, onChanged: state.saving ? null : onChanged),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DeliveryEarningsKpiCard extends StatelessWidget {
+  final DeliveryState state;
+  final VoidCallback onOpenEarnings;
+  final VoidCallback? onEndDay;
+
+  const _DeliveryEarningsKpiCard({
+    required this.state,
+    required this.onOpenEarnings,
+    required this.onEndDay,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final day = _DeliveryPeriod.fromMap(state.analytics['day']);
+    final month = _DeliveryPeriod.fromMap(state.analytics['month']);
+    final readiness = state.endDayReadiness;
+    final outstanding =
+        num.tryParse('${readiness['outstandingAmount'] ?? 0}') ?? 0;
+    final totalAppDue = num.tryParse('${readiness['totalAppDue'] ?? 0}') ?? 0;
+    final canEndDay = readiness['canEndDay'] != false;
+    final hasAppDue = readiness.containsKey('totalAppDue');
+    final hasOutstanding = readiness.containsKey('outstandingAmount');
+    final scheme = Theme.of(context).colorScheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    context.lt(ar: 'أرباح وذمم اليوم', en: 'Today finance'),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 15,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: onOpenEarnings,
+                  icon: const Icon(Icons.insights_outlined, size: 18),
+                  label: Text(context.lt(ar: 'التقرير', en: 'Report')),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _DeliveryMetricTile(
+                  icon: Icons.payments_outlined,
+                  label: context.lt(ar: 'أرباح اليوم', en: 'Today earnings'),
+                  value: state.analytics.containsKey('day')
+                      ? formatIqd(day.deliveryFees)
+                      : '—',
+                  onTap: onOpenEarnings,
+                ),
+                _DeliveryMetricTile(
+                  icon: Icons.account_balance_wallet_outlined,
+                  label: context.lt(ar: 'ذمة التطبيق', en: 'App due'),
+                  value: hasAppDue ? formatIqd(totalAppDue) : '—',
+                  onTap: onOpenEarnings,
+                ),
+                _DeliveryMetricTile(
+                  icon: Icons.receipt_long_outlined,
+                  label: context.lt(ar: 'تسويات مفتوحة', en: 'Open due'),
+                  value: hasOutstanding ? formatIqd(outstanding) : '—',
+                  onTap: onOpenEarnings,
+                ),
+                _DeliveryMetricTile(
+                  icon: Icons.calendar_month_outlined,
+                  label: context.lt(ar: 'أرباح الشهر', en: 'Month earnings'),
+                  value: state.analytics.containsKey('month')
+                      ? formatIqd(month.deliveryFees)
+                      : '—',
+                  onTap: onOpenEarnings,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: canEndDay ? onEndDay : null,
+              icon: const Icon(Icons.archive_outlined),
+              label: Text(
+                canEndDay
+                    ? context.lt(ar: 'إنهاء اليوم', en: 'End day')
+                    : context.lt(
+                        ar: 'سدد الذمم قبل إنهاء اليوم',
+                        en: 'Settle dues before ending the day',
+                      ),
+              ),
+            ),
+            if (!canEndDay) ...[
+              const SizedBox(height: 6),
+              Text(
+                context.lt(
+                  ar: 'توجد ذمم مفتوحة يجب تسديدها أو تأكيدها قبل الإغلاق.',
+                  en: 'Open dues must be paid or confirmed before closure.',
+                ),
+                style: TextStyle(color: scheme.error, fontSize: 12),
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -780,97 +1261,16 @@ class _ActionCard extends StatelessWidget {
           children: [
             Text(
               title,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+              style: const TextStyle(
+                color: AppColors.brandNavy,
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+              ),
             ),
             const SizedBox(height: 8),
             child,
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _DeliveryInsights extends StatelessWidget {
-  final Map<String, dynamic> analytics;
-
-  const _DeliveryInsights({required this.analytics});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final day = _DeliveryPeriod.fromMap(analytics['day']);
-    final month = _DeliveryPeriod.fromMap(analytics['month']);
-    final year = _DeliveryPeriod.fromMap(analytics['year']);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              l10n.deliveryCourierAnalytics,
-              style: const TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            _InsightTile(l10n.commonToday, day),
-            _InsightTile(l10n.commonMonth, month),
-            _InsightTile(l10n.commonYear, year),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InsightTile extends StatelessWidget {
-  final String label;
-  final _DeliveryPeriod period;
-
-  const _InsightTile(this.label, this.period);
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    return ListTile(
-      dense: true,
-      contentPadding: EdgeInsets.zero,
-      title: Text(
-        l10n.deliveryInsightCompletedOrders(
-          label,
-          '${period.deliveredOrdersCount}',
-        ),
-      ),
-      subtitle: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.deliveryInsightFeesRating(
-              formatIqd(period.deliveryFees),
-              period.avgRating.toStringAsFixed(1),
-            ),
-          ),
-          Text(
-            context.lt(
-              ar: 'رسوم الخدمة: ${formatIqd(period.serviceFeeAmount)} | ذمة التطبيق: ${formatIqd(period.appDueFromDelivery)}',
-              en: 'Service fee: ${formatIqd(period.serviceFeeAmount)} | App due: ${formatIqd(period.appDueFromDelivery)}',
-            ),
-          ),
-          Text(
-            context.lt(
-              ar: 'العمولة: ${formatIqd(period.commissionAmount)} | المستلم للمتجر: ${formatIqd(period.storeNetReceivedAmount)}',
-              en: 'Commission: ${formatIqd(period.commissionAmount)} | Store net: ${formatIqd(period.storeNetReceivedAmount)}',
-            ),
-          ),
-          Text(
-            context.lt(
-              ar: 'الفروقات: ${formatIqd(period.differenceAmount)}',
-              en: 'Differences: ${formatIqd(period.differenceAmount)}',
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -941,85 +1341,77 @@ class _DeliveryPeriod {
 
 class _CourierDashboardMetrics {
   final int currentOrders;
-  final int onTheWay;
-  final int waitingPickup;
   final int completedToday;
+  final int completedOrders;
+  final int cancelledOrders;
+  final int totalOrders;
   final double todayFees;
   final double rating;
+  final bool hasAllOrderCounts;
+  final bool hasTodayEarnings;
+  final bool hasDayAnalytics;
 
   const _CourierDashboardMetrics({
     required this.currentOrders,
-    required this.onTheWay,
-    required this.waitingPickup,
     required this.completedToday,
+    required this.completedOrders,
+    required this.cancelledOrders,
+    required this.totalOrders,
     required this.todayFees,
     required this.rating,
+    required this.hasAllOrderCounts,
+    required this.hasTodayEarnings,
+    required this.hasDayAnalytics,
   });
 
   factory _CourierDashboardMetrics.fromState(DeliveryState state) {
-    final normalizedStatuses = state.currentOrders
-        .map((order) => normalizeOrderStatusForUi(order.status))
-        .toList(growable: false);
-    final activeFromOrders = normalizedStatuses
-        .where(
-          (status) => const {
-            'approved',
-            'preparing',
-            'ready_for_delivery',
-            'on_the_way',
-            'arrived',
-          }.contains(status),
-        )
-        .length;
-    final onTheWayFromOrders = normalizedStatuses
-        .where((status) => status == 'on_the_way' || status == 'arrived')
-        .length;
-    final waitingPickupFromOrders = normalizedStatuses
-        .where((status) => status == 'ready_for_delivery')
-        .length;
-    final waitingPickupRequests = _countPendingPickupRequests(
-      state.pendingRequests,
-    );
-
     final day = _DeliveryPeriod.fromMap(state.analytics['day']);
     final kpis = _extractDashboardKpis(state.dashboardV2);
-
-    // Local fallback count that ONLY includes truly completed orders and never
-    // counts cancelled/rejected/returned/pending/ready/picked_up.
-    final completedFromOrders = [...state.currentOrders, ...state.historyOrders]
-        .where(
-          (order) => const {
-            'delivered',
-            'received',
-            'completed',
-          }.contains(normalizeOrderStatusForUi(order.status)),
-        )
-        .length;
 
     final currentOrders = _readInt(kpis, const [
       'activeOrders',
       'active_orders',
     ]);
-    final completedToday = _readInt(kpis, const [
-      'completedOrders',
-      'completed_orders',
+    final completedOrders = _readInt(kpis, const [
+      'allCompletedOrders',
+      'all_completed_orders',
     ]);
+    final cancelledOrders = _readInt(kpis, const [
+      'allCancelledOrders',
+      'all_cancelled_orders',
+    ]);
+    final totalOrders = _readInt(kpis, const ['allOrders', 'all_orders']);
     final todayFees = _readDouble(kpis, const [
       'todayEarnings',
       'today_earnings',
     ]);
+    final hasAllOrderCounts =
+        const ['activeOrders', 'active_orders'].any(kpis.containsKey) &&
+        const [
+          'allCompletedOrders',
+          'all_completed_orders',
+        ].any(kpis.containsKey) &&
+        const [
+          'allCancelledOrders',
+          'all_cancelled_orders',
+        ].any(kpis.containsKey) &&
+        const ['allOrders', 'all_orders'].any(kpis.containsKey);
+    final hasTodayEarnings = const [
+      'todayEarnings',
+      'today_earnings',
+    ].any(kpis.containsKey);
 
     return _CourierDashboardMetrics(
-      currentOrders: currentOrders > 0 ? currentOrders : activeFromOrders,
-      onTheWay: onTheWayFromOrders,
-      waitingPickup: waitingPickupFromOrders + waitingPickupRequests,
-      completedToday: completedToday > 0
-          ? completedToday
-          : (day.deliveredOrdersCount > 0
-                ? day.deliveredOrdersCount
-                : completedFromOrders),
-      todayFees: todayFees > 0 ? todayFees : day.deliveryFees,
+      currentOrders: currentOrders,
+      completedToday: day.deliveredOrdersCount,
+      completedOrders: completedOrders,
+      cancelledOrders: cancelledOrders,
+      totalOrders: totalOrders,
+      todayFees: hasTodayEarnings ? todayFees : day.deliveryFees,
       rating: day.avgRating,
+      hasAllOrderCounts: hasAllOrderCounts,
+      hasTodayEarnings: hasTodayEarnings || state.analytics.containsKey('day'),
+      hasDayAnalytics: state.analytics.containsKey('day'),
     );
   }
 }
@@ -1045,23 +1437,6 @@ Map<String, dynamic> _extractDashboardKpis(Map<String, dynamic> dashboardV2) {
     };
   }
   return kpis;
-}
-
-int _countPendingPickupRequests(List<Map<String, dynamic>> rows) {
-  var count = 0;
-  for (final row in rows) {
-    final status = normalizeOrderStatusForUi(
-      '${row['order_status'] ?? row['orderStatus'] ?? ''}',
-    );
-    if (const {
-      'approved',
-      'preparing',
-      'ready_for_delivery',
-    }.contains(status)) {
-      count += 1;
-    }
-  }
-  return count;
 }
 
 int _readInt(Map<String, dynamic> map, List<String> keys) {
@@ -1121,18 +1496,13 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
     final controller = ref.read(deliveryControllerProvider.notifier);
     final items = order.presentationItems;
 
-    final itemCount = items.fold<int>(
-      0,
-      (sum, item) => sum + item.quantity,
-    );
+    final itemCount = items.fold<int>(0, (sum, item) => sum + item.quantity);
     final subtotal = order.subtotal;
     final afterDiscount =
         order.totalAmount - order.deliveryFee - order.serviceFee;
     final estimatedDiscount = (subtotal - afterDiscount).clamp(0, 1e12);
     final canOpenChat =
-        assignedToMe &&
-        const {'on_the_way', 'arrived', 'delivered'}.contains(normalized) &&
-        order.customerConfirmedAt == null;
+        assignedToMe && const {'on_the_way', 'arrived'}.contains(normalized);
     final canRequestCancel =
         assignedToMe &&
         const {
@@ -1160,6 +1530,27 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
         ),
       );
     }
+
+    final customerAddressQuery = [
+      order.customerCity,
+      order.customerBlock,
+      order.customerBuildingNumber,
+      order.customerApartment,
+    ].where((part) => part.trim().isNotEmpty).join(' ');
+
+    Future<void> openCustomerLocation() => _openMapTarget(
+      latitude: order.customerLatitude,
+      longitude: order.customerLongitude,
+      label: order.customerFullName,
+      query: customerAddressQuery,
+    );
+
+    Future<void> openMerchantLocation() => _openMapTarget(
+      latitude: order.merchantLatitude,
+      longitude: order.merchantLongitude,
+      label: order.merchantName,
+      query: order.merchantName,
+    );
 
     Future<void> requestCancelWithReason() async {
       List<DeliveryOrderActionReason> options;
@@ -1377,6 +1768,27 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: openMerchantLocation,
+                    icon: const Icon(Icons.store_mall_directory_outlined),
+                    label: Text(
+                      context.lt(ar: 'موقع المتجر', en: 'Store location'),
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: openCustomerLocation,
+                    icon: const Icon(Icons.location_on_outlined),
+                    label: Text(
+                      context.lt(ar: 'موقع الزبون', en: 'Customer location'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
               // Item count is only trustworthy when the list payload actually
               // carried items. The current-orders list endpoint returns a
               // summary without items, so showing "0" there is misleading —
@@ -1438,9 +1850,7 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
                         child: Text(
                           '+${items.length - 3}',
                           textDirection: TextDirection.rtl,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                       ),
                   ],
@@ -1502,7 +1912,24 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
                   if (assignedToMe && normalized == 'ready_for_delivery')
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () => controller.pickedUpOrder(order.id),
+                        onPressed: () async {
+                          final input = await showCourierPickupSettlementSheet(
+                            context,
+                            expectedStoreAmount:
+                                (order.totalAmount -
+                                        order.serviceFee -
+                                        order.deliveryFee)
+                                    .clamp(0, double.infinity),
+                          );
+                          if (input == null) return;
+                          await controller.pickedUpOrder(
+                            order.id,
+                            merchantPaidActual: input.merchantPaidActual,
+                            receiptFile: input.receiptFile,
+                            withoutReceipt: input.withoutReceipt,
+                            merchantPaymentNote: input.note,
+                          );
+                        },
                         child: Text(l10n.deliveryCourierActionPickedUp),
                       ),
                     ),
@@ -1516,7 +1943,18 @@ class DeliveryCurrentOrderCard extends ConsumerWidget {
                   if (assignedToMe && normalized == 'arrived')
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () => controller.deliveredOrder(order.id),
+                        onPressed: () async {
+                          final input = await showCourierDeliveryCashSheet(
+                            context,
+                            invoiceTotal: order.totalAmount,
+                          );
+                          if (input == null) return;
+                          await controller.deliveredOrder(
+                            order.id,
+                            customerReceivedActual:
+                                input.customerReceivedActual,
+                          );
+                        },
                         child: Text(l10n.deliveryCourierActionDelivered),
                       ),
                     ),

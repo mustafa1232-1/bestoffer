@@ -75,6 +75,26 @@ class AuthApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> requestPinReset(String phone) async {
+    final response = await dio.post(
+      '/api/auth/pin-reset/request',
+      data: {'phone': phone},
+      options: _anonymousAuthOptions,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> completeTemporaryPinChange({
+    required String currentPin,
+    required String newPin,
+  }) async {
+    final response = await dio.post(
+      '/api/auth/pin-reset/complete',
+      data: {'currentPin': currentPin, 'newPin': newPin},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> recoverSession(Map<String, dynamic> body) async {
     final response = await dio.post(
       '/api/auth/session/recover',
@@ -165,14 +185,11 @@ class AuthApi {
   }
 
   Future<Map<String, dynamic>> updateAccount(Map<String, dynamic> body) async {
-    try {
-      final response = await dio.patch('/api/users/me', data: body);
-      return Map<String, dynamic>.from(response.data as Map);
-    } on DioException catch (error) {
-      if (error.response?.statusCode != 404) rethrow;
-      final fallback = await dio.patch('/api/auth/account', data: body);
-      return Map<String, dynamic>.from(fallback.data as Map);
-    }
+    // Profile updates and credential updates are different contracts. The
+    // users profile endpoint intentionally ignores PIN fields, so credential
+    // changes must always use the authenticated account endpoint.
+    final response = await dio.patch('/api/auth/account', data: body);
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<void> logout() async {

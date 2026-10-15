@@ -54,6 +54,14 @@ class _FakeAdminApi extends AdminApi {
   _FakeAdminApi() : super(Dio());
 
   @override
+  Future<Map<String, dynamic>> ordersSummary({
+    String status = 'all',
+    String period = 'all',
+    String? from,
+    String? to,
+  }) => ordersOverview(status: status, period: period, from: from, to: to);
+
+  @override
   Future<Map<String, dynamic>> ordersOverview({
     String status = 'all',
     String period = 'all',
@@ -186,7 +194,19 @@ void main() {
     await tester.tap(find.byTooltip('Open navigation menu'));
     await tester.pumpAndSettle();
 
+    final aiReviewText = find.text('AI chat review', skipOffstage: false);
+    expect(aiReviewText, findsOneWidget);
     expect(find.text('All orders'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'AI chat review');
+    await tester.pumpAndSettle();
+    expect(
+      find.ancestor(
+        of: find.text('AI chat review'),
+        matching: find.byType(ListTile),
+      ),
+      findsOneWidget,
+    );
 
     await tester.enterText(find.byType(TextField).first, 'AI DEV SUPPORT');
     await tester.pumpAndSettle();

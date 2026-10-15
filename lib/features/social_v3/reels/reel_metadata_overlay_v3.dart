@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../domain/reel_view_data.dart';
+import '../../../core/media/cached_app_image.dart';
 
 /// Bottom-left metadata overlay for a full-screen reel (§3).
 ///
@@ -34,7 +35,9 @@ class _ReelMetadataOverlayV3State extends State<ReelMetadataOverlayV3> {
   Widget build(BuildContext context) {
     final reel = widget.reel;
     const shadow = [Shadow(color: Colors.black87, blurRadius: 8)];
-    final handle = reel.authorHandle.isNotEmpty ? reel.authorHandle : reel.authorName;
+    final handle = reel.authorHandle.isNotEmpty
+        ? reel.authorHandle
+        : reel.authorName;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -44,13 +47,46 @@ class _ReelMetadataOverlayV3State extends State<ReelMetadataOverlayV3> {
           children: [
             GestureDetector(
               onTap: widget.onOpenAuthor,
-              child: Text(
-                handle,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w800,
-                  shadows: shadow,
+              child: CircleAvatar(
+                radius: 20,
+                backgroundColor: Colors.black54,
+                backgroundImage: appCachedImageProvider(reel.authorAvatarUrl),
+                child: (reel.authorAvatarUrl ?? '').trim().isEmpty
+                    ? const Icon(Icons.person_outline, color: Colors.white)
+                    : null,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Flexible(
+              child: GestureDetector(
+                onTap: widget.onOpenAuthor,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      reel.authorName.trim().isEmpty ? handle : reel.authorName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        shadows: shadow,
+                      ),
+                    ),
+                    if (handle.isNotEmpty && handle != reel.authorName)
+                      Text(
+                        handle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 12,
+                          shadows: shadow,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -60,10 +96,7 @@ class _ReelMetadataOverlayV3State extends State<ReelMetadataOverlayV3> {
             ],
             if (widget.showFollow) ...[
               const SizedBox(width: 10),
-              _FollowChip(
-                label: widget.followLabel,
-                onTap: widget.onFollow,
-              ),
+              _FollowChip(label: widget.followLabel, onTap: widget.onFollow),
             ],
           ],
         ),

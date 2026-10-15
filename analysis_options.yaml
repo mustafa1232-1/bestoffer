@@ -15,6 +15,7 @@ analyzer:
     - packages/**
     - third_party/**
     - build/**
+    - output/**
     - android/**
     - ios/**
     - web/**

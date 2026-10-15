@@ -8,7 +8,8 @@ import '../../../core/auth/auth_guard.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
-import '../../../core/theme/app_theme.dart';
+import 'widgets/social_bottom_navigation.dart';
+import 'widgets/social_design_theme.dart';
 import '../../behavior/data/behavior_api.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../notifications/state/notifications_controller.dart';
@@ -166,13 +167,12 @@ class _SocialShellScreenState extends ConsumerState<SocialShellScreen> {
     if (communitySection.isBlocked) {
       return SectionUnavailableScreen(entry: communitySection);
     }
-    final l10n = context.l10n;
     ref.watch(authControllerProvider);
     final messagesUnread = ref.watch(socialMessagesUnreadCountProvider);
     final activityUnread = ref.watch(socialActivityUnreadCountProvider);
 
-    return Directionality(
-      textDirection: Directionality.of(context),
+    return Theme(
+      data: SocialDesignTheme.of(context),
       child: Scaffold(
         body: Stack(
           children: List<Widget>.generate(SocialShellTab.values.length, (
@@ -190,38 +190,11 @@ class _SocialShellScreenState extends ConsumerState<SocialShellScreen> {
           }),
         ),
         bottomNavigationBar: widget.showBottomNavigation
-            ? MaslakiBottomNavShell(
-                currentIndex: _currentIndex,
-                onTap: _selectTab,
-                items: [
-                  MaslakiBottomNavItem(
-                    icon: Icons.home_outlined,
-                    activeIcon: Icons.home_rounded,
-                    label: l10n.socialShellHome,
-                  ),
-                  MaslakiBottomNavItem(
-                    icon: Icons.travel_explore_outlined,
-                    activeIcon: Icons.travel_explore_rounded,
-                    label: l10n.socialShellExplore,
-                  ),
-                  MaslakiBottomNavItem(
-                    icon: Icons.play_circle_outline_rounded,
-                    activeIcon: Icons.play_circle_fill_rounded,
-                    label: l10n.socialShellReels,
-                  ),
-                  MaslakiBottomNavItem(
-                    icon: Icons.chat_bubble_outline_rounded,
-                    activeIcon: Icons.chat_bubble_rounded,
-                    label: l10n.socialShellMessages,
-                    badgeCount: messagesUnread,
-                  ),
-                  MaslakiBottomNavItem(
-                    icon: Icons.favorite_border_rounded,
-                    activeIcon: Icons.favorite_rounded,
-                    label: l10n.socialShellActivity,
-                    badgeCount: activityUnread,
-                  ),
-                ],
+            ? SocialBottomNavigation(
+                index: _currentIndex,
+                onSelected: _selectTab,
+                messagesUnread: messagesUnread,
+                activityUnread: activityUnread,
               )
             : null,
       ),

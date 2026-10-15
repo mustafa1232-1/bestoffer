@@ -1,6 +1,5 @@
 // ignore_for_file: use_build_context_synchronously
 
-import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -26,6 +25,9 @@ import 'widgets/basmaya_shell_bars.dart';
 import 'widgets/social_feed_controls.dart';
 import 'widgets/social_feed_posts_sliver.dart';
 import 'widgets/social_stories_strip.dart';
+import 'widgets/social_design_theme.dart';
+import 'widgets/social_feed_tabs.dart';
+import 'widgets/social_feed_skeleton.dart';
 
 class SocialFeedScreen extends ConsumerStatefulWidget {
   const SocialFeedScreen({super.key, this.openReelComposer});
@@ -59,7 +61,7 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
   }
 
   Future<void> _refresh() async {
-    await ref.read(socialControllerProvider.notifier).bootstrap();
+    await ref.read(socialControllerProvider.notifier).bootstrap(force: true);
   }
 
   void _onScroll() {
@@ -109,6 +111,19 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
                   onTap: () => Navigator.of(sheetContext).pop('story'),
                 ),
                 ListTile(
+                  leading: const Icon(Icons.rate_review_rounded),
+                  title: Text(
+                    context.lt(ar: 'مراجعة متجر', en: 'Store review'),
+                  ),
+                  subtitle: Text(
+                    context.lt(
+                      ar: 'اختر متجرًا وانشر تقييمك وتجربتك عنه.',
+                      en: 'Choose a store and share your rating.',
+                    ),
+                  ),
+                  onTap: () => Navigator.of(sheetContext).pop('review'),
+                ),
+                ListTile(
                   leading: const Icon(Icons.ondemand_video_rounded),
                   title: Text(context.lt(ar: 'إنشاء ريل', en: 'Create Reel')),
                   subtitle: Text(
@@ -132,6 +147,13 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
     }
     if (action == 'story') {
       final posted = await showSocialStoryComposerEntrySheet(context);
+      if (posted == true) {
+        await _refresh();
+      }
+      return;
+    }
+    if (action == 'review') {
+      final posted = await openPostComposerV3MerchantReview(context);
       if (posted == true) {
         await _refresh();
       }
@@ -379,141 +401,224 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
     // Content-load failures degrade silently to cached/empty content and are
     // retried quietly by the controller.
 
-    return Directionality(
-      textDirection: Directionality.of(context),
+    return Theme(
+      data: SocialDesignTheme.of(context),
       child: Scaffold(
+        backgroundColor: SocialDesignTheme.background,
         drawer: const MaslakiBasmayaDrawer(),
-        appBar: MaslakiTopBar(
-          title: context.l10n.customerDiscoveryBasmayaFeed,
-          subtitle: context.lt(
-            ar: 'المنشورات والريلز والرسائل ضمن نفس تجربة مسلكي.',
-            en: 'Posts, reels, and messages inside the same Maslaki experience.',
+        appBar: AppBar(
+          toolbarHeight: 52,
+          backgroundColor: SocialDesignTheme.background,
+          foregroundColor: SocialDesignTheme.indigo,
+          surfaceTintColor: Colors.transparent,
+          titleSpacing: 0,
+          title: Row(
+            textDirection: TextDirection.rtl,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      context.lt(ar: 'مجتمع مسلكي', en: 'Maslaki Community'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: SocialDesignTheme.indigo,
+                      ),
+                    ),
+                    Text(
+                      context.lt(
+                        ar: 'منصة تواصل لسكان منطقتك',
+                        en: 'A social space for your neighborhood',
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        color: SocialDesignTheme.muted,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: _openSearch,
+                icon: const Icon(Icons.search_rounded, size: 22),
+                tooltip: context.lt(ar: 'بحث', en: 'Search'),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+              ),
+              const SizedBox(width: 4),
+              const NotificationsBellButton(),
+            ],
           ),
           leading: const MaslakiUserDrawerButton(openStartDrawer: true),
-          actions: const [NotificationsBellButton()],
+          actions: const [],
         ),
         // Creation entry points are hidden for guests; the screen must not look
         // as though a guest can post directly.
         floatingActionButton: isGuest
             ? null
-            : FloatingActionButton.extended(
+            : FloatingActionButton(
                 heroTag: null,
+                mini: true,
+                shape: const CircleBorder(),
+                backgroundColor: SocialDesignTheme.indigo,
+                foregroundColor: SocialDesignTheme.gold,
                 onPressed: _openCreateMenu,
-                icon: const Icon(Icons.add_rounded),
-                label: Text(l10n.commonCreate),
+                tooltip: l10n.commonCreate,
+                child: const Icon(Icons.add_rounded, size: 24),
               ),
-        body: RefreshIndicator(
-          onRefresh: _refresh,
-          child: CustomScrollView(
-            controller: _scrollController,
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                sliver: SliverToBoxAdapter(
-                  child: SocialFeedActionStrip(
-                    onOpenSearch: _openSearch,
-                    onOpenCreateMenu: _openCreateMenu,
-                    showCreate: !isGuest,
-                    createLabel: isReelsFilter ? createReelLabel : null,
-                    createIcon: isReelsFilter
-                        ? Icons.ondemand_video_rounded
-                        : Icons.add_circle_outline_rounded,
-                  ),
-                ),
-              ),
-              if (hasCommunityScope)
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                  sliver: SliverToBoxAdapter(
-                    child: SocialCommunityQuickActionsRow(
-                      onOpenAnnouncements: () => _openCommunityTab(1),
-                      onOpenCommunityChat: () => _openCommunityTab(2),
-                      onOpenBills: () => _openCommunityTab(3),
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: RefreshIndicator(
+              onRefresh: _refresh,
+              child: CustomScrollView(
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    sliver: SliverToBoxAdapter(
+                      child: SocialFeedTabs(
+                        selected: state.feedTab,
+                        onSelected: (tab) async {
+                          if (tab == 'following' &&
+                              !await requireAuthBeforeAction(
+                                context,
+                                featureArabic: 'منشورات المتابعين',
+                                featureEnglish: 'your following feed',
+                              )) {
+                            return;
+                          }
+                          if (!mounted) return;
+                          await ref
+                              .read(socialControllerProvider.notifier)
+                              .setFeedTab(tab);
+                        },
+                      ),
                     ),
                   ),
-                ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                sliver: SliverToBoxAdapter(
-                  child: SocialStoriesStrip(
-                    loading: state.loadingStories,
-                    stories: state.stories,
-                    showAddStory: !isGuest,
-                    onAddStory: () async {
-                      final posted = await showSocialStoryComposerEntrySheet(
-                        context,
-                      );
-                      if (posted == true) {
-                        await _refresh();
-                      }
-                    },
-                    onOpenStoryGroup: _openStoryGroup,
-                  ),
-                ),
-              ),
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                sliver: SliverToBoxAdapter(
-                  child: SocialFeedFiltersRow(
-                    activeKind: state.activeKind,
-                    onSelectKind: (kind) => ref
-                        .read(socialControllerProvider.notifier)
-                        .setActiveKind(kind),
-                  ),
-                ),
-              ),
-              if (state.loadingPosts && !hasPosts)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (!hasPosts)
-                SliverFillRemaining(
-                  hasScrollBody: false,
-                  // Guests get a clean, empty content area — no large empty-state
-                  // illustration and no "start now" creation call-to-action.
-                  child: isGuest
-                      ? const SizedBox.shrink()
-                      : SocialFeedEmptyState(
-                          onCreate: _openCreateMenu,
-                          actionLabel: isReelsFilter ? createReelLabel : null,
-                          actionIcon: isReelsFilter
-                              ? Icons.ondemand_video_rounded
-                              : Icons.add_rounded,
-                          illustrationIcon: isReelsFilter
-                              ? Icons.ondemand_video_rounded
-                              : Icons.auto_awesome_mosaic_rounded,
+                  if (hasCommunityScope)
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: SocialCommunityQuickActionsRow(
+                          onOpenAnnouncements: () => _openCommunityTab(1),
+                          onOpenCommunityChat: () => _openCommunityTab(2),
+                          onOpenBills: () => _openCommunityTab(3),
                         ),
-                )
-              else
-                SocialFeedPostsSliver(
-                  posts: state.posts,
-                  loadingMore: state.loadingMorePosts,
-                  onOpenComments: _openComments,
-                  onToggleLike: (post) async {
-                    if (!await requireAuthBeforeAction(
-                      context,
-                      featureArabic: 'الإعجاب بالمنشور',
-                      featureEnglish: 'liking a post',
-                    )) {
-                      return;
-                    }
-                    await ref
-                        .read(socialControllerProvider.notifier)
-                        .toggleLike(post);
-                  },
-                  onToggleSave: _toggleSave,
-                  onReportPost: _reportPost,
-                  onOpenMerchantLink: _merchantLinkActionFor,
-                  onCommentsCountChanged: (post, count) => ref
-                      .read(socialControllerProvider.notifier)
-                      .patchCommentsCount(
-                        postId: post.id,
-                        commentsCount: count,
                       ),
-                ),
-            ],
+                    ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: SocialStoriesStrip(
+                        loading: state.loadingStories,
+                        stories: state.stories,
+                        showAddStory: !isGuest,
+                        onAddStory: () async {
+                          final posted =
+                              await showSocialStoryComposerEntrySheet(context);
+                          if (posted == true) {
+                            await _refresh();
+                          }
+                        },
+                        onOpenStoryGroup: _openStoryGroup,
+                      ),
+                    ),
+                  ),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: SocialFeedFiltersRow(
+                        activeKind: state.activeKind,
+                        onSelectKind: (kind) => ref
+                            .read(socialControllerProvider.notifier)
+                            .setActiveKind(kind),
+                      ),
+                    ),
+                  ),
+                  if (state.loadingPosts && !hasPosts)
+                    const SliverToBoxAdapter(child: SocialFeedSkeleton())
+                  else if (state.postsLoadFailed && !hasPosts)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              context.lt(
+                                ar: 'تعذر تحميل المحتوى',
+                                en: 'Unable to load content',
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: _refresh,
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: Text(
+                                context.lt(
+                                  ar: 'إعادة المحاولة',
+                                  en: 'Try again',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  else if (!hasPosts)
+                    SliverFillRemaining(
+                      hasScrollBody: false,
+                      child: SocialFeedEmptyState(
+                        onCreate: _openCreateMenu,
+                        actionLabel: isReelsFilter ? createReelLabel : null,
+                        actionIcon: isReelsFilter
+                            ? Icons.ondemand_video_rounded
+                            : Icons.add_rounded,
+                        illustrationIcon: isReelsFilter
+                            ? Icons.ondemand_video_rounded
+                            : Icons.auto_awesome_mosaic_rounded,
+                      ),
+                    )
+                  else
+                    SocialFeedPostsSliver(
+                      posts: state.posts,
+                      loadingMore: state.loadingMorePosts,
+                      onOpenComments: _openComments,
+                      onToggleLike: (post) async {
+                        if (!await requireAuthBeforeAction(
+                          context,
+                          featureArabic: 'الإعجاب بالمنشور',
+                          featureEnglish: 'liking a post',
+                        )) {
+                          return;
+                        }
+                        await ref
+                            .read(socialControllerProvider.notifier)
+                            .toggleLike(post);
+                      },
+                      onToggleSave: _toggleSave,
+                      onReportPost: _reportPost,
+                      onOpenMerchantLink: _merchantLinkActionFor,
+                      onCommentsCountChanged: (post, count) => ref
+                          .read(socialControllerProvider.notifier)
+                          .patchCommentsCount(
+                            postId: post.id,
+                            commentsCount: count,
+                          ),
+                    ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

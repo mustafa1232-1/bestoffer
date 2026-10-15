@@ -57,11 +57,11 @@ class CustomerDiscoveryScreen extends ConsumerStatefulWidget {
 }
 
 const List<(Color, Color)> _splashGradientPairs = [
-  (Color(0xFF0D1B2A), Color(0xFF11243A)),
-  (Color(0xFF11243A), Color(0xFF14263D)),
-  (Color(0xFF162A42), Color(0xFF0D1B2A)),
-  (Color(0xFF14263D), Color(0xFF162A42)),
-  (Color(0xFF11243A), Color(0xFF0D1B2A)),
+  (Color(0xFFF8F5EF), Color(0xFFE9EFE7)),
+  (Color(0xFFFFFCF7), Color(0xFFF2EDE4)),
+  (Color(0xFFF7F0E4), Color(0xFFDDE8DC)),
+  (Color(0xFFF3EFE7), Color(0xFFFFFFFF)),
+  (Color(0xFFE9EFE7), Color(0xFFF8F5EF)),
 ];
 
 (Color, Color) _splashPairForSeed(String seed) {
@@ -653,15 +653,15 @@ class _CustomerDiscoveryScreenState
 
   (Color, Color) _colorsForAd(int priority, String? merchantType) {
     if (merchantType == 'restaurant') {
-      return (const Color(0xFF14263D), const Color(0xFF11243A));
+      return (const Color(0xFFF7F0E4), const Color(0xFFFFFCF7));
     }
     if (merchantType == 'market') {
-      return (const Color(0xFF11243A), const Color(0xFF162A42));
+      return (const Color(0xFFE9EFE7), const Color(0xFFFFFFFF));
     }
     if (priority < 20) {
-      return (const Color(0xFF162A42), const Color(0xFF11243A));
+      return (const Color(0xFFF2EDE4), const Color(0xFFE9EFE7));
     }
-    return (const Color(0xFF0D1B2A), const Color(0xFF11243A));
+    return (const Color(0xFFFFFCF7), const Color(0xFFF2EDE4));
   }
 
   List<_DiscoveryHub> _orderedDiscoveryHubs(CustomerHomePrefs prefs) {
@@ -1127,49 +1127,27 @@ class _HeroWelcomeCardState extends State<_HeroWelcomeCard> {
     const pulse = 1.0;
     const halo = 0.12;
     final scheme = Theme.of(context).colorScheme;
+    final tokens = context.maslakiTokens;
     return Card(
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(20),
-          gradient: const LinearGradient(
+          gradient: LinearGradient(
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
-            colors: [Color(0xFF14263D), Color(0xFF0D1B2A)],
+            colors: [tokens.surfacePrimary, tokens.cardElevated],
           ),
           boxShadow: [
             BoxShadow(
-              color: const Color(0xFFD4AF37).withValues(alpha: halo),
+              color: tokens.secondaryAccent.withValues(alpha: halo),
               blurRadius: 22,
               spreadRadius: 0.4,
             ),
           ],
+          border: Border.all(color: tokens.borderSubtle),
         ),
         child: Stack(
           children: [
-            Positioned(
-              top: -22,
-              left: -12,
-              child: Container(
-                width: 96,
-                height: 96,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.06),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: -18,
-              right: -8,
-              child: Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.05),
-                ),
-              ),
-            ),
             Padding(
               padding: const EdgeInsets.all(14),
               child: Column(
@@ -1182,7 +1160,7 @@ class _HeroWelcomeCardState extends State<_HeroWelcomeCard> {
                     textDirection: context.appTextDirection,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: Colors.white70,
+                      color: tokens.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -1213,8 +1191,11 @@ class _HeroWelcomeCardState extends State<_HeroWelcomeCard> {
                         scale: pulse,
                         child: ShaderMask(
                           shaderCallback: (bounds) {
-                            return const LinearGradient(
-                              colors: [Color(0xFFE6C98A), Color(0xFFD4AF37)],
+                            return LinearGradient(
+                              colors: [
+                                tokens.primaryAccent,
+                                tokens.secondaryAccent,
+                              ],
                             ).createShader(bounds);
                           },
                           child: const Text(
@@ -1382,20 +1363,21 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard> {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
+    final tokens = context.maslakiTokens;
     const wave = 0.35;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        gradient: const LinearGradient(
+        gradient: LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
-          colors: [Color(0xFF14263D), Color(0xFF0D1B2A)],
+          colors: [tokens.surfacePrimary, tokens.cardElevated],
         ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+        border: Border.all(color: tokens.borderSubtle),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFD4AF37).withValues(alpha: 0.10),
+            color: tokens.secondaryAccent.withValues(alpha: 0.10),
             blurRadius: 18,
             offset: const Offset(0, 8),
           ),
@@ -1416,7 +1398,7 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard> {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.18),
+                      color: tokens.primaryAccent.withValues(alpha: 0.18),
                     ),
                   ),
                 ),
@@ -1463,7 +1445,7 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard> {
                   textDirection: context.appTextDirection,
                   style: textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: Colors.white,
+                    color: tokens.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -1471,7 +1453,7 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard> {
                   context.l10n.customerDiscoveryTaxiSpotlightBody,
                   textDirection: context.appTextDirection,
                   style: textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.88),
+                    color: tokens.textSecondary,
                     fontWeight: FontWeight.w600,
                     height: 1.35,
                   ),
@@ -1485,7 +1467,7 @@ class _TaxiServiceSpotlightCardState extends State<_TaxiServiceSpotlightCard> {
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: scheme.primary,
-                    foregroundColor: const Color(0xFF0D1B2A),
+                    foregroundColor: Colors.white,
                     textStyle: const TextStyle(fontWeight: FontWeight.w900),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 14,

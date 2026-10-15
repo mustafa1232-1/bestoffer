@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,9 @@ import 'package:maslaki/l10n/app_localizations.dart';
 class _FakeMerchantsApi extends MerchantsApi {
   final List<List<dynamic>>? productPages;
   final List<int> requestedOffsets = <int>[];
+  final List<String?> requestedSearches = <String?>[];
+  int categoryRequests = 0;
+  Completer<List<dynamic>>? nextResponse;
 
   _FakeMerchantsApi({this.productPages}) : super(Dio());
 
@@ -25,8 +29,20 @@ class _FakeMerchantsApi extends MerchantsApi {
     int merchantId, {
     int limit = 80,
     int offset = 0,
+    String? search,
+    int? categoryId,
+    List<int>? productIds,
+    bool onlyAvailable = false,
+    bool onlyOffers = false,
+    String sort = 'recommended',
   }) async {
     requestedOffsets.add(offset);
+    requestedSearches.add(search);
+    final deferred = nextResponse;
+    if (deferred != null) {
+      nextResponse = null;
+      return deferred.future;
+    }
     final pages = productPages;
     if (pages != null) {
       final pageIndex = offset ~/ limit;
@@ -171,6 +187,7 @@ class _FakeMerchantsApi extends MerchantsApi {
 
   @override
   Future<List<dynamic>> listCategories(int merchantId) async {
+    categoryRequests++;
     return const [
       {
         'id': 1,
@@ -273,6 +290,66 @@ Map<String, dynamic> _productJson(int id) {
 }
 
 void main() {
+  testWidgets(
+    'catalog search preserves focus, reuses categories and ignores stale responses',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final api = _FakeMerchantsApi();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith(
+              (ref) =>
+                  _FakeAuthController(ref, AuthState(user: _customerUser())),
+            ),
+            merchantsApiProvider.overrideWithValue(api),
+            behaviorApiProvider.overrideWithValue(_FakeBehaviorApi()),
+            ordersControllerProvider.overrideWith(
+              (ref) => _FakeOrdersController(ref),
+            ),
+          ],
+          child: MaterialApp(
+            locale: const Locale('en'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: MerchantProductsScreen(merchant: _merchant()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final firstSearch = Completer<List<dynamic>>();
+      api.nextResponse = firstSearch;
+      final input = find.byType(TextField).first;
+      await tester.enterText(input, 'Blue');
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(api.requestedSearches, ['', 'Blue']);
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText).first)
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+      await tester.enterText(input, 'Blue Shirt');
+      firstSearch.complete([_productJson(999)]);
+      await tester.pump();
+      expect(find.text('Product 999'), findsNothing);
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+      expect(api.requestedSearches, ['', 'Blue', 'Blue Shirt']);
+      expect(api.categoryRequests, 1);
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText).first)
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+      expect(find.text('Blue Shirt'), findsWidgets);
+    },
+  );
+
   testWidgets('merchant products screen hides unrelated section categories', (
     tester,
   ) async {
@@ -308,45 +385,51 @@ void main() {
     expect(find.text('Chargers'), findsNothing);
   });
 
-  testWidgets('merchant products screen loads every product page', (
-    tester,
-  ) async {
-    await tester.binding.setSurfaceSize(const Size(1280, 2200));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets(
+    'merchant products screen loads the next page only near the end',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 2200));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final api = _FakeMerchantsApi(
-      productPages: [
-        List<dynamic>.generate(200, (index) => _productJson(index + 1)),
-        [_productJson(201)],
-      ],
-    );
-
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: [
-          authControllerProvider.overrideWith(
-            (ref) => _FakeAuthController(ref, AuthState(user: _customerUser())),
-          ),
-          merchantsApiProvider.overrideWithValue(api),
-          behaviorApiProvider.overrideWithValue(_FakeBehaviorApi()),
-          ordersControllerProvider.overrideWith(
-            (ref) => _FakeOrdersController(ref),
-          ),
+      final api = _FakeMerchantsApi(
+        productPages: [
+          List<dynamic>.generate(24, (index) => _productJson(index + 1)),
+          [_productJson(25)],
         ],
-        child: MaterialApp(
-          locale: const Locale('en'),
-          supportedLocales: AppLocalizations.supportedLocales,
-          localizationsDelegates: AppLocalizations.localizationsDelegates,
-          home: MerchantProductsScreen(merchant: _merchant()),
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith(
+              (ref) =>
+                  _FakeAuthController(ref, AuthState(user: _customerUser())),
+            ),
+            merchantsApiProvider.overrideWithValue(api),
+            behaviorApiProvider.overrideWithValue(_FakeBehaviorApi()),
+            ordersControllerProvider.overrideWith(
+              (ref) => _FakeOrdersController(ref),
+            ),
+          ],
+          child: MaterialApp(
+            locale: const Locale('en'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: MerchantProductsScreen(merchant: _merchant()),
+          ),
         ),
-      ),
-    );
+      );
 
-    await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
 
-    expect(api.requestedOffsets, [0, 200]);
-    expect(find.text('Product 1'), findsOneWidget);
-  });
+      expect(api.requestedOffsets, [0]);
+      expect(find.text('Product 1'), findsOneWidget);
+      final list = tester.widget<ListView>(find.byType(ListView).first);
+      list.controller!.jumpTo(list.controller!.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      expect(api.requestedOffsets, [0, 24]);
+    },
+  );
 
   testWidgets(
     'merchant products screen requires color and size before direct add and preserves variant selections',

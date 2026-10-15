@@ -47,7 +47,17 @@ class _FakeNotificationsApi extends NotificationsApi {
   _FakeNotificationsApi() : super(Dio());
 
   @override
+  Future<List<dynamic>> list({bool unreadOnly = false, int limit = 50}) async =>
+      const <dynamic>[];
+
+  @override
   Future<int> unreadCount() async => 0;
+
+  @override
+  Stream<NotificationLiveEvent> streamEvents({
+    int? lastEventId,
+    String channel = 'notifications',
+  }) => const Stream<NotificationLiveEvent>.empty();
 }
 
 class _AuthedAuthController extends AuthController {
@@ -66,7 +76,7 @@ class _EmptySocialController extends SocialController {
   _EmptySocialController(super.ref);
 
   @override
-  Future<void> bootstrap() async {
+  Future<void> bootstrap({bool force = false}) async {
     state = state.copyWith(loadingPosts: false, loadingStories: false);
   }
 
@@ -445,10 +455,13 @@ void main() {
     expect(find.text('تقييم متجر'), findsOneWidget);
   });
 
-  testWidgets('create selector lists Post / Story / Reel', (tester) async {
+  testWidgets('create selector lists Post / Story / Reel / Store review', (
+    tester,
+  ) async {
     late BuildContext ctx;
     await tester.pumpWidget(
       MaterialApp(
+        locale: const Locale('en'),
         home: Builder(
           builder: (c) {
             ctx = c;
@@ -461,9 +474,10 @@ void main() {
     showSocialCreateSelectorV3(ctx);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 350));
-    expect(find.text('منشور'), findsOneWidget);
-    expect(find.text('قصة'), findsOneWidget);
-    expect(find.text('ريل'), findsOneWidget);
+    expect(find.text('Post'), findsOneWidget);
+    expect(find.text('Story'), findsOneWidget);
+    expect(find.text('Reel'), findsOneWidget);
+    expect(find.text('Store review'), findsOneWidget);
   });
 
   testWidgets('full-screen Reels route renders NO floating Create button', (

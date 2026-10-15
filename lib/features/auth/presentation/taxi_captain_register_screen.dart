@@ -4,6 +4,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
@@ -12,7 +13,9 @@ import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
 import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/image_picker_field.dart';
 import '../data/auth_api.dart';
 import '../state/auth_controller.dart';
@@ -61,6 +64,39 @@ class _TaxiCaptainRegisterScreenState
   String? _addressError;
   String? _consentError;
   String? _formError;
+
+  Future<Position?> _captureCaptainRegistrationPosition() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _formError = context.localizedText(
+          ar: 'يرجى تشغيل خدمة الموقع حتى نتأكد أن مسلكي متاح في منطقتك.',
+          en: 'Please enable location services so we can confirm Maslaki is available in your area.',
+        );
+      });
+      return null;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      setState(() {
+        _formError = context.localizedText(
+          ar: 'لا يمكن إنشاء حساب كابتن بدون السماح بالموقع داخل منطقة الخدمة.',
+          en: 'Captain registration requires location permission inside the service area.',
+        );
+      });
+      return null;
+    }
+
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+      timeLimit: const Duration(seconds: 12),
+    );
+  }
 
   @override
   void dispose() {
@@ -1199,6 +1235,12 @@ class _TaxiCaptainRegisterScreenState
                                       final carYear = int.parse(
                                         carYearCtrl.text.trim(),
                                       );
+                                      final position =
+                                          await _captureCaptainRegistrationPosition();
+                                      if (position == null) {
+                                        await _focusFirstError();
+                                        return;
+                                      }
 
                                       FocusScope.of(context).unfocus();
                                       bool created = false;
@@ -1231,6 +1273,8 @@ class _TaxiCaptainRegisterScreenState
                                                     plateLetterCtrl.text,
                                                 'plateDigits':
                                                     plateNumberCtrl.text,
+                                                'latitude': position.latitude,
+                                                'longitude': position.longitude,
                                                 'analyticsConsentAccepted':
                                                     true,
                                                 'analyticsConsentVersion':
@@ -1446,31 +1490,29 @@ class _ConsentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final tokens = context.maslakiTokens;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: Colors.white.withOpacity(0.06),
-        border: Border.all(color: Colors.white.withOpacity(0.18)),
+        color: tokens.surfacePrimary.withValues(alpha: 0.82),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.76)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.privacy_tip_outlined,
-                color: Colors.white70,
+                color: tokens.primaryAccent,
                 size: 18,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   l10n.taxiCaptainConsentSummary,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 12.5,
-                  ),
+                  style: TextStyle(color: tokens.textSecondary, fontSize: 12.5),
                 ),
               ),
               TextButton(
@@ -1484,12 +1526,12 @@ class _ConsentCard extends StatelessWidget {
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             value: accepted,
-            activeColor: Colors.cyanAccent.shade400,
-            checkColor: Colors.black,
+            activeColor: tokens.primaryAccent,
+            checkColor: Colors.white,
             onChanged: (value) => onChanged(value == true),
             title: Text(
               l10n.taxiCaptainConsentCheckbox,
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+              style: TextStyle(color: tokens.textPrimary, fontSize: 13),
             ),
           ),
           if (errorText != null)

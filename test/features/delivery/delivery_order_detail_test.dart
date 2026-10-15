@@ -29,6 +29,27 @@ class _FakeDeliveryApi extends DeliveryApi {
   }
 }
 
+class _SequencedDeliveryApi extends DeliveryApi {
+  _SequencedDeliveryApi(this.details) : super(Dio());
+
+  final List<Map<String, dynamic>> details;
+  int detailCalls = 0;
+
+  @override
+  Future<Map<String, dynamic>> orderDetailV2(int orderId) async {
+    final index = detailCalls >= details.length
+        ? details.length - 1
+        : detailCalls;
+    detailCalls += 1;
+    return details[index];
+  }
+
+  @override
+  Future<List<OrderRevisionModel>> listOrderRevisions(int orderId) async {
+    return const <OrderRevisionModel>[];
+  }
+}
+
 Map<String, dynamic> _cannedDetail() {
   final item = {
     'id': 1,
@@ -81,6 +102,12 @@ Map<String, dynamic> _cannedDetail() {
   };
 }
 
+Map<String, dynamic> _detailWithActions(List<String> actions) {
+  final detail = _cannedDetail();
+  detail['allowedActions'] = actions;
+  return detail;
+}
+
 Widget _wrap(Widget child, DeliveryApi api) {
   return ProviderScope(
     overrides: [deliveryApiProvider.overrideWithValue(api)],
@@ -118,6 +145,41 @@ void main() {
     expect(find.byType(OrderItemsSummaryList), findsOneWidget);
     expect(find.text('Test Product'), findsOneWidget);
     expect(find.byType(OrderItemPriceBreakdownRow), findsOneWidget);
+  });
+
+  testWidgets('delivery order detail refreshes actions without reopening', (
+    tester,
+  ) async {
+    final api = _SequencedDeliveryApi([
+      _detailWithActions(const <String>[]),
+      _detailWithActions(const <String>['arrived']),
+    ]);
+
+    await tester.pumpWidget(
+      _wrap(
+        const DeliveryOrderDetailScreen(
+          orderId: 7,
+          autoRefreshInterval: Duration(milliseconds: 80),
+        ),
+        api,
+      ),
+    );
+    await _settleLoad(tester);
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Arrived'), findsNothing);
+
+    await tester.pump(const Duration(milliseconds: 200));
+    await _settleLoad(tester);
+
+    expect(api.detailCalls, greaterThanOrEqualTo(2));
+    await tester.scrollUntilVisible(
+      find.text('Arrived'),
+      400,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(find.text('Arrived'), findsOneWidget);
   });
 
   testWidgets('CourierOrderDetailsPage routes to the detail screen', (

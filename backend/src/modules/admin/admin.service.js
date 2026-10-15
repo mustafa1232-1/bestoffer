@@ -6,6 +6,9 @@ import {
 import {
   createUser,
   findUserByPhone,
+  listPinResetRequests,
+  approvePinResetRequest,
+  rejectPinResetRequest,
   revokeAllUserSessions,
 } from "../auth/auth.repo.js";
 import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
@@ -59,6 +62,55 @@ function toActorUserId(actor = {}) {
 function toActorRole(actor = {}) {
   const role = String(actor.userRole || actor.role || "").trim();
   return role || null;
+}
+
+export async function getPinResetRequests() {
+  return listPinResetRequests();
+}
+
+export async function approvePinReset({ requestId, actor }) {
+  const temporaryPinHash = await hashPin("1234");
+  const result = await approvePinResetRequest(requestId, toActorUserId(actor), temporaryPinHash);
+  if (!result) {
+    const err = new Error("PIN_RESET_REQUEST_NOT_PENDING");
+    err.status = 409;
+    throw err;
+  }
+  // A reset invalidates every previously issued session. The account must
+  // re-authenticate with the temporary PIN before choosing the new one.
+  await revokeAllUserSessions({
+    userId: result.user_id,
+    reason: "pin_reset_approved",
+  });
+  await markUserSessionsRevokedAfter(result.user_id);
+  invalidateSessionAccessCacheForUser({ userId: result.user_id });
+  await logAdminAudit({
+    actor,
+    actionKey: "admin.pin_reset.approved",
+    summary: `Approved internal PIN reset for user ${result.user_id}`,
+    targetType: "user",
+    targetId: result.user_id,
+    metadata: { requestId: result.id, temporaryPin: "assigned" },
+  });
+  return result;
+}
+
+export async function rejectPinReset({ requestId, actor, reason }) {
+  const result = await rejectPinResetRequest(requestId, toActorUserId(actor), reason);
+  if (!result) {
+    const err = new Error("PIN_RESET_REQUEST_NOT_PENDING");
+    err.status = 409;
+    throw err;
+  }
+  await logAdminAudit({
+    actor,
+    actionKey: "admin.pin_reset.rejected",
+    summary: `Rejected internal PIN reset for user ${result.user_id}`,
+    targetType: "user",
+    targetId: result.user_id,
+    metadata: { requestId: result.id },
+  });
+  return result;
 }
 
 function isSchemaCompatibilityError(error) {
@@ -1349,6 +1401,9 @@ export async function getAdminOrdersOverview(query = {}) {
     search: query?.search,
     limit: query?.limit,
     offset: query?.offset,
+    summaryOnly:
+      query?.summaryOnly === true ||
+      String(query?.summaryOnly || "").trim().toLowerCase() === "true",
   });
 }
 
@@ -1384,12 +1439,17 @@ export async function listPendingTaxiCaptainCashPayments(query = {}) {
 export async function confirmTaxiCaptainCashPayment({
   captainUserId,
   cycleDays,
+  packageCount,
+  ridesToAdd,
   adminUserId,
 }) {
   const result = await taxiService.confirmCaptainCashPaymentByAdmin({
     captainUserId: Number(captainUserId),
     adminUserId: toActorUserId(adminUserId),
     cycleDays: Number(cycleDays) || 30,
+    packageCount: Number(packageCount) || 1,
+    ridesToAdd:
+      ridesToAdd === null || ridesToAdd === undefined ? null : Number(ridesToAdd),
   });
 
   await logAdminAudit({
@@ -1401,7 +1461,11 @@ export async function confirmTaxiCaptainCashPayment({
     targetLabel: `كابتن #${Number(captainUserId)}`,
     metadata: {
       cycleDays: Number(cycleDays) || 30,
+      packageCount: Number(packageCount) || 1,
+      ridesAdded: result.ridesAdded || null,
+      amountIqd: result.amountIqd || null,
       remainingDays: result.subscription?.remainingDays || null,
+      remainingRides: result.subscription?.rideCredit?.remainingRides || null,
     },
   });
 

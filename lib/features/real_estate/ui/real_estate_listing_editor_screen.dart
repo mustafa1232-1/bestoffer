@@ -12,6 +12,7 @@ import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
 import '../data/real_estate_api.dart';
 import '../models/real_estate_models.dart';
+import '../real_estate_building_catalog.dart';
 import 'widgets/real_estate_listing_card.dart';
 
 class RealEstateListingEditorScreen extends ConsumerStatefulWidget {
@@ -696,31 +697,98 @@ class _RealEstateListingEditorScreenState
                         ),
                       ),
                       const SizedBox(height: 12),
-                      buildTextField(
-                        field: 'block',
-                        controller: _blockCtrl,
+                      DropdownButtonFormField<String>(
+                        key: ValueKey<String>('block_${_blockCtrl.text}'),
+                        initialValue:
+                            realEstateBlocks.contains(_blockCtrl.text.trim())
+                            ? _blockCtrl.text.trim()
+                            : null,
                         decoration: InputDecoration(
                           labelText: l10n.realEstateBlock,
                           hintText: l10n.realEstateBlockPlaceholder,
                         ),
+                        items: realEstateBlocks
+                            .map(
+                              (block) => DropdownMenuItem<String>(
+                                value: block,
+                                child: Text(block),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _blockCtrl.text = value ?? '';
+                            _buildingCtrl.clear();
+                            _apartmentCtrl.clear();
+                          });
+                          _clearFieldError('block');
+                        },
                       ),
                       const SizedBox(height: 12),
-                      buildTextField(
-                        field: 'buildingNumber',
-                        controller: _buildingCtrl,
+                      DropdownButtonFormField<String>(
+                        key: ValueKey<String>(
+                          'building_${_blockCtrl.text}_${_buildingCtrl.text}',
+                        ),
+                        initialValue:
+                            realEstateBuildingOptions(
+                              _blockCtrl.text,
+                              existing: _buildingCtrl.text,
+                            ).contains(_buildingCtrl.text.trim())
+                            ? _buildingCtrl.text.trim()
+                            : null,
                         decoration: InputDecoration(
                           labelText: l10n.realEstateBuildingNumber,
                           hintText: l10n.realEstateBuildingPlaceholder,
                         ),
+                        items:
+                            realEstateBuildingOptions(
+                                  _blockCtrl.text,
+                                  existing: _buildingCtrl.text,
+                                )
+                                .map(
+                                  (building) => DropdownMenuItem<String>(
+                                    value: building,
+                                    child: Text(building),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: _blockCtrl.text.trim().isEmpty
+                            ? null
+                            : (value) => setState(
+                                () => _buildingCtrl.text = value ?? '',
+                              ),
                       ),
                       const SizedBox(height: 12),
-                      buildTextField(
-                        field: 'apartmentNumber',
-                        controller: _apartmentCtrl,
+                      DropdownButtonFormField<String>(
+                        key: ValueKey<String>(
+                          'apartment_${_buildingCtrl.text}_${_apartmentCtrl.text}',
+                        ),
+                        initialValue:
+                            realEstateApartmentOptions(
+                              existing: _apartmentCtrl.text,
+                            ).contains(_apartmentCtrl.text.trim())
+                            ? _apartmentCtrl.text.trim()
+                            : null,
                         decoration: InputDecoration(
                           labelText: l10n.realEstateApartmentNumber,
                           hintText: l10n.realEstateApartmentPlaceholder,
                         ),
+                        items:
+                            realEstateApartmentOptions(
+                                  existing: _apartmentCtrl.text,
+                                )
+                                .map(
+                                  (apartment) => DropdownMenuItem<String>(
+                                    value: apartment,
+                                    child: Text(apartment),
+                                  ),
+                                )
+                                .toList(),
+                        onChanged: _buildingCtrl.text.trim().isEmpty
+                            ? null
+                            : (value) => setState(
+                                () => _apartmentCtrl.text = value ?? '',
+                              ),
                       ),
                     ],
                   ),

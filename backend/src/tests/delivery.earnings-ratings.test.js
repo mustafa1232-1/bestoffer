@@ -90,6 +90,32 @@ test("earnings are an empty report (not a fake zero) when no delivered orders", 
   assert.deepEqual(out.rows, []);
 });
 
+test("archived deliveries stay in month totals but leave the current-day KPI", () => {
+  const ref = new Date(2026, 5, 15, 12, 0, 0);
+  const out = buildDeliveryEarnings(
+    [
+      {
+        id: 20,
+        status: "delivered",
+        delivery_fee: 4000,
+        delivered_at: new Date(2026, 5, 15, 9, 0, 0),
+        archived_by_delivery: true,
+      },
+      {
+        id: 21,
+        status: "delivered",
+        delivery_fee: 2500,
+        delivered_at: new Date(2026, 5, 15, 10, 0, 0),
+        archived_by_delivery: false,
+      },
+    ],
+    ref,
+  );
+  assert.equal(out.todayEarnings, 2500);
+  assert.equal(out.completedTodayCount, 1);
+  assert.equal(out.monthEarnings, 6500);
+});
+
 test("earnings tolerate orders with no payment_method field (production schema)", () => {
   // customer_order has no payment_method column, so the SQL no longer selects
   // it and the row simply lacks the field. The builder must not crash and must

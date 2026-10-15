@@ -14,6 +14,7 @@ class MerchantReviewDraft {
     required this.merchantId,
     required this.merchantName,
     this.merchantImageUrl,
+    this.productName,
     this.productId,
     this.orderId,
   });
@@ -21,6 +22,7 @@ class MerchantReviewDraft {
   final int merchantId;
   final String merchantName;
   final String? merchantImageUrl;
+  final String? productName;
   final int? productId;
   final int? orderId;
 }
@@ -117,18 +119,19 @@ class _PostComposerV3State extends State<PostComposerV3> {
       _publishing = true;
       _error = null;
     });
-    final ok = await (widget.onPublish?.call(
-          PostComposerResult(
-            caption: _caption.text.trim(),
-            media: _media,
-            audience: _audience,
-            commentsEnabled: _comments,
-            mode: widget.mode,
-            rating: _isReview ? _rating : null,
-            review: widget.review,
-          ),
-        ) ??
-        Future.value(false));
+    final ok =
+        await (widget.onPublish?.call(
+              PostComposerResult(
+                caption: _caption.text.trim(),
+                media: _media,
+                audience: _audience,
+                commentsEnabled: _comments,
+                mode: widget.mode,
+                rating: _isReview ? _rating : null,
+                review: widget.review,
+              ),
+            ) ??
+            Future.value(false));
     if (!mounted) return;
     if (ok) {
       Navigator.of(context).pop(true);
@@ -150,7 +153,8 @@ class _PostComposerV3State extends State<PostComposerV3> {
             onPressed: _publishing ? null : _publish,
             child: _publishing
                 ? const SizedBox(
-                    width: 16, height: 16,
+                    width: 16,
+                    height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Text('نشر'),
@@ -163,12 +167,14 @@ class _PostComposerV3State extends State<PostComposerV3> {
           if (_isReview && widget.review != null) ...[
             ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const CircleAvatar(child: Icon(Icons.storefront_rounded)),
+              leading: const CircleAvatar(
+                child: Icon(Icons.storefront_rounded),
+              ),
               title: Text(
                 widget.review!.merchantName,
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
-              subtitle: const Text('تقييمك يساعد بقية السكان'),
+              subtitle: Text(_reviewContextLabel(widget.review!)),
             ),
             Row(
               children: List.generate(
@@ -176,7 +182,9 @@ class _PostComposerV3State extends State<PostComposerV3> {
                 (i) => IconButton(
                   onPressed: () => setState(() => _rating = i + 1),
                   icon: Icon(
-                    i < _rating ? Icons.star_rounded : Icons.star_border_rounded,
+                    i < _rating
+                        ? Icons.star_rounded
+                        : Icons.star_border_rounded,
                     color: Colors.amber,
                   ),
                 ),
@@ -213,19 +221,26 @@ class _PostComposerV3State extends State<PostComposerV3> {
                             m.isVideo
                                 ? const ColoredBox(
                                     color: Color(0xFF0D1B2A),
-                                    child: Icon(Icons.movie_creation_outlined,
-                                        color: Colors.white38, size: 36),
+                                    child: Icon(
+                                      Icons.movie_creation_outlined,
+                                      color: Colors.white38,
+                                      size: 36,
+                                    ),
                                   )
                                 : SocialSafeImage(imageUrl: m.path),
                             Positioned(
-                              top: 4, right: 4,
+                              top: 4,
+                              right: 4,
                               child: GestureDetector(
                                 onTap: () => setState(() => _media.removeAt(i)),
                                 child: const CircleAvatar(
                                   radius: 12,
                                   backgroundColor: Colors.black54,
-                                  child: Icon(Icons.close,
-                                      size: 14, color: Colors.white),
+                                  child: Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
                             ),
@@ -275,11 +290,25 @@ class _PostComposerV3State extends State<PostComposerV3> {
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text(_error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              child: Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ),
         ],
       ),
     );
   }
+}
+
+String _reviewContextLabel(MerchantReviewDraft review) {
+  final parts = <String>['تقييم موثق من طلب سابق'];
+  if (review.orderId != null && review.orderId! > 0) {
+    parts.add('طلب #${review.orderId}');
+  }
+  final product = review.productName?.trim();
+  if (product != null && product.isNotEmpty) {
+    parts.add('المنتج: $product');
+  }
+  return parts.join(' - ');
 }

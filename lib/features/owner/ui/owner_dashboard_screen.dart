@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/files/image_picker_service.dart';
@@ -13,6 +14,7 @@ import '../../../core/files/local_image_file.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/notifications/attention_alert_service.dart';
+import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
 import '../../../core/utils/order_receipt_printing.dart';
@@ -34,12 +36,13 @@ import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
 import '../../merchants/utils/catalog_taxonomy.dart';
 import '../../settings/ui/pages/settings_account_screen.dart';
-import '../../settings/ui/pages/settings_support_screen.dart';
+import '../../support/ui/support_tickets_screen.dart';
 import 'store_owner_couriers_screen.dart';
 import 'store_owner_kpis_screen.dart';
 import 'store_owner_receivables_screen.dart';
 import 'store_printer_settings_screen.dart';
 import 'store_owner_offers_screen.dart';
+import 'owner_daily_inventory_screen.dart';
 import 'widgets/owner_dashboard_overview_panel.dart';
 import '../models/owner_merchant_model.dart';
 import '../state/owner_controller.dart';
@@ -104,13 +107,19 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   LocalImageFile? coverImageFile;
   String? logoImageUrl;
   String? coverImageUrl;
+  double? merchantLatitude;
+  double? merchantLongitude;
   _OwnerTab activeTab = _OwnerTab.dashboard;
   OwnerProductAvailabilityFilter _productAvailabilityFilter =
       OwnerProductAvailabilityFilter.all;
+  bool _productGridView = false;
 
   String merchantType = 'restaurant';
   bool isOpen = true;
   int? merchantId;
+  String? _boundMerchantSignature;
+  bool _syncingStoreForm = false;
+  bool _storeFormDirty = false;
   Timer? _pendingOrdersAlertTimer;
   int _pendingOrdersAlertSignature = 0;
   late final OwnerController _ownerController;
@@ -127,6 +136,21 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     super.initState();
     _ownerController = ref.read(ownerControllerProvider.notifier);
     activeTab = _toPrivateTab(widget.initialTab);
+    for (final controller in [
+      nameCtrl,
+      descCtrl,
+      phoneCtrl,
+      imageCtrl,
+      taglineCtrl,
+      workingHoursCtrl,
+      serviceAreaCtrl,
+      deliveryEtaMinCtrl,
+      deliveryEtaMaxCtrl,
+      deliveryFeeCtrl,
+      minimumOrderCtrl,
+    ]) {
+      controller.addListener(_markStoreFormDirty);
+    }
     Future.microtask(() async {
       if (!mounted) return;
       await _ownerController.bootstrap();
@@ -152,6 +176,83 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     _ownerController.stopLiveOrders();
     _stopPendingOrderAlerts();
     super.dispose();
+  }
+
+  void _markStoreFormDirty() {
+    if (_syncingStoreForm) return;
+    _storeFormDirty = true;
+  }
+
+  void _markStoreFormDirtyAndSetState(VoidCallback fn) {
+    _storeFormDirty = true;
+    setState(fn);
+  }
+
+  Future<Position?> _captureMerchantPosition() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.localizedText(
+              ar: 'يرجى تشغيل خدمة الموقع لتحديد موقع المتجر.',
+              en: 'Please enable location services to set the store location.',
+            ),
+          ),
+        ),
+      );
+      return null;
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.localizedText(
+              ar: 'لا يمكن تحديث موقع المتجر بدون السماح بالموقع.',
+              en: 'Store location update requires location permission.',
+            ),
+          ),
+        ),
+      );
+      return null;
+    }
+
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+      timeLimit: const Duration(seconds: 12),
+    );
+  }
+
+  Future<void> _updateMerchantLocationFromDevice() async {
+    final position = await _captureMerchantPosition();
+    if (!mounted || position == null) return;
+    await _saveMerchantProfile(
+      latitudeOverride: position.latitude,
+      longitudeOverride: position.longitude,
+    );
+    if (!mounted) return;
+    setState(() {
+      merchantLatitude = position.latitude;
+      merchantLongitude = position.longitude;
+    });
+  }
+
+  Future<void> _openMerchantLocationOnMap() async {
+    final lat = merchantLatitude;
+    final lng = merchantLongitude;
+    if (lat == null || lng == null) return;
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 
   /// يعرض تفاصيل analytics داخل bottom sheet مع مسارات طباعة وتصدير fallback.
@@ -277,30 +378,223 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   void _bindMerchant(OwnerState state) {
     final merchant = state.merchant;
     if (merchant == null) return;
-    if (merchantId == merchant.id) return;
+    final signature = [
+      merchant.id,
+      merchant.name,
+      merchant.type,
+      merchant.description ?? '',
+      merchant.phone ?? '',
+      merchant.imageUrl ?? '',
+      merchant.tagline ?? '',
+      merchant.workingHours ?? '',
+      merchant.serviceAreaNote ?? '',
+      merchant.deliveryEtaMinMinutes ?? '',
+      merchant.deliveryEtaMaxMinutes ?? '',
+      merchant.deliveryFee ?? '',
+      merchant.minimumOrder ?? '',
+      merchant.logoUrl ?? '',
+      merchant.coverImageUrl ?? '',
+      merchant.latitude ?? '',
+      merchant.longitude ?? '',
+      merchant.isOpen,
+    ].join('\u001f');
+    if (_boundMerchantSignature == signature) return;
+    if (merchantId == merchant.id && _storeFormDirty) {
+      return;
+    }
 
-    merchantId = merchant.id;
-    nameCtrl.text = merchant.name;
-    descCtrl.text = merchant.description ?? '';
-    phoneCtrl.text = merchant.phone ?? '';
-    imageCtrl.text = merchant.imageUrl ?? '';
-    taglineCtrl.text = merchant.tagline ?? '';
-    workingHoursCtrl.text = merchant.workingHours ?? '';
-    serviceAreaCtrl.text = merchant.serviceAreaNote ?? '';
-    deliveryEtaMinCtrl.text = merchant.deliveryEtaMinMinutes?.toString() ?? '';
-    deliveryEtaMaxCtrl.text = merchant.deliveryEtaMaxMinutes?.toString() ?? '';
-    deliveryFeeCtrl.text = merchant.deliveryFee?.toString() ?? '';
-    minimumOrderCtrl.text = merchant.minimumOrder?.toString() ?? '';
-    merchantImageFile = null;
-    logoImageFile = null;
-    coverImageFile = null;
-    logoImageUrl = merchant.logoUrl;
-    coverImageUrl = merchant.coverImageUrl;
-    merchantType = merchant.type;
-    isOpen = merchant.isOpen;
+    _syncingStoreForm = true;
+    try {
+      merchantId = merchant.id;
+      nameCtrl.text = merchant.name;
+      descCtrl.text = merchant.description ?? '';
+      phoneCtrl.text = merchant.phone ?? '';
+      imageCtrl.text = merchant.imageUrl ?? '';
+      taglineCtrl.text = merchant.tagline ?? '';
+      workingHoursCtrl.text = merchant.workingHours ?? '';
+      serviceAreaCtrl.text = merchant.serviceAreaNote ?? '';
+      deliveryEtaMinCtrl.text =
+          merchant.deliveryEtaMinMinutes?.toString() ?? '';
+      deliveryEtaMaxCtrl.text =
+          merchant.deliveryEtaMaxMinutes?.toString() ?? '';
+      deliveryFeeCtrl.text = merchant.deliveryFee?.toString() ?? '';
+      minimumOrderCtrl.text = merchant.minimumOrder?.toString() ?? '';
+      merchantImageFile = null;
+      logoImageFile = null;
+      coverImageFile = null;
+      logoImageUrl = merchant.logoUrl;
+      coverImageUrl = merchant.coverImageUrl;
+      merchantLatitude = merchant.latitude;
+      merchantLongitude = merchant.longitude;
+      merchantType = merchant.type;
+      isOpen = merchant.isOpen;
+      _boundMerchantSignature = signature;
+      _storeFormDirty = false;
+    } finally {
+      _syncingStoreForm = false;
+    }
+  }
+
+  Future<bool> _saveMerchantProfile({
+    bool? isOpenOverride,
+    String? workingHoursOverride,
+    double? latitudeOverride,
+    double? longitudeOverride,
+  }) async {
+    final nextIsOpen = isOpenOverride ?? isOpen;
+    final nextWorkingHours = workingHoursOverride ?? workingHoursCtrl.text;
+    final nextLatitude = latitudeOverride ?? merchantLatitude;
+    final nextLongitude = longitudeOverride ?? merchantLongitude;
+    if (isOpenOverride != null ||
+        workingHoursOverride != null ||
+        latitudeOverride != null ||
+        longitudeOverride != null) {
+      _markStoreFormDirtyAndSetState(() {
+        isOpen = nextIsOpen;
+        if (workingHoursOverride != null) {
+          workingHoursCtrl.text = workingHoursOverride;
+        }
+        if (latitudeOverride != null) {
+          merchantLatitude = latitudeOverride;
+        }
+        if (longitudeOverride != null) {
+          merchantLongitude = longitudeOverride;
+        }
+      });
+    }
+    final ok = await ref
+        .read(ownerControllerProvider.notifier)
+        .updateMerchant(
+          name: nameCtrl.text,
+          type: merchantType,
+          description: descCtrl.text,
+          phone: phoneCtrl.text,
+          imageUrl: imageCtrl.text,
+          tagline: taglineCtrl.text,
+          workingHours: nextWorkingHours,
+          serviceAreaNote: serviceAreaCtrl.text,
+          imageFile: merchantImageFile,
+          logoFile: logoImageFile,
+          coverFile: coverImageFile,
+          logoUrl: logoImageFile == null ? logoImageUrl : null,
+          coverImageUrl: coverImageFile == null ? coverImageUrl : null,
+          deliveryEtaMinMinutes: int.tryParse(deliveryEtaMinCtrl.text.trim()),
+          deliveryEtaMaxMinutes: int.tryParse(deliveryEtaMaxCtrl.text.trim()),
+          deliveryFee: num.tryParse(deliveryFeeCtrl.text.trim()),
+          minimumOrder: num.tryParse(minimumOrderCtrl.text.trim()),
+          latitude: nextLatitude,
+          longitude: nextLongitude,
+          isOpen: nextIsOpen,
+        );
+    if (ok && mounted) {
+      setState(() {
+        _storeFormDirty = false;
+        _boundMerchantSignature = null;
+      });
+    }
+    return ok;
+  }
+
+  Future<void> _setMerchantOpenStatusFromDashboard(bool nextIsOpen) async {
+    final hadUnsavedStoreEdits = _storeFormDirty;
+    final ok = await ref
+        .read(ownerControllerProvider.notifier)
+        .setMerchantOpenStatus(isOpen: nextIsOpen);
+    if (!mounted || !ok) return;
+    setState(() {
+      isOpen = nextIsOpen;
+      if (!hadUnsavedStoreEdits) {
+        _storeFormDirty = false;
+        _boundMerchantSignature = null;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          nextIsOpen
+              ? 'تم فتح المتجر ويستطيع الزبائن الطلب الآن.'
+              : 'تم إغلاق المتجر ولن يستقبل طلبات جديدة.',
+        ),
+      ),
+    );
   }
 
   /// يفتح شيت إنشاء منتج بعد التأكد من وجود تصنيف واحد على الأقل.
+  Widget _buildStoreOpenStatusCard(OwnerState ownerState) {
+    final merchant = ownerState.merchant;
+    final currentlyOpen = merchant?.isOpen ?? isOpen;
+    final accent = currentlyOpen ? AppColors.brandGreen : AppColors.error;
+    return _SectionCard(
+      title: 'حالة استقبال الطلبات',
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: accent.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: accent.withValues(alpha: 0.42)),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              currentlyOpen
+                  ? Icons.lock_open_rounded
+                  : Icons.lock_outline_rounded,
+              color: accent,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    currentlyOpen ? 'المتجر مفتوح' : 'المتجر مغلق',
+                    textDirection: TextDirection.rtl,
+                    style: TextStyle(
+                      color: accent,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 17,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    currentlyOpen
+                        ? 'الزبائن يستطيعون رؤية المتجر وإرسال طلبات جديدة.'
+                        : 'المتجر ظاهر كمغلق ولن يستقبل طلبات جديدة.',
+                    textDirection: TextDirection.rtl,
+                    style: const TextStyle(
+                      color: AppColors.brandNavy,
+                      fontWeight: FontWeight.w600,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            FilledButton.icon(
+              onPressed: ownerState.savingMerchant
+                  ? null
+                  : () => _setMerchantOpenStatusFromDashboard(!currentlyOpen),
+              icon: ownerState.savingMerchant
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(
+                      currentlyOpen
+                          ? Icons.power_settings_new_rounded
+                          : Icons.play_arrow_rounded,
+                    ),
+              label: Text(currentlyOpen ? 'إغلاق' : 'فتح'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _openCreateProduct(OwnerState ownerState) async {
     if (ownerState.categories.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -420,12 +714,18 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   Future<void> _openSupportSettings() async {
     await Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const SettingsSupportScreen()));
+    ).push(MaterialPageRoute(builder: (_) => const SupportTicketsScreen()));
   }
 
   Future<void> _openStorePrinterSettings() async {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const StorePrinterSettingsScreen()),
+    );
+  }
+
+  Future<void> _openDailyInventory() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const OwnerDailyInventoryScreen()),
     );
   }
 
@@ -538,7 +838,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                             accent: const Color(0xFF3E7BFA),
                           ),
                           _ReportStatItem(
-                            label: 'إجمالي المبيعات',
+                            label: 'قيمة المنتجات',
                             value: formatIqd(summary.grossSales),
                             accent: const Color(0xFF2AA876),
                           ),
@@ -773,6 +1073,12 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
         onTap: (_) async => _setOwnerTab(_OwnerTab.catalog),
       ),
       AppUserDrawerItem(
+        icon: Icons.fact_check_outlined,
+        label: 'الجرد اليومي',
+        subtitle: 'تحديث توفر المنتجات وكميات المخزون',
+        onTap: (_) async => _openDailyInventory(),
+      ),
+      AppUserDrawerItem(
         icon: Icons.person_add_alt_1_rounded,
         label: 'إضافة عضو فريق',
         subtitle: 'متاح فقط لأدوار الدلفري / المحاسب / HR',
@@ -990,8 +1296,9 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                               child: Text('متجر'),
                             ),
                           ],
-                          onChanged: (v) =>
-                              setState(() => merchantType = v ?? 'restaurant'),
+                          onChanged: (v) => _markStoreFormDirtyAndSetState(
+                            () => merchantType = v ?? 'restaurant',
+                          ),
                           decoration: const InputDecoration(
                             labelText: 'نوع المتجر',
                           ),
@@ -1023,6 +1330,76 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                           ),
                         ),
                         const SizedBox(height: 10),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Theme.of(context).dividerColor,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                context.localizedText(
+                                  ar: 'موقع المتجر',
+                                  en: 'Store location',
+                                ),
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                merchantLatitude != null &&
+                                        merchantLongitude != null
+                                    ? context.localizedText(
+                                        ar: 'محدد على الخريطة',
+                                        en: 'Pinned on the map',
+                                      )
+                                    : context.localizedText(
+                                        ar: 'غير محدد بعد',
+                                        en: 'Not set yet',
+                                      ),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  FilledButton.tonalIcon(
+                                    onPressed: ownerState.savingMerchant
+                                        ? null
+                                        : _updateMerchantLocationFromDevice,
+                                    icon: const Icon(Icons.my_location_rounded),
+                                    label: Text(
+                                      context.localizedText(
+                                        ar: 'تحديث من موقعي',
+                                        en: 'Use current location',
+                                      ),
+                                    ),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed:
+                                        merchantLatitude == null ||
+                                            merchantLongitude == null
+                                        ? null
+                                        : _openMerchantLocationOnMap,
+                                    icon: const Icon(Icons.map_outlined),
+                                    label: Text(
+                                      context.localizedText(
+                                        ar: 'فتح الخريطة',
+                                        en: 'Open map',
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                         TextField(
                           controller: phoneCtrl,
                           decoration: const InputDecoration(
@@ -1039,13 +1416,15 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                           onPick: () async {
                             final picked = await pickImageFromDevice();
                             if (!mounted || picked == null) return;
-                            setState(() => merchantImageFile = picked);
+                            _markStoreFormDirtyAndSetState(
+                              () => merchantImageFile = picked,
+                            );
                           },
                           onClear:
                               merchantImageFile == null &&
                                   imageCtrl.text.trim().isEmpty
                               ? null
-                              : () => setState(() {
+                              : () => _markStoreFormDirtyAndSetState(() {
                                   merchantImageFile = null;
                                   imageCtrl.text = '';
                                 }),
@@ -1060,13 +1439,15 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                           onPick: () async {
                             final picked = await pickImageFromDevice();
                             if (!mounted || picked == null) return;
-                            setState(() => logoImageFile = picked);
+                            _markStoreFormDirtyAndSetState(
+                              () => logoImageFile = picked,
+                            );
                           },
                           onClear:
                               logoImageFile == null &&
                                   (logoImageUrl ?? '').trim().isEmpty
                               ? null
-                              : () => setState(() {
+                              : () => _markStoreFormDirtyAndSetState(() {
                                   logoImageFile = null;
                                   logoImageUrl = '';
                                 }),
@@ -1081,13 +1462,15 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                           onPick: () async {
                             final picked = await pickImageFromDevice();
                             if (!mounted || picked == null) return;
-                            setState(() => coverImageFile = picked);
+                            _markStoreFormDirtyAndSetState(
+                              () => coverImageFile = picked,
+                            );
                           },
                           onClear:
                               coverImageFile == null &&
                                   (coverImageUrl ?? '').trim().isEmpty
                               ? null
-                              : () => setState(() {
+                              : () => _markStoreFormDirtyAndSetState(() {
                                   coverImageFile = null;
                                   coverImageUrl = '';
                                 }),
@@ -1144,7 +1527,47 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                         SwitchListTile(
                           title: const Text('المتجر مفتوح الآن'),
                           value: isOpen,
-                          onChanged: (v) => setState(() => isOpen = v),
+                          onChanged: (v) =>
+                              _markStoreFormDirtyAndSetState(() => isOpen = v),
+                        ),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: ownerState.savingMerchant
+                                  ? null
+                                  : () => _saveMerchantProfile(
+                                      isOpenOverride: false,
+                                    ),
+                              icon: const Icon(Icons.power_settings_new),
+                              label: const Text('إطفاء الآن'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: ownerState.savingMerchant
+                                  ? null
+                                  : () => _saveMerchantProfile(
+                                      isOpenOverride: true,
+                                    ),
+                              icon: const Icon(Icons.play_arrow_rounded),
+                              label: const Text('تشغيل الآن'),
+                            ),
+                            FilledButton.tonalIcon(
+                              onPressed: ownerState.savingMerchant
+                                  ? null
+                                  : () => _saveMerchantProfile(
+                                      isOpenOverride: true,
+                                      workingHoursOverride: '08:00-00:00',
+                                    ),
+                              icon: const Icon(Icons.schedule_outlined),
+                              label: const Text('جدولة 8 ص - 12 ليلا'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'عند ضبط 08:00-00:00 سيغلق السيرفر المتجر تلقائيا بعد منتصف الليل ويفتحه الساعة 8 صباحا.',
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                         const SizedBox(height: 10),
                         SizedBox(
@@ -1152,42 +1575,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                           child: ElevatedButton(
                             onPressed: ownerState.savingMerchant
                                 ? null
-                                : () async {
-                                    await ref
-                                        .read(ownerControllerProvider.notifier)
-                                        .updateMerchant(
-                                          name: nameCtrl.text,
-                                          type: merchantType,
-                                          description: descCtrl.text,
-                                          phone: phoneCtrl.text,
-                                          imageUrl: imageCtrl.text,
-                                          tagline: taglineCtrl.text,
-                                          workingHours: workingHoursCtrl.text,
-                                          serviceAreaNote: serviceAreaCtrl.text,
-                                          imageFile: merchantImageFile,
-                                          logoFile: logoImageFile,
-                                          coverFile: coverImageFile,
-                                          logoUrl: logoImageFile == null
-                                              ? logoImageUrl
-                                              : null,
-                                          coverImageUrl: coverImageFile == null
-                                              ? coverImageUrl
-                                              : null,
-                                          deliveryEtaMinMinutes: int.tryParse(
-                                            deliveryEtaMinCtrl.text.trim(),
-                                          ),
-                                          deliveryEtaMaxMinutes: int.tryParse(
-                                            deliveryEtaMaxCtrl.text.trim(),
-                                          ),
-                                          deliveryFee: num.tryParse(
-                                            deliveryFeeCtrl.text.trim(),
-                                          ),
-                                          minimumOrder: num.tryParse(
-                                            minimumOrderCtrl.text.trim(),
-                                          ),
-                                          isOpen: isOpen,
-                                        );
-                                  },
+                                : () => _saveMerchantProfile(),
                             child: ownerState.savingMerchant
                                 ? const SizedBox(
                                     height: 18,
@@ -1202,6 +1590,10 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                       ],
                     ),
                   ),
+                if (activeTab == _OwnerTab.dashboard)
+                  const SizedBox(height: 14),
+                if (activeTab == _OwnerTab.dashboard)
+                  _buildStoreOpenStatusCard(ownerState),
                 if (activeTab == _OwnerTab.dashboard)
                   const SizedBox(height: 14),
                 if (activeTab == _OwnerTab.dashboard)
@@ -1422,9 +1814,13 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                           )
                         : _OwnerProductsLazyList(
                             products: catalogProducts,
+                            grid: _productGridView,
+                            onGridChanged: (value) =>
+                                setState(() => _productGridView = value),
                             itemBuilder: (product) => _ProductTile(
                               key: ValueKey(product.id),
                               product: product,
+                              grid: _productGridView,
                               onEdit: () async {
                                 final productDetails = await ref
                                     .read(ownerControllerProvider.notifier)
@@ -1516,6 +1912,22 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
                                       .deleteProduct(product.id);
                                 }
                               },
+                              onDisableAvailability:
+                                  ownerState.savingProduct ||
+                                      !product.isAvailable
+                                  ? null
+                                  : () async {
+                                      await ref
+                                          .read(
+                                            ownerControllerProvider.notifier,
+                                          )
+                                          .updateProductAvailability(
+                                            productId: product.id,
+                                            isAvailable: false,
+                                            unavailableReason: 'غير متوفر',
+                                            unavailableUntil: null,
+                                          );
+                                    },
                               onRestoreAvailability:
                                   ownerState.savingProduct ||
                                       product.isAvailable
@@ -1541,8 +1953,12 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
           );
 
     return Scaffold(
+      backgroundColor: AppColors.brandIvory,
       drawer: useDesktop ? null : drawerWidget,
       appBar: AppBar(
+        backgroundColor: AppColors.brandIvory,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: AppColors.brandNavy,
         title: Text(_ownerTabTitle()),
         actions: [
           if (useDesktop)
@@ -2076,14 +2492,15 @@ class _OwnerTabChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsetsDirectional.only(end: 8),
       child: Material(
         color: selected
-            ? scheme.primary.withValues(alpha: 0.18)
-            : Colors.white.withValues(alpha: 0.06),
+            ? AppColors.brandGreen
+            : Colors.white.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(18),
+        shadowColor: AppColors.brandNavy.withValues(alpha: 0.08),
+        elevation: selected ? 2 : 0,
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(18),
@@ -2092,8 +2509,8 @@ class _OwnerTabChip extends StatelessWidget {
             child: Text(
               label,
               style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: selected ? scheme.primary : Colors.white,
+                fontWeight: FontWeight.w800,
+                color: selected ? Colors.white : AppColors.brandNavy,
               ),
             ),
           ),
@@ -2861,14 +3278,26 @@ class _SectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
+      color: Colors.white.withValues(alpha: 0.94),
+      surfaceTintColor: Colors.transparent,
+      elevation: 3,
+      shadowColor: AppColors.brandNavy.withValues(alpha: 0.08),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: BorderSide(color: AppColors.brandGold.withValues(alpha: 0.28)),
+      ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
               title,
-              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+              style: const TextStyle(
+                color: AppColors.brandNavy,
+                fontWeight: FontWeight.w900,
+                fontSize: 16,
+              ),
               textAlign: TextAlign.right,
             ),
             const SizedBox(height: 10),
@@ -2914,30 +3343,83 @@ class _CategoryTile extends StatelessWidget {
 class _OwnerProductsLazyList extends StatelessWidget {
   final List<ProductModel> products;
   final Widget Function(ProductModel product) itemBuilder;
+  final bool grid;
+  final ValueChanged<bool>? onGridChanged;
 
   const _OwnerProductsLazyList({
     required this.products,
     required this.itemBuilder,
+    this.grid = false,
+    this.onGridChanged,
   });
 
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.sizeOf(context).height;
     final maxHeight = (screenHeight * 0.62).clamp(260.0, 720.0);
-    final contentHeight = products.length * 92.0;
+    // Product actions wrap on narrow screens, so reserve enough height for
+    // the metadata and the action row instead of clipping the last buttons.
+    final columns = grid ? (MediaQuery.sizeOf(context).width > 900 ? 3 : 2) : 1;
+    final contentHeight = grid
+        ? ((products.length + columns - 1) ~/ columns) * 356.0 + 58.0
+        : products.length * 302.0 + 58.0;
 
     return SizedBox(
       height: contentHeight < maxHeight ? contentHeight : maxHeight,
-      child: Scrollbar(
-        child: ListView.separated(
-          primary: false,
-          physics: const ClampingScrollPhysics(),
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          scrollCacheExtent: const ScrollCacheExtent.pixels(320),
-          itemCount: products.length,
-          separatorBuilder: (context, index) => const Divider(height: 1),
-          itemBuilder: (context, index) => itemBuilder(products[index]),
-        ),
+      child: Column(
+        children: [
+          if (onGridChanged != null)
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment<bool>(
+                    value: false,
+                    icon: Icon(Icons.view_list_rounded),
+                  ),
+                  ButtonSegment<bool>(
+                    value: true,
+                    icon: Icon(Icons.grid_view_rounded),
+                  ),
+                ],
+                selected: {grid},
+                showSelectedIcon: false,
+                onSelectionChanged: (selection) =>
+                    onGridChanged!(selection.first),
+              ),
+            ),
+          if (onGridChanged != null) const SizedBox(height: 8),
+          Expanded(
+            child: Scrollbar(
+              child: grid
+                  ? GridView.builder(
+                      padding: const EdgeInsets.all(8),
+                      primary: false,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: columns,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        mainAxisExtent: 340,
+                      ),
+                      itemCount: products.length,
+                      itemBuilder: (context, index) =>
+                          itemBuilder(products[index]),
+                    )
+                  : ListView.separated(
+                      primary: false,
+                      physics: const ClampingScrollPhysics(),
+                      keyboardDismissBehavior:
+                          ScrollViewKeyboardDismissBehavior.onDrag,
+                      scrollCacheExtent: const ScrollCacheExtent.pixels(320),
+                      itemCount: products.length,
+                      separatorBuilder: (context, index) =>
+                          const Divider(height: 1),
+                      itemBuilder: (context, index) =>
+                          itemBuilder(products[index]),
+                    ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2945,15 +3427,19 @@ class _OwnerProductsLazyList extends StatelessWidget {
 
 class _ProductTile extends StatelessWidget {
   final ProductModel product;
+  final bool grid;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onDisableAvailability;
   final VoidCallback? onRestoreAvailability;
 
   const _ProductTile({
     super.key,
     required this.product,
+    this.grid = false,
     required this.onEdit,
     required this.onDelete,
+    this.onDisableAvailability,
     this.onRestoreAvailability,
   });
 
@@ -2961,13 +3447,125 @@ class _ProductTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final effectivePrice = product.discountedPrice ?? product.price;
 
+    if (grid) {
+      final scheme = Theme.of(context).colorScheme;
+      return Card(
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                flex: 5,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _productImage(context),
+                    PositionedDirectional(
+                      top: 8,
+                      start: 8,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: product.isAvailable
+                              ? Colors.green
+                              : scheme.error,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          product.isAvailable ? 'متاح' : 'غير متاح',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                product.name,
+                textDirection: TextDirection.rtl,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+              if (product.categoryName?.trim().isNotEmpty == true)
+                Text(
+                  product.categoryName!.trim(),
+                  textDirection: TextDirection.rtl,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: scheme.onSurface.withValues(alpha: 0.65),
+                    fontSize: 12,
+                  ),
+                ),
+              const SizedBox(height: 4),
+              Text(
+                formatIqd(effectivePrice),
+                textDirection: TextDirection.rtl,
+                style: TextStyle(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 16,
+                ),
+              ),
+              const Spacer(),
+              const Divider(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  IconButton(
+                    tooltip: 'حذف المنتج',
+                    onPressed: onDelete,
+                    color: scheme.error,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                  ),
+                  if (!product.isAvailable && onRestoreAvailability != null)
+                    IconButton(
+                      tooltip: 'إظهار المنتج',
+                      onPressed: onRestoreAvailability,
+                      color: scheme.primary,
+                      icon: const Icon(Icons.visibility_rounded),
+                    )
+                  else if (onDisableAvailability != null)
+                    IconButton(
+                      tooltip: 'إخفاء المنتج',
+                      onPressed: onDisableAvailability,
+                      color: scheme.primary,
+                      icon: const Icon(Icons.visibility_off_outlined),
+                    ),
+                  IconButton(
+                    tooltip: 'تعديل المنتج',
+                    onPressed: onEdit,
+                    color: scheme.primary,
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return _buildListCard(context, effectivePrice);
+    /*
     return ListTile(
-      contentPadding: const EdgeInsets.symmetric(vertical: 6),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: SizedBox(
-          width: 52,
-          height: 52,
+          width: 76,
+          height: 76,
           child: product.imageUrl?.isNotEmpty == true
               ? CachedAppImage(
                   imageUrl: product.imageUrl!,
@@ -2990,7 +3588,15 @@ class _ProductTile extends StatelessWidget {
                 ),
         ),
       ),
-      title: Text(product.name, textDirection: TextDirection.rtl),
+      title: Text(
+        product.name,
+        textDirection: TextDirection.rtl,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(
+          context,
+        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+      ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
@@ -3047,24 +3653,307 @@ class _ProductTile extends StatelessWidget {
           ),
         ],
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            product.isAvailable ? Icons.check_circle : Icons.remove_circle,
-            color: product.isAvailable ? Colors.green : Colors.redAccent,
-            size: 18,
-          ),
-          if (!product.isAvailable && onRestoreAvailability != null)
-            IconButton(
-              onPressed: onRestoreAvailability,
-              tooltip: 'استعادة التوفر',
-              icon: const Icon(Icons.restore),
+      trailing: SizedBox(
+        width: 132,
+        child: Wrap(
+          alignment: WrapAlignment.end,
+          spacing: 0,
+          runSpacing: 0,
+          children: [
+            Icon(
+              product.isAvailable ? Icons.check_circle : Icons.remove_circle,
+              color: product.isAvailable ? Colors.green : Colors.redAccent,
+              size: 18,
             ),
-          IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
-          IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
-        ],
+            if (product.isAvailable && onDisableAvailability != null)
+              IconButton(
+                onPressed: onDisableAvailability,
+                tooltip: 'إطفاء المنتج',
+                icon: const Icon(Icons.visibility_off_outlined),
+              ),
+            if (!product.isAvailable && onRestoreAvailability != null)
+              IconButton(
+                onPressed: onRestoreAvailability,
+                tooltip: 'استعادة التوفر',
+                icon: const Icon(Icons.restore),
+              ),
+            IconButton(onPressed: onEdit, icon: const Icon(Icons.edit)),
+            IconButton(onPressed: onDelete, icon: const Icon(Icons.delete)),
+          ],
+        ),
       ),
+    );
+  }
+
+    );
+    */
+  }
+
+  Widget _buildListCard(BuildContext context, num effectivePrice) {
+    final scheme = Theme.of(context).colorScheme;
+    final hasOffers =
+        product.freeDelivery ||
+        product.requiresPrescription ||
+        product.requiresReview ||
+        product.offerLabel?.trim().isNotEmpty == true;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+        child: Column(
+          children: [
+            Directionality(
+              textDirection: TextDirection.rtl,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 104,
+                    height: 104,
+                    child: _productImage(context),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 104),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            product.name,
+                            textDirection: TextDirection.rtl,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.right,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          if (product.categoryName?.trim().isNotEmpty == true)
+                            Text(
+                              '\u0627\u0644\u0642\u0633\u0645: ${product.categoryName!.trim()}',
+                              textDirection: TextDirection.rtl,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: scheme.onSurface.withValues(alpha: 0.65),
+                              ),
+                            ),
+                          const SizedBox(height: 6),
+                          Text(
+                            product.hasDiscount
+                                ? '${formatIqd(effectivePrice)}  |  ${formatIqd(product.price)}'
+                                : formatIqd(effectivePrice),
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: scheme.primary,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 17,
+                            ),
+                          ),
+                          if (!product.isAvailable &&
+                              product.unavailableReason?.trim().isNotEmpty ==
+                                  true)
+                            Text(
+                              product.unavailableReason!.trim(),
+                              textDirection: TextDirection.rtl,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: scheme.error,
+                                fontSize: 12,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    children: [
+                      Icon(
+                        product.isAvailable
+                            ? Icons.check_circle
+                            : Icons.remove_circle,
+                        color: product.isAvailable
+                            ? Colors.green
+                            : scheme.error,
+                        size: 18,
+                      ),
+                      const SizedBox(height: 8),
+                      PopupMenuButton<String>(
+                        tooltip:
+                            '\u062e\u064a\u0627\u0631\u0627\u062a \u0627\u0644\u0645\u0646\u062a\u062c',
+                        onSelected: (value) {
+                          if (value == 'edit') onEdit();
+                          if (value == 'delete') onDelete();
+                          if (value == 'hide') onDisableAvailability?.call();
+                          if (value == 'show') onRestoreAvailability?.call();
+                        },
+                        itemBuilder: (context) => [
+                          const PopupMenuItem(
+                            value: 'edit',
+                            child: Text('\u062a\u0639\u062f\u064a\u0644'),
+                          ),
+                          if (product.isAvailable &&
+                              onDisableAvailability != null)
+                            const PopupMenuItem(
+                              value: 'hide',
+                              child: Text('\u0625\u062e\u0641\u0627\u0621'),
+                            ),
+                          if (!product.isAvailable &&
+                              onRestoreAvailability != null)
+                            const PopupMenuItem(
+                              value: 'show',
+                              child: Text('\u0625\u0638\u0647\u0627\u0631'),
+                            ),
+                          const PopupMenuItem(
+                            value: 'delete',
+                            child: Text('\u062d\u0630\u0641'),
+                          ),
+                        ],
+                        child: const Icon(Icons.more_vert_rounded),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (hasOffers) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    if (product.freeDelivery)
+                      const _OfferChip(
+                        icon: Icons.local_shipping_rounded,
+                        text:
+                            '\u062a\u0648\u0635\u064a\u0644 \u0645\u062c\u0627\u0646\u064a',
+                      ),
+                    if (product.requiresPrescription)
+                      _OfferChip(
+                        icon: Icons.receipt_long_outlined,
+                        text: context.lt(
+                          ar: '\u0648\u0635\u0641\u0629 \u0645\u0637\u0644\u0648\u0628\u0629',
+                          en: 'Prescription required',
+                        ),
+                      ),
+                    if (product.requiresReview)
+                      _OfferChip(
+                        icon: Icons.medical_information_outlined,
+                        text: context.lt(
+                          ar: '\u0645\u0631\u0627\u062c\u0639\u0629 \u0635\u064a\u062f\u0644\u0627\u0646\u064a\u0629',
+                          en: 'Pharmacist review',
+                        ),
+                      ),
+                    if (product.offerLabel?.trim().isNotEmpty == true)
+                      _OfferChip(
+                        icon: Icons.local_offer_rounded,
+                        text: product.offerLabel!.trim(),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            const Divider(height: 1),
+            const SizedBox(height: 10),
+            Directionality(
+              textDirection: TextDirection.rtl,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _listActionButton(
+                      context,
+                      label: '\u062a\u0639\u062f\u064a\u0644',
+                      icon: Icons.edit_outlined,
+                      onPressed: onEdit,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _listActionButton(
+                      context,
+                      label: product.isAvailable
+                          ? '\u0625\u062e\u0641\u0627\u0621'
+                          : '\u0625\u0638\u0647\u0627\u0631',
+                      icon: product.isAvailable
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
+                      onPressed: product.isAvailable
+                          ? onDisableAvailability
+                          : onRestoreAvailability,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _listActionButton(
+                      context,
+                      label: '\u062d\u0630\u0641',
+                      icon: Icons.delete_outline_rounded,
+                      color: scheme.error,
+                      onPressed: onDelete,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _listActionButton(
+    BuildContext context, {
+    required String label,
+    required IconData icon,
+    required VoidCallback? onPressed,
+    Color? color,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 20),
+      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: color ?? scheme.primary,
+        minimumSize: const Size(0, 48),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        side: BorderSide(color: color ?? scheme.primary, width: 1.5),
+      ),
+    );
+  }
+
+  Widget _productImage(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: product.imageUrl?.isNotEmpty == true
+          ? CachedAppImage(
+              imageUrl: product.imageUrl!,
+              cacheIdentity: 'owner_product_${product.id}',
+              fit: BoxFit.cover,
+              memCacheWidth: 500,
+              memCacheHeight: 500,
+              maxWidthDiskCache: 500,
+              maxHeightDiskCache: 500,
+              errorWidget: (context, error, stackTrace) => _imagePlaceholder(),
+            )
+          : _imagePlaceholder(),
+    );
+  }
+
+  Widget _imagePlaceholder() {
+    return Container(
+      color: Colors.white.withValues(alpha: 0.10),
+      alignment: Alignment.center,
+      child: const Icon(Icons.image_outlined, size: 34),
     );
   }
 }

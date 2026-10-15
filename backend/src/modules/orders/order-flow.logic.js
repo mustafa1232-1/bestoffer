@@ -23,7 +23,6 @@ export const CHAT_ACTIVE_STATUSES = [
   "ready_for_delivery",
   "on_the_way",
   "arrived",
-  "delivered",
 ];
 
 export function statusText(status) {
@@ -53,17 +52,13 @@ export function isOrderChatStatus(status) {
   return CHAT_ACTIVE_STATUSES.includes(String(status || ""));
 }
 
-export function isOwnerCurrentStatus(status, customerConfirmedAt) {
-  if (status === "delivered") {
-    return customerConfirmedAt == null;
-  }
+export function isOwnerCurrentStatus(status) {
+  if (status === "delivered") return false;
   return OWNER_ACTIVE_STATUSES.includes(String(status || ""));
 }
 
-export function isDeliveryCurrentStatus(status, customerConfirmedAt) {
-  if (status === "delivered") {
-    return customerConfirmedAt == null;
-  }
+export function isDeliveryCurrentStatus(status) {
+  if (status === "delivered") return false;
   return DELIVERY_ACTIVE_STATUSES.includes(String(status || ""));
 }
 

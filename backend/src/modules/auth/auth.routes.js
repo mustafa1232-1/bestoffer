@@ -41,6 +41,8 @@ authRouter.post(
   c.registerWithCard
 );
 authRouter.post("/login", c.login);
+authRouter.post("/pin-reset/request", c.requestPinReset);
+authRouter.post("/pin-reset/complete", requireAuth, c.completeTemporaryPinChange);
 authRouter.post("/refresh", c.refreshSession);
 authRouter.post("/session/recover", c.recoverSession);
 authRouter.post("/logout", c.logout);

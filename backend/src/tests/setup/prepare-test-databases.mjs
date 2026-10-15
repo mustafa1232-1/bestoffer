@@ -21,6 +21,30 @@ if (!baseUrl) {
   console.error("[qa-db] DATABASE_URL is required (expected from .env.test)");
   process.exitCode = 1;
 } else {
+  const parsedUrl = new URL(baseUrl);
+  const databaseName = decodeURIComponent(parsedUrl.pathname.slice(1));
+  const host = parsedUrl.hostname.toLowerCase();
+  const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1"]);
+  const explicitlyAllowedQaDatabase =
+    process.env.QA_DATABASE_ALLOW_EXTERNAL === "true" &&
+    databaseName.startsWith(QA_DB_PREFIX);
+
+  // The test harness creates and drops many cloned databases. It must never be
+  // pointed at the production Railway database, even when a public proxy URL
+  // is temporarily exported in the developer shell.
+  if (!loopbackHosts.has(host) && !explicitlyAllowedQaDatabase) {
+    throw new Error(
+      `[qa-db] Refusing external database host "${host}". ` +
+        "Use local Postgres or an explicitly named qa_* database with " +
+        "QA_DATABASE_ALLOW_EXTERNAL=true."
+    );
+  }
+  if (databaseName === "railway" || process.env.RAILWAY_ENVIRONMENT === "production") {
+    throw new Error(
+      `[qa-db] Refusing production database "${databaseName || "(unknown)"}".`
+    );
+  }
+
   const admin = new pg.Client({ connectionString: baseUrl });
   await admin.connect();
 
@@ -56,6 +80,10 @@ if (!baseUrl) {
           ...process.env,
           DATABASE_URL: templateUrl,
           MERCHANT_REVIEW_MIGRATION_DATABASE_URL: templateUrl,
+          // This child points at the freshly-created QA template, never the
+          // production database. Railway's runtime guard otherwise skips every
+          // SQL migration and leaves ensureSchema without its core tables.
+          E2E_FORCE_SQL_MIGRATIONS: "true",
         },
       }
     );

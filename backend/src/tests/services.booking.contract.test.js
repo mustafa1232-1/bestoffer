@@ -10,7 +10,9 @@ import {
   createOfferingForProvider,
   createProviderProfile,
   createServiceRequestByCustomer,
+  confirmServiceRequestPaymentByProvider,
   previewServiceBookingByCustomer,
+  submitServiceRequestPayment,
   updateRequestStatusByCustomer,
   updateRequestStatusByProviderUser,
 } from '../modules/services/services.repo.js';
@@ -426,6 +428,35 @@ test('service booking slots reject overlapping active bookings and release termi
   requestIds.push(Number(adjacent.id));
   assert.equal(adjacent.bookingStatus, 'PENDING_PROVIDER_CONFIRMATION');
 
+  await assert.rejects(
+    () =>
+      updateRequestStatusByCustomer({
+        userId: Number(fixture.customerUser.id),
+        requestId: Number(first.id),
+        dto: {
+          status: 'CANCELLED_BY_CUSTOMER',
+          note: 'too early',
+          expectedVersion: 2,
+          idempotencyKey: `${makeSeed('booking')}-slot-cancel-early`,
+        },
+      }),
+    (error) => {
+      assert.equal(error.status, 409);
+      assert.equal(
+        error.message,
+        'SERVICE_CANCELLATION_AVAILABLE_AFTER_15_MINUTES'
+      );
+      return true;
+    }
+  );
+
+  await q(
+    `UPDATE service_requests
+     SET customer_cancel_available_at = NOW() - INTERVAL '1 minute'
+     WHERE id = $1`,
+    [Number(first.id)]
+  );
+
   const cancelled = await updateRequestStatusByCustomer({
     userId: Number(fixture.customerUser.id),
     requestId: Number(first.id),
@@ -497,7 +528,7 @@ test('booking_flow_kind is immutable for persisted bookings', async (t) => {
   );
 });
 
-test('provider confirmation and customer finalization move through the booking state machine', async (t) => {
+test('provider confirmation, customer payment, and provider receipt complete the booking', async (t) => {
   const fixture = await seedBookingFixture();
   const requestIds = [];
   t.after(async () => {
@@ -560,18 +591,41 @@ test('provider confirmation and customer finalization move through the booking s
   assert.ok(providerCompleted.bookingProviderCompletedAt);
   assert.ok(providerCompleted.bookingFinalizationDueAt);
 
-  const completed = await updateRequestStatusByCustomer({
+  await assert.rejects(
+    () =>
+      updateRequestStatusByCustomer({
+        userId: Number(fixture.customerUser.id),
+        requestId: Number(created.id),
+        dto: {
+          status: 'COMPLETED',
+          note: 'must not bypass payment',
+          expectedVersion: 5,
+          idempotencyKey: `${makeSeed('booking')}-customer-complete`,
+        },
+      }),
+    (error) => {
+      assert.equal(error.status, 409);
+      return true;
+    }
+  );
+
+  const paymentSubmitted = await submitServiceRequestPayment({
     userId: Number(fixture.customerUser.id),
     requestId: Number(created.id),
-    dto: {
-      status: 'COMPLETED',
-      note: 'customer accepted',
-      expectedVersion: 5,
-      idempotencyKey: `${makeSeed('booking')}-customer-complete`,
-    },
+    paymentMethod: 'cash',
+    note: 'cash paid',
+  });
+  assert.equal(paymentSubmitted.bookingStatus, 'PROVIDER_COMPLETED');
+  assert.ok(paymentSubmitted.paymentSubmittedAt);
+
+  const completed = await confirmServiceRequestPaymentByProvider({
+    userId: Number(fixture.providerUser.id),
+    requestId: Number(created.id),
+    note: 'cash received',
   });
   assert.equal(completed.bookingStatus, 'COMPLETED');
-  assert.equal(completed.bookingVersion, 6);
+  assert.equal(completed.bookingVersion, 7);
+  assert.ok(completed.paymentConfirmedAt);
   assert.ok(completed.bookingFinalizedAt);
 
   await assert.rejects(
@@ -582,7 +636,7 @@ test('provider confirmation and customer finalization move through the booking s
         dto: {
           status: 'DISPUTED',
           note: 'duplicate',
-          expectedVersion: 4,
+          expectedVersion: 5,
           idempotencyKey: `${makeSeed('booking')}-bad-version`,
         },
       }),

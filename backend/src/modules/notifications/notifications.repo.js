@@ -368,6 +368,15 @@ function resolveNotificationTarget(notification, orderId) {
     return "admin_merchants_pending";
   }
   if (type.includes("admin_pending_merchant")) return "admin_merchants_pending";
+  if (type === "admin_order_created" || type.startsWith("admin.order.")) {
+    return "admin_order_details";
+  }
+  if (
+    type === "admin_taxi_ride_requested" ||
+    type.startsWith("admin.taxi.ride.")
+  ) {
+    return "admin_taxi_ride_details";
+  }
   if (type.includes("settlement")) return "admin_settlements";
   if (type.startsWith("residence.change.")) {
     if (type.includes("request_submitted")) return "admin_residence_requests";
@@ -441,6 +450,21 @@ function resolveNotificationTarget(notification, orderId) {
   if (type.startsWith("social.")) return "social_activity";
   if (type.startsWith("jobs.")) return "jobs_applications";
   if (type.startsWith("owner_")) return "owner_orders";
+  if (
+    type === "delivery_order_available" ||
+    type === "delivery_order_offer" ||
+    type === "courier_order_offer" ||
+    type === "delivery_order_assigned" ||
+    type === "delivery_order_removed" ||
+    type === "delivery_order_reassigned" ||
+    type === "delivery_assigned_by_owner" ||
+    type === "delivery_order_ready_for_pickup" ||
+    type === "delivery_order_ready" ||
+    type === "delivery_order_preparing"
+  ) {
+    return "courier_orders_current";
+  }
+  if (type === "delivery_order_cancelled") return "courier_orders_cancelled";
   if (type.startsWith("delivery_")) return "delivery_orders";
   if (type.includes("order")) return "order_tracking";
 
@@ -495,6 +519,11 @@ function buildMulticastMessage(
     requiresAction && orderId != null
       ? `${String(payload.reminderKind || notification?.type || "order_action")}:${orderId}`
       : null;
+  const isCustomerOrderUpdate =
+    appSurface === "user" &&
+    orderId != null &&
+    target === "order_tracking";
+  const orderUpdateTag = isCustomerOrderUpdate ? `customer-order:${orderId}` : null;
   const postId =
     payload.postId == null ? null : Number.parseInt(String(payload.postId), 10);
   const storyId =
@@ -511,10 +540,26 @@ function buildMulticastMessage(
     payload.applicationId == null
       ? null
       : Number.parseInt(String(payload.applicationId), 10);
+  const requestId =
+    payload.requestId == null && payload.ticketId == null
+      ? null
+      : Number.parseInt(String(payload.requestId ?? payload.ticketId), 10);
+  const offerId =
+    payload.offerId == null ? null : Number.parseInt(String(payload.offerId), 10);
+  const bidId =
+    payload.bidId == null ? null : Number.parseInt(String(payload.bidId), 10);
   const senderUserId =
     payload.senderUserId == null
       ? null
       : Number.parseInt(String(payload.senderUserId), 10);
+  const captainId =
+    payload.captainId == null
+      ? null
+      : Number.parseInt(String(payload.captainId), 10);
+  const customerUserId =
+    payload.customerUserId == null
+      ? null
+      : Number.parseInt(String(payload.customerUserId), 10);
   const remoteDisplayName =
     payload.remoteDisplayName == null ? "" : String(payload.remoteDisplayName);
   const scopeType =
@@ -535,8 +580,16 @@ function buildMulticastMessage(
   // the OS render a plain notification instead and suppress the full-screen ring.
   // (Android focus; iOS incoming calls need CallKit/VoIP push.)
   const fullScreenTarget = String(target || "").trim().toLowerCase();
+  const normalizedNotificationType = String(notification?.type || "").toLowerCase();
+  const isSocialCallPush =
+    normalizedNotificationType.startsWith("social.call") ||
+    normalizedNotificationType.startsWith("social_call") ||
+    fullScreenTarget === "social_call";
   const isFullScreenPush =
-    String(notification?.type || "").toLowerCase().startsWith("social.call") ||
+    isSocialCallPush ||
+    normalizedNotificationType.startsWith("services.central.sos.") ||
+    fullScreenTarget === "admin_emergency_request" ||
+    fullScreenTarget === "customer_emergency_request" ||
     fullScreenTarget === "taxi_ride_requested" ||
     fullScreenTarget === "taxi_new_request";
   return {
@@ -560,10 +613,21 @@ function buildMulticastMessage(
       orderId: orderId == null ? "" : String(orderId),
       target,
       deepLinkTarget: target,
+      action: payload.action == null ? "" : String(payload.action),
+      targetAction:
+        payload.targetAction == null && payload.target_action == null
+          ? ""
+          : String(payload.targetAction ?? payload.target_action),
       actionable: requiresAction ? "true" : "false",
       actionableExpiresAt: actionableExpiresAt ? String(actionableExpiresAt) : "",
       requiresAction: requiresAction ? "true" : "false",
       rideId: rideId == null ? "" : String(rideId),
+      requestId:
+        Number.isFinite(requestId) && requestId > 0 ? String(requestId) : "",
+      ticketId:
+        Number.isFinite(requestId) && requestId > 0 ? String(requestId) : "",
+      offerId: Number.isFinite(offerId) && offerId > 0 ? String(offerId) : "",
+      bidId: Number.isFinite(bidId) && bidId > 0 ? String(bidId) : "",
       postId: Number.isFinite(postId) && postId > 0 ? String(postId) : "",
       storyId: Number.isFinite(storyId) && storyId > 0 ? String(storyId) : "",
       threadId: Number.isFinite(threadId) && threadId > 0 ? String(threadId) : "",
@@ -593,6 +657,12 @@ function buildMulticastMessage(
         Number.isFinite(senderUserId) && senderUserId > 0
           ? String(senderUserId)
           : "",
+      captainId:
+        Number.isFinite(captainId) && captainId > 0 ? String(captainId) : "",
+      customerUserId:
+        Number.isFinite(customerUserId) && customerUserId > 0
+          ? String(customerUserId)
+          : "",
       // §4 grouped-assignment urgent event contract (strings — FCM data must be
       // string-valued). Empty when not applicable.
       eventId: payload.eventId == null ? "" : String(payload.eventId),
@@ -613,7 +683,12 @@ function buildMulticastMessage(
     },
     android: {
       priority: "high",
-      ttl: 60 * 60 * 1000,
+      // A delayed call alert is worse than no alert: never ring for a call that
+      // has already timed out or been answered on another device.
+      ttl: isSocialCallPush ? 45 * 1000 : 60 * 60 * 1000,
+      ...(isSocialCallPush && Number.isFinite(sessionId) && sessionId > 0
+        ? { collapseKey: `social-call:${sessionId}` }
+        : {}),
       ...(isFullScreenPush
         ? {}
         : {
@@ -627,7 +702,9 @@ function buildMulticastMessage(
                   : "default",
               clickAction: "FLUTTER_NOTIFICATION_CLICK",
               // Distinct assignment events must NOT collapse into each other.
-              tag: isUrgentChannel ? undefined : reminderTag || undefined,
+              tag: isUrgentChannel
+                ? undefined
+                : orderUpdateTag || reminderTag || undefined,
             },
           }),
     },
@@ -635,15 +712,33 @@ function buildMulticastMessage(
       headers: {
         "apns-priority": "10",
         "apns-push-type": "alert",
-        ...(reminderTag && !isUrgentChannel
-          ? { "apns-collapse-id": reminderTag }
+        ...(isSocialCallPush
+          ? {
+              "apns-expiration": String(Math.floor(Date.now() / 1000) + 45),
+              ...(Number.isFinite(sessionId) && sessionId > 0
+                ? { "apns-collapse-id": `social-call:${sessionId}` }
+                : {}),
+            }
+          : {}),
+        ...((orderUpdateTag || reminderTag) && !isUrgentChannel
+          ? { "apns-collapse-id": orderUpdateTag || reminderTag }
           : {}),
       },
       payload: {
         aps: {
           sound: isUrgentChannel ? "maslaki_attention.caf" : "default",
-          ...(isUrgentChannel ? {} : { contentAvailable: true }),
-          ...(reminderTag && !isUrgentChannel ? { threadId: reminderTag } : {}),
+          contentAvailable: true,
+          ...(isSocialCallPush
+            ? {
+                alert: {
+                  title: titleText,
+                  body: bodyText || "لديك مكالمة واردة",
+                },
+              }
+            : {}),
+          ...((orderUpdateTag || reminderTag) && !isUrgentChannel
+            ? { threadId: orderUpdateTag || reminderTag }
+            : {}),
         },
       },
     },
@@ -676,6 +771,45 @@ function emptyDeliveryResult(overrides = {}) {
   };
 }
 
+function selectPushTargetsForSurface(notification, targets = []) {
+  const payload = notification?.payload || {};
+  const intendedSurface = normalizeAppSurface(
+    payload.appSurface || payload.app_surface
+  );
+  if (!intendedSurface) {
+    return {
+      intendedSurface: null,
+      targets: [],
+      suppressed: "missing_surface",
+    };
+  }
+
+  const recipientSurface = normalizeAppSurface(targets[0]?.recipientSurface);
+  if (!recipientSurface) {
+    return {
+      intendedSurface,
+      targets: [],
+      suppressed: "unknown_recipient_surface",
+    };
+  }
+  if (intendedSurface !== recipientSurface) {
+    return {
+      intendedSurface,
+      targets: [],
+      suppressed: "recipient_surface_mismatch",
+    };
+  }
+
+  const matchingTargets = targets.filter(
+    (target) => normalizeAppSurface(target?.appSurface) === recipientSurface
+  );
+  return {
+    intendedSurface,
+    targets: matchingTargets,
+    suppressed: matchingTargets.length ? null : "no_matching_surface_token",
+  };
+}
+
 async function dispatchPushNotification(notification) {
   const messaging = getFirebaseMessaging();
   // §3: Firebase not configured is NOT acceptance — report it truthfully and
@@ -687,15 +821,18 @@ async function dispatchPushNotification(notification) {
     return emptyDeliveryResult({ invalidUser: true });
   }
 
-  const intendedSurface = normalizeAppSurface(
-    notification?.payload?.appSurface || notification?.payload?.app_surface
+  const selected = selectPushTargetsForSurface(
+    notification,
+    await listActivePushTargets(userId)
   );
-  const targets = (await listActivePushTargets(userId)).filter(
-    (target) => !intendedSurface || target.appSurface === intendedSurface
-  );
+  const { intendedSurface, targets } = selected;
   // §5: no token matching the intended surface → suppressed (not accepted).
   if (!targets.length) {
-    return emptyDeliveryResult({ intendedSurface, noTokens: true });
+    return emptyDeliveryResult({
+      intendedSurface,
+      noTokens: true,
+      suppressed: selected.suppressed,
+    });
   }
 
   const deliveryResult = emptyDeliveryResult({ intendedSurface });
@@ -1222,6 +1359,31 @@ export async function createNotificationAndAwaitDelivery({
       ])
     ).rows[0];
   }
+  // A worker can crash after creating the in-app row but before push delivery.
+  // The recovered row may contain an older or partial payload. Merge the
+  // authoritative retry payload so surface filtering can send the push while
+  // preserving the idempotent event row.
+  if (!created && row) {
+    let retryPayload = {};
+    try {
+      retryPayload = JSON.parse(enriched.payloadJson || "{}");
+    } catch (_) {
+      retryPayload = {};
+    }
+    const mergedPayload = {
+      ...(row.payload && typeof row.payload === "object" ? row.payload : {}),
+      ...retryPayload,
+    };
+    row = (
+      await q(
+        `UPDATE app_notification
+            SET payload = $2::jsonb
+          WHERE id = $1
+          RETURNING *`,
+        [Number(row.id), JSON.stringify(mergedPayload)]
+      )
+    ).rows[0];
+  }
   const notification = toNotificationRow(row);
   if (created && notification) {
     void emitRealtimeToUser(Number(notification.user_id), "notification", {
@@ -1355,6 +1517,22 @@ export async function markAllNotificationsRead(userId) {
   return out;
 }
 
+const notificationActionEventInsertSql = `INSERT INTO notification_action_event
+  (notification_id, user_id, action_id, target, entity_type, entity_id, request_state, payload)
+ VALUES (
+   CASE
+     WHEN $1::bigint IS NULL THEN NULL
+     ELSE (
+       SELECT n.id
+         FROM app_notification n
+        WHERE n.id = $1::bigint
+          AND n.user_id = $2
+     )
+   END,
+   $2,$3,$4,$5,$6,$7,$8::jsonb
+ )
+ RETURNING *`;
+
 export async function createNotificationActionEvent({
   notificationId = null,
   userId,
@@ -1381,10 +1559,7 @@ export async function createNotificationActionEvent({
     : "opened";
 
   const r = await q(
-    `INSERT INTO notification_action_event
-      (notification_id, user_id, action_id, target, entity_type, entity_id, request_state, payload)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb)
-     RETURNING *`,
+    notificationActionEventInsertSql,
     [
       notificationId ? Number(notificationId) : null,
       safeUserId,
@@ -1506,8 +1681,9 @@ export async function listActivePushTokens(userId) {
 
 async function listActivePushTargets(userId) {
   const r = await q(
-    `SELECT upt.push_token, upt.locale, upt.app_surface
+    `SELECT upt.push_token, upt.locale, upt.app_surface, u.role
      FROM user_push_token upt
+     JOIN app_user u ON u.id = upt.user_id
      JOIN user_session us
        ON us.id = upt.auth_session_id
       AND us.user_id = upt.user_id
@@ -1524,8 +1700,9 @@ async function listActivePushTargets(userId) {
       token: String(row.push_token || "").trim(),
       locale: normalizeNotificationLocale(row.locale),
       appSurface: normalizeAppSurface(row.app_surface),
+      recipientSurface: resolveRoleAppSurface(row.role),
     }))
-    .filter((row) => row.token && row.appSurface);
+    .filter((row) => row.token && row.appSurface && row.recipientSurface);
 }
 
 export async function deactivatePushTokensForSession(userId, sessionId) {
@@ -1551,6 +1728,8 @@ export async function deactivatePushTokensForUser(userId) {
 export const __notificationsRepoTestables = {
   buildMulticastMessage,
   buildNotificationAudienceMetadata,
+  selectPushTargetsForSurface,
+  notificationActionEventInsertSql,
 };
 
 

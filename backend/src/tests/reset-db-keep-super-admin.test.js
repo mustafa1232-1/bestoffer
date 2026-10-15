@@ -18,7 +18,7 @@ function createFakeClient(counts) {
               id: 1,
               role: "admin",
               is_super_admin: true,
-              phone: "07746515247",
+              phone: "07700000001",
             },
           ],
         };

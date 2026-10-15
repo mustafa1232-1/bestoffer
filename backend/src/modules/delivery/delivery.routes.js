@@ -3,6 +3,7 @@ import * as c from "./delivery.controller.js";
 import * as revisions from "../orders/order-revisions.controller.js";
 import { requireAuth } from "../../shared/middleware/auth.middleware.js";
 import { requireDeliveryAgent } from "../../shared/middleware/delivery-agent.middleware.js";
+import { imageUpload } from "../../shared/utils/upload.js";
 
 /**
  * Purpose:
@@ -15,6 +16,17 @@ import { requireDeliveryAgent } from "../../shared/middleware/delivery-agent.mid
  *   ready_for_delivery -> on_the_way -> arrived -> delivered.
  */
 export const deliveryRouter = Router();
+
+// Registration must stay public: the account does not have a token until this
+// request succeeds. Approval remains an authenticated admin-only operation.
+deliveryRouter.post(
+  "/register",
+  imageUpload.fields([
+    { name: "profileImageFile", maxCount: 1 },
+    { name: "carImageFile", maxCount: 1 },
+  ]),
+  c.register
+);
 
 deliveryRouter.use(requireAuth);
 
@@ -45,6 +57,10 @@ deliveryRouter.get("/delivery-jobs/:deliveryJobId(\\d+)", c.groupedJobDetails);
 deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/acknowledge", c.acknowledgeGroupedJob);
 deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/heading-to-pickups", c.groupedHeadingToPickups);
 deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/stops/:stopId(\\d+)/arrived", c.groupedStopArrived);
-deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/stops/:stopId(\\d+)/collected", c.groupedStopCollected);
+deliveryRouter.post(
+  "/delivery-jobs/:deliveryJobId(\\d+)/stops/:stopId(\\d+)/collected",
+  imageUpload.single("receiptFile"),
+  c.groupedStopCollected,
+);
 deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/heading-to-customer", c.groupedHeadingToCustomer);
 deliveryRouter.post("/delivery-jobs/:deliveryJobId(\\d+)/delivered", c.groupedDelivered);

@@ -143,6 +143,45 @@ class OwnerApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> getDailyInventory() async {
+    final response = await dio.get('/api/owner/inventory/daily');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> updateDailyInventoryItem({
+    required int productId,
+    required int quantity,
+    required bool isAvailable,
+    int? reorderThreshold,
+    String? note,
+  }) async {
+    final data = <String, dynamic>{
+      'quantity': quantity,
+      'isAvailable': isAvailable,
+    };
+    if (reorderThreshold != null) {
+      data['reorderThreshold'] = reorderThreshold;
+    }
+    if (note != null && note.trim().isNotEmpty) {
+      data['note'] = note.trim();
+    }
+    final response = await dio.patch(
+      '/api/owner/inventory/products/$productId',
+      data: data,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> confirmDailyInventoryCheck({
+    String? note,
+  }) async {
+    final response = await dio.post(
+      '/api/owner/inventory/daily-check',
+      data: {if (note != null && note.trim().isNotEmpty) 'note': note.trim()},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<List<dynamic>> listOffers() async {
     final response = await dio.get('/api/owner/offers');
     return List<dynamic>.from(response.data as List);

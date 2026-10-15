@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/utils/order_status.dart';
 import '../../orders/models/order_model.dart';
 import '../../orders/ui/widgets/order_item_widgets.dart';
 import '../models/admin_orders_overview_model.dart';
@@ -28,6 +29,8 @@ class _AdminOrdersOverviewScreenState
     extends ConsumerState<AdminOrdersOverviewScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   bool _loading = true;
+  bool _refreshing = false;
+  int _loadGeneration = 0;
   String? _error;
   String _status = 'all';
   String _period = 'all';
@@ -71,8 +74,11 @@ class _AdminOrdersOverviewScreenState
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
+    final hasContent = _items.isNotEmpty;
     setState(() {
-      _loading = true;
+      _loading = !hasContent;
+      _refreshing = hasContent;
       _error = null;
     });
     try {
@@ -95,21 +101,29 @@ class _AdminOrdersOverviewScreenState
             ),
           )
           .toList(growable: false);
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _summary = summary;
         _items = items;
         _loading = false;
+        _refreshing = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
+      final message = mapAnyError(
+        error,
+        fallback: context.l10n.adminOrdersOverviewLoadFailed,
+      );
       setState(() {
         _loading = false;
-        _error = mapAnyError(
-          error,
-          fallback: context.l10n.adminOrdersOverviewLoadFailed,
-        );
+        _refreshing = false;
+        _error = hasContent ? null : message;
       });
+      if (hasContent) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
     }
   }
 
@@ -146,7 +160,13 @@ class _AdminOrdersOverviewScreenState
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final option in const ['all', 'day', 'week', 'month', 'year'])
+                for (final option in const [
+                  'all',
+                  'day',
+                  'week',
+                  'month',
+                  'year',
+                ])
                   ChoiceChip(
                     label: Text(_periodFilterLabel(context, option)),
                     selected: _period == option,
@@ -176,6 +196,8 @@ class _AdminOrdersOverviewScreenState
               ),
             ),
             const SizedBox(height: 16),
+            if (_refreshing) const LinearProgressIndicator(minHeight: 2),
+            if (_refreshing) const SizedBox(height: 8),
             _SummaryRow(summary: _summary),
             const SizedBox(height: 16),
             if (_loading)
@@ -268,6 +290,8 @@ class AdminMerchantOrdersListScreen extends ConsumerStatefulWidget {
 class _AdminMerchantOrdersListScreenState
     extends ConsumerState<AdminMerchantOrdersListScreen> {
   bool _loading = true;
+  bool _refreshing = false;
+  int _loadGeneration = 0;
   String? _error;
   late final String _status = widget.initialStatus;
   late String _period = widget.initialPeriod;
@@ -298,8 +322,11 @@ class _AdminMerchantOrdersListScreenState
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
+    final hasContent = _orders.isNotEmpty;
     setState(() {
-      _loading = true;
+      _loading = !hasContent;
+      _refreshing = hasContent;
       _error = null;
     });
     try {
@@ -318,27 +345,36 @@ class _AdminMerchantOrdersListScreenState
                 OrderModel.fromJson(Map<String, dynamic>.from(item as Map)),
           )
           .toList(growable: false);
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
       setState(() {
         _orders = items;
         _loading = false;
+        _refreshing = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!mounted || generation != _loadGeneration) return;
+      final message = mapAnyError(
+        error,
+        fallback: context.l10n.adminOrdersOverviewMerchantOrdersLoadFailed,
+      );
       setState(() {
         _loading = false;
-        _error = mapAnyError(
-          error,
-          fallback: context.l10n.adminOrdersOverviewMerchantOrdersLoadFailed,
-        );
+        _refreshing = false;
+        _error = hasContent ? null : message;
       });
+      if (hasContent) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
     }
   }
 
   Future<void> _showOrderDetails(OrderModel order) async {
     final l10n = context.l10n;
     final items = order.presentationItems;
-    final groupByStore = items
+    final groupByStore =
+        items
             .map((item) => '${item.storeId ?? item.storeName ?? 'store'}')
             .toSet()
             .length >
@@ -356,8 +392,9 @@ class _AdminMerchantOrdersListScreenState
               children: [
                 Text(
                   l10n.adminOrdersOverviewOrderDetailsTitle(order.id),
-                  style: Theme.of(bottomSheetContext).textTheme.titleLarge
-                      ?.copyWith(fontWeight: FontWeight.w800),
+                  style: Theme.of(
+                    bottomSheetContext,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 12),
                 _DetailRow(
@@ -395,8 +432,9 @@ class _AdminMerchantOrdersListScreenState
                   'راجع المنتجات والمواصفات قبل الموافقة',
                   textDirection: TextDirection.rtl,
                   style: TextStyle(
-                    color: Theme.of(bottomSheetContext).colorScheme.primary
-                        .withValues(alpha: 0.86),
+                    color: Theme.of(
+                      bottomSheetContext,
+                    ).colorScheme.primary.withValues(alpha: 0.86),
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -419,7 +457,7 @@ class _AdminMerchantOrdersListScreenState
 
   String _statusLabel(BuildContext context, String status) {
     final l10n = context.l10n;
-    return switch (status.trim().toLowerCase()) {
+    return switch (normalizeOrderStatusForUi(status)) {
       'delivered' || 'completed' || 'received' => l10n.commonCompleted,
       'cancelled' => l10n.commonCancelled,
       _ => l10n.commonInProgress,
@@ -427,7 +465,7 @@ class _AdminMerchantOrdersListScreenState
   }
 
   Color _statusColor(String status, BuildContext context) {
-    final normalized = status.trim().toLowerCase();
+    final normalized = normalizeOrderStatusForUi(status);
     if (normalized == 'cancelled') return Theme.of(context).colorScheme.error;
     if (normalized == 'delivered' ||
         normalized == 'completed' ||
@@ -457,7 +495,13 @@ class _AdminMerchantOrdersListScreenState
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final option in const ['all', 'day', 'week', 'month', 'year'])
+                for (final option in const [
+                  'all',
+                  'day',
+                  'week',
+                  'month',
+                  'year',
+                ])
                   ChoiceChip(
                     label: Text(_periodFilterLabel(context, option)),
                     selected: _period == option,
@@ -473,6 +517,8 @@ class _AdminMerchantOrdersListScreenState
               ],
             ),
             const SizedBox(height: 16),
+            if (_refreshing) const LinearProgressIndicator(minHeight: 2),
+            if (_refreshing) const SizedBox(height: 8),
             if (_loading)
               const Center(child: CircularProgressIndicator())
             else if (_error != null)

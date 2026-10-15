@@ -209,6 +209,7 @@ class AdminState {
 /// - عند mismatch بين شاشات الأدمن والقيم الحقيقية من الـ API ابدأ هنا.
 class AdminController extends StateNotifier<AdminState> {
   final Ref ref;
+  Future<void>? _bootstrapInFlight;
 
   AdminController(this.ref) : super(const AdminState());
 
@@ -217,7 +218,19 @@ class AdminController extends StateNotifier<AdminState> {
   /// Maintenance notes:
   /// - بعض الطلبات هنا intentionally safe-wrapped حتى لا يكسر فشل جزئية
   ///   واحدة كامل لوحة الأدمن.
-  Future<void> bootstrap() async {
+  Future<void> bootstrap() {
+    final active = _bootstrapInFlight;
+    if (active != null) return active;
+    final future = _runBootstrap();
+    _bootstrapInFlight = future;
+    return future.whenComplete(() {
+      if (identical(_bootstrapInFlight, future)) {
+        _bootstrapInFlight = null;
+      }
+    });
+  }
+
+  Future<void> _runBootstrap() async {
     state = state.copyWith(
       loading: true,
       insightsLoading: false,

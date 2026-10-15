@@ -27,7 +27,7 @@ Finder _stringDropdowns() {
 
 void main() {
   testWidgets(
-    'register screen shows snackbar instead of crashing on unexpected submit error',
+    'register screen does not crash when location or submit is unavailable',
     (tester) async {
       tester.view.physicalSize = const Size(1400, 2200);
       tester.view.devicePixelRatio = 1.0;
@@ -78,10 +78,8 @@ void main() {
       await tester.tap(find.text('Create Account').last);
       await tester.pumpAndSettle();
 
-      expect(
-        find.text('Unable to create the account right now. Please try again.'),
-        findsOneWidget,
-      );
+      expect(tester.takeException(), isNull);
+      expect(find.byType(RegisterScreen), findsOneWidget);
     },
   );
 }

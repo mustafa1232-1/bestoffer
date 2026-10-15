@@ -124,6 +124,30 @@ class _FakeAdminApi extends AdminApi {
   }
 
   @override
+  Future<Map<String, dynamic>> listAllServiceOfferingsForAdmin({
+    int limit = 200,
+    int offset = 0,
+  }) async {
+    return const <String, dynamic>{
+      'items': <dynamic>[
+        {
+          'id': 11,
+          'providerId': 1,
+          'name': 'تنظيف شقق',
+          'moderationStatus': 'pending',
+        },
+      ],
+      'total': 1,
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> listServiceCategoriesForAdmin({
+    int limit = 300,
+    int offset = 0,
+  }) async => const <String, dynamic>{'items': <dynamic>[], 'total': 0};
+
+  @override
   Future<Map<String, dynamic>> listServiceAdminRequests({
     String? requestStatus,
     int limit = 80,
@@ -217,6 +241,27 @@ class _ScenarioAdminApi extends AdminApi {
   Future<Map<String, dynamic>> listServiceReports({
     String status = 'pending',
     int limit = 80,
+    int offset = 0,
+  }) async => _run(const <String, dynamic>{'items': <dynamic>[], 'total': 0});
+
+  @override
+  Future<Map<String, dynamic>> listAllServiceOfferingsForAdmin({
+    int limit = 200,
+    int offset = 0,
+  }) async => _run(
+    empty
+        ? const <String, dynamic>{'items': <dynamic>[], 'total': 0}
+        : const <String, dynamic>{
+            'items': <dynamic>[
+              {'id': 11, 'name': 'تنظيف شقق', 'moderationStatus': 'pending'},
+            ],
+            'total': 1,
+          },
+  );
+
+  @override
+  Future<Map<String, dynamic>> listServiceCategoriesForAdmin({
+    int limit = 300,
     int offset = 0,
   }) async => _run(const <String, dynamic>{'items': <dynamic>[], 'total': 0});
 

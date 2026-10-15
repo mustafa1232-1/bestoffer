@@ -1,6 +1,6 @@
 import "dotenv/config";
 
-import { ensureSchema, q } from "../config/db.js";
+import { ensureSchema, pool, q } from "../config/db.js";
 import { env, validateRuntimeEnv } from "../config/env.js";
 
 async function run() {
@@ -10,11 +10,17 @@ async function run() {
   const findings = [];
 
   if (env.isProduction) {
-    if (env.superAdminPin === "1998") {
-      findings.push("SUPER_ADMIN_PIN is using default value (1998).");
+    if (!/^\d{8,20}$/.test(env.superAdminPhone)) {
+      findings.push("SUPER_ADMIN_PHONE is missing or invalid.");
     }
-    if (env.superAdminPhone === "07746515247") {
-      findings.push("SUPER_ADMIN_PHONE is using default value.");
+    if (!/^\d{8}$/.test(env.superAdminPin)) {
+      findings.push("SUPER_ADMIN_PIN must be an 8-digit deployment secret.");
+    }
+    if (!/^\d{8,20}$/.test(env.servicesOperatorPhone)) {
+      findings.push("SERVICES_OPERATOR_PHONE is missing or invalid.");
+    }
+    if (!/^\d{8}$/.test(env.servicesOperatorPin)) {
+      findings.push("SERVICES_OPERATOR_PIN must be an 8-digit deployment secret.");
     }
   }
 
@@ -47,7 +53,12 @@ async function run() {
   }
 }
 
-run().catch((error) => {
-  console.error("[security-check] failed:", error);
-  process.exit(1);
-});
+run()
+  .catch((error) => {
+    console.error("[security-check] failed:", error);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    // CLI checks must release the pool so CI and release verification can exit.
+    await pool.end();
+  });

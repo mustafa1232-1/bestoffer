@@ -68,8 +68,14 @@ export function resolveRouteAppSurface(reqOrPath) {
       : reqOrPath?.originalUrl || reqOrPath?.url || reqOrPath?.path || ""
   );
   if (!path) return null;
-  if (/^\/api\/(admin|company|hr|accountant)(?:\/|$)/.test(path)) {
+  if (/^\/api\/(admin|company|accountant)(?:\/|$)/.test(path)) {
     return "company";
+  }
+  // HR is intentionally shared by the company back office and store owners.
+  // The request flavor still has to match the authenticated role, while the
+  // HR service enforces workspace membership and fine-grained permissions.
+  if (/^\/api\/hr(?:\/|$)/.test(path)) {
+    return null;
   }
   if (/^\/api\/owner(?:\/|$)/.test(path)) {
     return "store";

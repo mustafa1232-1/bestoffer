@@ -161,3 +161,40 @@ export async function searchAuditEvents({
     items: rows.rows,
   };
 }
+
+export async function searchEmployeeActivity({ limit = 100, offset = 0 } = {}) {
+  const safeLimit = Math.max(1, Math.min(300, Number(limit) || 100));
+  const safeOffset = Math.max(0, Number(offset) || 0);
+  const union = `
+    SELECT e.id, e.created_at, e.actor_user_id AS user_id,
+           u.full_name, u.phone, u.admin_role_key,
+           'admin_audit' AS source, e.action_key AS event_name,
+           e.summary, e.target_type, e.target_id::text, e.metadata
+    FROM admin_audit_event e
+    JOIN app_user u ON u.id = e.actor_user_id
+    WHERE u.is_internal_staff = TRUE
+    UNION ALL
+    SELECT a.id, a.created_at, a.user_id,
+           u.full_name, u.phone, u.admin_role_key,
+           'api_activity' AS source, a.event_name,
+           a.event_name AS summary, a.entity_type, a.entity_id::text, a.metadata
+    FROM user_activity_event a
+    JOIN app_user u ON u.id = a.user_id
+    WHERE u.is_internal_staff = TRUE
+  `;
+  const count = await q(`SELECT COUNT(*)::int AS total FROM (${union}) activity`);
+  const rows = await q(
+    `SELECT id, created_at, user_id, full_name, phone, admin_role_key,
+            source, event_name, summary, target_type, target_id, metadata
+     FROM (${union}) activity
+     ORDER BY created_at DESC, id DESC
+     LIMIT $1 OFFSET $2`,
+    [safeLimit, safeOffset]
+  );
+  return {
+    total: Number(count.rows[0]?.total || 0),
+    limit: safeLimit,
+    offset: safeOffset,
+    items: rows.rows,
+  };
+}

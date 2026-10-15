@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../../core/files/local_image_file.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../orders/state/delivery_address_controller.dart';
 import '../data/merchants_api.dart';
 import '../models/merchant_model.dart';
 import '../models/store_activity_model.dart';
@@ -10,6 +12,62 @@ final merchantsApiProvider = Provider<MerchantsApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
   return MerchantsApi(dio);
 });
+
+class MerchantBrowsePosition {
+  final double latitude;
+  final double longitude;
+
+  const MerchantBrowsePosition({
+    required this.latitude,
+    required this.longitude,
+  });
+}
+
+final merchantBrowsePositionProvider = FutureProvider<MerchantBrowsePosition?>((
+  ref,
+) async {
+  final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+  if (!serviceEnabled) {
+    return _savedDeliveryAddressPosition(ref);
+  }
+
+  var permission = await Geolocator.checkPermission();
+  if (permission == LocationPermission.denied) {
+    permission = await Geolocator.requestPermission();
+  }
+  if (permission == LocationPermission.denied ||
+      permission == LocationPermission.deniedForever) {
+    return _savedDeliveryAddressPosition(ref);
+  }
+
+  try {
+    final position = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high,
+      timeLimit: const Duration(seconds: 10),
+    );
+    return MerchantBrowsePosition(
+      latitude: position.latitude,
+      longitude: position.longitude,
+    );
+  } catch (_) {
+    return _savedDeliveryAddressPosition(ref);
+  }
+});
+
+Future<MerchantBrowsePosition?> _savedDeliveryAddressPosition(Ref ref) async {
+  final addressController = ref.read(
+    deliveryAddressControllerProvider.notifier,
+  );
+  if (ref.read(deliveryAddressControllerProvider).addresses.isEmpty) {
+    await addressController.bootstrap(silent: true);
+  }
+  final address = ref.read(deliveryAddressControllerProvider).selectedAddress;
+  if (address?.latitude == null || address?.longitude == null) return null;
+  return MerchantBrowsePosition(
+    latitude: address!.latitude!,
+    longitude: address.longitude!,
+  );
+}
 
 final merchantsControllerProvider =
     StateNotifierProvider<MerchantsController, AsyncValue<List<MerchantModel>>>(
@@ -93,6 +151,8 @@ class MerchantsController
 
       try {
         final api = ref.read(merchantsApiProvider);
+        // Public catalogue ranking on /api/merchants is independent of GPS.
+        // Nearby discovery has its own location-aware endpoint and provider.
         final primaryList = await api.list(
           type: requestedType,
           search: search,
@@ -102,12 +162,12 @@ class MerchantsController
         );
         final merchants = _parseMerchants(primaryList);
 
-        if (generation == _loadGeneration) {
+        if (mounted && generation == _loadGeneration) {
           _lastRequestKey = requestKey;
           state = AsyncValue.data(merchants);
         }
       } catch (error, stackTrace) {
-        if (generation == _loadGeneration) {
+        if (mounted && generation == _loadGeneration) {
           state = AsyncValue.error(error, stackTrace);
         }
       }
@@ -239,6 +299,8 @@ class MerchantsController
     bool? supportsChat,
     bool? supportsAttachments,
     bool? supportsPharmacyWorkflow,
+    double? latitude,
+    double? longitude,
     LocalImageFile? merchantImageFile,
     LocalImageFile? ownerImageFile,
     int? ownerUserId,
@@ -270,6 +332,8 @@ class MerchantsController
       'supportsChat': supportsChat,
       'supportsAttachments': supportsAttachments,
       'supportsPharmacyWorkflow': supportsPharmacyWorkflow,
+      'latitude': latitude,
+      'longitude': longitude,
     };
     if (discoverySubcategories != null) {
       body['discoverySubcategories'] = discoverySubcategories;

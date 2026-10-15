@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -110,10 +112,13 @@ class _FakeMerchantDiscoveryController extends MerchantDiscoveryController {
 }
 
 class _FakeDeliveryAddressController extends DeliveryAddressController {
-  _FakeDeliveryAddressController(super.ref);
+  _FakeDeliveryAddressController(super.ref, {this.hangBootstrap = false});
+
+  final bool hangBootstrap;
 
   @override
   Future<void> bootstrap({bool silent = false}) async {
+    if (hangBootstrap) return Completer<void>().future;
     state = const DeliveryAddressState();
   }
 }
@@ -142,6 +147,14 @@ class _FakeNotificationsController extends NotificationsController {
 
   @override
   Future<void> refreshUnreadCount() async {}
+
+  @override
+  Future<void> loadNotifications({
+    bool unreadOnly = false,
+    bool silent = false,
+  }) async {
+    state = state.copyWith(loading: false, notifications: const []);
+  }
 }
 
 UserModel _customerUser() {
@@ -197,6 +210,7 @@ List<MerchantModel> _merchants() {
 Future<void> _pumpMerchantsList(
   WidgetTester tester, {
   required MerchantsListScreen screen,
+  bool hangAddressBootstrap = false,
 }) async {
   await tester.binding.setSurfaceSize(const Size(1280, 2200));
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -211,11 +225,15 @@ Future<void> _pumpMerchantsList(
         merchantsControllerProvider.overrideWith(
           (ref) => _FakeMerchantsController(ref, _merchants()),
         ),
+        merchantBrowsePositionProvider.overrideWith((ref) async => null),
         merchantDiscoveryControllerProvider.overrideWith(
           (ref) => _FakeMerchantDiscoveryController(ref),
         ),
         deliveryAddressControllerProvider.overrideWith(
-          (ref) => _FakeDeliveryAddressController(ref),
+          (ref) => _FakeDeliveryAddressController(
+            ref,
+            hangBootstrap: hangAddressBootstrap,
+          ),
         ),
         customerMerchantPrefsProvider.overrideWith(
           (ref) => _FakeCustomerMerchantPrefsController(ref),
@@ -250,6 +268,7 @@ Future<void> _pumpMerchantsFlowWithRoot(WidgetTester tester) async {
         merchantsControllerProvider.overrideWith(
           (ref) => _FakeMerchantsController(ref, _merchants()),
         ),
+        merchantBrowsePositionProvider.overrideWith((ref) async => null),
         merchantDiscoveryControllerProvider.overrideWith(
           (ref) => _FakeMerchantDiscoveryController(ref),
         ),
@@ -315,6 +334,23 @@ void main() {
       expect(find.text(l10n.merchantListNoStores), findsNothing);
     },
   );
+
+  testWidgets('store list loads even when address bootstrap is slow', (
+    tester,
+  ) async {
+    await _pumpMerchantsList(
+      tester,
+      hangAddressBootstrap: true,
+      screen: const MerchantsListScreen(
+        compactCustomerMode: true,
+        showShoppingCategoryCards: true,
+      ),
+    );
+
+    expect(find.text('Fresh Market'), findsWidgets);
+    expect(find.text('Coffee Corner'), findsWidgets);
+    expect(find.text('Fashion'), findsWidgets);
+  });
 
   testWidgets('strictCategoryMode never appends unrelated fallback stores', (
     tester,

@@ -20,8 +20,12 @@ class OrderModel {
   final String customerBlock;
   final String customerBuildingNumber;
   final String customerApartment;
+  final double? customerLatitude;
+  final double? customerLongitude;
   final String? customerImageUrl;
   final String? imageUrl;
+  final double? merchantLatitude;
+  final double? merchantLongitude;
   final String? note;
   final double grossSubtotal;
   final double productDiscountTotal;
@@ -80,8 +84,12 @@ class OrderModel {
     required this.customerBlock,
     required this.customerBuildingNumber,
     required this.customerApartment,
+    required this.customerLatitude,
+    required this.customerLongitude,
     required this.customerImageUrl,
     required this.imageUrl,
+    required this.merchantLatitude,
+    required this.merchantLongitude,
     required this.note,
     required this.grossSubtotal,
     required this.productDiscountTotal,
@@ -127,14 +135,13 @@ class OrderModel {
   factory OrderModel.fromJson(Map<String, dynamic> j) {
     final rawItems = (j['items'] as List?) ?? const [];
     final pricingRaw = j['pricing_breakdown_json'] ?? j['pricingBreakdown'];
-    final assignmentRaw = j['deliveryAssignment'] ??
+    final assignmentRaw =
+        j['deliveryAssignment'] ??
         j['delivery_assignment'] ??
         j['deliveryAssignmentJson'];
     final normalizedAssignmentStatus = parseNullableString(
-          j['delivery_assignment_status'] ?? j['deliveryAssignmentStatus'],
-        )
-        ?.trim()
-        .toUpperCase();
+      j['delivery_assignment_status'] ?? j['deliveryAssignmentStatus'],
+    )?.trim().toUpperCase();
     final legacyDeliveryUserId = j['delivery_user_id'] == null
         ? (j['delivery_id'] == null ? null : parseInt(j['delivery_id']))
         : parseInt(j['delivery_user_id']);
@@ -183,10 +190,30 @@ class OrderModel {
       customerApartment: parseString(
         j['customer_apartment'] ?? j['customerApartment'],
       ),
+      customerLatitude: _parseOptionalDouble(
+        j['customer_latitude'] ??
+            j['customerLatitude'] ??
+            (j['destination'] is Map ? j['destination']['latitude'] : null),
+      ),
+      customerLongitude: _parseOptionalDouble(
+        j['customer_longitude'] ??
+            j['customerLongitude'] ??
+            (j['destination'] is Map ? j['destination']['longitude'] : null),
+      ),
       customerImageUrl: parseNullableString(
         j['customer_image_url'] ?? j['customerImageUrl'],
       ),
       imageUrl: parseNullableString(j['image_url'] ?? j['imageUrl']),
+      merchantLatitude: _parseOptionalDouble(
+        j['merchant_latitude'] ??
+            j['merchantLatitude'] ??
+            (j['merchant'] is Map ? j['merchant']['latitude'] : null),
+      ),
+      merchantLongitude: _parseOptionalDouble(
+        j['merchant_longitude'] ??
+            j['merchantLongitude'] ??
+            (j['merchant'] is Map ? j['merchant']['longitude'] : null),
+      ),
       note: parseNullableString(j['note']),
       grossSubtotal: parseDouble(
         j['gross_subtotal'] ?? j['grossSubtotal'] ?? j['subtotal'],
@@ -316,7 +343,7 @@ class OrderModel {
       deliveryAssignment?.isPendingNoDriver == true ||
       deliveryAssignmentStatus == 'PENDING_NO_DRIVER';
 
-bool get isPharmacyFlow =>
+  bool get isPharmacyFlow =>
       sourceType == 'pharmacy_chat_cart' ||
       orderFlowType == 'pharmacy' ||
       pharmacyConversationId != null;
@@ -329,7 +356,8 @@ OrderDeliveryAssignmentModel? _buildLegacyDeliveryAssignment({
   required Map<String, dynamic> raw,
 }) {
   final normalizedStatus = (status ?? '').trim().toUpperCase();
-  final shouldShowAssigned = deliveryUserId != null ||
+  final shouldShowAssigned =
+      deliveryUserId != null ||
       normalizedStatus == 'ASSIGNED' ||
       const {
         'approved',
@@ -360,7 +388,9 @@ OrderDeliveryAssignmentModel? _buildLegacyDeliveryAssignment({
           photoUrl: parseNullableString(
             raw['delivery_image_url'] ?? raw['deliveryImageUrl'],
           ),
-          phone: parseNullableString(raw['delivery_phone'] ?? raw['deliveryPhone']),
+          phone: parseNullableString(
+            raw['delivery_phone'] ?? raw['deliveryPhone'],
+          ),
           rating: raw['delivery_rating'] == null
               ? null
               : parseDouble(raw['delivery_rating'] ?? raw['deliveryRating']),
@@ -375,7 +405,8 @@ OrderDeliveryAssignmentModel? _buildLegacyDeliveryAssignment({
             raw['courier_source'] ?? raw['courierSource'],
           ),
           isMerchantDelivery:
-              (raw['is_merchant_delivery'] ?? raw['isMerchantDelivery']) == true,
+              (raw['is_merchant_delivery'] ?? raw['isMerchantDelivery']) ==
+              true,
           vehicleType: parseNullableString(
             raw['delivery_vehicle_type'] ?? raw['deliveryVehicleType'],
           ),
@@ -405,8 +436,7 @@ OrderDeliveryAssignmentModel? _buildLegacyDeliveryAssignment({
           raw['courierAssignedAt'],
     ),
     endedAt: _parseDate(
-      raw['delivery_assignment_ended_at'] ??
-          raw['deliveryAssignmentEndedAt'],
+      raw['delivery_assignment_ended_at'] ?? raw['deliveryAssignmentEndedAt'],
     ),
     endedReason: parseNullableString(
       raw['delivery_assignment_ended_reason'] ??
@@ -422,4 +452,11 @@ DateTime? _parseDate(dynamic value) {
   final s = value.toString();
   if (s.isEmpty) return null;
   return DateTime.tryParse(s);
+}
+
+double? _parseOptionalDouble(dynamic value) {
+  if (value == null) return null;
+  if (value is num) return value.toDouble();
+  final parsed = double.tryParse('$value');
+  return parsed?.isFinite == true ? parsed : null;
 }

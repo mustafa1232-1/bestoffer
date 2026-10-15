@@ -10,6 +10,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/notifications/data/notifications_api.dart';
+import '../../features/orders/state/order_refresh_bus.dart';
 import '../network/session_invalidation.dart';
 import 'active_chat_context_registry.dart';
 import '../platform/app_platform_capabilities.dart';
@@ -17,6 +18,7 @@ import '../platform/app_flavor.dart';
 import '../storage/secure_storage.dart';
 import 'firebase_runtime_options.dart';
 import 'local_notification_service.dart';
+import 'web_notification_service.dart';
 
 const _tokenHeartbeatInterval = Duration(minutes: 15);
 const _tokenForceResyncInterval = Duration(hours: 6);
@@ -60,7 +62,8 @@ bool notificationPayloadMatchesAppFlavor(
   AppFlavor flavor,
 ) {
   final intended = normalizeNotificationAppSurface(payload.appSurface);
-  return intended == null || intended == canonicalAppSurface(flavor);
+  if (flavor == AppFlavor.user && intended == 'company') return true;
+  return intended != null && intended == canonicalAppSurface(flavor);
 }
 
 PushTokenSessionContext? resolvePushTokenSessionContext({
@@ -76,18 +79,22 @@ PushTokenSessionContext? resolvePushTokenSessionContext({
       claims['appSurface']?.toString(),
     );
     final expectedSurface = canonicalAppSurface(flavor);
+    final acceptedSurface =
+        flavor == AppFlavor.user && claimedSurface == 'company'
+        ? 'company'
+        : expectedSurface;
     if (userId == null ||
         userId <= 0 ||
         userId != expectedUserId ||
         sessionId == null ||
         sessionId <= 0 ||
-        (claimedSurface != null && claimedSurface != expectedSurface)) {
+        (claimedSurface != null && claimedSurface != acceptedSurface)) {
       return null;
     }
     return PushTokenSessionContext(
       userId: userId,
       sessionId: sessionId,
-      appSurface: expectedSurface,
+      appSurface: acceptedSurface,
     );
   } catch (_) {
     return null;
@@ -116,6 +123,15 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       final local = LocalNotificationService();
       await local.initialize();
       final parsed = _parseRemoteMessagePayload(message);
+      if (!notificationPayloadMatchesAppFlavor(
+        parsed.$3,
+        AppFlavorContext.current,
+      )) {
+        _pushDebugLog(
+          'background payload ignored for surface=${parsed.$3.appSurface}',
+        );
+        return;
+      }
 
       await local.showRaw(
         title: parsed.$1,
@@ -214,6 +230,7 @@ class PushNotificationService {
   StreamSubscription<String>? _tokenRefreshSub;
   StreamSubscription<RemoteMessage>? _foregroundSub;
   StreamSubscription<RemoteMessage>? _openedAppSub;
+  StreamSubscription<Map<String, dynamic>>? _webNotificationClickSub;
   Timer? _tokenHeartbeatTimer;
 
   bool _initialized = false;
@@ -252,6 +269,16 @@ class PushNotificationService {
       _emitTapIfAllowed(_parseTapPayload(message), source: 'opened_app');
     });
 
+    if (kIsWeb) {
+      _webNotificationClickSub ??= WebNotificationService.instance.clickStream
+          .listen(
+            (payload) => _emitTapIfAllowed(
+              _parseTapPayloadFromMap(payload),
+              source: 'web_notification_click',
+            ),
+          );
+    }
+
     _foregroundSub = FirebaseMessaging.onMessage.listen((message) async {
       final parsed = _parseRemoteMessagePayload(message);
       if (!notificationPayloadMatchesAppFlavor(
@@ -264,35 +291,59 @@ class PushNotificationService {
         return;
       }
       if (!_shouldSuppressForegroundNotification(parsed.$3)) {
-        await local.showRaw(
-          title: parsed.$1,
-          body: parsed.$2,
+        if (kIsWeb) {
+          final urgent =
+              parsed.$3.requiresAction ||
+              _isUrgentRealtimePayload(parsed.$3) ||
+              _isOperationalUrgentPayload(parsed.$3);
+          await WebNotificationService.instance.showRaw(
+            title: parsed.$1,
+            body: parsed.$2,
+            notificationId: parsed.$3.notificationId,
+            type: parsed.$3.type,
+            target: parsed.$3.target,
+            requiresAction: parsed.$3.requiresAction,
+            urgent: urgent,
+            payload: _tapPayloadToWebMap(parsed.$3),
+          );
+        } else {
+          await local.showRaw(
+            title: parsed.$1,
+            body: parsed.$2,
+            orderId: parsed.$3.orderId,
+            rideId: parsed.$3.rideId,
+            offerId: parsed.$3.offerId,
+            bidId: parsed.$3.bidId,
+            jobId: parsed.$3.jobId,
+            applicationId: parsed.$3.applicationId,
+            postId: parsed.$3.postId,
+            storyId: parsed.$3.storyId,
+            threadId: parsed.$3.threadId,
+            senderUserId: parsed.$3.senderUserId,
+            captainId: parsed.$3.captainId,
+            customerUserId: parsed.$3.customerUserId,
+            sessionId: parsed.$3.sessionId,
+            notificationId: parsed.$3.notificationId,
+            type: parsed.$3.type,
+            target: parsed.$3.target,
+            targetModule: parsed.$3.targetModule,
+            roleScope: parsed.$3.roleScope,
+            appSurface: parsed.$3.appSurface,
+            action: parsed.$3.action,
+            targetEntity: parsed.$3.targetEntity,
+            entityId: parsed.$3.entityId,
+            scopeType: parsed.$3.scopeType,
+            scopeCode: parsed.$3.scopeCode,
+            remoteDisplayName: parsed.$3.remoteDisplayName,
+            requiresAction: parsed.$3.requiresAction,
+          );
+        }
+      }
+
+      if (_isOrderRefreshPayload(parsed.$3)) {
+        OrderRefreshBus.instance.notifyOrderChanged(
           orderId: parsed.$3.orderId,
-          rideId: parsed.$3.rideId,
-          offerId: parsed.$3.offerId,
-          bidId: parsed.$3.bidId,
-          jobId: parsed.$3.jobId,
-          applicationId: parsed.$3.applicationId,
-          postId: parsed.$3.postId,
-          storyId: parsed.$3.storyId,
-          threadId: parsed.$3.threadId,
-          senderUserId: parsed.$3.senderUserId,
-          captainId: parsed.$3.captainId,
-          customerUserId: parsed.$3.customerUserId,
-          sessionId: parsed.$3.sessionId,
-          notificationId: parsed.$3.notificationId,
-          type: parsed.$3.type,
-          target: parsed.$3.target,
-          targetModule: parsed.$3.targetModule,
-          roleScope: parsed.$3.roleScope,
-          appSurface: parsed.$3.appSurface,
-          action: parsed.$3.action,
-          targetEntity: parsed.$3.targetEntity,
-          entityId: parsed.$3.entityId,
-          scopeType: parsed.$3.scopeType,
-          scopeCode: parsed.$3.scopeCode,
-          remoteDisplayName: parsed.$3.remoteDisplayName,
-          requiresAction: parsed.$3.requiresAction,
+          source: 'push_foreground',
         );
       }
 
@@ -310,12 +361,16 @@ class PushNotificationService {
     _ensureHeartbeatTimer();
   }
 
-  Future<void> syncToken({required int userId}) async {
+  Future<bool> syncToken({required int userId}) async {
     _activeUserId = userId;
     await initialize();
-    if (!appSupportsPushMessaging) return;
-    if (!_firebaseReady) return;
-    if (_tokenSyncInFlight) return;
+    if (!appSupportsPushMessaging) return false;
+    if (!_firebaseReady) return false;
+    await requestPermissionIfNeeded();
+    if (kIsWeb && !WebNotificationService.instance.permissionGranted) {
+      return false;
+    }
+    if (_tokenSyncInFlight) return false;
     _tokenSyncInFlight = true;
     try {
       final token = await FirebaseMessaging.instance.getToken(
@@ -323,9 +378,10 @@ class PushNotificationService {
             ? _firebaseWebVapidKey.trim()
             : null,
       );
-      if (token == null || token.isEmpty) return;
+      if (token == null || token.isEmpty) return false;
       await _registerTokenWithRetry(token, userId);
       _ensureHeartbeatTimer();
+      return true;
     } finally {
       _tokenSyncInFlight = false;
     }
@@ -355,10 +411,16 @@ class PushNotificationService {
     }
   }
 
-  Future<void> requestPermissionIfNeeded() async {
+  Future<void> requestPermissionIfNeeded({bool userInitiated = false}) async {
     await initialize();
     if (!appSupportsPushMessaging) return;
     if (!_firebaseReady) return;
+    if (kIsWeb) {
+      await WebNotificationService.instance.requestPermissionIfNeeded(
+        userInitiated: userInitiated,
+      );
+      if (!WebNotificationService.instance.permissionGranted) return;
+    }
     await FirebaseMessaging.instance.requestPermission(
       alert: true,
       badge: true,
@@ -521,6 +583,7 @@ class PushNotificationService {
     _tokenRefreshSub?.cancel();
     _foregroundSub?.cancel();
     _openedAppSub?.cancel();
+    _webNotificationClickSub?.cancel();
     _tapController.close();
   }
 }
@@ -533,6 +596,40 @@ bool _shouldSuppressForegroundNotification(NotificationTapPayload payload) {
     scopeType: payload.scopeType,
     scopeCode: payload.scopeCode,
   );
+}
+
+bool _isOperationalUrgentPayload(NotificationTapPayload payload) {
+  final value =
+      '${payload.type ?? ''} ${payload.target ?? ''} ${payload.targetModule ?? ''} ${payload.roleScope ?? ''} ${payload.action ?? ''}'
+          .toLowerCase();
+  return value.contains('call') ||
+      value.contains('urgent') ||
+      value.contains('new_order') ||
+      value.contains('order_assigned') ||
+      value.contains('delivery_order_ready') ||
+      value.contains('delivery_order_cancelled') ||
+      value.contains('courier') ||
+      value.contains('taxi_ride') ||
+      value.contains('taxi_trips_new') ||
+      value.contains('request_cancel');
+}
+
+bool _isOrderRefreshPayload(NotificationTapPayload payload) {
+  final orderId = payload.orderId ?? payload.entityId;
+  if (orderId != null && orderId > 0) return true;
+  final target = (payload.target ?? '').trim().toLowerCase();
+  final module = (payload.targetModule ?? '').trim().toLowerCase();
+  final entity = (payload.targetEntity ?? '').trim().toLowerCase();
+  final type = (payload.type ?? '').trim().toLowerCase();
+  return target.contains('order') ||
+      module == 'orders' ||
+      module == 'merchant' ||
+      module == 'courier' ||
+      module == 'delivery' ||
+      entity == 'order' ||
+      type.contains('order') ||
+      type.contains('delivery_assignment') ||
+      type.contains('courier_assignment');
 }
 
 bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
@@ -552,8 +649,6 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
       target == 'taxi_ride_unavailable' ||
       target == 'taxi_captain_arrived' ||
       target == 'taxi_ride_started' ||
-      target == 'taxi_ride_completed' ||
-      target == 'taxi_ride_canceled' ||
       target == 'taxi_chat_message') {
     return true;
   }
@@ -563,6 +658,10 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
       type == 'delivery_order_available' ||
       type == 'delivery_order_offer' ||
       type == 'courier_order_offer' ||
+      type == 'delivery_order_assigned' ||
+      type == 'delivery_order_removed' ||
+      type == 'delivery_order_reassigned' ||
+      type == 'delivery_assigned_by_owner' ||
       type == 'taxi.request.new' ||
       type == 'taxi.ride.requested' ||
       type == 'taxi.offer.received' ||
@@ -573,8 +672,6 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
       type == 'taxi.ride.unavailable' ||
       type == 'taxi.captain.arrived' ||
       type == 'taxi.ride.started' ||
-      type == 'taxi.ride.completed' ||
-      type == 'taxi.ride.canceled' ||
       type == 'taxi.chat.message' ||
       type.startsWith('courier.') ||
       type.startsWith('taxi.request.');
@@ -593,6 +690,9 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
       'يوجد تحديث جديد';
 
   final payload = NotificationTapPayload(
+    requestId: int.tryParse(
+      '${message.data['requestId'] ?? message.data['request_id'] ?? message.data['ticketId'] ?? message.data['ticket_id'] ?? ''}',
+    ),
     orderId: int.tryParse(
       '${message.data['orderId'] ?? message.data['order_id'] ?? ''}',
     ),
@@ -657,7 +757,7 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
         _asString(message.data['targetEntity']) ??
         _asString(message.data['target_entity']),
     entityId: int.tryParse(
-      '${message.data['entityId'] ?? message.data['entity_id'] ?? ''}',
+      '${message.data['entityId'] ?? message.data['entity_id'] ?? message.data['ticketId'] ?? message.data['ticket_id'] ?? ''}',
     ),
     scopeType: _asString(message.data['scopeType']),
     scopeCode: _asString(message.data['scopeCode']),
@@ -666,6 +766,116 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
   );
 
   return (title, body, payload);
+}
+
+NotificationTapPayload _parseTapPayloadFromMap(Map<String, dynamic> data) {
+  return NotificationTapPayload(
+    requestId: _intFrom(
+      data,
+      'requestId',
+      'request_id',
+      'ticketId',
+      'ticket_id',
+    ),
+    orderId: _intFrom(data, 'orderId', 'order_id'),
+    rideId: _intFrom(data, 'rideId', 'ride_id'),
+    offerId: _intFrom(data, 'offerId', 'offer_id'),
+    bidId: _intFrom(data, 'bidId', 'bid_id'),
+    jobId: _intFrom(data, 'jobId', 'job_id'),
+    applicationId: _intFrom(data, 'applicationId', 'application_id'),
+    postId: _intFrom(data, 'postId', 'post_id'),
+    reelId: _intFrom(data, 'reelId', 'reel_id'),
+    storyId: _intFrom(data, 'storyId', 'story_id'),
+    threadId: _intFrom(data, 'threadId', 'thread_id'),
+    senderUserId: _intFrom(
+      data,
+      'senderUserId',
+      'sender_user_id',
+      'actorUserId',
+      'actor_user_id',
+    ),
+    captainId: _intFrom(data, 'captainId', 'captain_id'),
+    customerUserId: _intFrom(data, 'customerUserId', 'customer_user_id'),
+    sessionId: _intFrom(data, 'sessionId', 'session_id'),
+    notificationId: _intFrom(data, 'notificationId', 'notification_id'),
+    type:
+        _asString(data['type']) ??
+        _asString(data['notificationType']) ??
+        _asString(data['notification_type']),
+    target: _asString(data['target']) ?? _asString(data['deepLinkTarget']),
+    targetModule:
+        _asString(data['targetModule']) ?? _asString(data['target_module']),
+    roleScope: _asString(data['roleScope']) ?? _asString(data['role_scope']),
+    appSurface: _asString(data['appSurface']) ?? _asString(data['app_surface']),
+    action: _asString(data['action']) ?? _asString(data['target_action']),
+    targetEntity:
+        _asString(data['targetEntity']) ?? _asString(data['target_entity']),
+    entityId: _intFrom(
+      data,
+      'entityId',
+      'entity_id',
+      'ticketId',
+      'ticket_id',
+      'listingId',
+      'listing_id',
+    ),
+    scopeType: _asString(data['scopeType']) ?? _asString(data['scope_type']),
+    scopeCode: _asString(data['scopeCode']) ?? _asString(data['scope_code']),
+    remoteDisplayName:
+        _asString(data['remoteDisplayName']) ??
+        _asString(data['remote_display_name']),
+    requiresAction: _parseBool(data['requiresAction']),
+  );
+}
+
+Map<String, Object?> _tapPayloadToWebMap(NotificationTapPayload payload) {
+  return <String, Object?>{
+    'requestId': payload.requestId,
+    'orderId': payload.orderId,
+    'rideId': payload.rideId,
+    'offerId': payload.offerId,
+    'bidId': payload.bidId,
+    'jobId': payload.jobId,
+    'applicationId': payload.applicationId,
+    'postId': payload.postId,
+    'reelId': payload.reelId,
+    'storyId': payload.storyId,
+    'threadId': payload.threadId,
+    'sessionId': payload.sessionId,
+    'senderUserId': payload.senderUserId,
+    'captainId': payload.captainId,
+    'customerUserId': payload.customerUserId,
+    'notificationId': payload.notificationId,
+    'type': payload.type,
+    'target': payload.target,
+    'targetModule': payload.targetModule,
+    'roleScope': payload.roleScope,
+    'appSurface': payload.appSurface,
+    'action': payload.action,
+    'targetEntity': payload.targetEntity,
+    'entityId': payload.entityId,
+    'scopeType': payload.scopeType,
+    'scopeCode': payload.scopeCode,
+    'remoteDisplayName': payload.remoteDisplayName,
+    'requiresAction': payload.requiresAction,
+  };
+}
+
+int? _intFrom(
+  Map<String, dynamic> data,
+  String first, [
+  String? second,
+  String? third,
+  String? fourth,
+  String? fifth,
+  String? sixth,
+]) {
+  for (final key in <String?>[first, second, third, fourth, fifth, sixth]) {
+    if (key == null) continue;
+    final parsed = int.tryParse('${data[key] ?? ''}');
+    if (parsed != null && parsed > 0) return parsed;
+  }
+  return null;
 }
 
 String? _asString(dynamic value) {

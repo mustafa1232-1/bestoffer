@@ -29,6 +29,8 @@ import 'core/notifications/notification_navigation.dart';
 import 'core/notifications/push_notification_service.dart';
 import 'core/realtime/maslaki_realtime_service.dart';
 import 'core/sections/section_availability_controller.dart';
+import 'core/sections/app_maintenance_screen.dart';
+import 'core/sections/section_availability_models.dart';
 import 'core/settings/app_settings_controller.dart';
 import 'core/storage/secure_storage.dart';
 import 'core/theme/app_theme.dart';
@@ -36,7 +38,10 @@ import 'features/auth/state/auth_controller.dart';
 import 'features/auth/presentation/login_screen.dart';
 import 'features/admin/ui/admin_dashboard_screen.dart';
 import 'features/customer/ui/maslaki_user_shell.dart';
+import 'features/orders/ui/widgets/customer_active_order_banner.dart';
+import 'features/services/ui/maslaki_services_operations_screen.dart';
 import 'features/notifications/data/notifications_api.dart';
+import 'features/notifications/state/notifications_controller.dart';
 import 'features/social/ui/social_call_screen.dart';
 import 'features/social/ui/social_content_navigation.dart';
 import 'features/startup/state/app_startup_controller.dart';
@@ -514,6 +519,11 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   }
 
   void _openExternalReel(int reelId) {
+    final auth = ref.read(authControllerProvider);
+    if (auth.isMaslakiServicesOperator) {
+      _redirectToHome(auth);
+      return;
+    }
     final nav = _navigatorKey.currentState;
     if (nav == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -581,14 +591,23 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   /// Critical notes:
   /// - Ù‡Ø°Ø§ Ù„ÙŠØ³ route guard ÙƒØ§Ù…Ù„Ø§Ù‹ØŒ Ù„ÙƒÙ†Ù‡ Ø£ÙˆÙ„ Ù†Ù‚Ø·Ø© ØªÙ‚Ø³ÙŠÙ… UX Ø­Ø³Ø¨ Ø§Ù„Ø¯ÙˆØ±.
   Widget _homeForAuth(AuthState auth) {
-    if (auth.isAdminDashboardUser) {
+    // Staff accounts use the user app shell until the dedicated employee app
+    // is released. Route by the persisted role explicitly so a transient
+    // permissions snapshot cannot send the account back to login.
+    final role = auth.user?.role.trim().toLowerCase();
+    if (auth.isMaslakiServicesOperator) {
+      return const MaslakiServicesOperationsScreen();
+    }
+    if (role == 'staff' || auth.isAdminDashboardUser) {
       return const AdminDashboardScreen();
     }
     return const MaslakiUserShell();
   }
 
   bool _isUserAppRole(AuthState auth) {
-    return auth.isCustomer ||
+    final role = auth.user?.role.trim().toLowerCase();
+    return role == 'staff' ||
+        auth.isCustomer ||
         auth.isAdminDashboardUser ||
         auth.isServiceProvider;
   }
@@ -702,6 +721,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
 
   Future<void> _ensurePushReadyAndSync(AuthState auth) async {
     if (!mounted || !auth.isAuthed || auth.user == null) return;
+    ref.read(notificationsControllerProvider.notifier).startRealtime();
     final push = ref.read(pushNotificationsProvider);
     final initWatch = Stopwatch()..start();
     try {
@@ -728,11 +748,13 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     _pushSyncInFlight = true;
     final syncWatch = Stopwatch()..start();
     try {
-      await push.syncToken(userId: userId).timeout(_bestEffortStepTimeout);
-      _pushSyncedUserId = userId;
+      final synced = await push
+          .syncToken(userId: userId)
+          .timeout(_bestEffortStepTimeout);
+      if (synced) _pushSyncedUserId = userId;
       _logStartupEvent(
         'push_init_result',
-        status: 'token_synced',
+        status: synced ? 'token_synced' : 'token_not_ready',
         duration: syncWatch.elapsed,
       );
     } catch (error) {
@@ -794,12 +816,47 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
           .refresh(silent: true);
       if (!mounted) return;
       final auth = ref.read(authControllerProvider);
+      if (auth.isMaslakiServicesOperator) {
+        if (_isServicesOperatorNotification(payload)) {
+          await NotificationNavigation.open(
+            navigator: nav,
+            auth: auth,
+            payload: payload,
+          );
+          await _trackNotificationAction(
+            payload,
+            requestState: 'services_operator_target_opened',
+          );
+        } else {
+          _redirectToHome(auth);
+          await _trackNotificationAction(
+            payload,
+            requestState: 'services_operator_home_only',
+          );
+        }
+        return;
+      }
       await NotificationNavigation.open(
         navigator: nav,
         auth: auth,
         payload: payload,
       );
     }());
+  }
+
+  bool _isServicesOperatorNotification(NotificationTapPayload payload) {
+    final target = (payload.target ?? '').trim().toLowerCase();
+    final type = (payload.type ?? '').trim().toLowerCase();
+    final targetModule = (payload.targetModule ?? '').trim().toLowerCase();
+    final requestId =
+        payload.requestId ??
+        (target == 'service_request_details' ? payload.entityId : null);
+    if ((requestId ?? 0) <= 0) return false;
+    return target == 'service_request_details' ||
+        target == 'services_provider_requests' ||
+        type.startsWith('services.central.') ||
+        type.startsWith('services.request.') ||
+        targetModule == 'service_provider';
   }
 
   Future<void> _syncCallLiveStreams(AuthState auth) async {
@@ -979,6 +1036,9 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     final auth = ref.watch(authControllerProvider);
     final settings = ref.watch(appSettingsControllerProvider);
     final startup = ref.watch(appStartupControllerProvider);
+    final sectionAvailability = ref.watch(
+      sectionAvailabilityControllerProvider,
+    );
     final pendingPayload = _pendingTapPayload;
 
     if (_hasVerifiedSession(auth) && !_isUserAppRole(auth)) {
@@ -1016,20 +1076,34 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       }
     }
 
-    final appHome = switch (startup.phase) {
-      AppStartupPhase.onboarding => const AppFirstLaunchScreen(),
-      AppStartupPhase.ready =>
-        auth.loading
-            ? const AppFirstLaunchScreen()
-            : (_hasVerifiedSession(auth)
-                  ? _homeForAuth(auth)
-                  : auth.isGuest
-                  ? const MaslakiUserShell()
-                  : const LoginScreen()),
-      AppStartupPhase.idle ||
-      AppStartupPhase.checkingServer ||
-      AppStartupPhase.serverCheckFailed => const AppFirstLaunchScreen(),
-    };
+    final globalMaintenance =
+        sectionAvailability.initialized &&
+        !auth.isSuperAdmin &&
+        sectionAvailability
+                .entryFor(AppSectionKeys.app, displayName: 'التطبيق')
+                .status ==
+            SectionAvailabilityStatus.maintenance;
+    final appHome = globalMaintenance
+        ? AppMaintenanceScreen(
+            entry: sectionAvailability.entryFor(
+              AppSectionKeys.app,
+              displayName: 'التطبيق',
+            ),
+          )
+        : switch (startup.phase) {
+            AppStartupPhase.onboarding => const AppFirstLaunchScreen(),
+            AppStartupPhase.ready =>
+              auth.isSessionRecoveryInProgress
+                  ? const AppFirstLaunchScreen()
+                  : (_hasVerifiedSession(auth)
+                        ? _homeForAuth(auth)
+                        : auth.isGuest
+                        ? const MaslakiUserShell()
+                        : const LoginScreen()),
+            AppStartupPhase.idle ||
+            AppStartupPhase.checkingServer ||
+            AppStartupPhase.serverCheckFailed => const AppFirstLaunchScreen(),
+          };
     Intl.defaultLocale = settings.locale.languageCode;
 
     return MaterialApp(
@@ -1061,7 +1135,19 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
             child: AppBackdrop(
               animationsEnabled: settings.animationsEnabled,
               weatherEffectsEnabled: settings.weatherEffectsEnabled,
-              child: AppResponsiveShell(child: child),
+              child: CustomerActiveOrderBannerHost(
+                onOpenOrder: (order) => _openFromNotificationPayload(
+                  NotificationTapPayload(
+                    orderId: order.id,
+                    type: 'customer_order_status',
+                    target: 'order_tracking',
+                    targetModule: 'customer',
+                    roleScope: 'customer',
+                    appSurface: 'user',
+                  ),
+                ),
+                child: AppResponsiveShell(child: child),
+              ),
             ),
           ),
         );

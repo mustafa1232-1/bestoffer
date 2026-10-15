@@ -5,13 +5,13 @@ import 'package:maslaki/features/social/creator/creator_models.dart';
 
 void main() {
   group('Maslaki professional filter registry', () {
-    test('exposes 30 color + 10 beauty grades (plus Original)', () {
+    test('exposes 31 color + 10 beauty grades (plus Original)', () {
       final color = creatorFiltersByCategory(CreatorFilterCategory.color);
       final beauty = creatorFiltersByCategory(CreatorFilterCategory.beauty);
       // "Original" (none) is a color-category preset that is also supported.
-      expect(color.where((f) => f.id != 'none').length, 30);
+      expect(color.where((f) => f.id != 'none').length, 31);
       expect(beauty.length, 10);
-      expect(creatorSupportedFilterPresets.length, 41); // 30 + 10 + none
+      expect(creatorSupportedFilterPresets.length, 42); // 30 + 10 + none + B&W
     });
 
     test('every exposed filter is fully specified and supported', () {
@@ -21,7 +21,11 @@ void main() {
         expect(f.englishName.trim(), isNotEmpty, reason: '${f.id} en');
         expect(f.supported, isTrue, reason: '${f.id} supported');
         expect(f.previewMatrix.length, 20, reason: '${f.id} matrix');
-        expect(f.ffmpegFilterGraph.trim(), isNotEmpty, reason: '${f.id} ffmpeg');
+        expect(
+          f.ffmpegFilterGraph.trim(),
+          isNotEmpty,
+          reason: '${f.id} ffmpeg',
+        );
       }
     });
 
@@ -38,7 +42,9 @@ void main() {
         0, 0, 1, 0, 0, //
         0, 0, 0, 1, 0, //
       ];
-      for (final f in creatorSupportedFilterPresets.where((f) => f.id != 'none')) {
+      for (final f in creatorSupportedFilterPresets.where(
+        (f) => f.id != 'none',
+      )) {
         var differs = false;
         for (var i = 0; i < 20; i++) {
           if ((f.previewMatrix[i] - identity[i]).abs() > 1e-6) {
@@ -53,17 +59,30 @@ void main() {
     test('every grade produces a distinct preview matrix', () {
       final seen = <String>{};
       for (final f in creatorSupportedFilterPresets) {
-        final key = f.previewMatrix
-            .map((v) => v.toStringAsFixed(4))
-            .join(',');
-        expect(seen.add(key), isTrue, reason: '${f.id} duplicates another grade');
+        final key = f.previewMatrix.map((v) => v.toStringAsFixed(4)).join(',');
+        expect(
+          seen.add(key),
+          isTrue,
+          reason: '${f.id} duplicates another grade',
+        );
       }
     });
 
-    test('ffmpeg graph references eq + colorchannelmixer for grades', () {
-      for (final f in creatorSupportedFilterPresets.where((f) => f.id != 'none')) {
-        expect(f.ffmpegFilterGraph, contains('eq='));
-        expect(f.ffmpegFilterGraph, contains('colorchannelmixer='));
+    test('ffmpeg graphs implement color grading or neutral monochrome', () {
+      for (final f in creatorSupportedFilterPresets.where(
+        (f) => f.id != 'none',
+      )) {
+        if (f.id == 'monochrome') {
+          expect(f.ffmpegFilterGraph, 'hue=s=0');
+          expect(f.previewMatrix.sublist(0, 5), f.previewMatrix.sublist(5, 10));
+          expect(
+            f.previewMatrix.sublist(0, 5),
+            f.previewMatrix.sublist(10, 15),
+          );
+        } else {
+          expect(f.ffmpegFilterGraph, contains('eq='));
+          expect(f.ffmpegFilterGraph, contains('colorchannelmixer='));
+        }
       }
     });
 

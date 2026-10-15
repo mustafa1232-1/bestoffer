@@ -254,7 +254,7 @@ test("E2E: real checkout → store acceptance → grouped worker assigns one cou
   await acknowledgeGroupedJob({ courierUserId: fx.courierId, deliveryJobId: job.id });
   await headingToPickups({ courierUserId: fx.courierId, deliveryJobId: job.id });
   await markStopArrived({ courierUserId: fx.courierId, deliveryJobId: job.id, stopId: stopA });
-  const col1 = await markStopCollected({ courierUserId: fx.courierId, deliveryJobId: job.id, stopId: stopA });
+  const col1 = await markStopCollected({ courierUserId: fx.courierId, deliveryJobId: job.id, stopId: stopA, merchantPaidActual: 0, withoutReceipt: true });
   assert.equal(col1.allCollected, false, "collecting stop 1 leaves stop 2 pending");
   assert.equal(col1.remainingStops, 1);
 
@@ -264,12 +264,12 @@ test("E2E: real checkout → store acceptance → grouped worker assigns one cou
     "cannot head to customer before all stops collected"
   );
 
-  const col2 = await markStopCollected({ courierUserId: fx.courierId, deliveryJobId: job.id, stopId: stopB });
+  const col2 = await markStopCollected({ courierUserId: fx.courierId, deliveryJobId: job.id, stopId: stopB, merchantPaidActual: 0, withoutReceipt: true });
   assert.equal(col2.allCollected, true, "both stops collected");
   const htc = await headingToCustomer({ courierUserId: fx.courierId, deliveryJobId: job.id });
   assert.equal(htc.lifecycleStatus, "HEADING_TO_CUSTOMER");
 
-  const delivered = await markGroupedDelivered({ courierUserId: fx.courierId, deliveryJobId: job.id });
+  const delivered = await markGroupedDelivered({ courierUserId: fx.courierId, deliveryJobId: job.id, customerReceivedActual: 0 });
   assert.equal(delivered.lifecycleStatus, "DELIVERED");
 
   // All surfaces complete: children delivered, grouped assignment completed.

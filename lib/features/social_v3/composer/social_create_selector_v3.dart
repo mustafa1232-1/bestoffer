@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/i18n/locale_text.dart';
 import 'reel_gallery_entry_v3.dart';
 
-/// The single V3 creation selector (§4). Replaces the old floating "Create"
-/// button behavior: choosing Reel opens the native video gallery directly,
-/// Story opens the blank V3 story editor, Post opens the V3 post composer.
-///
-/// Returns true when a create flow was completed.
+/// The single V3 creation selector. Choosing a type opens the production V3
+/// composer for that content.
 Future<bool?> showSocialCreateSelectorV3(BuildContext context) async {
   final choice = await showModalBottomSheet<String>(
     context: context,
@@ -21,8 +19,10 @@ Future<bool?> showSocialCreateSelectorV3(BuildContext context) async {
     case 'story':
       await openStoryComposerV3Text(context);
       return true;
+    case 'review':
+      return openPostComposerV3MerchantReview(context);
     case 'post':
-      return await openPostComposerV3(context);
+      return openPostComposerV3(context);
   }
   return null;
 }
@@ -32,29 +32,47 @@ class _CreateSelectorSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+    return SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.only(bottom: 8),
         children: [
           _Tile(
             icon: Icons.grid_on_rounded,
-            title: 'منشور',
-            subtitle: 'صور أو فيديو من المعرض',
+            title: context.lt(ar: 'منشور', en: 'Post'),
+            subtitle: context.lt(
+              ar: 'صور أو فيديو من المعرض',
+              en: 'Photos or video from your gallery',
+            ),
             value: 'post',
           ),
           _Tile(
             icon: Icons.amp_stories_rounded,
-            title: 'قصة',
-            subtitle: 'صورة أو فيديو تختفي بعد 24 ساعة',
+            title: context.lt(ar: 'ستوري', en: 'Story'),
+            subtitle: context.lt(
+              ar: 'صورة أو فيديو تختفي بعد 24 ساعة',
+              en: 'A photo or video that disappears after 24 hours',
+            ),
             value: 'story',
           ),
           _Tile(
             icon: Icons.movie_creation_rounded,
-            title: 'ريل',
-            subtitle: 'فيديو رأسي بملء الشاشة',
+            title: context.lt(ar: 'ريل', en: 'Reel'),
+            subtitle: context.lt(
+              ar: 'فيديو رأسي بملء الشاشة',
+              en: 'Full-screen vertical video',
+            ),
             value: 'reel',
           ),
-          SizedBox(height: 8),
+          _Tile(
+            icon: Icons.rate_review_rounded,
+            title: context.lt(ar: 'مراجعة متجر', en: 'Store review'),
+            subtitle: context.lt(
+              ar: 'اختر متجرًا وانشر تقييمك وتجربتك',
+              en: 'Choose a store and share your rating',
+            ),
+            value: 'review',
+          ),
         ],
       ),
     );

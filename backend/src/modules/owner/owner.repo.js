@@ -2,9 +2,329 @@ import { pool, q } from "../../config/db.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import { hasPermission } from "../../shared/workspaces/employee-permissions.js";
 import {
+  computeOrderFinancialSnapshot,
+  roundMoney,
+} from "../commerce/merchant-financial.logic.js";
+import {
   loadProductRichCatalogByIds,
   syncProductRichCatalogTx,
 } from "../products/products.repo.js";
+
+function json(value, fallback) {
+  return JSON.stringify(value ?? fallback);
+}
+
+function normalizeJsonObject(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  return typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function toMoney(value) {
+  return roundMoney(Number(value || 0));
+}
+
+function calculateUnavailableOrderTotals(order, remainingItems) {
+  const pricingSource = normalizeJsonObject(order.pricing_breakdown_json) || {};
+  const pricingItems = remainingItems.map((item) => {
+    const previous = normalizeJsonObject(item.pricing_breakdown_json) || {};
+    const quantity = Number(item.quantity || 0);
+    const lineTotal = toMoney(item.line_total);
+    const lineDiscountTotal = toMoney(item.line_discount_total);
+    return {
+      ...previous,
+      productId: String(item.product_id),
+      productName: item.product_name,
+      quantity,
+      baseUnitPrice: toMoney(item.base_unit_price),
+      finalUnitPrice: toMoney(item.unit_price),
+      lineDiscountTotal,
+      lineTotal,
+      grossLineTotal: toMoney(lineTotal + lineDiscountTotal),
+      displaySnapshot:
+        normalizeJsonObject(item.display_snapshot_json) ||
+        normalizeJsonObject(previous.displaySnapshot) ||
+        null,
+      selectedModifiers: item.selected_modifiers_json || previous.selectedModifiers || [],
+      selectedVariantSnapshot:
+        item.selected_variant_json || previous.selectedVariantSnapshot || null,
+    };
+  });
+  const grossSubtotal = toMoney(
+    pricingItems.reduce((sum, item) => sum + Number(item.grossLineTotal || 0), 0)
+  );
+  const productDiscountTotal = toMoney(
+    pricingItems.reduce((sum, item) => sum + Number(item.lineDiscountTotal || 0), 0)
+  );
+  const subtotal = toMoney(
+    pricingItems.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0)
+  );
+  const coupon = normalizeJsonObject(pricingSource.coupon);
+  let couponDiscountTotal = 0;
+  if (subtotal > 0 && coupon) {
+    const discountType = String(coupon.discountType || "").trim().toLowerCase();
+    const discountValue = toMoney(coupon.discountValue);
+    if (discountType === "percent" || discountType === "percentage") {
+      couponDiscountTotal = toMoney((subtotal * discountValue) / 100);
+    } else if (discountType === "fixed" || discountType === "amount") {
+      couponDiscountTotal = discountValue;
+    } else {
+      couponDiscountTotal = toMoney(coupon.discountAmount ?? order.coupon_discount_total);
+    }
+  } else if (subtotal > 0) {
+    couponDiscountTotal = toMoney(order.coupon_discount_total);
+  }
+  couponDiscountTotal = Math.min(couponDiscountTotal, subtotal);
+
+  const billingSnapshot = computeOrderFinancialSnapshot(
+    {
+      ...order,
+      subtotal,
+      coupon_discount_total: couponDiscountTotal,
+      total_amount:
+        couponDiscountTotal > 0
+          ? subtotal + toMoney(order.service_fee) + toMoney(order.delivery_fee) - couponDiscountTotal
+          : Number.MAX_SAFE_INTEGER,
+    },
+    {}
+  );
+  const subtotalAfterAllDiscounts = toMoney(Math.max(0, subtotal - couponDiscountTotal));
+  const totalAmount = toMoney(
+    subtotalAfterAllDiscounts +
+      Number(billingSnapshot.serviceFeeAmount || 0) +
+      Number(billingSnapshot.deliveryFee || 0)
+  );
+  const financialSnapshot = {
+    ...billingSnapshot,
+    subtotal,
+    couponDiscountTotal,
+    customerTotalAmount: totalAmount,
+  };
+  return {
+    grossSubtotal,
+    productDiscountTotal,
+    couponDiscountTotal,
+    subtotal,
+    serviceFee: toMoney(financialSnapshot.serviceFeeAmount),
+    deliveryFee: toMoney(financialSnapshot.deliveryFee),
+    deliveryFeeRaw: toMoney(order.delivery_fee_raw ?? financialSnapshot.deliveryFee),
+    totalAmount,
+    pricingBreakdown: {
+      ...pricingSource,
+      grossSubtotal,
+      productDiscountTotal,
+      subtotalAfterProductDiscounts: subtotal,
+      couponDiscountTotal,
+      subtotalAfterAllDiscounts,
+      serviceFee: toMoney(financialSnapshot.serviceFeeAmount),
+      deliveryFee: toMoney(financialSnapshot.deliveryFee),
+      rawDeliveryFee: toMoney(order.delivery_fee_raw ?? financialSnapshot.deliveryFee),
+      totalAmount,
+      coupon: coupon
+        ? {
+            ...coupon,
+            discountAmount: couponDiscountTotal,
+          }
+        : null,
+      items: pricingItems,
+    },
+    financialSnapshot,
+  };
+}
+
+async function restoreInventoryReservationsTx(client, orderItemIds) {
+  if (!orderItemIds.length) return 0;
+  const reservations = await client.query(
+    `SELECT *
+     FROM inventory_reservation
+     WHERE order_item_id = ANY($1::bigint[])
+       AND status IN ('pending', 'consumed')
+     ORDER BY id ASC
+     FOR UPDATE`,
+    [orderItemIds]
+  );
+  for (const reservation of reservations.rows) {
+    if (reservation.variant_id != null) {
+      await client.query(
+        `UPDATE product_variant
+         SET stock_quantity = stock_quantity + $2,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [Number(reservation.variant_id), Number(reservation.quantity)]
+      );
+    } else if (reservation.variant_signature) {
+      await client.query(
+        `UPDATE product_variant
+         SET stock_quantity = stock_quantity + $3,
+             updated_at = NOW()
+         WHERE product_id = $1
+           AND signature = $2`,
+        [
+          Number(reservation.product_id),
+          reservation.variant_signature,
+          Number(reservation.quantity),
+        ]
+      );
+    } else {
+      await client.query(
+        `UPDATE store_inventory_item
+         SET quantity = quantity + $3,
+             stock_status = CASE
+               WHEN quantity + $3 <= COALESCE(reorder_threshold, 0) THEN 'low_stock'
+               ELSE 'in_stock'
+             END,
+             auto_disabled = FALSE,
+             last_quantity_update_at = NOW(),
+             updated_at = NOW()
+         WHERE merchant_id = $1
+           AND product_id = $2`,
+        [
+          Number(reservation.merchant_id),
+          Number(reservation.product_id),
+          Number(reservation.quantity),
+        ]
+      );
+    }
+  }
+  return reservations.rows.length;
+}
+
+async function updateUnavailableOrderInvoiceTx(client, { order, totals }) {
+  const invoice = await client.query(
+    `SELECT *
+     FROM merchant_receivable_invoice
+     WHERE order_id = $1
+     FOR UPDATE`,
+    [Number(order.id)]
+  );
+  if (!invoice.rows[0]) return null;
+  const paidAmount = toMoney(invoice.rows[0].paid_amount);
+  const outstandingAmount = toMoney(Math.max(0, totals.totalAmount - paidAmount));
+  const status =
+    outstandingAmount <= 0
+      ? "paid"
+      : paidAmount > 0
+        ? "partially_paid"
+        : "unpaid";
+  const updated = await client.query(
+    `UPDATE merchant_receivable_invoice
+     SET order_status = $2,
+         subtotal = $3,
+         commission_amount = $4,
+         service_fee_amount = $5,
+         app_delivery_fee_amount = $6,
+         store_delivery_fee_amount = $7,
+         app_receivable_amount = $8,
+         store_net_amount = $9,
+         store_net_received_amount = $10,
+         app_due_from_delivery = $11,
+         difference_amount = $12,
+         difference_reason = $13,
+         outstanding_amount = $14,
+         invoice_status = $15,
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING *`,
+    [
+      Number(invoice.rows[0].id),
+      order.status_text,
+      totals.subtotal,
+      totals.financialSnapshot.commissionAmount || 0,
+      totals.financialSnapshot.serviceFeeAmount || 0,
+      totals.financialSnapshot.appDeliveryFeeAmount || 0,
+      totals.financialSnapshot.storeDeliveryFeeAmount || 0,
+      totals.financialSnapshot.appReceivableAmount || 0,
+      totals.financialSnapshot.storeNetAmount || 0,
+      totals.financialSnapshot.storeNetReceivedAmount || 0,
+      totals.financialSnapshot.appDueFromDelivery || 0,
+      totals.financialSnapshot.differenceAmount || 0,
+      "order item unavailable",
+      outstandingAmount,
+      status,
+    ]
+  );
+  return updated.rows[0] || null;
+}
+
+function summarizeOrderGroupStatus(statuses = []) {
+  const normalized = statuses.map((status) => String(status || ""));
+  if (!normalized.length) return "pending";
+  if (normalized.every((status) => status === "pending")) return "pending";
+  if (
+    normalized.every((status) =>
+      ["delivered", "delivered_by_courier", "received_by_customer", "completed"].includes(status)
+    )
+  ) {
+    return "completed";
+  }
+  const anyCancelled = normalized.some((status) =>
+    [
+      "cancelled",
+      "cancelled_by_store",
+      "cancelled_by_customer",
+      "cancelled_by_admin",
+    ].includes(status)
+  );
+  if (anyCancelled) return "partially_completed";
+  if (normalized.some((status) => status === "ready_for_delivery")) {
+    return "ready_for_delivery";
+  }
+  if (normalized.some((status) => status === "preparing")) return "preparing";
+  if (normalized.some((status) => status === "approved")) return "approved";
+  return "pending";
+}
+
+async function syncOrderGroupStatusTx(client, orderGroupId) {
+  if (!orderGroupId) return null;
+  const statusRows = await client.query(
+    `SELECT id, status, subtotal, delivery_fee, delivery_fee_raw, total_amount
+     FROM customer_order
+     WHERE order_group_id = $1
+     ORDER BY store_sequence ASC, id ASC`,
+    [Number(orderGroupId)]
+  );
+  if (!statusRows.rows.length) return null;
+  const nextStatus = summarizeOrderGroupStatus(statusRows.rows.map((row) => row.status));
+  await client.query(
+    `UPDATE order_group
+     SET status = $2,
+         updated_at = NOW()
+     WHERE id = $1`,
+    [Number(orderGroupId), nextStatus]
+  );
+  for (const row of statusRows.rows) {
+    await client.query(
+      `UPDATE order_group_item_summary
+       SET status = $3,
+           subtotal = $4,
+           delivery_fee = $5,
+           raw_delivery_fee = $6,
+           total_amount = $7,
+           updated_at = NOW()
+       WHERE order_group_id = $1
+         AND child_order_id = $2`,
+      [
+        Number(orderGroupId),
+        Number(row.id),
+        String(row.status || ""),
+        Number(row.subtotal || 0),
+        Number(row.delivery_fee || 0),
+        Number(row.delivery_fee_raw || row.delivery_fee || 0),
+        Number(row.total_amount || 0),
+      ]
+    );
+  }
+  return nextStatus;
+}
 
 function normalizeDiscoveryCodes(values) {
   if (!Array.isArray(values)) return [];
@@ -22,7 +342,7 @@ function normalizeDiscoveryCodes(values) {
 
 export async function findMerchantByOwnerUserId(ownerUserId) {
   const r = await q(
-    `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
+    `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, latitude, longitude, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
             COALESCE(
               (
                 SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
@@ -389,13 +709,15 @@ export async function createOwnerWithMerchant(data) {
           tagline,
           working_hours,
           service_area_note,
+          latitude,
+          longitude,
           service_flags_json,
           supports_chat,
           supports_attachments,
           supports_pharmacy_workflow,
           badges_json
         )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,FALSE,$11,$12,$13,$14::jsonb,$15,$16,$17,$18::jsonb)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,FALSE,$11,$12,$13,$14,$15,$16::jsonb,$17,$18,$19,$20::jsonb)
        RETURNING id`,
       [
         data.merchantName,
@@ -411,6 +733,8 @@ export async function createOwnerWithMerchant(data) {
         data.merchantTagline || null,
         data.merchantWorkingHours || null,
         data.merchantServiceAreaNote || null,
+        data.latitude == null ? null : Number(data.latitude),
+        data.longitude == null ? null : Number(data.longitude),
         JSON.stringify(data.merchantServiceFlags || {}),
         data.merchantSupportsChat === true,
         data.merchantSupportsAttachments === true,
@@ -508,6 +832,8 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
     tagline: "tagline",
     workingHours: "working_hours",
     serviceAreaNote: "service_area_note",
+    latitude: "latitude",
+    longitude: "longitude",
     serviceFlags: "service_flags_json",
     supportsChat: "supports_chat",
     supportsAttachments: "supports_attachments",
@@ -542,14 +868,14 @@ export async function updateOwnerMerchant(ownerUserId, dto) {
     `UPDATE merchant
      SET ${sets.join(", ")}
      WHERE owner_user_id=$${idx}
-     RETURNING id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note`,
+     RETURNING id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, latitude, longitude, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note`,
     values
   );
 
   const row = r.rows[0] || null;
   if (!row) return null;
   const hydrated = await q(
-    `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
+    `SELECT id, name, type, activity_type, store_department, discovery_subcategory, discovery_select_all, service_flags_json, supports_chat, supports_attachments, supports_pharmacy_workflow, badges_json, description, phone, image_url, is_open, is_approved, approval_status, approved_by_user_id, approved_at, owner_user_id, tagline, working_hours, service_area_note, latitude, longitude, logo_url, cover_image_url, delivery_eta_min_minutes, delivery_eta_max_minutes, delivery_fee, minimum_order, is_verified, next_open_at, created_at, updated_at, financial_terms_sent_at, financial_terms_accepted_at, financial_terms_rejected_at, financial_terms_snapshot_json, financial_terms_rejection_note,
             COALESCE(
               (
                 SELECT ARRAY_AGG(mds.discovery_code ORDER BY mds.discovery_code)
@@ -720,6 +1046,7 @@ export async function listOwnerProducts(ownerUserId) {
      LEFT JOIN merchant_category c ON c.id = p.category_id
      LEFT JOIN store_inventory_item si ON si.merchant_id = p.merchant_id AND si.product_id = p.id
      WHERE m.owner_user_id=$1
+       AND p.deleted_at IS NULL
      ORDER BY COALESCE(c.sort_order, 999999), COALESCE(c.id, 0), p.sort_order ASC, p.id DESC`,
     [ownerUserId]
   );
@@ -748,6 +1075,11 @@ export async function listOwnerProductSummaries(ownerUserId) {
        p.created_at,
        p.updated_at,
        si.quantity AS stock_quantity,
+       si.stock_status AS inventory_stock_status,
+       si.reorder_threshold AS inventory_reorder_threshold,
+       si.manual_disabled AS inventory_manual_disabled,
+       si.auto_disabled AS inventory_auto_disabled,
+       si.last_quantity_update_at AS inventory_last_quantity_update_at,
        COALESCE(inv.inventory_enabled, FALSE) AS track_stock,
        CASE
          WHEN COALESCE(inv.inventory_enabled, FALSE) THEN 'tracked'
@@ -758,6 +1090,7 @@ export async function listOwnerProductSummaries(ownerUserId) {
        c.sort_order AS category_sort_order
      FROM product p
      JOIN merchant m ON m.id = p.merchant_id
+     AND p.deleted_at IS NULL
      LEFT JOIN merchant_category c ON c.id = p.category_id
      LEFT JOIN inventory_settings inv ON inv.merchant_id = p.merchant_id
      LEFT JOIN store_inventory_item si ON si.merchant_id = p.merchant_id AND si.product_id = p.id
@@ -777,10 +1110,24 @@ async function upsertSimpleProductStockTx(client, {
   if (quantity === undefined || quantity === null) return;
   const normalized = Math.max(0, Math.trunc(Number(quantity) || 0));
   await client.query(
-    `INSERT INTO inventory_settings (merchant_id, inventory_enabled, daily_update_mode, updated_by_user_id)
-     VALUES ($1, TRUE, 'manual_override', $2)
+    `INSERT INTO inventory_settings (
+       merchant_id,
+       inventory_enabled,
+       daily_update_mode,
+       auto_disable_out_of_stock,
+       show_all_without_auto_disable,
+       last_stock_update_at,
+       updated_by_user_id
+     )
+     VALUES ($1, TRUE, 'strict_daily', TRUE, FALSE, NOW(), $2)
      ON CONFLICT (merchant_id) DO UPDATE
-       SET inventory_enabled = TRUE, updated_by_user_id = EXCLUDED.updated_by_user_id, updated_at = NOW()`,
+       SET inventory_enabled = TRUE,
+           daily_update_mode = 'strict_daily',
+           auto_disable_out_of_stock = TRUE,
+           show_all_without_auto_disable = FALSE,
+           last_stock_update_at = NOW(),
+           updated_by_user_id = EXCLUDED.updated_by_user_id,
+           updated_at = NOW()`,
     [Number(merchantId), Number(actorUserId)]
   );
   await client.query(
@@ -803,6 +1150,287 @@ async function upsertSimpleProductStockTx(client, {
       Number(actorUserId),
     ]
   );
+  if (normalized <= 0) {
+    await client.query(
+      `UPDATE product
+       SET is_available = FALSE,
+           unavailable_reason = COALESCE(unavailable_reason, 'نفد المخزون'),
+           unavailable_until = NULL,
+           updated_at = NOW()
+       WHERE id = $1
+         AND merchant_id = $2`,
+      [Number(productId), Number(merchantId)]
+    );
+  }
+}
+
+export async function findMerchantInventoryItem(merchantId, productId) {
+  const r = await q(
+    `SELECT *
+     FROM store_inventory_item
+     WHERE merchant_id = $1
+       AND product_id = $2
+     LIMIT 1`,
+    [Number(merchantId), Number(productId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function findTodayInventoryDailyCheck(merchantId) {
+  const r = await q(
+    `SELECT *
+     FROM inventory_daily_check
+     WHERE merchant_id = $1
+       AND check_date = CURRENT_DATE
+     LIMIT 1`,
+    [Number(merchantId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function updateOwnerDailyInventoryItem({
+  merchantId,
+  productId,
+  quantity,
+  reorderThreshold,
+  manualDisabled = false,
+  autoDisabled = false,
+  stockStatus = "in_stock",
+  productIsAvailable = true,
+  actorUserId,
+  oldValue = {},
+  note = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const normalizedQuantity = Math.max(0, Math.trunc(Number(quantity) || 0));
+    const normalizedThreshold =
+      reorderThreshold === null || reorderThreshold === undefined
+        ? null
+        : Math.max(0, Math.trunc(Number(reorderThreshold) || 0));
+    const unavailableReason =
+      manualDisabled === true ? "غير متوفر من الجرد اليومي" : "نفد المخزون";
+
+    const settingsResult = await client.query(
+      `INSERT INTO inventory_settings (
+         merchant_id,
+         inventory_enabled,
+         daily_update_mode,
+         auto_disable_out_of_stock,
+         show_all_without_auto_disable,
+         last_stock_update_at,
+         updated_by_user_id
+       )
+       VALUES ($1, TRUE, 'strict_daily', TRUE, FALSE, NOW(), $2)
+       ON CONFLICT (merchant_id) DO UPDATE
+         SET inventory_enabled = TRUE,
+             daily_update_mode = 'strict_daily',
+             auto_disable_out_of_stock = TRUE,
+             show_all_without_auto_disable = FALSE,
+             last_stock_update_at = NOW(),
+             updated_by_user_id = EXCLUDED.updated_by_user_id,
+             updated_at = NOW()
+       RETURNING *`,
+      [Number(merchantId), Number(actorUserId)]
+    );
+
+    const itemResult = await client.query(
+      `INSERT INTO store_inventory_item (
+         merchant_id,
+         product_id,
+         quantity,
+         reorder_threshold,
+         manual_disabled,
+         auto_disabled,
+         stock_status,
+         last_quantity_update_at,
+         updated_by_user_id
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),$8)
+       ON CONFLICT (merchant_id, product_id) DO UPDATE
+         SET quantity = EXCLUDED.quantity,
+             reorder_threshold = EXCLUDED.reorder_threshold,
+             manual_disabled = EXCLUDED.manual_disabled,
+             auto_disabled = EXCLUDED.auto_disabled,
+             stock_status = EXCLUDED.stock_status,
+             last_quantity_update_at = NOW(),
+             updated_by_user_id = EXCLUDED.updated_by_user_id,
+             updated_at = NOW()
+       RETURNING *`,
+      [
+        Number(merchantId),
+        Number(productId),
+        normalizedQuantity,
+        normalizedThreshold,
+        manualDisabled === true,
+        autoDisabled === true,
+        String(stockStatus || "in_stock"),
+        Number(actorUserId),
+      ]
+    );
+
+    const productResult = await client.query(
+      `UPDATE product
+       SET is_available = $3,
+           unavailable_reason = CASE
+             WHEN $3 THEN NULL
+             ELSE COALESCE($4, unavailable_reason, 'نفد المخزون')
+           END,
+           unavailable_until = NULL,
+           updated_at = NOW()
+       WHERE id = $1
+         AND merchant_id = $2
+         AND deleted_at IS NULL
+       RETURNING *`,
+      [
+        Number(productId),
+        Number(merchantId),
+        productIsAvailable === true,
+        productIsAvailable === true ? null : unavailableReason,
+      ]
+    );
+
+    await client.query(
+      `INSERT INTO inventory_audit_log (
+         merchant_id,
+         product_id,
+         actor_user_id,
+         actor_context,
+         action_key,
+         summary,
+         actor_role,
+         reason,
+         old_value,
+         new_value,
+         note
+       )
+       VALUES ($1,$2,$3,'owner_portal','owner.inventory.daily_item.updated',$4,'owner',$5,$6::jsonb,$7::jsonb,$8)`,
+      [
+        Number(merchantId),
+        Number(productId),
+        Number(actorUserId),
+        productIsAvailable === true
+          ? "Owner updated daily inventory count"
+          : "Owner marked product out of stock from daily inventory",
+        productIsAvailable === true
+          ? null
+          : manualDisabled === true
+            ? "manual_disabled"
+            : "out_of_stock",
+        JSON.stringify(oldValue || {}),
+        JSON.stringify({
+          quantity: normalizedQuantity,
+          stockStatus,
+          manualDisabled: manualDisabled === true,
+          autoDisabled: autoDisabled === true,
+          productIsAvailable: productIsAvailable === true,
+        }),
+        note && String(note).trim().length ? String(note).trim() : null,
+      ]
+    );
+
+    await client.query("COMMIT");
+    return {
+      settings: settingsResult.rows[0] || null,
+      item: itemResult.rows[0] || null,
+      product: productResult.rows[0] || null,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function confirmOwnerDailyInventoryCheck({
+  merchantId,
+  actorUserId,
+  modeAtCheck = "strict_daily",
+  note = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const settingsResult = await client.query(
+      `INSERT INTO inventory_settings (
+         merchant_id,
+         inventory_enabled,
+         daily_update_mode,
+         auto_disable_out_of_stock,
+         show_all_without_auto_disable,
+         last_daily_check_at,
+         last_stock_update_at,
+         updated_by_user_id
+       )
+       VALUES ($1, TRUE, 'strict_daily', TRUE, FALSE, NOW(), NOW(), $2)
+       ON CONFLICT (merchant_id) DO UPDATE
+         SET inventory_enabled = TRUE,
+             daily_update_mode = 'strict_daily',
+             auto_disable_out_of_stock = TRUE,
+             show_all_without_auto_disable = FALSE,
+             last_daily_check_at = NOW(),
+             last_stock_update_at = NOW(),
+             updated_by_user_id = EXCLUDED.updated_by_user_id,
+             updated_at = NOW()
+       RETURNING *`,
+      [Number(merchantId), Number(actorUserId)]
+    );
+    const checkResult = await client.query(
+      `INSERT INTO inventory_daily_check (
+         merchant_id,
+         check_date,
+         confirmed_by_user_id,
+         mode_at_check,
+         note
+       )
+       VALUES ($1, CURRENT_DATE, $2, $3, $4)
+       ON CONFLICT (merchant_id, check_date) DO UPDATE
+         SET confirmed_by_user_id = EXCLUDED.confirmed_by_user_id,
+             mode_at_check = EXCLUDED.mode_at_check,
+             note = EXCLUDED.note,
+             updated_at = NOW()
+       RETURNING *`,
+      [
+        Number(merchantId),
+        Number(actorUserId),
+        String(modeAtCheck || "strict_daily"),
+        note && String(note).trim().length ? String(note).trim() : null,
+      ]
+    );
+    await client.query(
+      `INSERT INTO inventory_audit_log (
+         merchant_id,
+         actor_user_id,
+         actor_context,
+         action_key,
+         summary,
+         actor_role,
+         old_value,
+         new_value,
+         note
+       )
+       VALUES ($1,$2,'owner_portal','owner.inventory.daily_check.confirmed',$3,'owner','{}'::jsonb,$4::jsonb,$5)`,
+      [
+        Number(merchantId),
+        Number(actorUserId),
+        "Owner confirmed daily inventory check",
+        JSON.stringify({ checkDate: checkResult.rows[0]?.check_date || null }),
+        note && String(note).trim().length ? String(note).trim() : null,
+      ]
+    );
+    await client.query("COMMIT");
+    return {
+      settings: settingsResult.rows[0] || null,
+      check: checkResult.rows[0] || null,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function hydrateOwnerProducts(rows) {
@@ -1019,11 +1647,16 @@ export async function updateOwnerProduct(actorUserId, merchantId, productId, dto
 
 export async function deleteOwnerProduct(ownerUserId, productId) {
   const r = await q(
-    `DELETE FROM product p
-     USING merchant m
+    `UPDATE product p
+     SET deleted_at = COALESCE(p.deleted_at, NOW()),
+         is_available = FALSE,
+         unavailable_reason = COALESCE(p.unavailable_reason, 'deleted_by_owner'),
+         updated_at = NOW()
+     FROM merchant m
      WHERE p.id=$1
        AND p.merchant_id=m.id
        AND m.owner_user_id=$2
+       AND p.deleted_at IS NULL
      RETURNING p.id`,
     [productId, ownerUserId]
   );
@@ -1225,34 +1858,55 @@ export async function markOrderedProductUnavailable(
   try {
     await client.query("BEGIN");
 
-    const targetResult = await client.query(
+    const orderResult = await client.query(
       `SELECT
-         o.id AS order_id,
+         o.*,
+         o.status::text AS status_text,
          o.customer_user_id,
+         o.delivery_user_id,
          o.merchant_id,
-         m.name AS merchant_name,
-         oi.product_id,
-         oi.product_name,
-         p.is_available AS previous_is_available,
-         p.unavailable_reason AS previous_unavailable_reason,
-         p.unavailable_until AS previous_unavailable_until
+         m.name AS merchant_name
        FROM customer_order o
        JOIN merchant m
          ON m.id = o.merchant_id
-       JOIN order_item oi
-         ON oi.order_id = o.id
-       JOIN product p
-         ON p.id = oi.product_id
-        AND p.merchant_id = m.id
        WHERE o.id = $1
          AND m.owner_user_id = $2
-         AND oi.product_id = $3
-       LIMIT 1`,
-      [Number(orderId), Number(ownerUserId), Number(productId)]
+       LIMIT 1
+       FOR UPDATE OF o`,
+      [Number(orderId), Number(ownerUserId)]
     );
 
-    const target = targetResult.rows[0];
-    if (!target) {
+    const order = orderResult.rows[0];
+    if (!order) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const targetResult = await client.query(
+      `SELECT
+         oi.id AS order_item_id,
+         oi.product_id,
+         oi.product_name,
+         oi.quantity,
+         oi.line_total,
+         oi.line_discount_total,
+         p.is_available AS previous_is_available,
+         p.unavailable_reason AS previous_unavailable_reason,
+         p.unavailable_until AS previous_unavailable_until
+       FROM order_item oi
+       JOIN product p
+         ON p.id = oi.product_id
+        AND p.merchant_id = $2
+       WHERE oi.order_id = $1
+         AND oi.product_id = $3
+       ORDER BY oi.id ASC
+       FOR UPDATE OF oi, p`,
+      [Number(orderId), Number(order.merchant_id), Number(productId)]
+    );
+
+    const targetRows = targetResult.rows;
+    const target = targetRows[0];
+    if (!targetRows.length) {
       await client.query("ROLLBACK");
       return null;
     }
@@ -1275,8 +1929,90 @@ export async function markOrderedProductUnavailable(
       ]
     );
 
+    const orderItemIds = targetRows.map((row) => Number(row.order_item_id));
+    const restoredReservations = await restoreInventoryReservationsTx(client, orderItemIds);
+
+    await client.query(
+      `DELETE FROM order_item
+       WHERE id = ANY($1::bigint[])`,
+      [orderItemIds]
+    );
+
+    const remainingResult = await client.query(
+      `SELECT
+         id,
+         order_id,
+         product_id,
+         product_name,
+         base_unit_price,
+         unit_price,
+         quantity,
+         selected_modifiers_json,
+         selected_variant_json,
+         selected_variant_options_json,
+         display_snapshot_json,
+         variant_price_delta_total,
+         modifiers_unit_total,
+         modifiers_line_total,
+         line_discount_total,
+         line_total,
+         pricing_breakdown_json
+       FROM order_item
+       WHERE order_id = $1
+       ORDER BY id ASC`,
+      [Number(orderId)]
+    );
+    const totals = calculateUnavailableOrderTotals(order, remainingResult.rows);
+
+    await client.query(
+      `UPDATE customer_order
+       SET gross_subtotal = $2,
+           product_discount_total = $3,
+           coupon_discount_total = $4,
+           subtotal = $5,
+           service_fee = $6,
+           delivery_fee = $7,
+           delivery_fee_raw = $8,
+           total_amount = $9,
+           pricing_breakdown_json = $10::jsonb,
+           financial_config_snapshot_json = $11::jsonb,
+           order_revision_version = COALESCE(order_revision_version, 1) + 1,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [
+        Number(order.id),
+        totals.grossSubtotal,
+        totals.productDiscountTotal,
+        totals.couponDiscountTotal,
+        totals.subtotal,
+        totals.serviceFee,
+        totals.deliveryFee,
+        totals.deliveryFeeRaw,
+        totals.totalAmount,
+        json(totals.pricingBreakdown, {}),
+        json(totals.financialSnapshot, {}),
+      ]
+    );
+
+    const invoice = await updateUnavailableOrderInvoiceTx(client, { order, totals });
+    await syncOrderGroupStatusTx(client, order.order_group_id);
+
     await client.query("COMMIT");
-    return target;
+    return {
+      ...target,
+      order_id: order.id,
+      customer_user_id: order.customer_user_id,
+      delivery_user_id: order.delivery_user_id,
+      merchant_id: order.merchant_id,
+      merchant_name: order.merchant_name,
+      removed_order_item_ids: orderItemIds,
+      restored_inventory_reservations: restoredReservations,
+      previous_total_amount: toMoney(order.total_amount),
+      next_total_amount: totals.totalAmount,
+      previous_subtotal: toMoney(order.subtotal),
+      next_subtotal: totals.subtotal,
+      invoice_id: invoice?.id || null,
+    };
   } catch (e) {
     await client.query("ROLLBACK");
     throw e;

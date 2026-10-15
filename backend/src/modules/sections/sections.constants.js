@@ -8,6 +8,7 @@ export const SECTION_AVAILABILITY_STATUSES = [
 export const SECTION_SURFACE_SCOPES = ["user"];
 
 export const USER_APP_SECTION_DEFINITIONS = [
+  { sectionKey: "app", displayName: "Application", sortOrder: 0, isVisible: false },
   { sectionKey: "shopping", displayName: "التسوق", sortOrder: 10 },
   { sectionKey: "taxi", displayName: "التكسي", sortOrder: 20 },
   { sectionKey: "services", displayName: "الخدمات", sortOrder: 30 },
@@ -55,10 +56,20 @@ export function listDefaultSectionsForSurface(surfaceScope = "user") {
     surfaceScope: scope,
     parentSectionKey: null,
     status: "open",
-    isVisible: true,
+    isVisible: item.isVisible !== false,
     userMessage: null,
     allowExistingActiveAccess: true,
-    metadata: {},
+    metadata:
+      item.metadata ||
+      (item.sectionKey === "shopping" || item.sectionKey === "taxi"
+        ? {
+            schedule: {
+              timeZone: "Asia/Baghdad",
+              openTime: "08:00",
+              closeTime: "00:00",
+            },
+          }
+        : {}),
   }));
 }
 

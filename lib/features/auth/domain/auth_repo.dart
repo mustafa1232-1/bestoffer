@@ -9,6 +9,11 @@ abstract class AuthRepo {
     required String block,
     required String buildingNumber,
     required String apartment,
+    String? workTitle,
+    String? workCompany,
+    double? latitude,
+    double? longitude,
+    String? referralCode,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? imageFile,
@@ -46,6 +51,8 @@ abstract class AuthRepo {
     bool? merchantSupportsChat,
     bool? merchantSupportsAttachments,
     bool? merchantSupportsPharmacyWorkflow,
+    double? latitude,
+    double? longitude,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? ownerImageFile,
@@ -69,6 +76,8 @@ abstract class AuthRepo {
     String? plateLetter,
     String? plateDigits,
     String? carColor,
+    double? latitude,
+    double? longitude,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? profileImageFile,
@@ -76,6 +85,11 @@ abstract class AuthRepo {
   });
 
   Future<UserModel> login({required String phone, required String pin});
+  Future<void> requestPinReset({required String phone});
+  Future<UserModel> completeTemporaryPinChange({
+    required String currentPin,
+    required String newPin,
+  });
 
   Future<UserModel> me();
 

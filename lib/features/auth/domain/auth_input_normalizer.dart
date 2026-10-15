@@ -41,3 +41,8 @@ String normalizeIraqiPhoneForAuth(String value) {
 bool isPlausibleIraqiAuthPhone(String value) {
   return RegExp(r'^07\d{9}$').hasMatch(normalizeIraqiPhoneForAuth(value));
 }
+
+bool isPlausibleAuthLoginPhone(String value) {
+  final normalized = normalizeIraqiPhoneForAuth(value);
+  return RegExp(r'^\d{6,15}$').hasMatch(normalized);
+}

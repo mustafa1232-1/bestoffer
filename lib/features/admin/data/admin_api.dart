@@ -49,6 +49,39 @@ class AdminApi {
     }
   }
 
+  Future<Map<String, dynamic>> courierReconciliation({
+    String? reviewStatus,
+    int limit = 200,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/courier-reconciliation',
+      queryParameters: {
+        if (reviewStatus != null && reviewStatus.trim().isNotEmpty)
+          'reviewStatus': reviewStatus.trim(),
+        'limit': limit,
+        'offset': offset,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> reviewCourierReconciliation(
+    int orderId, {
+    required bool approved,
+    String? reviewNote,
+  }) async {
+    final response = await dio.patch(
+      '/api/admin/courier-reconciliation/$orderId/review',
+      data: {
+        'approved': approved,
+        if (reviewNote != null && reviewNote.trim().isNotEmpty)
+          'reviewNote': reviewNote.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> approvalInbox({int limit = 60}) async {
     try {
       final response = await dio.get(
@@ -94,6 +127,62 @@ class AdminApi {
   }
 
   /// لوحة المتابعة الموحدة: البطاقات حسب صلاحيات الموظف + عدّادات فورية.
+  Future<Map<String, dynamic>> aiChatReviewUsers({
+    String? search,
+    int limit = 40,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/ai/chat-users',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> aiChatReviewUserSessions({
+    required int customerUserId,
+    int limit = 40,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/ai/chat-users/$customerUserId/sessions',
+      queryParameters: {'limit': limit, 'offset': offset},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> aiChatReviewSessions({
+    String? search,
+    int limit = 40,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/ai/chat-sessions',
+      queryParameters: {
+        'limit': limit,
+        'offset': offset,
+        if ((search ?? '').trim().isNotEmpty) 'search': search!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> aiChatReviewMessages({
+    required int sessionId,
+    int limit = 160,
+    int? beforeId,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/ai/chat-sessions/$sessionId/messages',
+      queryParameters: {'limit': limit, 'beforeId': ?beforeId},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> monitoringOverview() async {
     final response = await dio.get('/api/admin/monitoring/overview');
     return Map<String, dynamic>.from(response.data as Map);
@@ -294,6 +383,23 @@ class AdminApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> assignMonitoringOrderCourier(
+    int orderId, {
+    int? courierUserId,
+    bool allowBusyCourier = false,
+    String? note,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/monitoring/orders/$orderId/assign-courier',
+      data: {
+        'courierUserId': courierUserId,
+        'allowBusyCourier': allowBusyCourier,
+        if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> monitoringDeliveryCourierDetail(
     int courierId, {
     bool includePhone = false,
@@ -418,6 +524,17 @@ class AdminApi {
 
   Future<Map<String, dynamic>> myPermissions() async {
     final response = await dio.get('/api/admin/me/permissions');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> employeeActivity({
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/audit/employee-activity',
+      queryParameters: {'limit': limit, 'offset': offset},
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -1199,7 +1316,9 @@ class AdminApi {
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (e) {
       final code = e.response?.statusCode;
-      if (code != 404 && code != 403) rethrow;
+      // A permission failure must stay visible. Falling back after a 403 used
+      // to issue another protected request and made the admin screen slower.
+      if (code != 404) rethrow;
       return _fallbackOrdersOverview(
         status: status,
         period: period,
@@ -1209,6 +1328,23 @@ class AdminApi {
         offset: offset,
       );
     }
+  }
+
+  Future<Map<String, dynamic>> ordersSummary({
+    String status = 'all',
+    String period = 'all',
+    String? from,
+    String? to,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/orders/overview',
+      queryParameters: {
+        'status': status,
+        ..._buildFinancialWindowQuery(period: period, from: from, to: to),
+        'summaryOnly': true,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   Future<Map<String, dynamic>> merchantOrdersOverview(
@@ -1233,7 +1369,7 @@ class AdminApi {
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (e) {
       final code = e.response?.statusCode;
-      if (code != 404 && code != 403) rethrow;
+      if (code != 404) rethrow;
       return {
         'merchantId': merchantId,
         'items': const <dynamic>[],
@@ -1627,6 +1763,27 @@ class AdminApi {
     return _itemsEnvelopeResponse(response.data);
   }
 
+  Future<Map<String, dynamic>> listAllServiceOfferingsForAdmin() async {
+    const pageSize = 100;
+    const maximumItems = 5000;
+    final items = <dynamic>[];
+    var offset = 0;
+    while (items.length < maximumItems) {
+      final page = await listPendingServiceOfferings(
+        offeringStatus: 'all',
+        limit: pageSize,
+        offset: offset,
+      );
+      final rows = page['items'] is List
+          ? List<dynamic>.from(page['items'] as List)
+          : const <dynamic>[];
+      items.addAll(rows);
+      if (rows.length < pageSize) break;
+      offset += rows.length;
+    }
+    return <String, dynamic>{'items': items};
+  }
+
   Future<Map<String, dynamic>> updateServiceOfferingModeration({
     required int offeringId,
     required String status,
@@ -1638,6 +1795,22 @@ class AdminApi {
         'status': status,
         if ((note ?? '').trim().isNotEmpty) 'note': note!.trim(),
       },
+    );
+    return _safeMapResponse(response.data);
+  }
+
+  Future<Map<String, dynamic>> listServiceCategoriesForAdmin() async {
+    final response = await dio.get('/api/admin/services/categories');
+    return _itemsEnvelopeResponse(response.data);
+  }
+
+  Future<Map<String, dynamic>> updateServiceOfferingDetails({
+    required int offeringId,
+    required Map<String, dynamic> body,
+  }) async {
+    final response = await dio.patch(
+      '/api/admin/services/offerings/$offeringId',
+      data: body,
     );
     return _safeMapResponse(response.data);
   }
@@ -1721,6 +1894,35 @@ class AdminApi {
 
   Future<Map<String, dynamic>> getServiceAdminStats() async {
     final response = await dio.get('/api/admin/services/stats');
+    return _safeMapResponse(response.data);
+  }
+
+  Future<Map<String, dynamic>> listEmergencyRequests({
+    int limit = 80,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/admin/services/emergencies',
+      queryParameters: {'limit': limit, 'offset': offset},
+    );
+    return _safeMapResponse(response.data);
+  }
+
+  Future<Map<String, dynamic>> getEmergencyThread(int requestId) async {
+    final response = await dio.get(
+      '/api/admin/services/emergencies/$requestId',
+    );
+    return _safeMapResponse(response.data);
+  }
+
+  Future<Map<String, dynamic>> sendEmergencyMessage({
+    required int requestId,
+    required String message,
+  }) async {
+    final response = await dio.post(
+      '/api/admin/services/emergencies/$requestId/messages',
+      data: {'message': message.trim()},
+    );
     return _safeMapResponse(response.data);
   }
 
@@ -1997,6 +2199,22 @@ class AdminApi {
           });
     final response = await dio.post('/api/admin/users', data: data);
     return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<dynamic>> pinResetRequests() async {
+    final response = await dio.get('/api/admin/pin-reset-requests');
+    return List<dynamic>.from(response.data as List);
+  }
+
+  Future<void> approvePinReset(int requestId) async {
+    await dio.post('/api/admin/pin-reset-requests/$requestId/approve');
+  }
+
+  Future<void> rejectPinReset(int requestId, {String? reason}) async {
+    await dio.post(
+      '/api/admin/pin-reset-requests/$requestId/reject',
+      data: {'reason': reason},
+    );
   }
 
   Future<Map<String, dynamic>> createStoreAccount(

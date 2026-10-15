@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../auth/state/auth_controller.dart';
+import '../../../core/auth/auth_guard.dart';
+import '../../../core/navigation/app_route_observer.dart';
 import '../../social/state/social_controller.dart';
 import '../../social/ui/social_profile_screen.dart';
 import '../../social/models/social_models.dart';
@@ -37,6 +40,7 @@ class SocialReelsScreenV3 extends ConsumerStatefulWidget {
     this.onReachedEnd,
     this.onCreate,
     this.coordinatorFactory,
+    this.playbackEnabledListenable,
   });
 
   final List<ReelV3ViewData> reels;
@@ -46,7 +50,7 @@ class SocialReelsScreenV3 extends ConsumerStatefulWidget {
   /// caller side; this screen also updates its local copy so the video
   /// controller is never rebuilt for a like.
   final Future<bool> Function(ReelV3ViewData reel, bool desiredLiked)? onLike;
-  final void Function(ReelV3ViewData reel)? onSave;
+  final Future<bool> Function(ReelV3ViewData reel)? onSave;
   final void Function(ReelV3ViewData reel)? onComments;
   final void Function(ReelV3ViewData reel)? onShare;
   final void Function(ReelV3ViewData reel)? onMore;
@@ -59,6 +63,7 @@ class SocialReelsScreenV3 extends ConsumerStatefulWidget {
 
   /// Test seam for injecting a coordinator with a fake controller factory.
   final ReelPlaybackCoordinator Function()? coordinatorFactory;
+  final ValueListenable<bool>? playbackEnabledListenable;
 
   @override
   ConsumerState<SocialReelsScreenV3> createState() =>
@@ -66,7 +71,7 @@ class SocialReelsScreenV3 extends ConsumerStatefulWidget {
 }
 
 class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, RouteAware {
   late final PageController _pageController;
   late final ReelPlaybackCoordinator _coordinator;
   late List<ReelV3ViewData> _reels;
@@ -75,8 +80,12 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
   final Map<int, String> _followStateOverrides = {};
   final Set<int> _relationLoading = {};
   final Set<int> _likeLoading = {};
+  final Set<int> _saveLoading = {};
   bool _handlingCompletion = false;
   int? _relationScopeUserId;
+  ModalRoute<dynamic>? _route;
+  bool _routeVisible = true;
+  bool _tickerEnabled = true;
 
   @override
   void initState() {
@@ -85,9 +94,12 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
     _pageController = PageController(initialPage: widget.initialIndex);
     _coordinator =
         widget.coordinatorFactory?.call() ?? ReelPlaybackCoordinator();
+    widget.playbackEnabledListenable?.addListener(_syncPlaybackVisibility);
+    _syncPlaybackVisibility();
     _coordinator.setItems(_reels.map((r) => r.media).toList());
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _coordinator.setActiveIndex(widget.initialIndex);
       _recordView(widget.initialIndex);
       _syncFollowStates();
@@ -97,6 +109,14 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
   @override
   void didUpdateWidget(covariant SocialReelsScreenV3 oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.playbackEnabledListenable !=
+        widget.playbackEnabledListenable) {
+      oldWidget.playbackEnabledListenable?.removeListener(
+        _syncPlaybackVisibility,
+      );
+      widget.playbackEnabledListenable?.addListener(_syncPlaybackVisibility);
+      _syncPlaybackVisibility();
+    }
     if (!identical(oldWidget.reels, widget.reels)) {
       _reels = List.of(widget.reels);
       _coordinator.setItems(_reels.map((r) => r.media).toList());
@@ -116,9 +136,51 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    appRouteObserver.unsubscribe(this);
+    widget.playbackEnabledListenable?.removeListener(_syncPlaybackVisibility);
     _coordinator.dispose();
     _pageController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _tickerEnabled = TickerMode.valuesOf(context).enabled;
+    final route = ModalRoute.of(context);
+    if (!identical(route, _route)) {
+      appRouteObserver.unsubscribe(this);
+      _route = route;
+      _routeVisible = route?.isCurrent ?? true;
+      if (route != null) appRouteObserver.subscribe(this, route);
+    }
+    _syncPlaybackVisibility();
+  }
+
+  void _syncPlaybackVisibility() {
+    _coordinator.setRouteVisible(
+      _routeVisible &&
+          _tickerEnabled &&
+          (widget.playbackEnabledListenable?.value ?? true),
+    );
+  }
+
+  @override
+  void didPushNext() {
+    _routeVisible = false;
+    _syncPlaybackVisibility();
+  }
+
+  @override
+  void didPopNext() {
+    _routeVisible = true;
+    _syncPlaybackVisibility();
+  }
+
+  @override
+  void didPop() {
+    _routeVisible = false;
+    _syncPlaybackVisibility();
   }
 
   @override
@@ -253,7 +315,15 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
   Future<void> _toggleFollow(int index) async {
     final reel = _reels[index];
     final currentUserId = _currentUserId();
-    if (currentUserId == null || currentUserId == reel.authorId) return;
+    if (currentUserId == null) {
+      await requireAuthBeforeAction(
+        context,
+        featureArabic: 'متابعة المستخدم',
+        featureEnglish: 'following a user',
+      );
+      return;
+    }
+    if (currentUserId == reel.authorId) return;
     if (_relationLoading.contains(reel.authorId)) return;
 
     final api = ref.read(socialApiProvider);
@@ -310,8 +380,10 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
     }
   }
 
-  void _toggleSave(int index) {
+  Future<void> _toggleSave(int index) async {
     final reel = _reels[index];
+    final callback = widget.onSave;
+    if (callback == null || !_saveLoading.add(reel.postId)) return;
     final nextSaved = !reel.isSaved;
     _mutateReel(
       index,
@@ -320,7 +392,26 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
         savesCount: (reel.savesCount + (nextSaved ? 1 : -1)).clamp(0, 1 << 31),
       ),
     );
-    widget.onSave?.call(_reels[index]);
+    try {
+      final success = await callback(reel);
+      if (!success && mounted) _restoreSave(reel);
+    } catch (_) {
+      if (mounted) _restoreSave(reel);
+    } finally {
+      _saveLoading.remove(reel.postId);
+    }
+  }
+
+  void _restoreSave(ReelV3ViewData original) {
+    final index = _reels.indexWhere((item) => item.postId == original.postId);
+    if (index < 0) return;
+    _mutateReel(
+      index,
+      _reels[index].copyWith(
+        isSaved: original.isSaved,
+        savesCount: original.savesCount,
+      ),
+    );
   }
 
   Future<void> _openAuthor(int index) async {
@@ -341,7 +432,7 @@ class _SocialReelsScreenV3State extends ConsumerState<SocialReelsScreenV3>
           ));
     } finally {
       if (mounted) {
-        _coordinator.setRouteVisible(true);
+        _syncPlaybackVisibility();
       }
     }
   }

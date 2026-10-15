@@ -94,6 +94,12 @@ export const PERMISSION_METADATA = Object.freeze({
   },
 
   // ── التوصيل ──
+  "delivery.couriers.read": {
+    group: "delivery",
+    labelAr: "متابعة مندوبي التوصيل",
+    descriptionAr:
+      "عرض شاشة متابعة الدلفري وقائمة المندوبين وحالة الاتصال والانشغال والتوصيلات الجارية.",
+  },
   "delivery.couriers.phone.read": {
     group: "delivery",
     labelAr: "رؤية هاتف المندوب",
@@ -508,6 +514,34 @@ export const PERMISSION_METADATA = Object.freeze({
 
 // Job-role display names + Arabic descriptions (for the role picker).
 export const JOB_ROLE_METADATA = Object.freeze({
+  taxi_monitoring: {
+    labelAr: "Taxi monitoring",
+    descriptionAr: "Monitor taxi rides, live locations, ride history, emergency actions, and related support.",
+  },
+  orders_support: {
+    labelAr: "Shopping orders and support",
+    descriptionAr: "Manage shopping orders, invoices, cancellations, courier reassignment, and order support.",
+  },
+  staff_monitoring: {
+    labelAr: "Staff and operations monitoring",
+    descriptionAr: "Read-only monitoring of employees, support, orders, delivery, taxi, listings, and audit activity.",
+  },
+  jobs_monitoring: {
+    labelAr: "Jobs monitoring",
+    descriptionAr: "Publish and manage jobs, applications, CVs, and job-related support.",
+  },
+  services_monitoring: {
+    labelAr: "Services monitoring",
+    descriptionAr: "Publish and manage services, bookings, service messages, and support.",
+  },
+  marketplace_monitoring: {
+    labelAr: "Real estate and cars monitoring",
+    descriptionAr: "Publish and moderate real estate and car listings, contacts, requests, and support.",
+  },
+  social_media_moderator: {
+    labelAr: "Social media moderation",
+    descriptionAr: "Moderate public social content, reports, stories, comments, and accounts without private messages.",
+  },
   follow_up_manager: {
     labelAr: "مدير المتابعة",
     descriptionAr:
@@ -522,6 +556,11 @@ export const JOB_ROLE_METADATA = Object.freeze({
     labelAr: "موظف تسويق وترويج",
     descriptionAr:
       "يضيف ويدير الإعلانات والمسابقات والكوبونات الترويجية ويتابع تقارير الأداء.",
+  },
+  ads_manager: {
+    labelAr: "مسؤول الإعلانات",
+    descriptionAr:
+      "ينشئ ويدير إعلانات التطبيق فقط دون صلاحيات تشغيلية أو مالية أخرى.",
   },
   subscriptions_monitor: {
     labelAr: "متابعة الاشتراكات",

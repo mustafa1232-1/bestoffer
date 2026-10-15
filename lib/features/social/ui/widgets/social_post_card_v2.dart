@@ -12,7 +12,10 @@ import '../../../../core/navigation/app_route_observer.dart';
 import '../../models/social_models.dart';
 import '../social_content_navigation.dart';
 import '../social_share_sheet.dart';
-import 'social_mention_hashtag_text.dart';
+import '../../../../core/i18n/locale_text.dart';
+import 'social_design_theme.dart';
+import 'social_post_caption.dart';
+import 'social_post_action.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
 
@@ -41,10 +44,8 @@ class SocialPostCardV2 extends StatelessWidget {
   });
 
   Future<void> _runReportSafely(BuildContext context) async {
-    final callback = onReport;
-    if (callback == null) return;
     try {
-      await callback.call();
+      await onReport?.call();
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -53,296 +54,408 @@ class SocialPostCardV2 extends StatelessWidget {
     }
   }
 
+  Future<void> _share(BuildContext context) async {
+    await showSocialShareSheet(
+      context: context,
+      entityType: socialEntityTypeFromPost(post),
+      entityId: post.id,
+      previewTitle: post.author.fullName,
+      previewSubtitle: post.caption.trim(),
+      externalShareText: post.caption.trim(),
+      sharedSnapshot: buildSocialSharedSnapshotFromPost(post),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
     final isEnglish = Localizations.localeOf(context).languageCode == 'en';
-    final scheme = Theme.of(context).colorScheme;
     final dateText = post.createdAt == null
         ? ''
         : intl.DateFormat(
             isEnglish ? 'MMM d, h:mm a' : 'd MMM - h:mm a',
             isEnglish ? 'en' : 'ar',
-          ).format(post.createdAt!);
-    final mediaUrl = resolveSocialPostPosterUrl(post);
-    final isVideo = isSocialVideoPost(post);
+          ).format(post.createdAt!.toLocal());
     final isReel = isSocialReelPost(post);
-    final shouldAutoPlayPreview = autoPlayVideoPreview || isReel;
     final isMerchantReview = isSocialMerchantReviewPost(post);
+    final commentsEnabled = post.commentsEnabled;
+    final sharingEnabled = post.sharingEnabled;
+    final availabilityNote = !commentsEnabled && !sharingEnabled
+        ? context.lt(
+            ar: 'التعليقات والمشاركة مغلقة لهذا المنشور',
+            en: 'Comments and sharing are turned off for this post',
+          )
+        : !commentsEnabled
+        ? context.lt(
+            ar: 'التعليقات مغلقة لهذا المنشور',
+            en: 'Comments are turned off for this post',
+          )
+        : !sharingEnabled
+        ? context.lt(
+            ar: 'المشاركة مغلقة لهذا المنشور',
+            en: 'Sharing is turned off for this post',
+          )
+        : null;
     final mediaItems = _buildPostMediaDisplayItems(post);
-    final caption = post.caption.trim();
-    final hasCaption = caption.isNotEmpty;
     final username = (post.author.username ?? '').trim();
-    final userLabel = username.isNotEmpty ? '@$username' : '@${post.author.id}';
+    final userLabel = username.isNotEmpty ? '@$username' : post.author.fullName;
+    final authorLabel = post.author.fullName.trim().isNotEmpty
+        ? post.author.fullName.trim()
+        : username.isNotEmpty
+        ? '@$username'
+        : context.lt(ar: 'مستخدم مسلكي', en: 'Maslaki member');
     final showPremiumBadge =
         post.author.isPremiumCreator ||
-        post.author.badges.any((badge) => badge == 'premium_creator');
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(20),
-        color: scheme.surface,
-        border: Border.all(
-          color: scheme.outlineVariant.withValues(alpha: 0.36),
-        ),
-      ),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(20),
-        onTap: onOpenDetails,
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
+        post.author.badges.contains('premium_creator');
+    final asset = post.mediaGallery.isNotEmpty
+        ? post.mediaGallery.first.asset
+        : post.asset;
+    final ratio =
+        !isSocialVideoPost(post) &&
+            asset != null &&
+            (asset.aspectRatio ?? 0) > 0
+        ? asset.aspectRatio!.clamp(4 / 5, 1.91).toDouble()
+        : 4 / 5;
+
+    return Theme(
+      data: SocialDesignTheme.of(context),
+      child: Material(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              child: Row(
                 children: [
-                  GestureDetector(
-                    onTap: onOpenProfile,
-                    child: CircleAvatar(
-                      radius: 22,
-                      backgroundImage:
-                          (post.author.imageUrl ?? '').trim().isNotEmpty
-                          ? appCachedImageProvider(
-                              post.author.imageUrl!,
-                              cacheIdentity: 'user_avatar_${post.author.id}',
-                              version: post.updatedAt?.toIso8601String(),
-                            )
-                          : null,
-                      child: (post.author.imageUrl ?? '').trim().isEmpty
-                          ? const Icon(Icons.person_outline)
-                          : null,
+                  Semantics(
+                    button: true,
+                    label: authorLabel,
+                    child: InkWell(
+                      onTap: onOpenProfile,
+                      customBorder: const CircleBorder(),
+                      child: CircleAvatar(
+                        radius: 22,
+                        backgroundColor: SocialDesignTheme.background,
+                        backgroundImage:
+                            (post.author.imageUrl ?? '').trim().isEmpty
+                            ? null
+                            : appCachedImageProvider(post.author.imageUrl!),
+                        child: (post.author.imageUrl ?? '').trim().isEmpty
+                            ? const Icon(
+                                Icons.person_outline,
+                                color: SocialDesignTheme.indigo,
+                              )
+                            : null,
+                      ),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
+                    child: InkWell(
+                      onTap: onOpenProfile,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
                             children: [
                               Flexible(
                                 child: Text(
-                                  userLabel,
+                                  authorLabel,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: scheme.onSurface,
-                                    fontWeight: FontWeight.w900,
+                                  style: const TextStyle(
+                                    color: SocialDesignTheme.ink,
+                                    fontWeight: FontWeight.w700,
                                     fontSize: 15,
                                   ),
                                 ),
                               ),
                               if (showPremiumBadge) ...[
-                                const SizedBox(width: 6),
-                                Icon(
+                                const SizedBox(width: 4),
+                                const Icon(
                                   Icons.verified_rounded,
-                                  size: 18,
-                                  color: scheme.primary,
+                                  color: SocialDesignTheme.gold,
+                                  size: 17,
                                 ),
                               ],
                             ],
+                          ),
+                          Text(
+                            [
+                              if (username.isNotEmpty) userLabel,
+                              dateText,
+                            ].where((v) => v.isNotEmpty).join(' · '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: SocialDesignTheme.muted,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    tooltip: context.lt(
+                      ar: 'خيارات المنشور',
+                      en: 'Post options',
+                    ),
+                    icon: const Icon(
+                      Icons.more_horiz_rounded,
+                      color: SocialDesignTheme.indigo,
+                    ),
+                    onSelected: (value) {
+                      if (value == 'report') {
+                        unawaited(_runReportSafely(context));
+                      } else {
+                        onOpenDetails?.call();
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      if (onOpenDetails != null)
+                        PopupMenuItem(
+                          value: 'details',
+                          child: Text(
+                            context.lt(ar: 'عرض المنشور', en: 'View post'),
+                          ),
+                        ),
+                      if (onReport != null)
+                        PopupMenuItem(
+                          value: 'report',
+                          child: Text(l10n.commonReport),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (post.sharedEntity != null)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: _SharedEntityPreviewCard(entity: post.sharedEntity!),
+              ),
+            if (mediaItems.isNotEmpty)
+              GestureDetector(
+                onTap: onOpenDetails,
+                onDoubleTap: onToggleLike == null
+                    ? null
+                    : () {
+                        if (!post.isLiked) unawaited(onToggleLike!());
+                      },
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 600),
+                  child: _InlineFeedMediaGalleryPreview(
+                    items: mediaItems,
+                    aspectRatio: ratio,
+                    autoPlay: autoPlayVideoPreview || isReel,
+                    fallbackColor: SocialDesignTheme.background,
+                    cacheIdentity: 'post_${post.id}',
+                    cacheVersion: post.updatedAt?.toIso8601String(),
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              child: Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                children: [
+                  SocialPostAction(
+                    icon: post.isLiked
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    label: context.lt(ar: 'إعجاب', en: 'Like'),
+                    count: post.likesCount,
+                    active: post.isLiked,
+                    onPressed: onToggleLike,
+                  ),
+                  SocialPostAction(
+                    icon: Icons.mode_comment_outlined,
+                    label: context.lt(ar: 'التعليقات', en: 'Comments'),
+                    count: post.commentsCount,
+                    onPressed: !commentsEnabled || onOpenComments == null
+                        ? null
+                        : () async => onOpenComments!(),
+                  ),
+                  SocialPostAction(
+                    icon: Icons.share_outlined,
+                    label: l10n.commonShare,
+                    onPressed: sharingEnabled ? () => _share(context) : null,
+                  ),
+                  SocialPostAction(
+                    icon: post.isSaved
+                        ? Icons.bookmark_rounded
+                        : Icons.bookmark_outline_rounded,
+                    label: context.lt(ar: 'حفظ', en: 'Save'),
+                    active: post.isSaved,
+                    onPressed: onToggleSave,
+                  ),
+                ],
+              ),
+            ),
+            if (availabilityNote != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: _PostAvailabilityNote(
+                  icon: !commentsEnabled
+                      ? Icons.mode_comment_outlined
+                      : Icons.share_outlined,
+                  text: availabilityNote,
+                ),
+              ),
+            if (post.caption.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: SocialPostCaption(
+                  username: userLabel,
+                  caption: post.caption.trim(),
+                ),
+              ),
+            if (post.reviewRating != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                child: Wrap(
+                  spacing: 4,
+                  children: List.generate(
+                    5,
+                    (i) => Icon(
+                      i < post.reviewRating!
+                          ? Icons.star_rounded
+                          : Icons.star_border_rounded,
+                      color: SocialDesignTheme.gold,
+                      size: 18,
+                    ),
+                  ),
+                ),
+              ),
+            if (isMerchantReview)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: _MerchantReviewPreview(
+                  post: post,
+                  onOpenMerchantLink: onOpenMerchantLink,
+                ),
+              ),
+            if (commentsEnabled)
+              for (final comment in post.commentPreview)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+                  child: InkWell(
+                    onTap: onOpenComments,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CircleAvatar(
+                          radius: 12,
+                          backgroundImage: appCachedImageProvider(
+                            comment.author.imageUrl,
+                          ),
+                          child: (comment.author.imageUrl ?? '').trim().isEmpty
+                              ? const Icon(Icons.person_outline, size: 16)
+                              : null,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              children: [
+                                TextSpan(
+                                  text:
+                                      '${comment.author.fullName.trim().isNotEmpty ? comment.author.fullName : comment.author.username ?? context.lt(ar: 'مستخدم', en: 'Member')}  ',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                TextSpan(text: comment.body),
+                              ],
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: SocialDesignTheme.ink,
+                              fontSize: 13,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  if (isReel)
-                    const _MiniBadge(
-                      label: 'Reel',
-                      icon: Icons.play_circle_outline_rounded,
-                    ),
-                  if (onReport != null)
-                    PopupMenuButton<String>(
-                      onSelected: (value) {
-                        if (value != 'report') return;
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          if (!context.mounted) return;
-                          Future<void>.delayed(
-                            const Duration(milliseconds: 220),
-                            () {
-                              if (!context.mounted) return;
-                              unawaited(_runReportSafely(context));
-                            },
-                          );
-                        });
-                      },
-                      itemBuilder: (_) => [
-                        PopupMenuItem<String>(
-                          value: 'report',
-                          child: Text(l10n.commonReport),
-                        ),
-                      ],
-                      icon: const Icon(Icons.more_horiz_rounded),
-                    ),
-                ],
-              ),
-              if (hasCaption) ...[
-                const SizedBox(height: 12),
-                SocialMentionHashtagText(
-                  text: caption,
-                  style: TextStyle(
-                    color: scheme.onSurface,
-                    fontWeight: FontWeight.w600,
-                    height: 1.45,
-                  ),
-                  maxLines: 5,
-                  overflow: TextOverflow.ellipsis,
                 ),
-                if (dateText.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Text(
-                      dateText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: scheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ] else if (dateText.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
+            if (onOpenComments != null && commentsEnabled)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton(
+                  onPressed: onOpenComments,
                   child: Text(
-                    dateText,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: scheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
+                    context.lt(
+                      ar: 'عرض جميع التعليقات (${post.commentsCount})',
+                      en: 'View all comments (${post.commentsCount})',
+                    ),
+                    style: const TextStyle(
+                      color: SocialDesignTheme.muted,
                       fontSize: 12,
                     ),
                   ),
                 ),
-              ],
-              if (post.sharedEntity != null) ...[
-                const SizedBox(height: 12),
-                _SharedEntityPreviewCard(entity: post.sharedEntity!),
-              ],
-              if (mediaItems.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                ConstrainedBox(
-                  // Bound the media height so a reel/portrait card never occupies
-                  // almost the whole screen inside the Community feed (§9).
-                  constraints: const BoxConstraints(maxHeight: 460),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(20),
-                    child: _InlineFeedMediaGalleryPreview(
-                      items: mediaItems,
-                      // Compact vertical preview for reels (4:5), not full-screen
-                      // 9:16; normal images use 4:5 too.
-                      aspectRatio: 4 / 5,
-                      autoPlay: shouldAutoPlayPreview,
-                      fallbackColor: scheme.surfaceContainerHighest,
-                      cacheIdentity: 'post_${post.id}',
-                      cacheVersion: post.updatedAt?.toIso8601String(),
-                    ),
-                  ),
-                ),
-              ],
-              if (post.reviewRating != null) ...[
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 4,
-                  children: List<Widget>.generate(
-                    5,
-                    (index) => Icon(
-                      index < post.reviewRating!
-                          ? Icons.star_rounded
-                          : Icons.star_border_rounded,
-                      color: const Color(0xFFF4B942),
-                      size: 18,
-                    ),
-                  ),
-                ),
-              ],
-              if (isMerchantReview) ...[
-                const SizedBox(height: 10),
-                _MerchantReviewPreview(
-                  post: post,
-                  onOpenMerchantLink: onOpenMerchantLink,
-                ),
-              ],
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _MetricChip(
-                    icon: post.isLiked
-                        ? Icons.favorite_rounded
-                        : Icons.favorite_border_rounded,
-                    label: '${post.likesCount}',
-                    accent: post.isLiked ? const Color(0xFFDD4268) : null,
-                    onTap: onToggleLike,
-                  ),
-                  _MetricChip(
-                    icon: Icons.mode_comment_outlined,
-                    label: '${post.commentsCount}',
-                    onTap: onOpenComments == null
-                        ? null
-                        : () async => onOpenComments!.call(),
-                  ),
-                  _MetricChip(
-                    icon: post.isSaved
-                        ? Icons.bookmark_rounded
-                        : Icons.bookmark_outline_rounded,
-                    label: '${post.savesCount}',
-                    accent: post.isSaved ? const Color(0xFF3468E8) : null,
-                    onTap: onToggleSave,
-                  ),
-                  _MetricChip(
-                    icon: isVideo
-                        ? Icons.ondemand_video_outlined
-                        : Icons.visibility_outlined,
-                    label:
-                        '${isVideo ? post.reelViewsCount : post.impressionsCount}',
-                  ),
-                ],
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  if (post.contentLink != null || post.merchantId != null)
-                    Expanded(
-                      child: FilledButton.tonalIcon(
-                        onPressed: onOpenMerchantLink,
-                        icon: const Icon(Icons.storefront_outlined),
-                        label: Text(
-                          isMerchantReview
-                              ? l10n.socialOpenStoreCta
-                              : l10n.socialPostCardOpenLinkedCommerce,
-                        ),
-                      ),
-                    ),
-                  if (post.contentLink != null || post.merchantId != null)
-                    const SizedBox(width: 8),
-                  IconButton(
-                    tooltip: l10n.commonShare,
-                    onPressed: () => showSocialShareSheet(
-                      context: context,
-                      entityType: socialEntityTypeFromPost(post),
-                      entityId: post.id,
-                      previewTitle: userLabel,
-                      previewSubtitle: post.caption.trim(),
-                      externalShareText: [
-                        post.caption.trim(),
-                        if ((mediaUrl ?? '').trim().isNotEmpty) mediaUrl!,
-                      ].where((item) => item.trim().isNotEmpty).join('\n'),
-                      sharedSnapshot: buildSocialSharedSnapshotFromPost(post),
-                    ),
-                    icon: const Icon(Icons.ios_share_rounded),
+            if (post.contentLink != null || post.merchantId != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+                child: TextButton.icon(
+                  onPressed: onOpenMerchantLink,
+                  icon: const Icon(Icons.storefront_outlined),
+                  label: Text(
+                    isMerchantReview
+                        ? l10n.socialOpenStoreCta
+                        : l10n.socialPostCardOpenLinkedCommerce,
                   ),
-                ],
+                ),
               ),
-            ],
-          ),
+            const SizedBox(height: 6),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _PostAvailabilityNote extends StatelessWidget {
+  const _PostAvailabilityNote({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: SocialDesignTheme.background,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: SocialDesignTheme.muted.withValues(alpha: 0.14),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: SocialDesignTheme.muted),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: SocialDesignTheme.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -601,18 +714,18 @@ class _InlineFeedMediaContent extends StatelessWidget {
                 color: Colors.black.withValues(alpha: 0.36),
                 borderRadius: BorderRadius.circular(999),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
+                  const Icon(
                     Icons.play_circle_fill_rounded,
                     color: Colors.white,
                     size: 16,
                   ),
-                  SizedBox(width: 5),
+                  const SizedBox(width: 5),
                   Text(
-                    'Reel',
-                    style: TextStyle(
+                    context.lt(ar: 'ريلز', en: 'Reels'),
+                    style: const TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w800,
                       fontSize: 11,
@@ -956,13 +1069,15 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   bool _tickerEnabled = true;
   bool _scrollIdle = true;
   bool _visibilityCheckQueued = false;
+  bool _initializing = false;
+  int _initializationGeneration = 0;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _activeVideoKey.addListener(_onActiveVideoChanged);
-    _initializeVideo();
+    _scheduleVisibilityCheck();
   }
 
   @override
@@ -998,7 +1113,7 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
     super.didUpdateWidget(oldWidget);
     if ((oldWidget.videoUrl ?? '').trim() != (widget.videoUrl ?? '').trim()) {
       unawaited(_disposeController());
-      _initializeVideo();
+      _scheduleVisibilityCheck();
       return;
     }
     if (oldWidget.muted != widget.muted && _controller != null) {
@@ -1049,23 +1164,27 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   }
 
   Future<void> _initializeVideo() async {
-    if (!appSupportsInlineVideoPlayback) return;
+    if (!appSupportsInlineVideoPlayback || _initializing) return;
+    final generation = ++_initializationGeneration;
     final rawUrl = (widget.videoUrl ?? '').trim();
     if (rawUrl.isEmpty) return;
-    final source = await MediaCacheService.instance.resolveVideoSource(
-      url: rawUrl,
-      cacheIdentity: '${widget.cacheIdentity}_video',
-      version: widget.cacheVersion,
-      scope: MediaCacheScope.public,
-    );
-    final controller = source.isLocalFile
-        ? VideoPlayerController.file(source.file!)
-        : VideoPlayerController.networkUrl(source.uri);
+    _initializing = true;
+    VideoPlayerController? controller;
     try {
-      await controller.initialize();
+      final source = await MediaCacheService.instance.resolveVideoSource(
+        url: rawUrl,
+        cacheIdentity: '${widget.cacheIdentity}_video',
+        version: widget.cacheVersion,
+        scope: MediaCacheScope.public,
+      );
+      if (!mounted || generation != _initializationGeneration) return;
+      controller = source.isLocalFile
+          ? VideoPlayerController.file(source.file!)
+          : VideoPlayerController.networkUrl(source.uri);
+      await controller.initialize().timeout(const Duration(seconds: 20));
       await controller.setLooping(true);
       await controller.setVolume(widget.muted ? 0 : 1);
-      if (!mounted) {
+      if (!mounted || generation != _initializationGeneration) {
         await controller.dispose();
         return;
       }
@@ -1074,7 +1193,12 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
       setState(() {});
       _scheduleVisibilityCheck();
     } catch (_) {
-      await controller.dispose();
+      await controller?.dispose();
+    } finally {
+      _initializing = false;
+      if (mounted && generation != _initializationGeneration) {
+        _scheduleVisibilityCheck();
+      }
     }
   }
 
@@ -1104,6 +1228,17 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   }
 
   Future<void> _syncPlaybackToViewport() async {
+    // Sliver cache children are built before they enter the viewport. Do not
+    // let their downloads/decoders compete with the visible post.
+    if (_controller == null &&
+        !_initializing &&
+        _appActive &&
+        _routeVisible &&
+        _tickerEnabled &&
+        _scrollIdle &&
+        _visibleFraction() >= 0.72) {
+      await _initializeVideo();
+    }
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     final shouldPlay =
@@ -1184,13 +1319,7 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   }
 
   Future<void> _disposeController() async {
-    if (_scrollPosition != null) {
-      _scrollPosition!.removeListener(_handleScroll);
-      _scrollPosition!.isScrollingNotifier.removeListener(
-        _handleScrollActivityChanged,
-      );
-      _scrollPosition = null;
-    }
+    _initializationGeneration++;
     final controller = _controller;
     _controller = null;
     _videoReady = false;
@@ -1203,6 +1332,10 @@ class _InlineFeedVideoPreviewState extends State<_InlineFeedVideoPreview>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     appRouteObserver.unsubscribe(this);
+    _scrollPosition?.removeListener(_handleScroll);
+    _scrollPosition?.isScrollingNotifier.removeListener(
+      _handleScrollActivityChanged,
+    );
     _activeVideoKey.removeListener(_onActiveVideoChanged);
     if (_activeVideoKey.value == widget.cacheIdentity) {
       _activeVideoKey.value = null;
@@ -1266,8 +1399,8 @@ class _FeedPreviewMuteButton extends StatelessWidget {
           customBorder: const CircleBorder(),
           onTap: onTap,
           child: SizedBox(
-            width: 40,
-            height: 40,
+            width: 44,
+            height: 44,
             child: Icon(
               muted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
               color: Colors.white,
@@ -1275,82 +1408,6 @@ class _FeedPreviewMuteButton extends StatelessWidget {
             ),
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _MetricChip extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final Color? accent;
-  final Future<void> Function()? onTap;
-
-  const _MetricChip({
-    required this.icon,
-    required this.label,
-    this.accent,
-    this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final baseColor = accent ?? Theme.of(context).colorScheme.primary;
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
-      onTap: onTap == null ? null : () => onTap!.call(),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: baseColor.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 17, color: baseColor),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(color: baseColor, fontWeight: FontWeight.w800),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MiniBadge extends StatelessWidget {
-  final String label;
-  final IconData? icon;
-
-  const _MiniBadge({required this.label, this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) ...[
-            Icon(icon, size: 14, color: Theme.of(context).colorScheme.primary),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            label,
-            style: TextStyle(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.w800,
-              fontSize: 11,
-            ),
-          ),
-        ],
       ),
     );
   }

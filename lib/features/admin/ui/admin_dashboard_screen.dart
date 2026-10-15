@@ -13,12 +13,16 @@ import '../models/admin_financial_kpi_model.dart';
 import '../models/admin_orders_overview_model.dart';
 import '../state/admin_controller.dart';
 import 'admin_advanced_tools_hub_screen.dart';
+import 'admin_ai_chat_review_screen.dart';
 import 'employee_self_portal_screen.dart';
+import 'admin_influencer_referrals_screen.dart';
 import 'admin_referral_coupons_screen.dart';
 import 'admin_audit_security_center_screen.dart';
 import 'admin_approvals_hub_screen.dart';
 import 'admin_ad_board_screen.dart';
 import 'admin_audit_log_screen.dart';
+import 'admin_employee_activity_screen.dart';
+import 'admin_emergency_requests_screen.dart';
 import 'admin_support_settings_screen.dart';
 import 'admin_attendance_screen.dart';
 import 'admin_employees_screen.dart';
@@ -34,6 +38,7 @@ import 'admin_customer_reliability_policy_screen.dart';
 import 'admin_device_reliability_screen.dart';
 import 'admin_feature_flags_center_screen.dart';
 import 'admin_financial_reports_hub_screen.dart';
+import 'admin_courier_reconciliation_screen.dart';
 import 'admin_maintenance_screen.dart';
 import 'admin_merchant_approvals_screen.dart';
 import 'admin_merchant_state_management_screen.dart';
@@ -54,10 +59,13 @@ import 'admin_support_tickets_screen.dart';
 import 'admin_taxi_captain_requests_screen.dart';
 import 'admin_taxi_cash_payments_screen.dart';
 import 'admin_taxi_governance_screen.dart';
+import 'monitoring_operations_list_screen.dart';
+import 'monitoring_taxi_rides_screen.dart';
 import '../../paid_upgrades/ui/admin_paid_upgrade_requests_screen.dart';
 import '../../coupons/ui/coupon_management_screen.dart';
 import '../../real_estate/ui/admin_real_estate_pending_screen.dart';
 import '../../ai_dev_support/screens/ai_dev_support_dashboard_screen.dart';
+import '../../games/ui/admin_team_code_screen.dart';
 
 /// Ù„ÙˆØ­Ø© Ø§Ù„Ø£Ø¯Ù…Ù† Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© Ø§Ù„ØªÙŠ ØªØ¬Ù…Ø¹ KPIs ÙˆØ§Ù„Ù…ÙˆØ§ÙÙ‚Ø§Øª ÙˆØ§Ù„ØªÙ†Ù‚Ù„ Ø¥Ù„Ù‰ Ø§Ù„Ø£Ø¯ÙˆØ§Øª
 /// Ø§Ù„Ø«Ø§Ù†ÙˆÙŠØ© Ù…Ù† Ù†Ù‚Ø·Ø© Ø¯Ø®ÙˆÙ„ ÙˆØ§Ø­Ø¯Ø©.
@@ -106,6 +114,8 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   );
   Set<String> _effectiveAdminPermissions = const <String>{};
   bool _effectiveAdminWildcard = false;
+  Map<String, int> _dashboardCounts = const <String, int>{};
+  AdminFinancialKpiModel? _headlineFinancial;
 
   /// ÙŠØ­Ù…Ù„ snapshot Ø§Ù„Ø¨Ø¯Ø§ÙŠØ© Ù…Ù† `AdminController` Ø«Ù… ÙŠØ·Ù„Ø¨ summaries Ø§Ù„Ø¥Ø¶Ø§ÙÙŠØ©
   /// Ø§Ù„Ø®Ø§ØµØ© Ø¨Ø§Ù„Ø¹Ù†Ø§ÙˆÙŠÙ† Ø§Ù„Ø¹Ù„ÙŠØ§ ÙˆØ§Ù„ÙØªØ±Ø© Ø§Ù„Ù…Ø®ØªØ§Ø±Ø©.
@@ -118,13 +128,46 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   /// bootstrap Ø§Ù„Ù…ÙˆØ­Ø¯ Ù„Ù„Ø´Ø§Ø´Ø©. ÙŠÙØµÙ„ Ø¨ÙŠÙ† state Ø§Ù„Ø£Ø¯Ù…Ù† Ø§Ù„Ø¹Ø§Ù…Ø© ÙˆØ¨ÙŠÙ† summaries
   /// Ø§Ù„Ù…Ø­Ù„ÙŠØ© Ø§Ù„Ù…Ø¹ØªÙ…Ø¯Ø© Ø¹Ù„Ù‰ ÙÙ„Ø§ØªØ± Ø§Ù„ÙØªØ±Ø©.
   Future<void> _bootstrap() async {
-    await ref.read(adminControllerProvider.notifier).bootstrap();
     await Future.wait([
       _loadMyPermissions(),
+      _loadDashboardCounts(),
       _loadHeadlineSummary(),
       _loadPeriodSummary(),
     ]);
   }
+
+  Future<void> _loadDashboardCounts() async {
+    try {
+      final api = ref.read(adminApiProvider);
+      final auth = ref.read(authControllerProvider);
+      final results = await Future.wait<dynamic>([
+        api.approvalInbox(limit: 1),
+        if (auth.isAdmin)
+          api.listPendingServiceProviders(limit: 1, offset: 0)
+        else
+          Future.value(const <String, dynamic>{'total': 0}),
+        api.listPendingServiceOfferings(limit: 1, offset: 0),
+      ]);
+      final approval = _asMap(results[0]);
+      final rawCounts = _asMap(approval['counts']);
+      final counts = <String, int>{
+        for (final entry in rawCounts.entries)
+          entry.key: int.tryParse('${entry.value}') ?? 0,
+        'serviceProviders':
+            int.tryParse('${_asMap(results[1])['total'] ?? 0}') ?? 0,
+        'serviceOfferings':
+            int.tryParse('${_asMap(results[2])['total'] ?? 0}') ?? 0,
+      };
+      if (!mounted) return;
+      setState(() => _dashboardCounts = counts);
+    } catch (_) {
+      // Counts are enhancements; the dashboard remains usable if one module
+      // is unavailable or the current employee lacks its permission.
+    }
+  }
+
+  int _dashboardCount(String key, int fallback) =>
+      _dashboardCounts[key] ?? fallback;
 
   Future<void> _loadMyPermissions() async {
     try {
@@ -152,7 +195,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   bool _isTransientSummaryError(Object error) {
     if (error is! DioException) return false;
     final statusCode = error.response?.statusCode;
-    if (statusCode == 401 || statusCode == 403 || statusCode == 408) {
+    // Authentication refreshes can briefly surface as 401, while 408 is
+    // retryable. A 403 is a stable permission decision and retrying it only
+    // delays limited-role staff dashboards on slow connections.
+    if (statusCode == 401 || statusCode == 408) {
       return true;
     }
     final data = error.response?.data;
@@ -176,7 +222,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
     final api = ref.read(adminApiProvider);
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
-        return await api.ordersOverview(
+        return await api.ordersSummary(
           status: status,
           period: period,
           from: from,
@@ -218,26 +264,38 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   }
 
   Future<void> _refreshAll() async {
-    await _bootstrap();
+    await Future.wait([
+      _loadMyPermissions(),
+      _loadDashboardCounts(),
+      _loadHeadlineSummary(),
+      _loadPeriodSummary(),
+    ]);
   }
 
   /// ÙŠØ­Ù…Ù„ Ù…Ø¤Ø´Ø±Ø§Øª all-time Ø§Ù„Ø³Ø±ÙŠØ¹Ø© Ø§Ù„ØªÙŠ ØªØ¸Ù‡Ø± ÙÙŠ Ø£Ø¹Ù„Ù‰ Ø§Ù„Ø´Ø§Ø´Ø©.
   Future<void> _loadHeadlineSummary() async {
+    if (!mounted) return;
     setState(() {
       _headlineLoading = true;
       _headlineError = null;
     });
     try {
-      final raw = await _loadOrdersOverviewSnapshot(
-        status: 'all',
-        period: 'all',
-      );
+      final results = await Future.wait<dynamic>([
+        _loadOrdersOverviewSnapshot(status: 'all', period: 'all'),
+        _loadFinancialSnapshot(period: 'all'),
+      ]);
+      final raw = results[0] as Map<String, dynamic>?;
+      final financialRaw = results[1] as Map<String, dynamic>?;
       final summary = raw == null
           ? _emptyOrdersSummary
           : AdminOrdersOverviewSummary.fromJson(_asMap(raw['summary']));
+      final financial = financialRaw == null
+          ? _headlineFinancial
+          : AdminFinancialKpiModel.fromJson(financialRaw);
       if (!mounted) return;
       setState(() {
         _allTimeOrders = summary;
+        _headlineFinancial = financial;
         _headlineLoading = false;
         _headlineError = null;
       });
@@ -257,6 +315,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   /// - Ø¹Ù†Ø¯ Ø§Ø®ØªÙ„Ø§Ù Ø£Ø±Ù‚Ø§Ù… period cards Ø¹Ù† Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ±ØŒ Ø§Ø¨Ø¯Ø£ Ù…Ù† Ù‡Ø°Ù‡ Ø§Ù„Ø¯Ø§Ù„Ø© Ø«Ù…
   ///   Ø±Ø§Ø¬Ø¹ endpointÙŠ `ordersOverview` Ùˆ`adminFinancialKpis`.
   Future<void> _loadPeriodSummary() async {
+    if (!mounted) return;
     setState(() {
       _periodLoading = true;
       _periodError = null;
@@ -308,6 +367,7 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
   }
 
   AdminFinancialKpiModel _allTimeFinancial(AdminState state) {
+    if (_headlineFinancial != null) return _headlineFinancial!;
     final raw = _asMap(state.adminFinancialKpisV3);
     if (raw.isNotEmpty) {
       return AdminFinancialKpiModel.fromJson(raw);
@@ -520,6 +580,61 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupHome,
             onTap: (_) => _openPage(const CommandCenterScreen()),
           ),
+        if (auth.isSuperAdmin)
+          AppUserDrawerItem(
+            icon: Icons.psychology_alt_rounded,
+            label: navText(
+              ar: 'مراجعة محادثات الذكاء الاصطناعي',
+              en: 'AI chat review',
+            ),
+            subtitle: navText(
+              ar: 'مشاهدة جلسات المساعد الذكي وتحسين ردوده',
+              en: 'Review assistant sessions and improve answers',
+            ),
+            group: groupHome,
+            onTap: (_) => _openPage(const AdminAiChatReviewScreen()),
+          ),
+        if (canPermission('taxi.rides.read'))
+          AppUserDrawerItem(
+            icon: Icons.local_taxi_rounded,
+            label: navText(ar: 'متابعة الرحلات', en: 'Rides monitoring'),
+            subtitle: navText(
+              ar: 'شاشة خاصة لمتابعة رحلات التكسي وحالاتها المباشرة',
+              en: 'Dedicated live taxi rides monitoring screen',
+            ),
+            group: groupDeliveryTaxi,
+            onTap: (_) => _openPage(const MonitoringTaxiRidesScreen()),
+          ),
+        if (canPermission('orders.read'))
+          AppUserDrawerItem(
+            icon: Icons.receipt_long_rounded,
+            label: navText(ar: 'متابعة الطلبات', en: 'Orders monitoring'),
+            subtitle: navText(
+              ar: 'شاشة تشغيلية خاصة للطلبات وحالاتها ومشاكلها',
+              en: 'Dedicated operational order status screen',
+            ),
+            group: groupOrders,
+            onTap: (_) => _openPage(
+              const MonitoringOperationsListScreen(
+                mode: MonitoringOperationsMode.orders,
+              ),
+            ),
+          ),
+        if (canPermission('delivery.couriers.read'))
+          AppUserDrawerItem(
+            icon: Icons.delivery_dining_rounded,
+            label: navText(ar: 'متابعة الدلفري', en: 'Delivery monitoring'),
+            subtitle: navText(
+              ar: 'شاشة خاصة للدلفري: الاتصال، الانشغال، والطلبات الجارية',
+              en: 'Dedicated courier availability and active delivery screen',
+            ),
+            group: groupDeliveryTaxi,
+            onTap: (_) => _openPage(
+              const MonitoringOperationsListScreen(
+                mode: MonitoringOperationsMode.delivery,
+              ),
+            ),
+          ),
         if (canPermission('employees.read') ||
             canPermission('employees.create'))
           AppUserDrawerItem(
@@ -554,6 +669,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupHome,
             onTap: (_) => _openPage(const AdminReferralCouponsScreen()),
           ),
+        if (canPermission('coupons.agents.manage'))
+          AppUserDrawerItem(
+            icon: Icons.campaign_rounded,
+            label: navText(ar: 'المؤثرون والمشاهير', en: 'Influencers'),
+            subtitle: navText(
+              ar: 'إنشاء الأكواد ومراجعة الإحالات المؤهلة والاستحقاقات',
+              en: 'Create codes and review qualified referrals and payouts',
+            ),
+            group: groupHome,
+            onTap: (_) => _openPage(const AdminInfluencerReferralsScreen()),
+          ),
         if (canAny(const [
           'payroll.prepare',
           'payroll.review',
@@ -578,6 +704,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             subtitle: l10n.adminDashboardHomeDescription,
             group: groupHome,
             onTap: (_) async {},
+          ),
+        if (auth.isSuperAdmin)
+          AppUserDrawerItem(
+            icon: Icons.emergency_rounded,
+            label: 'طلبات الطوارئ',
+            subtitle: 'الموقع الحي والمحادثة والاستجابة لنداءات SOS',
+            group: groupHome,
+            onTap: (_) => _openPage(const AdminEmergencyRequestsScreen()),
           ),
         AppUserDrawerItem(
           icon: Icons.refresh_rounded,
@@ -604,13 +738,31 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             label: l10n.adminDashboardApprovalsHub,
             subtitle: l10n.adminDashboardApprovalsHubDescription,
             badgeCount:
-                state.pendingMerchants.length +
-                state.pendingDeliveryAccounts.length +
-                state.pendingTaxiCaptainAccounts.length +
-                state.pendingTaxiProfileEditRequests.length +
-                state.pendingTaxiCashPayments.length +
-                state.pendingServiceProviderApplications.length +
-                state.pendingServiceOfferings.length,
+                _dashboardCount('merchants', state.pendingMerchants.length) +
+                _dashboardCount(
+                  'deliveryAccounts',
+                  state.pendingDeliveryAccounts.length,
+                ) +
+                _dashboardCount(
+                  'taxiCaptainAccounts',
+                  state.pendingTaxiCaptainAccounts.length,
+                ) +
+                _dashboardCount(
+                  'taxiProfileEdits',
+                  state.pendingTaxiProfileEditRequests.length,
+                ) +
+                _dashboardCount(
+                  'taxiCashPayments',
+                  state.pendingTaxiCashPayments.length,
+                ) +
+                _dashboardCount(
+                  'serviceProviders',
+                  state.pendingServiceProviderApplications.length,
+                ) +
+                _dashboardCount(
+                  'serviceOfferings',
+                  state.pendingServiceOfferings.length,
+                ),
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminApprovalsHubScreen()),
           ),
@@ -619,7 +771,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             icon: Icons.storefront_outlined,
             label: l10n.adminDashboardMerchantApprovals,
             subtitle: l10n.adminDashboardMerchantApprovalsDescription,
-            badgeCount: state.pendingMerchants.length,
+            badgeCount: _dashboardCount(
+              'merchants',
+              state.pendingMerchants.length,
+            ),
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminMerchantApprovalsScreen()),
           ),
@@ -636,7 +791,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             icon: Icons.home_repair_service_outlined,
             label: 'إدارة الخدمات',
             subtitle: 'مراجعة مقدمي الخدمة والخدمات والتقارير والإعدادات',
-            badgeCount: state.pendingServiceOfferings.length,
+            badgeCount: _dashboardCount(
+              'serviceOfferings',
+              state.pendingServiceOfferings.length,
+            ),
             group: groupApprovals,
             onTap: (_) => _openPage(const AdminServicesHubScreen()),
           ),
@@ -645,7 +803,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             icon: Icons.home_repair_service_outlined,
             label: 'اشتراكات أصحاب الخدمة',
             subtitle: 'تسعير الاشتراك وتأكيد الاستلام النقدي',
-            badgeCount: state.pendingServiceProviderApplications.length,
+            badgeCount: _dashboardCount(
+              'serviceProviders',
+              state.pendingServiceProviderApplications.length,
+            ),
             group: groupApprovals,
             onTap: (_) =>
                 _openPage(const AdminServiceProviderApplicationsScreen()),
@@ -656,8 +817,14 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             label: l10n.adminDashboardTaxiCaptainRequests,
             subtitle: l10n.adminDashboardTaxiCaptainRequestsDescription,
             badgeCount:
-                state.pendingTaxiCaptainAccounts.length +
-                state.pendingTaxiProfileEditRequests.length,
+                _dashboardCount(
+                  'taxiCaptainAccounts',
+                  state.pendingTaxiCaptainAccounts.length,
+                ) +
+                _dashboardCount(
+                  'taxiProfileEdits',
+                  state.pendingTaxiProfileEditRequests.length,
+                ),
             group: groupDeliveryTaxi,
             onTap: (_) => _openPage(const AdminTaxiCaptainRequestsScreen()),
           ),
@@ -666,7 +833,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             icon: Icons.payments_outlined,
             label: l10n.adminDashboardCaptainSubscriptionPayments,
             subtitle: l10n.adminDashboardCaptainSubscriptionPaymentsDescription,
-            badgeCount: state.pendingTaxiCashPayments.length,
+            badgeCount: _dashboardCount(
+              'taxiCashPayments',
+              state.pendingTaxiCashPayments.length,
+            ),
             group: groupDeliveryTaxi,
             onTap: (_) => _openPage(const AdminTaxiCashPaymentsScreen()),
           ),
@@ -724,15 +894,15 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
         if (canPermission('sections.availability.manage'))
           AppUserDrawerItem(
             icon: Icons.toggle_off_outlined,
-            label: 'إتاحة الأقسام',
-            subtitle: 'فتح وإغلاق الأقسام ورسائل الإتاحة للمستخدم',
+            label: 'إغلاق التطبيق وإدارة الأقسام',
+            subtitle: 'الصيانة العامة وجدولة التسوق والتكسي ورسائل الإتاحة',
             group: groupSystem,
             onTap: (_) => _openPage(const AdminSectionAvailabilityScreen()),
           ),
         if (canPermission('support.tickets.read'))
           AppUserDrawerItem(
             icon: Icons.support_agent_rounded,
-            label: navText(ar: 'تذاكر الدعم', en: 'Support tickets'),
+            label: navText(ar: 'طلبات الدعم', en: 'Support requests'),
             subtitle: navText(
               ar: 'متابعة الشكاوى وتعديل الطلبات المرتبطة',
               en: 'Handle complaints and linked order amendments',
@@ -772,7 +942,15 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             group: groupSecurity,
             onTap: (_) => _openPage(const AdminAuditLogScreen()),
           ),
-        if (canPermission('system.notifications.view'))
+        if (auth.isSuperAdmin)
+          AppUserDrawerItem(
+            icon: Icons.manage_history_rounded,
+            label: 'نشاط الموظفين',
+            subtitle: 'كل إجراءات موظفي المتابعة ونشاطهم التشغيلي',
+            group: groupSecurity,
+            onTap: (_) => _openPage(const AdminEmployeeActivityScreen()),
+          ),
+        if (canAny(const ['system.notifications.view', 'ops.alerts.read']))
           AppUserDrawerItem(
             icon: Icons.notifications_active_outlined,
             label: l10n.adminOpsNotificationCenterTitle,
@@ -858,7 +1036,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             icon: Icons.account_balance_wallet_outlined,
             label: l10n.adminDashboardMerchantReceivables,
             subtitle: l10n.adminDashboardMerchantReceivablesDescription,
-            badgeCount: state.pendingSettlements.length,
+            badgeCount: _dashboardCount(
+              'settlements',
+              state.pendingSettlements.length,
+            ),
             group: groupFinance,
             onTap: (_) => _openPage(const AdminReceivablesScreen()),
           ),
@@ -869,6 +1050,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             subtitle: l10n.adminDashboardFinancialReportsDescription,
             group: groupReports,
             onTap: (_) => _openPage(const AdminFinancialReportsHubScreen()),
+          ),
+        if (canPermission('reports.export'))
+          AppUserDrawerItem(
+            icon: Icons.delivery_dining_outlined,
+            label: navText(ar: 'تسويات الدلفري', en: 'Courier reconciliation'),
+            subtitle: navText(
+              ar: 'فروقات الشراء والتحصيل ورسوم الخدمة والمرفقات',
+              en: 'Purchase, collection, service fee, and receipt audit',
+            ),
+            group: groupFinance,
+            onTap: (_) => _openPage(const AdminCourierReconciliationScreen()),
           ),
         if (canPermission('customer_reliability.manage'))
           AppUserDrawerItem(
@@ -891,6 +1083,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             label: l10n.adminDashboardCourierCompetitions,
             group: groupMarketing,
             onTap: (_) => _openPage(const AdminCompetitionsScreen()),
+          ),
+        if (canPermission('competitions.manage'))
+          AppUserDrawerItem(
+            icon: Icons.vpn_key_rounded,
+            label: navText(ar: 'إدارة ألعاب مسلكي', en: 'Maslaki Games'),
+            subtitle: navText(
+              ar: 'تشغيل حملة شفرة الفريق ومتابعة الجلسات والمكافآت التجريبية',
+              en: 'Control Team Code and monitor test sessions and rewards',
+            ),
+            group: groupMarketing,
+            onTap: (_) => _openPage(const AdminTeamCodeScreen()),
           ),
         if (canPermission('community.posts.read'))
           AppUserDrawerItem(
@@ -980,12 +1183,24 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
       period: _period,
       periodLabel: _periodLabel(),
       customRange: _customRange,
-      pendingMerchantCount: state.pendingMerchants.length,
-      pendingTaxiApprovalsCount: state.pendingTaxiCaptainAccounts.length,
-      pendingTaxiEditsCount: state.pendingTaxiProfileEditRequests.length,
+      pendingMerchantCount: _dashboardCount(
+        'merchants',
+        state.pendingMerchants.length,
+      ),
+      pendingTaxiApprovalsCount: _dashboardCount(
+        'taxiCaptainAccounts',
+        state.pendingTaxiCaptainAccounts.length,
+      ),
+      pendingTaxiEditsCount: _dashboardCount(
+        'taxiProfileEdits',
+        state.pendingTaxiProfileEditRequests.length,
+      ),
       pendingFinancialActionsCount:
-          state.pendingSettlements.length +
-          state.pendingTaxiCashPayments.length,
+          _dashboardCount('settlements', state.pendingSettlements.length) +
+          _dashboardCount(
+            'taxiCashPayments',
+            state.pendingTaxiCashPayments.length,
+          ),
       countFormatter: _count,
       onRefresh: _refreshAll,
       onSelectPeriod: _setPeriod,

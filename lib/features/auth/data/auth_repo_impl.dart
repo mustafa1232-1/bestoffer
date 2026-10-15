@@ -21,6 +21,11 @@ class AuthRepoImpl implements AuthRepo {
     required String block,
     required String buildingNumber,
     required String apartment,
+    String? workTitle,
+    String? workCompany,
+    double? latitude,
+    double? longitude,
+    String? referralCode,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? imageFile,
@@ -35,6 +40,14 @@ class AuthRepoImpl implements AuthRepo {
       'block': block,
       'buildingNumber': buildingNumber,
       'apartment': apartment,
+      if (workTitle != null && workTitle.trim().isNotEmpty)
+        'workTitle': workTitle.trim(),
+      if (workCompany != null && workCompany.trim().isNotEmpty)
+        'workCompany': workCompany.trim(),
+      'latitude': ?latitude,
+      'longitude': ?longitude,
+      if (referralCode != null && referralCode.trim().isNotEmpty)
+        'referralCode': referralCode.trim().toUpperCase(),
       'analyticsConsentAccepted': analyticsConsentAccepted,
       'analyticsConsentVersion': analyticsConsentVersion,
     }, imageFile: imageFile);
@@ -88,6 +101,8 @@ class AuthRepoImpl implements AuthRepo {
     bool? merchantSupportsChat,
     bool? merchantSupportsAttachments,
     bool? merchantSupportsPharmacyWorkflow,
+    double? latitude,
+    double? longitude,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? ownerImageFile,
@@ -104,6 +119,8 @@ class AuthRepoImpl implements AuthRepo {
       'merchantActivityType': merchantActivityType.trim(),
       'merchantDescription': merchantDescription.trim(),
       'merchantPhone': normalizedMerchantPhone,
+      'latitude': ?latitude,
+      'longitude': ?longitude,
       'analyticsConsentAccepted': analyticsConsentAccepted,
       'analyticsConsentVersion': analyticsConsentVersion,
     };
@@ -183,6 +200,8 @@ class AuthRepoImpl implements AuthRepo {
     String? plateLetter,
     String? plateDigits,
     String? carColor,
+    double? latitude,
+    double? longitude,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? profileImageFile,
@@ -209,6 +228,8 @@ class AuthRepoImpl implements AuthRepo {
         'plateLetter': plateLetter?.trim(),
         'plateDigits': plateDigits?.trim(),
         'carColor': carColor?.trim(),
+        'latitude': ?latitude,
+        'longitude': ?longitude,
         'analyticsConsentAccepted': analyticsConsentAccepted,
         'analyticsConsentVersion': analyticsConsentVersion,
       },
@@ -228,6 +249,24 @@ class AuthRepoImpl implements AuthRepo {
     });
 
     await _saveAuthPayload(data, store);
+    return _readUser(data);
+  }
+
+  @override
+  Future<void> requestPinReset({required String phone}) async {
+    await api.requestPinReset(normalizeIraqiPhoneForAuth(phone));
+  }
+
+  @override
+  Future<UserModel> completeTemporaryPinChange({
+    required String currentPin,
+    required String newPin,
+  }) async {
+    final data = await api.completeTemporaryPinChange(
+      currentPin: normalizeAuthPin(currentPin),
+      newPin: normalizeAuthPin(newPin),
+    );
+    await _saveAuthPayloadIfPresent(data, store);
     return _readUser(data);
   }
 
@@ -330,6 +369,20 @@ Future<void> _saveAuthPayload(
     deviceSessionId: _readDeviceSessionId(payload),
     deviceRecoverySecret: _readDeviceRecoverySecret(payload),
   );
+}
+
+Future<void> _saveAuthPayloadIfPresent(
+  Map<String, dynamic> payload,
+  SecureStore store,
+) async {
+  if (!_hasAuthToken(payload)) return;
+  await _saveAuthPayload(payload, store);
+}
+
+bool _hasAuthToken(Map<String, dynamic> payload) {
+  final rawToken =
+      payload['token'] ?? payload['accessToken'] ?? payload['access_token'];
+  return rawToken is String && rawToken.trim().isNotEmpty;
 }
 
 UserModel _readUser(Map<String, dynamic> payload) {

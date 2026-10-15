@@ -1,3 +1,4 @@
+import { normalizeCatalogQuery } from './merchant-catalog-query.js';
 import * as service from "./merchants.service.js";
 import { validateCreateMerchant } from "./merchants.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
@@ -21,6 +22,8 @@ export function browseResponseCacheKey(query = {}) {
     String(query.department || query.store_department || "")
       .trim()
       .toLowerCase(),
+    String(query.lat ?? query.latitude ?? "").trim(),
+    String(query.lng ?? query.longitude ?? query.lon ?? "").trim(),
   ]);
 }
 
@@ -202,6 +205,11 @@ export async function create(req, res, next) {
 export async function list(req, res, next) {
   try {
     res.set("Cache-Control", PUBLIC_MERCHANT_CACHE_CONTROL);
+    // Store browsing is a public catalogue surface. Missing/outside GPS must
+    // not hide approved stores; service-area enforcement remains on orders,
+    // registration, and nearby-store discovery.
+    res.set("X-Service-Area-Gate", "BROWSE_GATE_DISABLED");
+
     const hot = readHotBrowseResponse(req.query);
     if (hot) {
       res.type("application/json");
@@ -212,6 +220,10 @@ export async function list(req, res, next) {
       discoverySubcategory:
         req.query.discoverySubcategory ?? req.query.discovery_subcategory,
       department: req.query.department ?? req.query.store_department,
+      latitude: parseNumberOrNull(req.query.lat ?? req.query.latitude),
+      longitude: parseNumberOrNull(
+        req.query.lng ?? req.query.longitude ?? req.query.lon
+      ),
     });
     writeHotBrowseResponse(req.query, data);
     res.json(data);
@@ -325,21 +337,16 @@ export async function getById(req, res, next) {
  */
 export async function listProducts(req, res, next) {
   try {
-    const limit = Math.max(1, Math.min(200, Number(req.query?.limit) || 200));
-    const offset = Math.max(0, Number(req.query?.offset) || 0);
+    const query = normalizeCatalogQuery(req.query);
     const merchantId = Number(req.params.merchantId);
+    const cacheParts = [merchantId, JSON.stringify(query)];
     res.set("Cache-Control", PUBLIC_MERCHANT_CACHE_CONTROL);
-    const hot = readPublicMerchantHot("merchant_products", [merchantId, limit, offset]);
-    if (hot) {
-      res.type("application/json");
-      return res.send(hot);
-    }
-    const data = await service.listMerchantProducts(merchantId, { limit, offset });
-    writePublicMerchantHot("merchant_products", [merchantId, limit, offset], data);
+    const hot = readPublicMerchantHot("merchant_products", cacheParts);
+    if (hot) { res.type("application/json"); return res.send(hot); }
+    const data = await service.listMerchantProducts(merchantId, query);
+    writePublicMerchantHot("merchant_products", cacheParts, data);
     res.json(data);
-  } catch (e) {
-    next(e);
-  }
+  } catch (e) { next(e); }
 }
 
 export async function listCategories(req, res, next) {

@@ -178,6 +178,7 @@ class SocialMentionComposerField extends ConsumerStatefulWidget {
   final String hintText;
   final int minLines;
   final int maxLines;
+  final int? maxLength;
   final bool enabled;
   final TextInputAction textInputAction;
   final ValueChanged<String>? onSubmitted;
@@ -188,6 +189,7 @@ class SocialMentionComposerField extends ConsumerStatefulWidget {
     required this.hintText,
     this.minLines = 1,
     this.maxLines = 4,
+    this.maxLength,
     this.enabled = true,
     this.textInputAction = TextInputAction.newline,
     this.onSubmitted,
@@ -469,6 +471,7 @@ class _SocialMentionComposerFieldState
           enabled: widget.enabled,
           minLines: widget.minLines,
           maxLines: widget.maxLines,
+          maxLength: widget.maxLength,
           textInputAction: widget.textInputAction,
           onSubmitted: widget.onSubmitted,
           decoration: InputDecoration(

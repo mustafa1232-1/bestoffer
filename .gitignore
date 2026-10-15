@@ -86,11 +86,21 @@ keystores/
 /qa_artifacts/
 /backend/qa_artifacts/**/qa-role-matrix.json
 /dist/
+/output/
+/outputs/
+/release_aab_out/
+/release_uploads/
 /backend/.qa_pg/
 /backend/.tmp_pg*
 **/.cxx/
 /overflow_debug.txt
 /backend/tmp_*
+/docs/qa/**/*.json
+/docs/qa/**/*.png
+/docs/qa/**/*.txt
+/test/features/games/failures/
+/.tmp_untracked_inventory.txt
+/android/app/src/release/java/dev/flutter/plugins/integration_test/
 
 # Local backup files
 *.backup.*

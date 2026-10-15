@@ -61,9 +61,6 @@ String orderStatusLabelForCustomer(
   required bool customerConfirmed,
 }) {
   final s = normalizeOrderStatusForUi(status);
-  if (customerConfirmed && s == 'delivered') {
-    return orderStatusLabel('received');
-  }
   return orderStatusLabel(s);
 }
 
@@ -74,6 +71,7 @@ String? ownerOrderStatusHint(
   bool isMerchantDelivery = false,
 }) {
   final s = normalizeOrderStatusForUi(status);
+  if (s == 'delivered') return null;
   switch (s) {
     case 'approved':
       return hasDeliveryAssigned
@@ -90,10 +88,6 @@ String? ownerOrderStatusHint(
       return 'الدلفري في الطريق إلى الزبون.';
     case 'arrived':
       return 'الدلفري وصل إلى الزبون وبانتظار التسليم.';
-    case 'delivered':
-      return customerConfirmed
-          ? null
-          : 'تم التسليم وبانتظار تأكيد الزبون للاستلام.';
     case 'failed_delivery':
       return 'تعذر التوصيل. يجب مراجعة الطلب.';
     default:
@@ -106,6 +100,7 @@ String? deliveryOrderStatusHint(
   required bool customerConfirmed,
 }) {
   final s = normalizeOrderStatusForUi(status);
+  if (s == 'delivered') return null;
   switch (s) {
     case 'approved':
       return 'تم تعيينك على الطلب وبانتظار بدء تجهيز المتجر.';
@@ -117,10 +112,6 @@ String? deliveryOrderStatusHint(
       return 'أنت في الطريق إلى الزبون. الخطوة التالية: وصلت.';
     case 'arrived':
       return 'أنت عند الزبون الآن. أكمل التسليم ثم اضغط تم تسليم الطلب.';
-    case 'delivered':
-      return customerConfirmed
-          ? null
-          : 'تم التسليم وبانتظار أن يؤكد الزبون الاستلام.';
     case 'failed_delivery':
       return 'تعذر تسليم الطلب. أضف ملاحظة وارجع للمتجر.';
     default:
@@ -134,6 +125,7 @@ String? customerOrderTrackingHint(
   required bool customerConfirmed,
 }) {
   final s = normalizeOrderStatusForUi(status);
+  if (s == 'delivered') return null;
   switch (s) {
     case 'pending':
       return 'بانتظار موافقة المتجر على الطلب';
@@ -151,10 +143,6 @@ String? customerOrderTrackingHint(
       return 'الدلفري في الطريق إليك.';
     case 'arrived':
       return 'الدلفري وصل إلى موقعك.';
-    case 'delivered':
-      return customerConfirmed
-          ? null
-          : 'تم تسليم الطلب. يرجى تأكيد الاستلام لإغلاق الطلب.';
     case 'failed_delivery':
       return 'تعذر التوصيل. سيتواصل معك فريق الدعم.';
     default:
@@ -195,8 +183,5 @@ Color orderStatusColorForCustomer(
   required bool customerConfirmed,
 }) {
   final s = normalizeOrderStatusForUi(status);
-  if (customerConfirmed && s == 'delivered') {
-    return orderStatusColor('received');
-  }
   return orderStatusColor(s);
 }

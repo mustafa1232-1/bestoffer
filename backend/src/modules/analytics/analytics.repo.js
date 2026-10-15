@@ -2,10 +2,18 @@ import { q } from "../../config/db.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 
 function periodStart(range) {
-  if (range === "day") return "DATE_TRUNC('day', NOW())";
-  if (range === "week") return "DATE_TRUNC('week', NOW())";
-  if (range === "month") return "DATE_TRUNC('month', NOW())";
-  if (range === "year") return "DATE_TRUNC('year', NOW())";
+  if (range === "day") {
+    return "(DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Baghdad') AT TIME ZONE 'Asia/Baghdad')";
+  }
+  if (range === "week") {
+    return "(DATE_TRUNC('week', NOW() AT TIME ZONE 'Asia/Baghdad') AT TIME ZONE 'Asia/Baghdad')";
+  }
+  if (range === "month") {
+    return "(DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Baghdad') AT TIME ZONE 'Asia/Baghdad')";
+  }
+  if (range === "year") {
+    return "(DATE_TRUNC('year', NOW() AT TIME ZONE 'Asia/Baghdad') AT TIME ZONE 'Asia/Baghdad')";
+  }
   return null;
 }
 
@@ -24,9 +32,9 @@ async function queryTotals(whereSql, whereParams, timeColumn = "o.created_at") {
          COUNT(*)::int AS orders_count,
          COUNT(*) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed'))::int AS delivered_orders_count,
          COUNT(*) FILTER (WHERE o.status IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin'))::int AS cancelled_orders_count,
-         COALESCE(SUM(o.delivery_fee) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS delivery_fees,
-         COALESCE(SUM(o.total_amount) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS total_amount,
-         COALESCE(SUM(COALESCE(inv.app_receivable_amount, 0)) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS app_fees,
+         COALESCE(SUM(o.delivery_fee) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS delivery_fees,
+         COALESCE(SUM(o.total_amount) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS total_amount,
+         COALESCE(SUM(COALESCE(inv.app_receivable_amount, 0)) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS app_fees,
          COALESCE(AVG(o.delivery_rating) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS avg_delivery_rating,
          COALESCE(AVG(o.merchant_rating) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS avg_merchant_rating,
          COALESCE(
@@ -38,7 +46,7 @@ async function queryTotals(whereSql, whereParams, timeColumn = "o.created_at") {
        LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
        WHERE ${whereSql}
          ${since ? `AND ${timeColumn} >= ${since}` : ""}`,
-      whereParams
+      whereParams,
     );
 
     out[range] = r.rows[0];
@@ -60,9 +68,9 @@ export async function getOwnerAnalytics(ownerUserId) {
          COUNT(*)::int AS orders_count,
          COUNT(*) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed'))::int AS delivered_orders_count,
          COUNT(*) FILTER (WHERE o.status IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin'))::int AS cancelled_orders_count,
-         COALESCE(SUM(o.delivery_fee) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS delivery_fees,
-         COALESCE(SUM(o.total_amount) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS total_amount,
-         COALESCE(SUM(COALESCE(inv.app_receivable_amount, 0)) FILTER (WHERE o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')), 0) AS app_fees,
+         COALESCE(SUM(o.delivery_fee) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS delivery_fees,
+         COALESCE(SUM(o.total_amount) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS total_amount,
+         COALESCE(SUM(COALESCE(inv.app_receivable_amount, 0)) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS app_fees,
          COALESCE(AVG(o.merchant_rating) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS avg_merchant_rating,
          COALESCE(AVG(o.delivery_rating) FILTER (WHERE o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')), 0) AS avg_delivery_rating
        FROM customer_order o
@@ -70,7 +78,7 @@ export async function getOwnerAnalytics(ownerUserId) {
        LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
        WHERE m.owner_user_id = $1
          ${since ? `AND o.created_at >= ${since}` : ""}`,
-      [ownerUserId]
+      [ownerUserId],
     );
     out[range] = r.rows[0];
   }
@@ -86,7 +94,7 @@ export async function getOwnerAnalytics(ownerUserId) {
        AND o.created_at >= DATE_TRUNC('day', NOW())
      GROUP BY o.customer_block
      ORDER BY orders_count DESC`,
-    [ownerUserId]
+    [ownerUserId],
   );
 
   const topProductsR = await q(
@@ -98,12 +106,12 @@ export async function getOwnerAnalytics(ownerUserId) {
      JOIN customer_order o ON o.id = oi.order_id
      JOIN merchant m ON m.id = o.merchant_id
      WHERE m.owner_user_id = $1
-       AND o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')
+       AND o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')
        AND o.created_at >= DATE_TRUNC('day', NOW())
      GROUP BY oi.product_id, oi.product_name
      ORDER BY total_qty DESC, oi.product_name ASC
      LIMIT 5`,
-    [ownerUserId]
+    [ownerUserId],
   );
 
   const statusTodayR = await q(
@@ -116,7 +124,7 @@ export async function getOwnerAnalytics(ownerUserId) {
        AND o.created_at >= DATE_TRUNC('day', NOW())
      GROUP BY o.status
      ORDER BY orders_count DESC`,
-    [ownerUserId]
+    [ownerUserId],
   );
 
   return {
@@ -158,9 +166,10 @@ export async function getDeliveryAnalytics(deliveryUserId) {
         FROM customer_order o
         LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
         WHERE o.delivery_user_id = $1
-          AND o.status = 'delivered'
-          ${since ? `AND o.delivered_at >= ${since}` : ""}`,
-      [deliveryUserId]
+          AND o.status IN ('delivered','delivered_by_courier','received_by_customer','completed')
+          ${since ? `AND o.delivered_at >= ${since}` : ""}
+          ${range === "day" ? "AND COALESCE(o.archived_by_delivery, FALSE) = FALSE" : ""}`,
+      [deliveryUserId],
     );
     const row = r.rows[0];
     const delivered = Number(row.delivered_orders_count || 0);
@@ -191,7 +200,7 @@ export async function listPendingMerchants() {
      LEFT JOIN app_user u ON u.id = m.owner_user_id
      WHERE COALESCE(m.approval_status, CASE WHEN m.is_approved THEN 'approved' ELSE 'pending_admin_review' END)
            IN ('pending_admin_review', 'rejected')
-     ORDER BY m.id DESC`
+     ORDER BY m.id DESC`,
   );
   return r.rows;
 }
@@ -205,7 +214,7 @@ export async function approveMerchant(merchantId, approvedByUserId) {
      WHERE id = $1
        AND is_approved = FALSE
      RETURNING id, owner_user_id, name`,
-    [merchantId, approvedByUserId]
+    [merchantId, approvedByUserId],
   );
   const row = r.rows[0];
   if (!row) return false;
@@ -224,7 +233,7 @@ export async function approveMerchant(merchantId, approvedByUserId) {
             },
           }
         : null,
-    ].filter(Boolean)
+    ].filter(Boolean),
   );
 
   return true;
@@ -238,7 +247,7 @@ export async function getOwnerOutstanding(ownerUserId) {
        AND status = 'approved'
      ORDER BY approved_at DESC
      LIMIT 1`,
-    [ownerUserId]
+    [ownerUserId],
   );
   const cutoff = approvedR.rows[0]?.cutoff_delivered_at || null;
 
@@ -249,7 +258,7 @@ export async function getOwnerOutstanding(ownerUserId) {
        AND status = 'pending'
      ORDER BY requested_at DESC
      LIMIT 1`,
-    [ownerUserId]
+    [ownerUserId],
   );
 
   const dueR = await q(
@@ -267,7 +276,7 @@ export async function getOwnerOutstanding(ownerUserId) {
       LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
       WHERE m.owner_user_id = $1
       GROUP BY m.id`,
-    [ownerUserId, cutoff]
+    [ownerUserId, cutoff],
   );
 
   const row = dueR.rows[0];
@@ -317,7 +326,7 @@ export async function createOwnerSettlementRequest(ownerUserId, requestedNote) {
       due.outstandingAmount,
       due.cutoffDeliveredAt,
       requestedNote || null,
-    ]
+    ],
   );
 
   const settlement = r.rows[0];
@@ -325,7 +334,7 @@ export async function createOwnerSettlementRequest(ownerUserId, requestedNote) {
   const backofficeUsersResult = await q(
     `SELECT id
      FROM app_user
-     WHERE role IN ('admin', 'deputy_admin')`
+     WHERE role IN ('admin', 'deputy_admin')`,
   );
 
   await createManyNotifications(
@@ -339,7 +348,7 @@ export async function createOwnerSettlementRequest(ownerUserId, requestedNote) {
         settlementId: settlement.id,
         merchantId: settlement.merchant_id,
       },
-    }))
+    })),
   );
 
   return settlement;
@@ -356,12 +365,16 @@ export async function listPendingSettlements() {
      JOIN merchant m ON m.id = s.merchant_id
      JOIN app_user u ON u.id = s.owner_user_id
      WHERE s.status = 'pending'
-     ORDER BY s.requested_at DESC`
+     ORDER BY s.requested_at DESC`,
   );
   return r.rows;
 }
 
-export async function approveSettlement(settlementId, approvedByUserId, adminNote) {
+export async function approveSettlement(
+  settlementId,
+  approvedByUserId,
+  adminNote,
+) {
   const r = await q(
     `UPDATE merchant_settlement
      SET status = 'approved',
@@ -371,7 +384,7 @@ export async function approveSettlement(settlementId, approvedByUserId, adminNot
      WHERE id = $1
        AND status = 'pending'
      RETURNING id, owner_user_id, merchant_id, amount`,
-    [settlementId, approvedByUserId, adminNote || null]
+    [settlementId, approvedByUserId, adminNote || null],
   );
   const row = r.rows[0];
   if (!row) return false;
@@ -391,4 +404,3 @@ export async function approveSettlement(settlementId, approvedByUserId, adminNot
 
   return true;
 }
-

@@ -15,10 +15,7 @@ class AssistantApi {
   }) async {
     final payload = <String, dynamic>{'message': message};
     if (sessionId != null) payload['sessionId'] = sessionId;
-    final response = await dio.post(
-      '/api/assistant/chat',
-      data: payload,
-    );
+    final response = await dio.post('/api/assistant/chat', data: payload);
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -49,17 +46,25 @@ class AssistantApi {
 
   Future<Map<String, dynamic>> recommendCommerce({
     required String query,
+    String kind = 'shopping',
+    String priority = 'balanced',
+    double? maxPrice,
+    int limit = 12,
   }) async {
     final response = await dio.post(
       '/api/assistant/recommend/commerce',
-      data: {'query': query},
+      data: <String, dynamic>{
+        'query': query,
+        'kind': kind,
+        'priority': priority,
+        'limit': limit,
+        'maxPrice': ?maxPrice,
+      },
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> recommendJobs({
-    required String query,
-  }) async {
+  Future<Map<String, dynamic>> recommendJobs({required String query}) async {
     final response = await dio.post(
       '/api/assistant/recommend/jobs',
       data: {'query': query},
@@ -82,10 +87,7 @@ class AssistantApi {
     if (effectiveSessionId != null) {
       payload['sessionId'] = effectiveSessionId;
     }
-    final response = await dio.post(
-      '/api/assistant/ai/chat',
-      data: payload,
-    );
+    final response = await dio.post('/api/assistant/ai/chat', data: payload);
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -99,7 +101,9 @@ class AssistantApi {
     );
     final payload = Map<String, dynamic>.from(response.data as Map);
     final rows = List<dynamic>.from(payload['items'] as List? ?? const []);
-    return rows.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+    return rows
+        .map((entry) => Map<String, dynamic>.from(entry as Map))
+        .toList();
   }
 
   Future<Map<String, dynamic>> getAiConversation(int conversationId) async {
@@ -113,7 +117,9 @@ class AssistantApi {
     final response = await dio.get('/api/assistant/ai/memories');
     final payload = Map<String, dynamic>.from(response.data as Map);
     final rows = List<dynamic>.from(payload['items'] as List? ?? const []);
-    return rows.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+    return rows
+        .map((entry) => Map<String, dynamic>.from(entry as Map))
+        .toList();
   }
 
   Future<Map<String, dynamic>> createAiMemory({
@@ -182,13 +188,14 @@ class AssistantApi {
   Future<Map<String, dynamic>> updateAiUserProfile({
     required Map<String, dynamic> payload,
   }) async {
-    final response = await dio.patch('/api/assistant/ai/profile', data: payload);
+    final response = await dio.patch(
+      '/api/assistant/ai/profile',
+      data: payload,
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> appSearch({
-    required String query,
-  }) async {
+  Future<Map<String, dynamic>> appSearch({required String query}) async {
     final response = await dio.post(
       '/api/assistant/ai/search/app',
       data: {'query': query},
@@ -196,9 +203,7 @@ class AssistantApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> webSearch({
-    required String query,
-  }) async {
+  Future<Map<String, dynamic>> webSearch({required String query}) async {
     final response = await dio.post(
       '/api/assistant/ai/search/web',
       data: {'query': query},
@@ -210,6 +215,8 @@ class AssistantApi {
     final response = await dio.get('/api/assistant/ai/topics');
     final payload = Map<String, dynamic>.from(response.data as Map);
     final rows = List<dynamic>.from(payload['items'] as List? ?? const []);
-    return rows.map((entry) => Map<String, dynamic>.from(entry as Map)).toList();
+    return rows
+        .map((entry) => Map<String, dynamic>.from(entry as Map))
+        .toList();
   }
 }

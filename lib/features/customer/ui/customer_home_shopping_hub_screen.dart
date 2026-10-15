@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../auth/ui/merchants_list_screen.dart';
+import '../state/customer_ad_board_controller.dart';
+import 'widgets/customer_marketplace_ad_surface.dart';
 
 class CustomerHomeShoppingHubScreen extends StatelessWidget {
   const CustomerHomeShoppingHubScreen({super.key});
@@ -134,6 +136,13 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
         children: [
+          const CustomerMarketplaceAdSurface(
+            request: MarketplaceAdRequest(
+              placement: 'MARKETPLACE_CATEGORY',
+              categoryKey: 'home',
+            ),
+            showEmptyState: true,
+          ),
           _HeaderCard(
             title: l10n.customerHomeShoppingHubHeaderTitle,
             subtitle: l10n.customerHomeShoppingHubHeaderSubtitle,

@@ -27,7 +27,8 @@ class AdminSalesReportScreen extends ConsumerStatefulWidget {
       _AdminSalesReportScreenState();
 }
 
-class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen> {
+class _AdminSalesReportScreenState
+    extends ConsumerState<AdminSalesReportScreen> {
   final _searchCtrl = TextEditingController();
   AdminFinancialPeriod _period = AdminFinancialPeriod.day;
   DateTime? _from;
@@ -107,7 +108,9 @@ class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen>
       _error = null;
     });
     try {
-      final raw = await ref.read(adminApiProvider).adminSalesReport(
+      final raw = await ref
+          .read(adminApiProvider)
+          .adminSalesReport(
             period: adminFinancialPeriodCode(_period),
             from: _iso(_from),
             to: _iso(_to, endOfDay: true),
@@ -138,6 +141,7 @@ class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen>
       l10n.commonMerchant,
       l10n.commonOrders,
       l10n.adminSalesReportTotalSales,
+      'عمولات التطبيق المستحقة',
       l10n.adminSalesReportFirstOrder,
       l10n.adminSalesReportLastOrder,
     ];
@@ -147,6 +151,7 @@ class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen>
             row.merchantName,
             '${row.ordersCount}',
             formatIqd(row.totalSales),
+            formatIqd(row.totalCommission),
             row.firstEventAt ?? '-',
             row.lastEventAt ?? '-',
           ],
@@ -155,6 +160,7 @@ class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen>
     final summary = [
       '${l10n.commonPeriod}: ${_periodLabel(context)}',
       '${l10n.adminSalesReportTotalSales}: ${formatIqd(report.summary.totalSales)}',
+      'إجمالي عمولات التطبيق المستحقة: ${formatIqd(report.summary.totalCommission)}',
       '${l10n.commonOrders}: ${report.summary.totalOrders}',
       '${l10n.commonMerchantsCount}: ${report.summary.merchantsCount}',
     ];
@@ -165,6 +171,67 @@ class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen>
       summaryLines: summary,
       headers: headers,
       rows: rows,
+    );
+  }
+
+  Future<void> _exportExcel() async {
+    final report = _report;
+    if (report == null) return;
+    final l10n = context.l10n;
+    final summary = [
+      '${l10n.commonPeriod}: ${_periodLabel(context)}',
+      '${l10n.adminSalesReportTotalSales}: ${formatIqd(report.summary.totalSales)}',
+      'إجمالي عمولات التطبيق المستحقة: ${formatIqd(report.summary.totalCommission)}',
+      '${l10n.commonOrders}: ${report.summary.totalOrders}',
+      '${l10n.commonMerchantsCount}: ${report.summary.merchantsCount}',
+    ];
+    await exportAdminFinancialExcelReport(
+      title: l10n.adminSalesReportTitle,
+      periodLabel: _periodLabel(context),
+      summaryLines: summary,
+      filenamePrefix: 'admin-sales-report',
+      sheets: [
+        AdminFinancialExcelSheet(
+          name: 'المبيعات حسب المتجر',
+          headers: const [
+            'اسم المتجر',
+            'عدد الطلبات',
+            'إجمالي المبيعات',
+            'عمولات التطبيق المستحقة',
+            'أول طلب',
+            'آخر طلب',
+          ],
+          rows: report.merchants
+              .map(
+                (row) => [
+                  row.merchantName,
+                  row.ordersCount,
+                  row.totalSales,
+                  row.totalCommission,
+                  row.firstEventAt ?? '-',
+                  row.lastEventAt ?? '-',
+                ],
+              )
+              .toList(growable: false),
+        ),
+        AdminFinancialExcelSheet(
+          name: 'العمولات فقط',
+          headers: const [
+            'اسم المتجر',
+            'عدد الطلبات المحتسبة',
+            'إجمالي العمولات المستحقة',
+          ],
+          rows: report.merchants
+              .map(
+                (row) => [
+                  row.merchantName,
+                  row.ordersCount,
+                  row.totalCommission,
+                ],
+              )
+              .toList(growable: false),
+        ),
+      ],
     );
   }
 
@@ -192,10 +259,7 @@ class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen>
       appBar: AppBar(
         title: Text(l10n.adminSalesReportTitle),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
       body: RefreshIndicator(
@@ -231,7 +295,10 @@ class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen>
                 ),
               ),
               const SizedBox(height: 8),
-              AdminFinancialPrintActions(onPrint: _print),
+              AdminFinancialPrintActions(
+                onPrintPdf: _print,
+                onExportExcel: _exportExcel,
+              ),
               const SizedBox(height: 8),
             ],
             if (_loading)
@@ -258,9 +325,7 @@ class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen>
             else if (report == null || report.merchants.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 30),
-                child: Center(
-                  child: Text(l10n.adminSalesReportNoData),
-                ),
+                child: Center(child: Text(l10n.adminSalesReportNoData)),
               )
             else
               ...report.merchants.map((row) {
@@ -271,7 +336,8 @@ class _AdminSalesReportScreenState extends ConsumerState<AdminSalesReportScreen>
                     title: Text(row.merchantName),
                     subtitle: Text(
                       '${l10n.commonOrders}: ${row.ordersCount} - '
-                      '${l10n.commonSales}: ${formatIqd(row.totalSales)}',
+                      '${l10n.commonSales}: ${formatIqd(row.totalSales)}\n'
+                      'عمولات التطبيق: ${formatIqd(row.totalCommission)}',
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
                   ),

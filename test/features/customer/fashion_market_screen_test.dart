@@ -1,35 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:maslaki/core/theme/app_theme.dart';
 import 'package:maslaki/features/customer/ui/fashion_market_screen.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
 
-Widget _wrap(Widget child, {Locale locale = const Locale('ar')}) => MaterialApp(
-      locale: locale,
-      supportedLocales: AppLocalizations.supportedLocales,
-      localizationsDelegates: AppLocalizations.localizationsDelegates,
-      theme: AppTheme.dark(),
-      home: child,
+Widget _wrap(Widget child, {Locale locale = const Locale('ar')}) =>
+    ProviderScope(
+      child: MaterialApp(
+        locale: locale,
+        supportedLocales: AppLocalizations.supportedLocales,
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        theme: AppTheme.dark(),
+        home: child,
+      ),
     );
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('Fashion Market landing shows only نسائي / رجالي first (Arabic)', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_wrap(const FashionMarketScreen()));
-    await tester.pump();
+  testWidgets(
+    'Fashion Market landing shows only نسائي / رجالي first (Arabic)',
+    (tester) async {
+      await tester.pumpWidget(_wrap(const FashionMarketScreen()));
+      await tester.pump();
 
-    expect(find.byKey(const Key('fashion_department_women')), findsOneWidget);
-    expect(find.byKey(const Key('fashion_department_men')), findsOneWidget);
-    expect(find.text('نسائي'), findsOneWidget);
-    expect(find.text('رجالي'), findsOneWidget);
-    // The old deep subcategory split (shoes/bags/etc.) is NOT on the landing.
-    expect(find.textContaining('أحذية'), findsNothing);
-    expect(find.textContaining('حقائب'), findsNothing);
-    expect(tester.takeException(), isNull);
-  });
+      expect(find.byKey(const Key('fashion_department_women')), findsOneWidget);
+      expect(find.byKey(const Key('fashion_department_men')), findsOneWidget);
+      expect(find.text('نسائي'), findsOneWidget);
+      expect(find.text('رجالي'), findsOneWidget);
+      // The old deep subcategory split (shoes/bags/etc.) is NOT on the landing.
+      expect(find.textContaining('أحذية'), findsNothing);
+      expect(find.textContaining('حقائب'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('English locale shows Women / Men', (tester) async {
     await tester.pumpWidget(

@@ -11,16 +11,12 @@ import {
   calcDiscount,
   validateCouponByIdOrCode,
 } from "../coupons/coupons.repo.js";
-import {
-  applyMerchantOfferPricing,
-} from "../owner/merchant-offers.logic.js";
+import { applyMerchantOfferPricing } from "../owner/merchant-offers.logic.js";
 import {
   listLatestEligibleOffersByProductIds,
   markOfferUsageByOrderTx,
 } from "../owner/merchant-offers.repo.js";
-import {
-  listActiveMerchantNotificationRecipients,
-} from "../owner/owner.repo.js";
+import { listActiveMerchantNotificationRecipients } from "../owner/owner.repo.js";
 import {
   extractRichCatalogFromMetadata,
   normalizeVariantSelectionInput,
@@ -43,6 +39,10 @@ import {
   recomputeGroupReadiness,
   settleGroupedJobIfChildrenTerminalTx,
 } from "../delivery/delivery-job.service.js";
+import {
+  buildAdminOrderCreatedNotifications,
+  listBackofficeNotificationUserIds,
+} from "../admin/admin-notification-recipients.js";
 import { directAssignDeliveryOrderTx } from "../commerce/commerce.repo.js";
 import crypto from "crypto";
 import {
@@ -50,6 +50,7 @@ import {
   syncOrderIncentiveConsumptionForStatusTx,
 } from "./order-incentives.repo.js";
 import { invalidateMerchantCatalogCache } from "../merchants/merchants.repo.js";
+import { applyFreeDeliveryCampaignToProduct } from "../commerce/free-delivery-campaign.js";
 
 /**
  * Purpose:
@@ -76,7 +77,7 @@ import { invalidateMerchantCatalogCache } from "../merchants/merchants.repo.js";
 export async function findEligibleOrderForProductReview(
   customerId,
   productId,
-  { orderId = null } = {}
+  { orderId = null } = {},
 ) {
   const params = [Number(customerId), Number(productId)];
   let orderFilter = "";
@@ -97,12 +98,16 @@ export async function findEligibleOrderForProductReview(
        ${orderFilter}
      ORDER BY o.created_at DESC, o.id DESC
      LIMIT 1`,
-    params
+    params,
   );
   return r.rows[0] || null;
 }
 
-export async function upsertProductReview(customerId, productId, { rating, body, orderId }) {
+export async function upsertProductReview(
+  customerId,
+  productId,
+  { rating, body, orderId },
+) {
   const r = await q(
     `INSERT INTO product_review (customer_id, product_id, order_id, rating, body)
      VALUES ($1, $2, $3, $4, $5)
@@ -112,12 +117,15 @@ export async function upsertProductReview(customerId, productId, { rating, body,
                    order_id = COALESCE(EXCLUDED.order_id, product_review.order_id),
                    updated_at = NOW()
      RETURNING *`,
-    [customerId, productId, orderId || null, rating, body || null]
+    [customerId, productId, orderId || null, rating, body || null],
   );
   return r.rows[0];
 }
 
-export async function listProductReviews(productId, { limit = 20, offset = 0 } = {}) {
+export async function listProductReviews(
+  productId,
+  { limit = 20, offset = 0 } = {},
+) {
   const r = await q(
     `SELECT
        pr.id,
@@ -133,7 +141,7 @@ export async function listProductReviews(productId, { limit = 20, offset = 0 } =
      WHERE pr.product_id = $1
      ORDER BY pr.created_at DESC
      LIMIT $2 OFFSET $3`,
-    [productId, limit, offset]
+    [productId, limit, offset],
   );
   return r.rows;
 }
@@ -143,7 +151,7 @@ export async function getProductRatingSummary(productId) {
     `SELECT avg_rating, review_count
      FROM product_rating_summary
      WHERE product_id = $1`,
-    [productId]
+    [productId],
   );
   return r.rows[0] || { avg_rating: null, review_count: 0 };
 }
@@ -151,7 +159,7 @@ export async function getProductRatingSummary(productId) {
 export async function deleteProductReview(customerId, productId) {
   await q(
     `DELETE FROM product_review WHERE customer_id = $1 AND product_id = $2`,
-    [customerId, productId]
+    [customerId, productId],
   );
 }
 
@@ -175,7 +183,11 @@ const orderSelect = `
     m.type AS merchant_type,
     m.activity_type AS merchant_activity_type,
     m.phone AS merchant_phone,
+    m.latitude AS merchant_latitude,
+    m.longitude AS merchant_longitude,
     m.owner_user_id AS owner_user_id,
+    addr.latitude AS customer_latitude,
+    addr.longitude AS customer_longitude,
     c.image_url AS customer_image_url,
     d.id AS delivery_id,
     d.full_name AS delivery_full_name,
@@ -193,6 +205,8 @@ const orderSelect = `
     latest_ca.ended_reason AS delivery_assignment_ended_reason
   FROM customer_order o
   JOIN merchant m ON m.id = o.merchant_id
+  LEFT JOIN customer_address addr ON addr.id = o.address_id
+    AND addr.customer_user_id = o.customer_user_id
   LEFT JOIN app_user c ON c.id = o.customer_user_id
   LEFT JOIN app_user d ON d.id = o.delivery_user_id
   LEFT JOIN courier_profile cp ON cp.user_id = d.id
@@ -210,7 +224,8 @@ const orderSelect = `
   ) latest_ca ON TRUE
 `;
 
-let merchantReviewNotificationOutboxWriter = defaultMerchantReviewNotificationOutboxWriter;
+let merchantReviewNotificationOutboxWriter =
+  defaultMerchantReviewNotificationOutboxWriter;
 
 export function setMerchantReviewNotificationOutboxWriter(writer) {
   merchantReviewNotificationOutboxWriter =
@@ -221,7 +236,7 @@ export function setMerchantReviewNotificationOutboxWriter(writer) {
 
 async function insertMerchantReviewSocialPostTx(
   client,
-  { customerUserId, merchantId, orderId, rating, review }
+  { customerUserId, merchantId, orderId, rating, review },
 ) {
   const result = await client.query(
     `INSERT INTO social_post
@@ -246,14 +261,14 @@ async function insertMerchantReviewSocialPostTx(
       Number(merchantId),
       Number(rating),
       Number(orderId),
-    ]
+    ],
   );
   return result.rows[0] || null;
 }
 
 async function defaultMerchantReviewNotificationOutboxWriter(
   client,
-  { orderId, merchantId, customerUserId, ownerUserId, rating, reviewPostId }
+  { orderId, merchantId, customerUserId, ownerUserId, rating, reviewPostId },
 ) {
   const owner = Number(ownerUserId);
   if (!Number.isFinite(owner) || owner <= 0) return null;
@@ -277,7 +292,7 @@ async function defaultMerchantReviewNotificationOutboxWriter(
         rating: Number(rating),
         requiresAction: true,
       }),
-    ]
+    ],
   );
   return eventId;
 }
@@ -301,15 +316,24 @@ function normalizePositiveInteger(value) {
 
 function resolveGroupedCheckoutSequence(storeOrder = {}, fallbackIndex = 0) {
   return (
-    normalizePositiveInteger(storeOrder.store_sequence ?? storeOrder.storeSequence) ??
-    fallbackIndex + 1
+    normalizePositiveInteger(
+      storeOrder.store_sequence ?? storeOrder.storeSequence,
+    ) ?? fallbackIndex + 1
   );
 }
 
-function resolveGroupedFeeSequence(storeOrder = {}, checkoutSequence = null, fallbackIndex = 0) {
+function resolveGroupedFeeSequence(
+  storeOrder = {},
+  checkoutSequence = null,
+  fallbackIndex = 0,
+) {
   return (
-    normalizePositiveInteger(storeOrder.pickup_sequence ?? storeOrder.pickupSequence) ??
-    normalizePositiveInteger(storeOrder.store_sequence ?? storeOrder.storeSequence) ??
+    normalizePositiveInteger(
+      storeOrder.pickup_sequence ?? storeOrder.pickupSequence,
+    ) ??
+    normalizePositiveInteger(
+      storeOrder.store_sequence ?? storeOrder.storeSequence,
+    ) ??
     checkoutSequence ??
     fallbackIndex + 1
   );
@@ -328,22 +352,24 @@ function buildGroupedDeliveryFeePlan(entries) {
   const normalized = entries.map((entry, originalIndex) => {
     const checkoutSequence = resolveGroupedCheckoutSequence(
       entry.storeOrder || {},
-      originalIndex
+      originalIndex,
     );
     const feeSequence = resolveGroupedFeeSequence(
       entry.storeOrder || {},
       checkoutSequence,
-      originalIndex
+      originalIndex,
     );
-    const feeSequenceSource = normalizePositiveInteger(
-      entry.storeOrder?.pickup_sequence ?? entry.storeOrder?.pickupSequence
-    ) != null
-      ? "pickup_sequence"
-      : normalizePositiveInteger(
-          entry.storeOrder?.store_sequence ?? entry.storeOrder?.storeSequence
-        ) != null
-        ? "store_sequence"
-        : "creation_order";
+    const feeSequenceSource =
+      normalizePositiveInteger(
+        entry.storeOrder?.pickup_sequence ?? entry.storeOrder?.pickupSequence,
+      ) != null
+        ? "pickup_sequence"
+        : normalizePositiveInteger(
+              entry.storeOrder?.store_sequence ??
+                entry.storeOrder?.storeSequence,
+            ) != null
+          ? "store_sequence"
+          : "creation_order";
     return {
       ...entry,
       originalIndex,
@@ -359,7 +385,9 @@ function buildGroupedDeliveryFeePlan(entries) {
       store_sequence: 1,
       creation_order: 2,
     };
-    const rankDiff = (sourceRank[a.feeSequenceSource] ?? 2) - (sourceRank[b.feeSequenceSource] ?? 2);
+    const rankDiff =
+      (sourceRank[a.feeSequenceSource] ?? 2) -
+      (sourceRank[b.feeSequenceSource] ?? 2);
     if (rankDiff !== 0) return rankDiff;
     const feeDiff = Number(a.feeSequence || 0) - Number(b.feeSequence || 0);
     if (feeDiff !== 0) return feeDiff;
@@ -370,29 +398,39 @@ function buildGroupedDeliveryFeePlan(entries) {
   let rawDeliveryFeeTotal = 0;
   let allocatedDeliveryFeeTotal = 0;
 
-  for (let sortedIndex = 0; sortedIndex < orderedEntries.length; sortedIndex += 1) {
+  for (
+    let sortedIndex = 0;
+    sortedIndex < orderedEntries.length;
+    sortedIndex += 1
+  ) {
     const entry = orderedEntries[sortedIndex];
-    const multiplier = sortedIndex === 0 ? 1 : sortedIndex === 1 ? 0.5 : 0.25;
+    const multiplier = sortedIndex === 0 ? 1 : 0.5;
     const rawDeliveryFee = roundMoney(entry.rawDeliveryFee || 0);
-    const allocatedDeliveryFee = roundMoney(rawDeliveryFee * multiplier);
+    const customerDeliveryFee = roundMoney(
+      entry.customerDeliveryFee ?? rawDeliveryFee,
+    );
+    const allocatedDeliveryFee = roundMoney(customerDeliveryFee * multiplier);
     const totalAmount = roundMoney(
       Number(entry.subtotalAfterAllDiscounts || 0) +
         Number(entry.serviceFee || 0) +
-        allocatedDeliveryFee
+        allocatedDeliveryFee,
     );
     const planned = {
       ...entry,
       deliveryFeeMultiplier: multiplier,
       rawDeliveryFee,
+      customerDeliveryFee,
       allocatedDeliveryFee,
       deliveryFee: allocatedDeliveryFee,
       totalAmount,
-      checkoutSequence: Number(entry.checkoutSequence || entry.originalIndex + 1),
+      checkoutSequence: Number(
+        entry.checkoutSequence || entry.originalIndex + 1,
+      ),
       feeSequence: Number(entry.feeSequence || entry.originalIndex + 1),
     };
     rawDeliveryFeeTotal = roundMoney(rawDeliveryFeeTotal + rawDeliveryFee);
     allocatedDeliveryFeeTotal = roundMoney(
-      allocatedDeliveryFeeTotal + allocatedDeliveryFee
+      allocatedDeliveryFeeTotal + allocatedDeliveryFee,
     );
     plansByOriginalIndex[entry.originalIndex] = planned;
   }
@@ -415,7 +453,8 @@ function mapCourierPresence(row) {
   if (!row || row.latitude == null || row.longitude == null) return null;
   return {
     courierUserId: Number(row.courier_user_id),
-    currentOrderId: row.current_order_id == null ? null : Number(row.current_order_id),
+    currentOrderId:
+      row.current_order_id == null ? null : Number(row.current_order_id),
     latitude: Number(row.latitude),
     longitude: Number(row.longitude),
     headingDeg: toNumberOrNull(row.heading_deg),
@@ -427,9 +466,12 @@ function mapCourierPresence(row) {
   };
 }
 
-function buildOrderTrackingStage(order) {
-  const status = String(order?.status || "").trim().toLowerCase();
-  const customerConfirmedAt = order?.customer_confirmed_at || order?.customerConfirmedAt;
+export function buildOrderTrackingStage(order) {
+  const status = String(order?.status || "")
+    .trim()
+    .toLowerCase();
+  const customerConfirmedAt =
+    order?.customer_confirmed_at || order?.customerConfirmedAt;
   switch (status) {
     case "pending":
       return "order_placed";
@@ -484,7 +526,9 @@ function periodStartExpression(period) {
 }
 
 function normalizeReportPeriod(period) {
-  const normalized = String(period || "day").trim().toLowerCase();
+  const normalized = String(period || "day")
+    .trim()
+    .toLowerCase();
   switch (normalized) {
     // Canonical values.
     case "day":
@@ -513,7 +557,9 @@ function buildReportTimeFilter(period, column = "o.created_at") {
 }
 
 function normalizeAdminOrderOverviewStatus(status) {
-  const normalized = String(status || "all").trim().toLowerCase();
+  const normalized = String(status || "all")
+    .trim()
+    .toLowerCase();
   switch (normalized) {
     case "completed":
     case "cancelled":
@@ -526,7 +572,9 @@ function normalizeAdminOrderOverviewStatus(status) {
 }
 
 function normalizeAdminOverviewPeriod(period) {
-  const normalized = String(period || "all").trim().toLowerCase();
+  const normalized = String(period || "all")
+    .trim()
+    .toLowerCase();
   switch (normalized) {
     case "all":
     case "day":
@@ -619,7 +667,7 @@ async function attachItems(orderRows) {
      FROM order_item
      WHERE order_id = ANY($1::bigint[])
      ORDER BY id ASC`,
-    [ids]
+    [ids],
   );
 
   const map = new Map();
@@ -634,7 +682,7 @@ async function attachItems(orderRows) {
 
   return orderRows.map((row) => {
     const items = (map.get(String(row.id)) || []).map((item) =>
-      hydrateOrderItemDisplaySnapshot(item, orderMap.get(String(row.id)))
+      hydrateOrderItemDisplaySnapshot(item, orderMap.get(String(row.id))),
     );
     return {
       ...row,
@@ -646,7 +694,9 @@ async function attachItems(orderRows) {
 const tableColumnsCache = new Map();
 
 async function getTableColumns(tableName) {
-  const key = String(tableName || "").trim().toLowerCase();
+  const key = String(tableName || "")
+    .trim()
+    .toLowerCase();
   if (!key) return new Set();
   if (tableColumnsCache.has(key)) {
     return tableColumnsCache.get(key);
@@ -656,19 +706,25 @@ async function getTableColumns(tableName) {
      FROM information_schema.columns
      WHERE table_name = $1
        AND table_schema = ANY(current_schemas(false))`,
-    [key]
+    [key],
   );
   const out = new Set(
     result.rows
-      .map((row) => String(row.column_name || "").trim().toLowerCase())
-      .filter(Boolean)
+      .map((row) =>
+        String(row.column_name || "")
+          .trim()
+          .toLowerCase(),
+      )
+      .filter(Boolean),
   );
   tableColumnsCache.set(key, out);
   return out;
 }
 
 async function getTableColumnsTx(client, tableName) {
-  const key = String(tableName || "").trim().toLowerCase();
+  const key = String(tableName || "")
+    .trim()
+    .toLowerCase();
   if (!key) return new Set();
   if (tableColumnsCache.has(key)) {
     return tableColumnsCache.get(key);
@@ -678,12 +734,16 @@ async function getTableColumnsTx(client, tableName) {
      FROM information_schema.columns
      WHERE table_name = $1
        AND table_schema = ANY(current_schemas(false))`,
-    [key]
+    [key],
   );
   const out = new Set(
     result.rows
-      .map((row) => String(row.column_name || "").trim().toLowerCase())
-      .filter(Boolean)
+      .map((row) =>
+        String(row.column_name || "")
+          .trim()
+          .toLowerCase(),
+      )
+      .filter(Boolean),
   );
   tableColumnsCache.set(key, out);
   return out;
@@ -691,7 +751,7 @@ async function getTableColumnsTx(client, tableName) {
 
 function assertRequiredColumns(tableName, availableColumns, requiredColumns) {
   const missing = (requiredColumns || []).filter(
-    (column) => !availableColumns.has(String(column || "").toLowerCase())
+    (column) => !availableColumns.has(String(column || "").toLowerCase()),
   );
   if (missing.length <= 0) return;
   throw new AppError("ORDER_SCHEMA_INCOMPATIBLE", {
@@ -712,7 +772,9 @@ function buildDynamicInsertParts({ availableColumns, candidates }) {
     insertColumns.push(column);
     insertValues.push(value);
   }
-  const placeholders = insertValues.map((_, index) => `$${index + 1}`).join(",");
+  const placeholders = insertValues
+    .map((_, index) => `$${index + 1}`)
+    .join(",");
   return {
     insertColumns,
     insertValues,
@@ -725,8 +787,8 @@ async function loadProductVariantCatalogTx(client, productIds) {
     new Set(
       (productIds || [])
         .map((value) => Number(value))
-        .filter((value) => Number.isInteger(value) && value > 0)
-    )
+        .filter((value) => Number.isInteger(value) && value > 0),
+    ),
   );
   if (!normalizedIds.length) return new Map();
 
@@ -758,7 +820,7 @@ async function loadProductVariantCatalogTx(client, productIds) {
        ON o.group_id = g.id
      WHERE g.product_id = ANY($1::bigint[])
      ORDER BY g.product_id ASC, g.sort_order ASC, g.id ASC, o.sort_order ASC, o.id ASC`,
-    [normalizedIds]
+    [normalizedIds],
   );
 
   const byProductId = new Map();
@@ -777,7 +839,9 @@ async function loadProductVariantCatalogTx(client, productIds) {
     }
 
     const groupId = Number(row.group_id);
-    let group = catalog.groups.find((entry) => Number(entry.groupId) === groupId);
+    let group = catalog.groups.find(
+      (entry) => Number(entry.groupId) === groupId,
+    );
     if (!group) {
       group = {
         groupId,
@@ -794,7 +858,10 @@ async function loadProductVariantCatalogTx(client, productIds) {
         optionById: new Map(),
       };
       catalog.groups.push(group);
-      catalog.groupByCode.set(String(group.groupCode || "").toLowerCase(), group);
+      catalog.groupByCode.set(
+        String(group.groupCode || "").toLowerCase(),
+        group,
+      );
       catalog.hasVariants = true;
     }
 
@@ -816,7 +883,10 @@ async function loadProductVariantCatalogTx(client, productIds) {
       metadata: row.option_metadata_json || {},
     };
     group.options.push(option);
-    group.optionByCode.set(String(option.optionCode || "").toLowerCase(), option);
+    group.optionByCode.set(
+      String(option.optionCode || "").toLowerCase(),
+      option,
+    );
     group.optionById.set(Number(option.optionId), option);
   }
 
@@ -827,26 +897,37 @@ async function loadProductVariantCatalogTx(client, productIds) {
      FROM product_variant
      WHERE product_id = ANY($1::bigint[])
      ORDER BY sort_order ASC, id ASC`,
-    [normalizedIds]
+    [normalizedIds],
   );
   for (const row of variantsResult.rows) {
     const productId = Number(row.product_id);
     let catalog = byProductId.get(productId);
     if (!catalog) {
       catalog = {
-        groups: [], groupByCode: new Map(), variants: [],
-        variantBySignature: new Map(), hasVariants: true,
+        groups: [],
+        groupByCode: new Map(),
+        variants: [],
+        variantBySignature: new Map(),
+        hasVariants: true,
       };
       byProductId.set(productId, catalog);
     }
     const variant = {
-      variantId: Number(row.id), signature: String(row.signature || ""),
+      variantId: Number(row.id),
+      signature: String(row.signature || ""),
       selections: Array.isArray(row.selections_json) ? row.selections_json : [],
-      sku: row.sku || null, barcode: row.barcode || null, material: row.material || null,
-      priceOverride: row.price_override == null ? null : Number(row.price_override),
-      discountedPriceOverride: row.discounted_price_override == null ? null : Number(row.discounted_price_override),
+      sku: row.sku || null,
+      barcode: row.barcode || null,
+      material: row.material || null,
+      priceOverride:
+        row.price_override == null ? null : Number(row.price_override),
+      discountedPriceOverride:
+        row.discounted_price_override == null
+          ? null
+          : Number(row.discounted_price_override),
       stockQuantity: Math.max(0, Number(row.stock_quantity || 0)),
-      imageUrl: row.image_url || null, isAvailable: row.is_available !== false,
+      imageUrl: row.image_url || null,
+      isAvailable: row.is_available !== false,
     };
     catalog.variants.push(variant);
     catalog.variantBySignature.set(variant.signature, variant);
@@ -857,7 +938,7 @@ async function loadProductVariantCatalogTx(client, productIds) {
     `SELECT id, metadata_json
      FROM product
      WHERE id = ANY($1::bigint[])`,
-    [normalizedIds]
+    [normalizedIds],
   );
   for (const row of fallbackResult.rows) {
     const productId = Number(row.id);
@@ -902,11 +983,17 @@ async function loadProductVariantCatalogTx(client, productIds) {
           metadata: optionEntry.metadata || {},
         };
         group.options.push(option);
-        group.optionByCode.set(String(option.optionCode || "").toLowerCase(), option);
+        group.optionByCode.set(
+          String(option.optionCode || "").toLowerCase(),
+          option,
+        );
         group.optionById.set(Number(option.optionId), option);
       }
       catalog.groups.push(group);
-      catalog.groupByCode.set(String(group.groupCode || "").toLowerCase(), group);
+      catalog.groupByCode.set(
+        String(group.groupCode || "").toLowerCase(),
+        group,
+      );
     }
     byProductId.set(productId, catalog);
   }
@@ -984,8 +1071,9 @@ function shouldApplyProductInventoryGate({
 
 function buildVariantSelectionSignature(selections) {
   return (selections || [])
-    .map((entry) =>
-      `${String(entry.groupCode || "").toLowerCase()}:${String(entry.optionCode || "").toLowerCase()}`
+    .map(
+      (entry) =>
+        `${String(entry.groupCode || "").toLowerCase()}:${String(entry.optionCode || "").toLowerCase()}`,
     )
     .sort()
     .join("|");
@@ -998,7 +1086,7 @@ function pickOptionPriceOverride(selections = []) {
     selections.find(
       (s) =>
         String(s.groupCode || "").toLowerCase() === code &&
-        s.priceOverride != null
+        s.priceOverride != null,
     );
   const size = withOverride("size");
   if (size) return Number(size.priceOverride);
@@ -1010,9 +1098,15 @@ function pickOptionPriceOverride(selections = []) {
 
 function buildSelectionsFromVariantCatalog(variantCatalog, variant) {
   const selections = [];
-  for (const selection of Array.isArray(variant?.selections) ? variant.selections : []) {
-    const groupCode = String(selection.groupCode || selection.group_code || "").toLowerCase();
-    const optionCode = String(selection.optionCode || selection.option_code || "").toLowerCase();
+  for (const selection of Array.isArray(variant?.selections)
+    ? variant.selections
+    : []) {
+    const groupCode = String(
+      selection.groupCode || selection.group_code || "",
+    ).toLowerCase();
+    const optionCode = String(
+      selection.optionCode || selection.option_code || "",
+    ).toLowerCase();
     if (!groupCode || !optionCode) continue;
     const group = variantCatalog?.groupByCode?.get(groupCode);
     if (!group) continue;
@@ -1034,11 +1128,13 @@ function buildSelectionsFromVariantCatalog(variantCatalog, variant) {
   const optionPriceOverride = pickOptionPriceOverride(selections);
   const normalized = normalizeVariantSelectionInput({ selections });
   const colorSelection =
-    normalized.selections.find((entry) => String(entry.groupCode || "").toLowerCase() === "color") ||
-    null;
+    normalized.selections.find(
+      (entry) => String(entry.groupCode || "").toLowerCase() === "color",
+    ) || null;
   const sizeSelection =
-    normalized.selections.find((entry) => String(entry.groupCode || "").toLowerCase() === "size") ||
-    null;
+    normalized.selections.find(
+      (entry) => String(entry.groupCode || "").toLowerCase() === "size",
+    ) || null;
   return {
     ...normalized,
     optionPriceOverride,
@@ -1050,15 +1146,16 @@ function buildSelectionsFromVariantCatalog(variantCatalog, variant) {
 
 function resolveVariantSelectionForItem(product, item, variantCatalog) {
   const selected = normalizeVariantSelectionInput(
-    item.selectedVariant ?? item.selectedVariantSelections ?? {}
+    item.selectedVariant ?? item.selectedVariantSelections ?? {},
   );
-  const requestedVariantId = Number(
-    selected.variantId ??
-      item.selectedVariantId ??
-      item.selected_variant_id ??
-      item.variantId ??
-      0
-  ) || null;
+  const requestedVariantId =
+    Number(
+      selected.variantId ??
+        item.selectedVariantId ??
+        item.selected_variant_id ??
+        item.variantId ??
+        0,
+    ) || null;
   const groups = variantCatalog?.groups || [];
   const hasVariants = groups.length > 0;
 
@@ -1077,7 +1174,7 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
 
   if (requestedVariantId != null) {
     const exactVariant = (variantCatalog?.variants || []).find(
-      (variant) => Number(variant.variantId) === Number(requestedVariantId)
+      (variant) => Number(variant.variantId) === Number(requestedVariantId),
     );
     if (!exactVariant) {
       const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
@@ -1096,10 +1193,12 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
 
     const exactSelections = buildSelectionsFromVariantCatalog(
       variantCatalog,
-      exactVariant
+      exactVariant,
     );
     if (selected.hasSelections) {
-      const requestedSignature = buildVariantSelectionSignature(selected.selections);
+      const requestedSignature = buildVariantSelectionSignature(
+        selected.selections,
+      );
       if (requestedSignature !== exactSelections.selectionSignature) {
         const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
         err.status = 400;
@@ -1111,7 +1210,9 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
       if (
         group.required === true &&
         !exactSelections.selections.some(
-          (entry) => String(entry.groupCode || "").toLowerCase() === String(group.groupCode || "").toLowerCase()
+          (entry) =>
+            String(entry.groupCode || "").toLowerCase() ===
+            String(group.groupCode || "").toLowerCase(),
         )
       ) {
         const err = new Error("PRODUCT_VARIANT_SELECTION_REQUIRED");
@@ -1195,7 +1296,10 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
     }
     const optionKey = String(selection.optionCode || "").toLowerCase();
     const selectionKey = `${groupKey}:${optionKey}`;
-    if (seenSelections.has(selectionKey) || (seenGroups.has(groupKey) && group.selectionMode !== "multiple")) {
+    if (
+      seenSelections.has(selectionKey) ||
+      (seenGroups.has(groupKey) && group.selectionMode !== "multiple")
+    ) {
       const err = new Error("PRODUCT_VARIANT_SELECTION_INVALID");
       err.status = 400;
       throw err;
@@ -1224,7 +1328,10 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
   }
 
   for (const group of groups) {
-    if (group.required === true && !seenGroups.has(String(group.groupCode || "").toLowerCase())) {
+    if (
+      group.required === true &&
+      !seenGroups.has(String(group.groupCode || "").toLowerCase())
+    ) {
       const err = new Error("PRODUCT_VARIANT_SELECTION_REQUIRED");
       err.status = 400;
       throw err;
@@ -1233,33 +1340,47 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
 
   const managedGroupCodes = new Set(
     (variantCatalog?.variants || []).flatMap((variant) =>
-      (variant.selections || []).map((entry) => String(entry.groupCode || entry.group_code || "").toLowerCase())
-    )
+      (variant.selections || []).map((entry) =>
+        String(entry.groupCode || entry.group_code || "").toLowerCase(),
+      ),
+    ),
   );
   const combinationSignature = resolvedSelections
-    .filter((entry) => managedGroupCodes.size === 0 || managedGroupCodes.has(String(entry.groupCode).toLowerCase()))
-    .map((entry) => `${String(entry.groupCode).toLowerCase()}:${String(entry.optionCode).toLowerCase()}`)
+    .filter(
+      (entry) =>
+        managedGroupCodes.size === 0 ||
+        managedGroupCodes.has(String(entry.groupCode).toLowerCase()),
+    )
+    .map(
+      (entry) =>
+        `${String(entry.groupCode).toLowerCase()}:${String(entry.optionCode).toLowerCase()}`,
+    )
     .sort()
     .join("|");
   const exactVariant = variantCatalog?.variants?.length
     ? variantCatalog.variantBySignature?.get(combinationSignature) ||
       variantCatalog.variants.find(
-        (variant) => String(variant.signature || "").toLowerCase() === combinationSignature
+        (variant) =>
+          String(variant.signature || "").toLowerCase() ===
+          combinationSignature,
       ) ||
       null
     : null;
-  if (variantCatalog?.variants?.length && (!exactVariant || exactVariant.isAvailable === false)) {
+  if (
+    variantCatalog?.variants?.length &&
+    (!exactVariant || exactVariant.isAvailable === false)
+  ) {
     if (exactVariant && exactVariant.isAvailable === false) {
       throw productUnavailableError({
         product,
         variantId: exactVariant.variantId,
         colorName:
           resolvedSelections.find(
-            (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+            (entry) => String(entry.groupCode || "").toLowerCase() === "color",
           )?.optionLabel || null,
         size:
           resolvedSelections.find(
-            (entry) => String(entry.groupCode || "").toLowerCase() === "size"
+            (entry) => String(entry.groupCode || "").toLowerCase() === "size",
           )?.optionLabel || null,
         reason: "VARIANT_UNAVAILABLE",
       });
@@ -1274,11 +1395,11 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
       variantId: exactVariant.variantId,
       colorName:
         resolvedSelections.find(
-          (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+          (entry) => String(entry.groupCode || "").toLowerCase() === "color",
         )?.optionLabel || null,
       size:
         resolvedSelections.find(
-          (entry) => String(entry.groupCode || "").toLowerCase() === "size"
+          (entry) => String(entry.groupCode || "").toLowerCase() === "size",
         )?.optionLabel || null,
       requestedQuantity: item.quantity,
       availableQuantity: exactVariant.stockQuantity,
@@ -1297,27 +1418,27 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
       null,
     colorCode:
       resolvedSelections.find(
-        (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+        (entry) => String(entry.groupCode || "").toLowerCase() === "color",
       )?.optionCode || null,
     colorLabel:
       resolvedSelections.find(
-        (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+        (entry) => String(entry.groupCode || "").toLowerCase() === "color",
       )?.optionLabel || null,
     colorHex:
       resolvedSelections.find(
-        (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+        (entry) => String(entry.groupCode || "").toLowerCase() === "color",
       )?.swatchHex || null,
     colorImageUrl:
       resolvedSelections.find(
-        (entry) => String(entry.groupCode || "").toLowerCase() === "color"
+        (entry) => String(entry.groupCode || "").toLowerCase() === "color",
       )?.imageUrl || null,
     sizeCode:
       resolvedSelections.find(
-        (entry) => String(entry.groupCode || "").toLowerCase() === "size"
+        (entry) => String(entry.groupCode || "").toLowerCase() === "size",
       )?.optionCode || null,
     sizeLabel:
       resolvedSelections.find(
-        (entry) => String(entry.groupCode || "").toLowerCase() === "size"
+        (entry) => String(entry.groupCode || "").toLowerCase() === "size",
       )?.optionLabel || null,
     stockQuantity: exactVariant?.stockQuantity ?? null,
     selections: resolvedSelections,
@@ -1339,14 +1460,30 @@ function resolveVariantSelectionForItem(product, item, variantCatalog) {
   };
 }
 
+const pendingOrderSideEffects = new Set();
+
 function queueOrderSideEffect(task) {
   setImmediate(() => {
-    Promise.resolve()
+    const pending = Promise.resolve()
       .then(task)
       .catch((error) => {
-        console.warn("[orders] deferred side effect failed", error?.message || error);
+        console.warn(
+          "[orders] deferred side effect failed",
+          error?.message || error,
+        );
       });
+    pendingOrderSideEffects.add(pending);
+    void pending.finally(() => pendingOrderSideEffects.delete(pending));
   });
+}
+
+async function drainOrderSideEffectsForTests() {
+  // First yield registers work already queued with setImmediate. The loop also
+  // covers a side effect that schedules another side effect while draining.
+  await new Promise((resolve) => setImmediate(resolve));
+  while (pendingOrderSideEffects.size > 0) {
+    await Promise.allSettled([...pendingOrderSideEffects]);
+  }
 }
 
 async function insertCustomerOrderTx(
@@ -1354,6 +1491,7 @@ async function insertCustomerOrderTx(
   {
     merchantId,
     customer,
+    addressId = null,
     city,
     block,
     buildingNumber,
@@ -1375,7 +1513,7 @@ async function insertCustomerOrderTx(
     totalAmount,
     pricingBreakdown,
     financialSnapshot,
-  }
+  },
 ) {
   const columns = await getTableColumnsTx(client, "customer_order");
   assertRequiredColumns("customer_order", columns, [
@@ -1395,6 +1533,7 @@ async function insertCustomerOrderTx(
   const candidates = [
     ["merchant_id", Number(merchantId)],
     ["customer_user_id", Number(customer.id)],
+    ["address_id", addressId == null ? null : Number(addressId)],
     ["status", "pending"],
     ["customer_full_name", customer.full_name],
     ["customer_phone", customer.phone],
@@ -1404,10 +1543,7 @@ async function insertCustomerOrderTx(
     ["customer_apartment", apartment],
     ["note", note || null],
     ["image_url", imageUrl || null],
-    [
-      "order_group_id",
-      orderGroupId == null ? null : Number(orderGroupId),
-    ],
+    ["order_group_id", orderGroupId == null ? null : Number(orderGroupId)],
     ["sub_order_id", subOrderId || null],
     ["order_scope", orderScope === "group_child" ? "group_child" : "single"],
     ["store_sequence", Number(storeSequence || 1)],
@@ -1424,10 +1560,7 @@ async function insertCustomerOrderTx(
     ["store_net_received_amount", financialSnapshot.storeNetReceivedAmount],
     ["app_due_from_delivery", financialSnapshot.appDueFromDelivery],
     ["store_cash_confirmed", financialSnapshot.storeCashConfirmed === true],
-    [
-      "store_cash_confirmed_at",
-      financialSnapshot.storeCashConfirmedAt || null,
-    ],
+    ["store_cash_confirmed_at", financialSnapshot.storeCashConfirmedAt || null],
     [
       "store_cash_confirmed_by_user_id",
       financialSnapshot.storeCashConfirmedByUserId ?? null,
@@ -1435,16 +1568,21 @@ async function insertCustomerOrderTx(
     ["amount_received_actual", financialSnapshot.amountReceivedActual || 0],
     ["difference_amount", financialSnapshot.differenceAmount || 0],
     ["difference_reason", financialSnapshot.differenceReason || null],
-    ["settlement_status", financialSnapshot.settlementStatus || "pending_store_confirmation"],
+    [
+      "settlement_status",
+      financialSnapshot.settlementStatus || "pending_store_confirmation",
+    ],
     ["pricing_breakdown_json", JSON.stringify(pricingBreakdown)],
     ["financial_profile_version", financialSnapshot.profileVersion],
     ["financial_config_snapshot_json", JSON.stringify(financialSnapshot)],
   ];
 
-  const { insertColumns, insertValues, placeholders } = buildDynamicInsertParts({
-    availableColumns: columns,
-    candidates,
-  });
+  const { insertColumns, insertValues, placeholders } = buildDynamicInsertParts(
+    {
+      availableColumns: columns,
+      candidates,
+    },
+  );
   const sql = `INSERT INTO customer_order (${insertColumns.join(",")}) VALUES (${placeholders}) RETURNING *`;
   const result = await client.query(sql, insertValues);
   return result.rows[0] || null;
@@ -1483,13 +1621,10 @@ async function insertOrderItemTx(client, orderId, item) {
         item.displaySnapshot ||
           item.display_snapshot_json ||
           item.displaySnapshotJson ||
-          null
+          null,
       ),
     ],
-    [
-      "variant_price_delta_total",
-      Number(item.variantPriceDeltaTotal || 0),
-    ],
+    ["variant_price_delta_total", Number(item.variantPriceDeltaTotal || 0)],
     ["modifiers_unit_total", Number(item.modifiersUnitTotal || 0)],
     ["modifiers_line_total", Number(item.modifiersLineTotal || 0)],
     ["line_discount_total", Number(item.lineDiscountTotal || 0)],
@@ -1497,53 +1632,152 @@ async function insertOrderItemTx(client, orderId, item) {
     ["pricing_breakdown_json", JSON.stringify(item.pricingBreakdown || {})],
   ];
 
-  const { insertColumns, insertValues, placeholders } = buildDynamicInsertParts({
-    availableColumns: columns,
-    candidates,
-  });
+  const { insertColumns, insertValues, placeholders } = buildDynamicInsertParts(
+    {
+      availableColumns: columns,
+      candidates,
+    },
+  );
   const sql = `INSERT INTO order_item (${insertColumns.join(",")}) VALUES (${placeholders}) RETURNING *`;
   const result = await client.query(sql, insertValues);
   return result.rows[0] || null;
 }
 
 async function transitionInventoryReservationsTx(client, orderId, nextStatus) {
-  const nextStatusValue = String(nextStatus || "").trim().toLowerCase();
-  const release = nextStatusValue === "released" || nextStatusValue === "expired";
-  const eligible = release ? ["pending", "consumed"] :
-    nextStatusValue === "completed" ? ["pending", "consumed"] : ["pending"];
+  const nextStatusValue = String(nextStatus || "")
+    .trim()
+    .toLowerCase();
+  const release =
+    nextStatusValue === "released" || nextStatusValue === "expired";
+  const eligible = release
+    ? ["pending", "consumed"]
+    : nextStatusValue === "completed"
+      ? ["pending", "consumed"]
+      : ["pending"];
   const rows = await client.query(
     `SELECT * FROM inventory_reservation
      WHERE order_id = $1 AND status = ANY($2::varchar[])
      ORDER BY id ASC FOR UPDATE`,
-    [Number(orderId), eligible]
+    [Number(orderId), eligible],
   );
   for (const reservation of rows.rows) {
     if (release) {
       if (reservation.variant_id != null) {
         await client.query(
           `UPDATE product_variant
-           SET stock_quantity = stock_quantity + $2, updated_at = NOW()
+           SET stock_quantity = stock_quantity + $2,
+               is_available = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN TRUE
+                 ELSE is_available
+               END,
+               unavailable_reason = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN NULL
+                 ELSE unavailable_reason
+               END,
+               unavailable_until = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN NULL
+                 ELSE unavailable_until
+               END,
+               updated_at = NOW()
            WHERE id = $1`,
-          [Number(reservation.variant_id), Number(reservation.quantity)]
+          [Number(reservation.variant_id), Number(reservation.quantity)],
+        );
+        await client.query(
+          `UPDATE product
+           SET is_available = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN TRUE
+                 ELSE is_available
+               END,
+               unavailable_reason = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN NULL
+                 ELSE unavailable_reason
+               END,
+               unavailable_until = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN NULL
+                 ELSE unavailable_until
+               END,
+               updated_at = NOW()
+           WHERE id = $1
+             AND merchant_id = $2`,
+          [Number(reservation.product_id), Number(reservation.merchant_id)],
         );
       } else if (reservation.variant_signature) {
         await client.query(
           `UPDATE product_variant
-           SET stock_quantity = stock_quantity + $3, updated_at = NOW()
+           SET stock_quantity = stock_quantity + $3,
+               is_available = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN TRUE
+                 ELSE is_available
+               END,
+               unavailable_reason = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN NULL
+                 ELSE unavailable_reason
+               END,
+               unavailable_until = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN NULL
+                 ELSE unavailable_until
+               END,
+               updated_at = NOW()
            WHERE product_id = $1 AND signature = $2`,
-          [Number(reservation.product_id), reservation.variant_signature, Number(reservation.quantity)]
+          [
+            Number(reservation.product_id),
+            reservation.variant_signature,
+            Number(reservation.quantity),
+          ],
+        );
+        await client.query(
+          `UPDATE product
+           SET is_available = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN TRUE
+                 ELSE is_available
+               END,
+               unavailable_reason = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN NULL
+                 ELSE unavailable_reason
+               END,
+               unavailable_until = CASE
+                 WHEN unavailable_reason IN ('نفد المخزون', 'out_of_stock') THEN NULL
+                 ELSE unavailable_until
+               END,
+               updated_at = NOW()
+           WHERE id = $1
+             AND merchant_id = $2`,
+          [Number(reservation.product_id), Number(reservation.merchant_id)],
         );
       } else {
         await client.query(
-          `UPDATE store_inventory_item
-           SET quantity = quantity + $3,
-               stock_status = CASE
-                 WHEN quantity + $3 <= COALESCE(reorder_threshold, 0) THEN 'low_stock'
-                 ELSE 'in_stock'
-               END,
-               auto_disabled = FALSE, last_quantity_update_at = NOW(), updated_at = NOW()
-           WHERE merchant_id = $1 AND product_id = $2`,
-          [Number(reservation.merchant_id), Number(reservation.product_id), Number(reservation.quantity)]
+          `WITH updated_inventory AS (
+             UPDATE store_inventory_item
+             SET quantity = quantity + $3,
+                 stock_status = CASE
+                   WHEN quantity + $3 <= COALESCE(reorder_threshold, 0) THEN 'low_stock'
+                   ELSE 'in_stock'
+                 END,
+                 auto_disabled = FALSE,
+                 last_quantity_update_at = NOW(),
+                 updated_at = NOW()
+             WHERE merchant_id = $1 AND product_id = $2
+             RETURNING quantity, manual_disabled
+           )
+           UPDATE product
+           SET is_available = TRUE,
+               unavailable_reason = NULL,
+               unavailable_until = NULL,
+               updated_at = NOW()
+           WHERE id = $2
+             AND merchant_id = $1
+             AND unavailable_reason IN ('نفد المخزون', 'out_of_stock')
+             AND EXISTS (
+               SELECT 1
+               FROM updated_inventory
+               WHERE manual_disabled = FALSE
+                 AND quantity > 0
+             )`,
+          [
+            Number(reservation.merchant_id),
+            Number(reservation.product_id),
+            Number(reservation.quantity),
+          ],
         );
       }
     }
@@ -1555,7 +1789,7 @@ async function transitionInventoryReservationsTx(client, orderId, nextStatus) {
            released_at = CASE WHEN $2::varchar(16) IN ('released','expired') THEN NOW() ELSE released_at END,
            updated_at = NOW()
         WHERE id = $1`,
-      [Number(reservation.id), nextStatusValue]
+      [Number(reservation.id), nextStatusValue],
     );
   }
   return rows.rows.length;
@@ -1571,23 +1805,36 @@ export async function expireInventoryReservationsBatch({ limit = 100 } = {}) {
        WHERE status = 'pending' AND expires_at <= NOW()
        ORDER BY expires_at ASC, id ASC
        LIMIT $1 FOR UPDATE SKIP LOCKED`,
-      [Math.max(1, Number(limit || 100))]
+      [Math.max(1, Number(limit || 100))],
     );
     let expired = 0;
+    const mutatedMerchantIds = new Set();
     const orderIds = [...new Set(due.rows.map((row) => Number(row.order_id)))];
     for (const orderId of orderIds) {
       const orderResult = await client.query(
-        `UPDATE customer_order
-         SET status = 'expired'::order_status, updated_at = NOW()
+        `SELECT id, merchant_id, order_group_id
+         FROM customer_order
          WHERE id = $1 AND status = 'pending'
-         RETURNING id, order_group_id`,
-        [orderId]
+         FOR UPDATE`,
+        [orderId],
       );
       if (!orderResult.rows[0]) continue;
-      expired += await transitionInventoryReservationsTx(client, orderId, "expired");
-      await syncOrderGroupStatusTx(client, orderResult.rows[0].order_group_id);
+      const released = await transitionInventoryReservationsTx(
+        client,
+        orderId,
+        "expired",
+      );
+      expired += released;
+      if (released > 0 && orderResult.rows[0].merchant_id != null) {
+        mutatedMerchantIds.add(Number(orderResult.rows[0].merchant_id));
+      }
     }
     await client.query("COMMIT");
+    await Promise.all(
+      [...mutatedMerchantIds].map((merchantId) =>
+        invalidateMerchantCatalogCache(merchantId),
+      ),
+    );
     return expired;
   } catch (error) {
     await client.query("ROLLBACK");
@@ -1597,11 +1844,32 @@ export async function expireInventoryReservationsBatch({ limit = 100 } = {}) {
   }
 }
 
+function shouldTriggerDeliveryAssignmentRecovery(status, orderGroupId = null) {
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+  if (
+    [
+      "approved",
+      "preparing",
+      "ready_for_delivery",
+      "ready_for_pickup",
+      "cancelled",
+      "delivered",
+    ].includes(normalized)
+  ) {
+    return true;
+  }
+  return orderGroupId != null && normalized.length > 0;
+}
+
 export const __ordersRepoTestables = Object.freeze({
+  drainOrderSideEffectsForTests,
   buildDynamicInsertParts,
   buildVariantSelectionSignature,
   buildSelectionsFromVariantCatalog,
   buildOrderTrackingEnvelope,
+  buildOrderTrackingStage,
   hydrateOrderItemDisplaySnapshot,
   buildOrderItemDisplaySnapshot,
   buildGroupedDeliveryFeePlan,
@@ -1619,6 +1887,7 @@ export const __ordersRepoTestables = Object.freeze({
   productOutOfStockError,
   productUnavailableError,
   transitionInventoryReservationsTx,
+  shouldTriggerDeliveryAssignmentRecovery,
 });
 
 /**
@@ -1636,7 +1905,7 @@ export async function getOrderAssignmentSnapshot(orderId) {
      FROM customer_order
      WHERE id = $1
      LIMIT 1`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
   return r.rows[0] || null;
 }
@@ -1656,7 +1925,6 @@ export async function listDeliveryAgents() {
          FROM courier_presence presence
          WHERE presence.courier_user_id = u.id
            AND presence.is_online = TRUE
-           AND presence.updated_at >= NOW() - INTERVAL '90 seconds'
        )
        AND NOT EXISTS (
          SELECT 1
@@ -1669,7 +1937,14 @@ export async function listDeliveryAgents() {
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
        )
-     ORDER BY u.id DESC`
+     ORDER BY (
+        SELECT presence.updated_at
+        FROM courier_presence presence
+        WHERE presence.courier_user_id = u.id
+          AND presence.is_online = TRUE
+        ORDER BY presence.updated_at DESC
+        LIMIT 1
+      ) DESC NULLS LAST, u.id DESC`,
   );
   return r.rows;
 }
@@ -1692,7 +1967,6 @@ async function listNearbyDeliveryAgentsByBlock(block) {
          FROM courier_presence presence
          WHERE presence.courier_user_id = u.id
            AND presence.is_online = TRUE
-           AND presence.updated_at >= NOW() - INTERVAL '90 seconds'
        )
        AND NOT EXISTS (
          SELECT 1
@@ -1707,8 +1981,15 @@ async function listNearbyDeliveryAgentsByBlock(block) {
          FROM taxi_captain_profile tcp
          WHERE tcp.user_id = u.id
        )
-     ORDER BY u.id DESC`,
-    [normalizedBlock]
+     ORDER BY (
+        SELECT presence.updated_at
+        FROM courier_presence presence
+        WHERE presence.courier_user_id = u.id
+          AND presence.is_online = TRUE
+        ORDER BY presence.updated_at DESC
+        LIMIT 1
+      ) DESC NULLS LAST, u.id DESC`,
+    [normalizedBlock],
   );
   return r.rows;
 }
@@ -1739,10 +2020,24 @@ async function buildMerchantOrderNotifications({
   orderId,
   status,
 }) {
-  const recipients = await listActiveMerchantNotificationRecipients({
-    merchantId,
-    requiredPermissions: ["view_orders", "accept_orders", "prepare_orders"],
-  });
+  const [merchantRecipients, companyRecipients] = await Promise.all([
+    listActiveMerchantNotificationRecipients({
+      merchantId,
+      requiredPermissions: ["view_orders", "accept_orders", "prepare_orders"],
+    }),
+    listActiveCompanyOrderNotificationRecipients(merchantId),
+  ]);
+  const seenUserIds = new Set();
+  const recipients = [...merchantRecipients, ...companyRecipients].filter(
+    (recipient) => {
+      const userId = Number(recipient.userId);
+      if (!Number.isInteger(userId) || userId <= 0 || seenUserIds.has(userId)) {
+        return false;
+      }
+      seenUserIds.add(userId);
+      return true;
+    },
+  );
   if (!recipients.length) return [];
 
   return recipients.map((recipient) => ({
@@ -1761,6 +2056,20 @@ async function buildMerchantOrderNotifications({
   }));
 }
 
+async function listActiveCompanyOrderNotificationRecipients(merchantId) {
+  const r = await q(
+    `SELECT cu.user_id AS user_id
+     FROM merchant m
+     JOIN company_user cu ON cu.company_id = m.company_id
+     WHERE m.id = $1
+       AND m.company_id IS NOT NULL
+       AND cu.is_active = TRUE
+       AND cu.role IN ('company_owner', 'company_manager', 'operations_viewer')`,
+    [Number(merchantId)],
+  );
+  return r.rows.map((row) => ({ userId: Number(row.user_id) }));
+}
+
 export async function ensureDeliveryAccountApproved(deliveryUserId) {
   await q(
     `UPDATE app_user
@@ -1769,7 +2078,7 @@ export async function ensureDeliveryAccountApproved(deliveryUserId) {
          delivery_approved_at = COALESCE(delivery_approved_at, NOW())
      WHERE id = $1
        AND role = 'delivery'`,
-    [Number(deliveryUserId)]
+    [Number(deliveryUserId)],
   );
 }
 
@@ -1781,13 +2090,18 @@ function buildOrderGroupPublicId() {
 
 function summarizeOrderGroupStatus(statuses) {
   const normalized = (statuses || []).map((value) =>
-    String(value || "").trim().toLowerCase()
+    String(value || "")
+      .trim()
+      .toLowerCase(),
   );
   if (!normalized.length) return "pending";
   const allCompleted = normalized.every((status) =>
-    ["completed", "delivered", "delivered_by_courier", "received_by_customer"].includes(
-      status
-    )
+    [
+      "completed",
+      "delivered",
+      "delivered_by_courier",
+      "received_by_customer",
+    ].includes(status),
   );
   if (allCompleted) return "completed";
   const allCancelled = normalized.every((status) =>
@@ -1796,7 +2110,7 @@ function summarizeOrderGroupStatus(statuses) {
       "cancelled_by_store",
       "cancelled_by_customer",
       "cancelled_by_admin",
-    ].includes(status)
+    ].includes(status),
   );
   if (allCancelled) return "cancelled";
   const anyCancelled = normalized.some((status) =>
@@ -1805,7 +2119,7 @@ function summarizeOrderGroupStatus(statuses) {
       "cancelled_by_store",
       "cancelled_by_customer",
       "cancelled_by_admin",
-    ].includes(status)
+    ].includes(status),
   );
   if (anyCancelled) return "partially_completed";
   if (normalized.some((status) => status === "ready_for_delivery")) {
@@ -1827,18 +2141,18 @@ async function syncOrderGroupStatusTx(client, orderGroupId) {
      FROM customer_order
      WHERE order_group_id = $1
      ORDER BY store_sequence ASC, id ASC`,
-    [Number(orderGroupId)]
+    [Number(orderGroupId)],
   );
   if (!statusRows.rows.length) return null;
   const nextStatus = summarizeOrderGroupStatus(
-    statusRows.rows.map((row) => row.status)
+    statusRows.rows.map((row) => row.status),
   );
   await client.query(
     `UPDATE order_group
      SET status = $2,
          updated_at = NOW()
      WHERE id = $1`,
-    [Number(orderGroupId), nextStatus]
+    [Number(orderGroupId), nextStatus],
   );
   for (const row of statusRows.rows) {
     await client.query(
@@ -1859,7 +2173,7 @@ async function syncOrderGroupStatusTx(client, orderGroupId) {
         Number(row.delivery_fee || 0),
         Number(row.delivery_fee_raw || row.delivery_fee || 0),
         Number(row.total_amount || 0),
-      ]
+      ],
     );
   }
   return nextStatus;
@@ -1877,7 +2191,7 @@ async function calculateStoreOrderDraft({
     `SELECT id, name, activity_type, is_open, is_disabled, owner_user_id
      FROM merchant
      WHERE id=$1`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
   const merchant = merchantResult.rows[0];
   if (!merchant) {
@@ -1901,7 +2215,7 @@ async function calculateStoreOrderDraft({
      FROM inventory_settings
      WHERE merchant_id = $1
      LIMIT 1`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
   const inventorySettings = inventorySettingsResult.rows[0] || null;
   const inventoryEnabled = inventorySettings?.inventory_enabled === true;
@@ -1927,13 +2241,13 @@ async function calculateStoreOrderDraft({
        ON si.merchant_id = p.merchant_id
       AND si.product_id = p.id
      WHERE p.id = ANY($1::bigint[])`,
-    [productIds]
+    [productIds],
   );
 
   const productMap = new Map(productsResult.rows.map((p) => [String(p.id), p]));
   const variantCatalogMap = await loadProductVariantCatalogTx(
     client,
-    productIds
+    productIds,
   );
   const activeOffers = await listLatestEligibleOffersByProductIds({
     client,
@@ -1941,7 +2255,7 @@ async function calculateStoreOrderDraft({
     productIds,
   });
   const activeOfferMap = new Map(
-    activeOffers.map((offer) => [String(offer.product_id), offer])
+    activeOffers.map((offer) => [String(offer.product_id), offer]),
   );
 
   const calculatedItems = [];
@@ -1962,14 +2276,10 @@ async function calculateStoreOrderDraft({
       err.status = 400;
       throw err;
     }
-    if (!product.is_available) {
-      throw productUnavailableError({ product });
-    }
-
     const variantResolution = resolveVariantSelectionForItem(
       product,
       item,
-      variantCatalogMap.get(Number(product.id)) || null
+      variantCatalogMap.get(Number(product.id)) || null,
     );
 
     if (
@@ -1982,7 +2292,10 @@ async function calculateStoreOrderDraft({
       if (product.inventory_manual_disabled === true) {
         throw productUnavailableError({ product, reason: "MANUAL_DISABLED" });
       }
-      const currentQuantity = Math.max(0, Number(product.inventory_quantity || 0));
+      const currentQuantity = Math.max(
+        0,
+        Number(product.inventory_quantity || 0),
+      );
       if (currentQuantity < Number(item.quantity || 0)) {
         throw productOutOfStockError({
           product,
@@ -1992,16 +2305,24 @@ async function calculateStoreOrderDraft({
       }
     }
 
+    if (!product.is_available) {
+      throw productUnavailableError({ product });
+    }
+
     if (product.free_delivery) hasFreeDeliveryOffer = true;
 
     const activeOffer = activeOfferMap.get(String(item.productId)) || null;
-    const baseUnitPrice = variantResolution.priceOverride ??
+    const baseUnitPrice =
+      variantResolution.priceOverride ??
       variantResolution.optionPriceOverride ??
-      (Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0));
-    const fallbackDiscountedPrice = variantResolution.discountedPriceOverride ??
+      Number(product.price) +
+        Number(variantResolution.variantPriceDeltaTotal || 0);
+    const fallbackDiscountedPrice =
+      variantResolution.discountedPriceOverride ??
       (product.discounted_price == null
         ? null
-        : Number(product.discounted_price) + Number(variantResolution.variantPriceDeltaTotal || 0));
+        : Number(product.discounted_price) +
+          Number(variantResolution.variantPriceDeltaTotal || 0));
     const pricing = applyMerchantOfferPricing({
       baseUnitPrice,
       quantity: Number(item.quantity || 0),
@@ -2013,8 +2334,9 @@ async function calculateStoreOrderDraft({
       ? item.selectedModifiers
       : [];
     const modifiersUnitTotal = selectedModifiers.reduce(
-      (sum, modifier) => sum + Number(modifier?.priceDelta ?? modifier?.price ?? 0),
-      0
+      (sum, modifier) =>
+        sum + Number(modifier?.priceDelta ?? modifier?.price ?? 0),
+      0,
     );
     const modifiersLineTotal = modifiersUnitTotal * Number(item.quantity || 0);
 
@@ -2080,27 +2402,37 @@ async function calculateStoreOrderDraft({
       modifiersUnitTotal,
       modifiersLineTotal,
       selectedModifiers,
-      selectedVariantSnapshot: variantResolution.selectedVariantSnapshot == null ? null : {
-        ...variantResolution.selectedVariantSnapshot,
-        productName: product.name,
-        finalPrice: unitPrice,
-        quantity: Number(item.quantity || 0),
-      },
+      selectedVariantSnapshot:
+        variantResolution.selectedVariantSnapshot == null
+          ? null
+          : {
+              ...variantResolution.selectedVariantSnapshot,
+              productName: product.name,
+              finalPrice: unitPrice,
+              quantity: Number(item.quantity || 0),
+            },
       displaySnapshot,
-      variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
+      variantPriceDeltaTotal: Number(
+        variantResolution.variantPriceDeltaTotal || 0,
+      ),
       pricingBreakdown: {
         ...pricing.pricingBreakdown,
         selectedModifiers,
         modifiersUnitTotal,
         modifiersLineTotal,
-        selectedVariantSnapshot: variantResolution.selectedVariantSnapshot == null ? null : {
-          ...variantResolution.selectedVariantSnapshot,
-          productName: product.name,
-          finalPrice: unitPrice,
-          quantity: Number(item.quantity || 0),
-        },
+        selectedVariantSnapshot:
+          variantResolution.selectedVariantSnapshot == null
+            ? null
+            : {
+                ...variantResolution.selectedVariantSnapshot,
+                productName: product.name,
+                finalPrice: unitPrice,
+                quantity: Number(item.quantity || 0),
+              },
         displaySnapshot,
-        variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
+        variantPriceDeltaTotal: Number(
+          variantResolution.variantPriceDeltaTotal || 0,
+        ),
       },
     });
   }
@@ -2111,10 +2443,12 @@ async function calculateStoreOrderDraft({
       customerId: Number(customer.id),
       merchantId: Number(merchantId),
       orderTotal: subtotal,
-    }
+    },
   );
   if ((couponId || couponCode) && !couponResult?.coupon) {
-    const err = new Error(couponResult?.reasonCode || "COUPON_INVALID_OR_EXPIRED");
+    const err = new Error(
+      couponResult?.reasonCode || "COUPON_INVALID_OR_EXPIRED",
+    );
     err.status = 400;
     throw err;
   }
@@ -2132,7 +2466,7 @@ async function calculateStoreOrderDraft({
       has_free_delivery: hasFreeDeliveryOffer,
       created_at: new Date().toISOString(),
     },
-    billingProfile
+    billingProfile,
   );
   const serviceFee = Number(financialSnapshot.serviceFeeAmount || 0);
   const deliveryFee = Number(financialSnapshot.deliveryFee || 0);
@@ -2150,6 +2484,7 @@ async function calculateStoreOrderDraft({
       subtotalAfterAllDiscounts,
       serviceFee,
       deliveryFee,
+      rawDeliveryFee: Number(financialSnapshot.rawDeliveryFee ?? deliveryFee),
       totalAmount,
       coupon: coupon
         ? {
@@ -2210,7 +2545,7 @@ export async function createOrderWithItems({
       `SELECT id, name, type, activity_type, is_open, is_disabled, owner_user_id
        FROM merchant
        WHERE id=$1`,
-      [merchantId]
+      [merchantId],
     );
     const merchant = merchantResult.rows[0];
     if (!merchant) {
@@ -2234,7 +2569,7 @@ export async function createOrderWithItems({
        FROM inventory_settings
        WHERE merchant_id = $1
        LIMIT 1`,
-      [Number(merchantId)]
+      [Number(merchantId)],
     );
     const inventorySettings = inventorySettingsResult.rows[0] || null;
     const inventoryEnabled = inventorySettings?.inventory_enabled === true;
@@ -2261,21 +2596,23 @@ export async function createOrderWithItems({
          ON si.merchant_id = p.merchant_id
         AND si.product_id = p.id
        WHERE p.id = ANY($1::bigint[])`,
-      [productIds]
+      [productIds],
     );
 
-  const productMap = new Map(productsResult.rows.map((p) => [String(p.id), p]));
-  const variantCatalogMap = await loadProductVariantCatalogTx(
-    client,
-    productIds
-  );
-  const activeOffers = await listLatestEligibleOffersByProductIds({
-    client,
-    merchantId: Number(merchantId),
+    const productMap = new Map(
+      productsResult.rows.map((p) => [String(p.id), p]),
+    );
+    const variantCatalogMap = await loadProductVariantCatalogTx(
+      client,
+      productIds,
+    );
+    const activeOffers = await listLatestEligibleOffersByProductIds({
+      client,
+      merchantId: Number(merchantId),
       productIds,
     });
     const activeOfferMap = new Map(
-      activeOffers.map((offer) => [String(offer.product_id), offer])
+      activeOffers.map((offer) => [String(offer.product_id), offer]),
     );
     const calculatedItems = [];
     let grossSubtotal = 0;
@@ -2296,14 +2633,10 @@ export async function createOrderWithItems({
         err.status = 400;
         throw err;
       }
-      if (!product.is_available) {
-        throw productUnavailableError({ product });
-      }
-
       const variantResolution = resolveVariantSelectionForItem(
         product,
         item,
-        variantCatalogMap.get(Number(product.id)) || null
+        variantCatalogMap.get(Number(product.id)) || null,
       );
 
       if (
@@ -2316,7 +2649,10 @@ export async function createOrderWithItems({
         if (product.inventory_manual_disabled === true) {
           throw productUnavailableError({ product, reason: "MANUAL_DISABLED" });
         }
-        const currentQuantity = Math.max(0, Number(product.inventory_quantity || 0));
+        const currentQuantity = Math.max(
+          0,
+          Number(product.inventory_quantity || 0),
+        );
         if (currentQuantity < Number(item.quantity || 0)) {
           throw productOutOfStockError({
             product,
@@ -2326,15 +2662,22 @@ export async function createOrderWithItems({
         }
       }
 
+      if (!product.is_available) {
+        throw productUnavailableError({ product });
+      }
+
       if (product.free_delivery) {
         hasFreeDeliveryOffer = true;
       }
 
       const activeOffer = activeOfferMap.get(String(item.productId)) || null;
-      const baseUnitPrice = variantResolution.priceOverride ??
+      const baseUnitPrice =
+        variantResolution.priceOverride ??
         variantResolution.optionPriceOverride ??
-        (Number(product.price) + Number(variantResolution.variantPriceDeltaTotal || 0));
-      const fallbackDiscountedPrice = variantResolution.discountedPriceOverride ??
+        Number(product.price) +
+          Number(variantResolution.variantPriceDeltaTotal || 0);
+      const fallbackDiscountedPrice =
+        variantResolution.discountedPriceOverride ??
         (product.discounted_price == null
           ? null
           : Number(product.discounted_price) +
@@ -2349,14 +2692,17 @@ export async function createOrderWithItems({
         ? item.selectedModifiers
         : [];
       const modifiersUnitTotal = selectedModifiers.reduce(
-        (sum, modifier) => sum + Number(modifier?.priceDelta ?? modifier?.price ?? 0),
-        0
+        (sum, modifier) =>
+          sum + Number(modifier?.priceDelta ?? modifier?.price ?? 0),
+        0,
       );
-      const modifiersLineTotal = modifiersUnitTotal * Number(item.quantity || 0);
+      const modifiersLineTotal =
+        modifiersUnitTotal * Number(item.quantity || 0);
 
       const unitPrice = Number(pricing.unitPrice) + modifiersUnitTotal;
       const lineDiscountTotal = Number(pricing.lineDiscountTotal);
-      const grossLineTotal = Number(pricing.grossLineTotal) + modifiersLineTotal;
+      const grossLineTotal =
+        Number(pricing.grossLineTotal) + modifiersLineTotal;
       const lineTotal = Number(pricing.lineTotal) + modifiersLineTotal;
       const displaySnapshot = buildOrderItemDisplaySnapshot({
         productId: product.id,
@@ -2368,7 +2714,8 @@ export async function createOrderWithItems({
           null,
         sku: variantResolution.selectedVariantSnapshot?.sku || null,
         variantId: variantResolution.variantId || null,
-        variantName: variantResolution.selectedVariantSnapshot?.signature || null,
+        variantName:
+          variantResolution.selectedVariantSnapshot?.signature || null,
         variantSku: variantResolution.selectedVariantSnapshot?.sku || null,
         quantity: item.quantity,
         unitPrice,
@@ -2376,15 +2723,19 @@ export async function createOrderWithItems({
         currency: "IQD",
         selectedColor: variantResolution.selectedVariantSnapshot
           ? {
-              label: variantResolution.selectedVariantSnapshot.colorLabel || null,
-              value: variantResolution.selectedVariantSnapshot.colorLabel || null,
+              label:
+                variantResolution.selectedVariantSnapshot.colorLabel || null,
+              value:
+                variantResolution.selectedVariantSnapshot.colorLabel || null,
               hex: variantResolution.selectedVariantSnapshot.colorHex || null,
             }
           : null,
         selectedSize: variantResolution.selectedVariantSnapshot
           ? {
-              label: variantResolution.selectedVariantSnapshot.sizeLabel || null,
-              value: variantResolution.selectedVariantSnapshot.sizeLabel || null,
+              label:
+                variantResolution.selectedVariantSnapshot.sizeLabel || null,
+              value:
+                variantResolution.selectedVariantSnapshot.sizeLabel || null,
             }
           : null,
         specs: variantResolution.selectedVariantSnapshot?.selections || [],
@@ -2415,27 +2766,37 @@ export async function createOrderWithItems({
         modifiersUnitTotal,
         modifiersLineTotal,
         selectedModifiers,
-        selectedVariantSnapshot: variantResolution.selectedVariantSnapshot == null ? null : {
-          ...variantResolution.selectedVariantSnapshot,
-          productName: product.name,
-          finalPrice: unitPrice,
-          quantity: Number(item.quantity || 0),
-        },
+        selectedVariantSnapshot:
+          variantResolution.selectedVariantSnapshot == null
+            ? null
+            : {
+                ...variantResolution.selectedVariantSnapshot,
+                productName: product.name,
+                finalPrice: unitPrice,
+                quantity: Number(item.quantity || 0),
+              },
         displaySnapshot,
-        variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
+        variantPriceDeltaTotal: Number(
+          variantResolution.variantPriceDeltaTotal || 0,
+        ),
         pricingBreakdown: {
           ...pricing.pricingBreakdown,
           selectedModifiers,
           modifiersUnitTotal,
           modifiersLineTotal,
-          selectedVariantSnapshot: variantResolution.selectedVariantSnapshot == null ? null : {
-            ...variantResolution.selectedVariantSnapshot,
-            productName: product.name,
-            finalPrice: unitPrice,
-            quantity: Number(item.quantity || 0),
-          },
+          selectedVariantSnapshot:
+            variantResolution.selectedVariantSnapshot == null
+              ? null
+              : {
+                  ...variantResolution.selectedVariantSnapshot,
+                  productName: product.name,
+                  finalPrice: unitPrice,
+                  quantity: Number(item.quantity || 0),
+                },
           displaySnapshot,
-          variantPriceDeltaTotal: Number(variantResolution.variantPriceDeltaTotal || 0),
+          variantPriceDeltaTotal: Number(
+            variantResolution.variantPriceDeltaTotal || 0,
+          ),
         },
       });
 
@@ -2470,17 +2831,17 @@ export async function createOrderWithItems({
         customerId: Number(customer.id),
         merchantId: Number(merchantId),
         orderTotal: subtotal,
-      }
+      },
     );
     if ((couponId || couponCode) && !couponResult?.coupon) {
-      const err = new Error(couponResult?.reasonCode || "COUPON_INVALID_OR_EXPIRED");
+      const err = new Error(
+        couponResult?.reasonCode || "COUPON_INVALID_OR_EXPIRED",
+      );
       err.status = 400;
       throw err;
     }
     const coupon = couponResult?.coupon || null;
-    const couponDiscountTotal = coupon
-      ? calcDiscount(coupon, subtotal)
-      : 0;
+    const couponDiscountTotal = coupon ? calcDiscount(coupon, subtotal) : 0;
 
     const billingProfile = await getMerchantBillingProfile(Number(merchantId));
     const effectiveDeliveryFee =
@@ -2495,26 +2856,29 @@ export async function createOrderWithItems({
       {
         subtotal,
         service_fee: 0,
-        delivery_fee:
-          hasFreeDeliveryOffer
-            ? 0
-            : effectiveDeliveryFee == null
-              ? null
-              : effectiveDeliveryFee,
+        delivery_fee: hasFreeDeliveryOffer
+          ? 0
+          : effectiveDeliveryFee == null
+            ? null
+            : effectiveDeliveryFee,
         delivery_type: "delivery",
         courier_source: "app",
         has_free_delivery: hasFreeDeliveryOffer,
         created_at: new Date().toISOString(),
       },
-      billingProfile
+      billingProfile,
     );
     const serviceFee = financialSnapshot.serviceFeeAmount;
     const deliveryFee = financialSnapshot.deliveryFee;
-    const subtotalAfterAllDiscounts = Math.max(0, subtotal - couponDiscountTotal);
-    const totalAmount =
-      subtotalAfterAllDiscounts + serviceFee + deliveryFee;
+    const subtotalAfterAllDiscounts = Math.max(
+      0,
+      subtotal - couponDiscountTotal,
+    );
+    const totalAmount = subtotalAfterAllDiscounts + serviceFee + deliveryFee;
     const rawDeliveryFee =
-      effectiveRawDeliveryFee == null ? deliveryFee : effectiveRawDeliveryFee;
+      effectiveRawDeliveryFee == null
+        ? Number(financialSnapshot.rawDeliveryFee ?? deliveryFee)
+        : effectiveRawDeliveryFee;
     const pricingBreakdown = {
       grossSubtotal,
       productDiscountTotal,
@@ -2550,15 +2914,13 @@ export async function createOrderWithItems({
     const city = deliveryAddress?.city?.trim() || "مدينة بسماية";
     const block = deliveryAddress?.block?.trim() || customer.block;
     const buildingNumber =
-      deliveryAddress?.building_number?.trim() ||
-      customer.building_number;
-    const apartment =
-      deliveryAddress?.apartment?.trim() ||
-      customer.apartment;
+      deliveryAddress?.building_number?.trim() || customer.building_number;
+    const apartment = deliveryAddress?.apartment?.trim() || customer.apartment;
 
     const order = await insertCustomerOrderTx(client, {
       merchantId,
       customer,
+      addressId: deliveryAddress?.id ?? null,
       city,
       block,
       buildingNumber,
@@ -2598,7 +2960,7 @@ export async function createOrderWithItems({
              SET stock_quantity = stock_quantity - $2, updated_at = NOW()
              WHERE id = $1 AND is_available = TRUE AND stock_quantity >= $2
              RETURNING id, stock_quantity`,
-            [Number(item.variantId), Number(item.orderedQuantity)]
+            [Number(item.variantId), Number(item.orderedQuantity)],
           );
         } else {
           reserved = await client.query(
@@ -2609,11 +2971,17 @@ export async function createOrderWithItems({
                    WHEN quantity - $3 <= COALESCE(reorder_threshold, $4) THEN 'low_stock'
                    ELSE 'in_stock'
                  END,
+                 auto_disabled = CASE WHEN quantity - $3 <= 0 THEN TRUE ELSE FALSE END,
                  last_quantity_update_at = NOW(), updated_at = NOW()
              WHERE merchant_id = $1 AND product_id = $2
                AND manual_disabled = FALSE AND quantity >= $3
              RETURNING id, quantity`,
-            [Number(merchantId), Number(item.productId), Number(item.orderedQuantity), Number(item.reorderThreshold || 0)]
+            [
+              Number(merchantId),
+              Number(item.productId),
+              Number(item.orderedQuantity),
+              Number(item.reorderThreshold || 0),
+            ],
           );
         }
         if (!reserved.rows[0]) {
@@ -2621,14 +2989,14 @@ export async function createOrderWithItems({
           if (item.variantId) {
             const stockRow = await client.query(
               `SELECT stock_quantity FROM product_variant WHERE id = $1`,
-              [Number(item.variantId)]
+              [Number(item.variantId)],
             );
             availableQuantity = Number(stockRow.rows[0]?.stock_quantity || 0);
           } else {
             const stockRow = await client.query(
               `SELECT quantity FROM store_inventory_item
                WHERE merchant_id = $1 AND product_id = $2`,
-              [Number(merchantId), Number(item.productId)]
+              [Number(merchantId), Number(item.productId)],
             );
             availableQuantity = Number(stockRow.rows[0]?.quantity || 0);
           }
@@ -2642,26 +3010,81 @@ export async function createOrderWithItems({
             availableQuantity,
           });
         }
+        const reservationRow = reserved.rows[0];
+        if (item.variantId) {
+          const remainingVariantQuantity = Number(
+            reservationRow?.stock_quantity || 0,
+          );
+          if (remainingVariantQuantity <= 0) {
+            await client.query(
+              `UPDATE product_variant
+               SET is_available = FALSE,
+                   unavailable_reason = COALESCE(unavailable_reason, 'نفد المخزون'),
+                   unavailable_until = NULL,
+                   updated_at = NOW()
+               WHERE id = $1`,
+              [Number(item.variantId)],
+            );
+            await client.query(
+              `UPDATE product p
+               SET is_available = FALSE,
+                   unavailable_reason = COALESCE(p.unavailable_reason, 'نفد المخزون'),
+                   unavailable_until = NULL,
+                   updated_at = NOW()
+               WHERE p.id = $1
+                 AND p.merchant_id = $2
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM product_variant pv
+                   WHERE pv.product_id = p.id
+                     AND pv.is_available = TRUE
+                     AND pv.stock_quantity > 0
+                 )`,
+              [Number(item.productId), Number(merchantId)],
+            );
+          }
+        } else if (Number(reservationRow?.quantity || 0) <= 0) {
+          await client.query(
+            `UPDATE product
+             SET is_available = FALSE,
+                 unavailable_reason = COALESCE(unavailable_reason, 'نفد المخزون'),
+                 unavailable_until = NULL,
+                 updated_at = NOW()
+             WHERE id = $1
+               AND merchant_id = $2`,
+            [Number(item.productId), Number(merchantId)],
+          );
+        }
         const persistedItem = persistedItems[item.itemIndex];
         await client.query(
           `INSERT INTO inventory_reservation
              (order_id, order_item_id, merchant_id, product_id, variant_id, variant_signature, quantity, status, expires_at)
            VALUES ($1,$2,$3,$4,$5,$6,$7,'pending', NOW() + ($8 * interval '1 minute'))
            ON CONFLICT (order_item_id) DO NOTHING`,
-          [Number(order.id), Number(persistedItem.id), Number(merchantId), Number(item.productId),
-           item.variantId ? Number(item.variantId) : null,
-           item.variantId ? calculatedItems[item.itemIndex]?.selectedVariantSnapshot?.signature || null : null,
-           Number(item.orderedQuantity), Number(env.orderStockReservationTtlMinutes || 30)]
+          [
+            Number(order.id),
+            Number(persistedItem.id),
+            Number(merchantId),
+            Number(item.productId),
+            item.variantId ? Number(item.variantId) : null,
+            item.variantId
+              ? calculatedItems[item.itemIndex]?.selectedVariantSnapshot
+                  ?.signature || null
+              : null,
+            Number(item.orderedQuantity),
+            Number(env.orderStockReservationTtlMinutes || 30),
+          ],
         );
       }
 
-      if (inventoryEnabled) await client.query(
-        `UPDATE inventory_settings
+      if (inventoryEnabled)
+        await client.query(
+          `UPDATE inventory_settings
          SET last_stock_update_at = NOW(),
              updated_at = NOW()
          WHERE merchant_id = $1`,
-        [Number(merchantId)]
-      );
+          [Number(merchantId)],
+        );
     }
 
     const offerUsages = [];
@@ -2723,44 +3146,55 @@ export async function createOrderWithItems({
 
     if (!suppressNotifications) {
       queueOrderSideEffect(async () => {
-        const employeeNotifications = await buildMerchantOrderNotifications({
-          merchantId: Number(merchant.id),
-          merchantName: merchant.name,
-          orderId: order.id,
-          status: order.status,
-        });
-        await createManyNotifications([
-          {
-            userId: customer.id,
-            type: "order_created",
-            title: "تم إنشاء الطلب",
-            body: `تم إنشاء طلبك لدى ${merchant.name} بنجاح`,
-            orderId: order.id,
-            merchantId: merchant.id,
-            payload: {
+        const [employeeNotifications, adminRecipientUserIds] =
+          await Promise.all([
+            buildMerchantOrderNotifications({
+              merchantId: Number(merchant.id),
+              merchantName: merchant.name,
               orderId: order.id,
               status: order.status,
-            },
-          },
-          merchant.owner_user_id
-            ? {
-                userId: merchant.owner_user_id,
-                type: "owner_new_order",
-                title: "طلب جديد",
-                body: `طلب جديد رقم #${order.id} لدى ${merchant.name}`,
+            }),
+            listBackofficeNotificationUserIds({ permissionKey: "orders.read" }),
+          ]);
+        const adminNotifications = buildAdminOrderCreatedNotifications({
+          recipientUserIds: adminRecipientUserIds,
+          order,
+          merchantName: merchant.name,
+        });
+        await createManyNotifications(
+          [
+            {
+              userId: customer.id,
+              type: "order_created",
+              title: "تم إنشاء الطلب",
+              body: `تم إنشاء طلبك لدى ${merchant.name} بنجاح`,
+              orderId: order.id,
+              merchantId: merchant.id,
+              payload: {
                 orderId: order.id,
-                merchantId: merchant.id,
-                payload: {
+                status: order.status,
+              },
+            },
+            merchant.owner_user_id
+              ? {
+                  userId: merchant.owner_user_id,
+                  type: "owner_new_order",
+                  title: "طلب جديد",
+                  body: `طلب جديد رقم #${order.id} لدى ${merchant.name}`,
                   orderId: order.id,
-                  status: order.status,
-                  requiresAction: true,
-                  target: "merchant_order_details",
-                },
-              }
-            : null,
-          ...employeeNotifications,
-        ].filter(Boolean));
-
+                  merchantId: merchant.id,
+                  payload: {
+                    orderId: order.id,
+                    status: order.status,
+                    requiresAction: true,
+                    target: "merchant_order_details",
+                  },
+                }
+              : null,
+            ...employeeNotifications,
+            ...adminNotifications,
+          ].filter(Boolean),
+        );
       });
     }
 
@@ -2809,15 +3243,16 @@ export async function previewOrderGroup({
         draft,
         originalIndex: index,
         checkoutSequence: resolveGroupedCheckoutSequence(storeOrder, index),
-        rawDeliveryFee: Number(draft.pricing.deliveryFee || 0),
+        rawDeliveryFee: Number(
+          draft.pricing.rawDeliveryFee ?? draft.pricing.deliveryFee ?? 0,
+        ),
+        customerDeliveryFee: Number(draft.pricing.deliveryFee || 0),
         subtotalAfterAllDiscounts: Number(
-          draft.pricing.subtotalAfterAllDiscounts || 0
+          draft.pricing.subtotalAfterAllDiscounts || 0,
         ),
         serviceFee: Number(draft.pricing.serviceFee || 0),
         grossSubtotal: Number(draft.pricing.grossSubtotal || 0),
-        productDiscountTotal: Number(
-          draft.pricing.productDiscountTotal || 0
-        ),
+        productDiscountTotal: Number(draft.pricing.productDiscountTotal || 0),
         couponDiscountTotal: Number(draft.pricing.couponDiscountTotal || 0),
       });
     }
@@ -2919,15 +3354,16 @@ export async function createOrderGroupWithItems({
         draft,
         originalIndex: index,
         checkoutSequence: resolveGroupedCheckoutSequence(storeOrder, index),
-        rawDeliveryFee: Number(draft.pricing.deliveryFee || 0),
+        rawDeliveryFee: Number(
+          draft.pricing.rawDeliveryFee ?? draft.pricing.deliveryFee ?? 0,
+        ),
+        customerDeliveryFee: Number(draft.pricing.deliveryFee || 0),
         subtotalAfterAllDiscounts: Number(
-          draft.pricing.subtotalAfterAllDiscounts || 0
+          draft.pricing.subtotalAfterAllDiscounts || 0,
         ),
         serviceFee: Number(draft.pricing.serviceFee || 0),
         grossSubtotal: Number(draft.pricing.grossSubtotal || 0),
-        productDiscountTotal: Number(
-          draft.pricing.productDiscountTotal || 0
-        ),
+        productDiscountTotal: Number(draft.pricing.productDiscountTotal || 0),
         couponDiscountTotal: Number(draft.pricing.couponDiscountTotal || 0),
       });
     }
@@ -2945,11 +3381,9 @@ export async function createOrderGroupWithItems({
     for (const entry of deliveryPlan.entries) {
       groupTotals.grossSubtotal += Number(entry.grossSubtotal || 0);
       groupTotals.productDiscountTotal += Number(
-        entry.productDiscountTotal || 0
+        entry.productDiscountTotal || 0,
       );
-      groupTotals.couponDiscountTotal += Number(
-        entry.couponDiscountTotal || 0
-      );
+      groupTotals.couponDiscountTotal += Number(entry.couponDiscountTotal || 0);
       groupTotals.serviceFeeTotal += Number(entry.serviceFee || 0);
       groupTotals.deliveryFeeTotal += Number(entry.allocatedDeliveryFee || 0);
       groupTotals.totalAmount += Number(entry.totalAmount || 0);
@@ -3000,7 +3434,7 @@ export async function createOrderGroupWithItems({
         Number(preview.totals.totalAmount || 0),
         paymentMethod || "cash_on_delivery",
         note || null,
-      ]
+      ],
     );
     const orderGroup = groupInsert.rows[0];
 
@@ -3058,19 +3492,26 @@ export async function createOrderGroupWithItems({
           String(child.status || "pending"),
           Number(child.subtotal || 0),
           Number(child.delivery_fee || child.deliveryFee || 0),
-          Number(child.delivery_fee_raw || child.deliveryFeeRaw || child.deliveryFee || 0),
+          Number(
+            child.delivery_fee_raw ||
+              child.deliveryFeeRaw ||
+              child.deliveryFee ||
+              0,
+          ),
           Number(child.total_amount || child.totalAmount || 0),
-        ]
+        ],
       );
     }
 
-    const status = summarizeOrderGroupStatus(childOrders.map((row) => row.status));
+    const status = summarizeOrderGroupStatus(
+      childOrders.map((row) => row.status),
+    );
     await client.query(
       `UPDATE order_group
        SET status = $2,
            updated_at = NOW()
        WHERE id = $1`,
-      [Number(orderGroup.id), status]
+      [Number(orderGroup.id), status],
     );
 
     // Delivery closure §2: create the authoritative grouped delivery job + one
@@ -3082,18 +3523,30 @@ export async function createOrderGroupWithItems({
     await client.query("COMMIT");
 
     queueOrderSideEffect(async () => {
-      const employeeNotifications = (
-        await Promise.all(
-          childOrders.map((child) =>
-            buildMerchantOrderNotifications({
-              merchantId: Number(child.merchant_id || 0),
-              merchantName: String(child.merchant_name || ""),
-              orderId: Number(child.id),
-              status: String(child.status || "pending"),
-            })
-          )
-        )
-      ).flat();
+      const [employeeNotificationGroups, adminRecipientUserIds] =
+        await Promise.all([
+          Promise.all(
+            childOrders.map((child) =>
+              buildMerchantOrderNotifications({
+                merchantId: Number(child.merchant_id || 0),
+                merchantName: String(child.merchant_name || ""),
+                orderId: Number(child.id),
+                status: String(child.status || "pending"),
+              }),
+            ),
+          ),
+          listBackofficeNotificationUserIds({ permissionKey: "orders.read" }),
+        ]);
+      const employeeNotifications = employeeNotificationGroups.flat();
+      const adminNotifications = childOrders.flatMap((child) =>
+        buildAdminOrderCreatedNotifications({
+          recipientUserIds: adminRecipientUserIds,
+          order: child,
+          merchantName: String(child.merchant_name || ""),
+          orderGroupId: Number(orderGroup.id),
+          storesCount: preview.storesCount,
+        }),
+      );
       await createManyNotifications(
         [
           {
@@ -3132,9 +3585,9 @@ export async function createOrderGroupWithItems({
               : null,
           ]),
           ...employeeNotifications,
-        ].filter(Boolean)
+          ...adminNotifications,
+        ].filter(Boolean),
       );
-
     });
 
     return {
@@ -3143,10 +3596,12 @@ export async function createOrderGroupWithItems({
         ...orderGroup,
         status,
         rawDeliveryFeeTotal: Number(
-          orderGroup.raw_delivery_fee_total || preview.totals.rawDeliveryFeeTotal || 0
+          orderGroup.raw_delivery_fee_total ||
+            preview.totals.rawDeliveryFeeTotal ||
+            0,
         ),
         allocatedDeliveryFeeTotal: Number(
-          orderGroup.delivery_fee_total || preview.totals.deliveryFeeTotal || 0
+          orderGroup.delivery_fee_total || preview.totals.deliveryFeeTotal || 0,
         ),
       },
       storesCount: preview.storesCount,
@@ -3172,7 +3627,7 @@ export async function getCustomerOrderGroupDetails(customerUserId, groupId) {
      WHERE id = $1
        AND customer_user_id = $2
      LIMIT 1`,
-    [numericGroupId, Number(customerUserId)]
+    [numericGroupId, Number(customerUserId)],
   );
   const group = groupResult.rows[0];
   if (!group) return null;
@@ -3182,7 +3637,7 @@ export async function getCustomerOrderGroupDetails(customerUserId, groupId) {
      WHERE o.customer_user_id = $1
        AND o.order_group_id = $2
      ORDER BY o.store_sequence ASC, o.id ASC`,
-    [Number(customerUserId), Number(group.id)]
+    [Number(customerUserId), Number(group.id)],
   );
   const children = await attachItems(ordersResult.rows);
 
@@ -3191,7 +3646,7 @@ export async function getCustomerOrderGroupDetails(customerUserId, groupId) {
      FROM order_group_item_summary
      WHERE order_group_id = $1
      ORDER BY id ASC`,
-    [Number(group.id)]
+    [Number(group.id)],
   );
 
   const status = summarizeOrderGroupStatus(children.map((row) => row.status));
@@ -3208,7 +3663,7 @@ export async function getCustomerOrderGroupDetails(customerUserId, groupId) {
       serviceFeeTotal: Number(group.service_fee_total || 0),
       deliveryFeeTotal: Number(group.delivery_fee_total || 0),
       rawDeliveryFeeTotal: Number(
-        group.raw_delivery_fee_total || group.delivery_fee_total || 0
+        group.raw_delivery_fee_total || group.delivery_fee_total || 0,
       ),
       allocatedDeliveryFeeTotal: Number(group.delivery_fee_total || 0),
       totalAmount: Number(group.total_amount || 0),
@@ -3218,13 +3673,12 @@ export async function getCustomerOrderGroupDetails(customerUserId, groupId) {
 
 export async function listCustomerOrders(
   customerUserId,
-  { paginate = false, limit = null, offset = 0 } = {}
+  { paginate = false, limit = null, offset = 0 } = {},
 ) {
   const usePagination = paginate === true;
-  const safeLimit =
-    usePagination
-      ? Math.max(1, Math.min(120, Number(limit) || 40))
-      : null;
+  const safeLimit = usePagination
+    ? Math.max(1, Math.min(120, Number(limit) || 40))
+    : null;
   const safeOffset = usePagination ? Math.max(0, Number(offset) || 0) : 0;
   const sql = usePagination
     ? `${orderSelect}
@@ -3246,7 +3700,7 @@ export async function findCustomerOrder(customerUserId, orderId) {
     `${orderSelect}
      WHERE o.customer_user_id=$1
        AND o.id=$2`,
-    [customerUserId, orderId]
+    [customerUserId, orderId],
   );
   const rows = await attachItems(r.rows);
   return rows[0] || null;
@@ -3268,7 +3722,7 @@ export async function getLatestCourierPresence(courierUserId) {
      FROM courier_presence
      WHERE courier_user_id = $1
      LIMIT 1`,
-    [Number(courierUserId)]
+    [Number(courierUserId)],
   );
   return mapCourierPresence(r.rows[0]);
 }
@@ -3291,8 +3745,11 @@ export async function getOrderLatestCourierPresence(orderId) {
      WHERE o.id = $1
        AND cp.latitude IS NOT NULL
        AND cp.longitude IS NOT NULL
+       AND cp.is_online = TRUE
+       AND cp.updated_at >= NOW() - INTERVAL '90 seconds'
+     ORDER BY (cp.current_order_id = o.id) DESC, cp.updated_at DESC
      LIMIT 1`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
   return mapCourierPresence(r.rows[0]);
 }
@@ -3353,43 +3810,59 @@ export async function upsertCourierPresence({
       speedKmh,
       accuracyM,
       isOnline === false ? false : true,
-    ]
+    ],
   );
   return mapCourierPresence(r.rows[0]);
 }
 
 export async function findCourierTrackableOrder(courierUserId, orderId) {
   const r = await q(
-    `${orderSelect}
+    `SELECT
+       o.id,
+       o.status::text AS status,
+       o.customer_user_id,
+       o.merchant_id,
+       o.delivery_user_id,
+       o.delivery_assignment_status::text AS delivery_assignment_status,
+       m.owner_user_id
+     FROM customer_order o
+     JOIN merchant m ON m.id = o.merchant_id
      WHERE o.id = $1
        AND o.delivery_user_id = $2
        AND o.delivery_assignment_status = 'ASSIGNED'
        AND o.status IN ('ready_for_delivery','on_the_way','arrived')
      LIMIT 1`,
-    [Number(orderId), Number(courierUserId)]
+    [Number(orderId), Number(courierUserId)],
   );
-  const rows = await attachItems(r.rows);
-  return rows[0] || null;
+  return r.rows[0] || null;
 }
 
 export function isCourierTrackableOrderStatus(status) {
   return ["ready_for_delivery", "on_the_way", "arrived"].includes(
-    String(status || "").trim().toLowerCase()
+    String(status || "")
+      .trim()
+      .toLowerCase(),
   );
 }
 
-export async function getCustomerOrderTrackingSnapshot(customerUserId, orderId) {
-  const order = await findCustomerOrder(Number(customerUserId), Number(orderId));
+export async function getCustomerOrderTrackingSnapshot(
+  customerUserId,
+  orderId,
+) {
+  const order = await findCustomerOrder(
+    Number(customerUserId),
+    Number(orderId),
+  );
   if (!order) return null;
   const latestLocation = order.delivery_user_id
-    ? await getLatestCourierPresence(order.delivery_user_id)
+    ? await getOrderLatestCourierPresence(order.id)
     : null;
   const activeShareRes = await q(
     `SELECT share_token, expires_at, revoked_at
      FROM customer_order_share_token
      WHERE order_id = $1
      LIMIT 1`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
   const share = activeShareRes.rows[0]
     ? {
@@ -3412,8 +3885,15 @@ export async function getCustomerOrderTrackingSnapshot(customerUserId, orderId) 
  * or null when they have no access. Side-effect free so it can be unit tested
  * without a database (exposed via __ordersRepoTestables).
  */
-function resolveTrackingViewerMode({ role, isSuperAdmin = false, viewerId, order }) {
-  const normalizedRole = String(role || "").trim().toLowerCase();
+function resolveTrackingViewerMode({
+  role,
+  isSuperAdmin = false,
+  viewerId,
+  order,
+}) {
+  const normalizedRole = String(role || "")
+    .trim()
+    .toLowerCase();
   const isAdmin =
     isSuperAdmin === true ||
     normalizedRole === "admin" ||
@@ -3458,7 +3938,7 @@ export async function getOrderTrackingSnapshotForViewer({
     `${orderSelect}
      WHERE o.id = $1
      LIMIT 1`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
   const attached = await attachItems(res.rows);
   const order = attached[0] || null;
@@ -3473,7 +3953,7 @@ export async function getOrderTrackingSnapshotForViewer({
   if (!viewerMode) return { forbidden: true };
 
   const latestLocation = order.delivery_user_id
-    ? await getLatestCourierPresence(order.delivery_user_id)
+    ? await getOrderLatestCourierPresence(order.id)
     : null;
 
   let share = null;
@@ -3483,7 +3963,7 @@ export async function getOrderTrackingSnapshotForViewer({
        FROM customer_order_share_token
        WHERE order_id = $1
        LIMIT 1`,
-      [Number(orderId)]
+      [Number(orderId)],
     );
     share = activeShareRes.rows[0]
       ? {
@@ -3504,7 +3984,10 @@ export async function getOrderTrackingSnapshotForViewer({
 }
 
 export async function createCustomerOrderShareToken(customerUserId, orderId) {
-  const order = await findCustomerOrder(Number(customerUserId), Number(orderId));
+  const order = await findCustomerOrder(
+    Number(customerUserId),
+    Number(orderId),
+  );
   if (!order) return null;
   const token = createPublicOrderShareToken();
   const r = await q(
@@ -3518,7 +4001,7 @@ export async function createCustomerOrderShareToken(customerUserId, orderId) {
        revoked_at = NULL,
        updated_at = NOW()
      RETURNING share_token, expires_at, revoked_at`,
-    [Number(orderId), Number(customerUserId), token]
+    [Number(orderId), Number(customerUserId), token],
   );
   const row = r.rows[0];
   return row
@@ -3539,7 +4022,7 @@ export async function getPublicOrderTrackingByToken(token) {
        AND revoked_at IS NULL
        AND (expires_at IS NULL OR expires_at > NOW())
      LIMIT 1`,
-    [String(token)]
+    [String(token)],
   );
   const orderId = shareRes.rows[0]?.order_id;
   if (!orderId) return null;
@@ -3548,13 +4031,13 @@ export async function getPublicOrderTrackingByToken(token) {
     `${orderSelect}
      WHERE o.id = $1
      LIMIT 1`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
   const rows = await attachItems(r.rows);
   const order = rows[0];
   if (!order) return null;
   const latestLocation = order.delivery_user_id
-    ? await getLatestCourierPresence(order.delivery_user_id)
+    ? await getOrderLatestCourierPresence(order.id)
     : null;
   return buildOrderTrackingEnvelope(order, {
     viewerMode: "publicReadonly",
@@ -3582,7 +4065,7 @@ export async function cancelOrderByCustomer({
          AND customer_user_id = $2
          AND status IN ('pending','approved','preparing','courier_requested')
        RETURNING id, merchant_id, order_group_id, status`,
-      [Number(orderId), Number(customerUserId), String(reasonCode), reasonText]
+      [Number(orderId), Number(customerUserId), String(reasonCode), reasonText],
     );
     const row = updated.rows[0];
     if (!row) {
@@ -3594,7 +4077,7 @@ export async function cancelOrderByCustomer({
       `INSERT INTO order_action_event
         (order_id, actor_user_id, actor_scope, action_kind, reason_code, reason_text)
        VALUES ($1,$2,'customer','cancel',$3,$4)`,
-      [Number(row.id), Number(customerUserId), String(reasonCode), reasonText]
+      [Number(row.id), Number(customerUserId), String(reasonCode), reasonText],
     );
 
     await syncOrderIncentiveConsumptionForStatusTx(client, {
@@ -3602,7 +4085,11 @@ export async function cancelOrderByCustomer({
       status: "cancelled_by_customer",
     });
 
-    await transitionInventoryReservationsTx(client, row.id, "released");
+    const releasedReservations = await transitionInventoryReservationsTx(
+      client,
+      row.id,
+      "released",
+    );
 
     // A courier may already hold this order (assignment happens at `preparing`).
     // Close the assignment and clear the ASSIGNED flag, otherwise the driver
@@ -3619,7 +4106,7 @@ export async function cancelOrderByCustomer({
            END
        WHERE order_id = $1
          AND ended_at IS NULL`,
-      [Number(row.id)]
+      [Number(row.id)],
     );
     await client.query(
       `UPDATE customer_order
@@ -3627,12 +4114,15 @@ export async function cancelOrderByCustomer({
            updated_at = NOW()
        WHERE id = $1
          AND delivery_assignment_status IS DISTINCT FROM 'CANCELLED'`,
-      [Number(row.id)]
+      [Number(row.id)],
     );
 
     await syncOrderGroupStatusTx(client, row.order_group_id);
 
     await client.query("COMMIT");
+    if (releasedReservations > 0) {
+      await invalidateMerchantCatalogCache(row.merchant_id);
+    }
 
     void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
       console.error("[delivery-assignment] recovery trigger failed", {
@@ -3676,7 +4166,7 @@ export async function requestOrderReturnByCustomer({
          AND status IN ('delivered','completed','received_by_customer')
          AND COALESCE(delivered_at, created_at) >= NOW() - interval '24 hour'
        RETURNING id, merchant_id, order_group_id, status, return_requested_at`,
-      [Number(orderId), Number(customerUserId), String(reasonCode), reasonText]
+      [Number(orderId), Number(customerUserId), String(reasonCode), reasonText],
     );
     const row = updated.rows[0];
     if (!row) {
@@ -3688,7 +4178,7 @@ export async function requestOrderReturnByCustomer({
       `INSERT INTO order_action_event
         (order_id, actor_user_id, actor_scope, action_kind, reason_code, reason_text)
        VALUES ($1,$2,'customer','return',$3,$4)`,
-      [Number(row.id), Number(customerUserId), String(reasonCode), reasonText]
+      [Number(row.id), Number(customerUserId), String(reasonCode), reasonText],
     );
 
     await client.query("COMMIT");
@@ -3707,54 +4197,15 @@ export async function requestOrderReturnByCustomer({
 }
 
 export async function confirmOrderDelivered(customerUserId, orderId) {
-  const r = await q(
-    `UPDATE customer_order
-     SET customer_confirmed_at = COALESCE(customer_confirmed_at, NOW())
-     WHERE id=$1
-       AND customer_user_id=$2
-       AND status='delivered'
-     RETURNING
-       id,
-       merchant_id,
-       delivery_user_id,
-       (SELECT owner_user_id FROM merchant WHERE id = customer_order.merchant_id) AS owner_user_id`,
-    [orderId, customerUserId]
+  const result = await q(
+    `SELECT 1
+       FROM customer_order
+      WHERE id=$1
+        AND customer_user_id=$2
+        AND status IN ('delivered','completed')`,
+    [Number(orderId), Number(customerUserId)],
   );
-  const row = r.rows[0];
-  if (!row) return false;
-
-  await createManyNotifications(
-    [
-      row.delivery_user_id
-        ? {
-            userId: row.delivery_user_id,
-            type: "delivery_customer_confirmed",
-            title: "تأكيد استلام",
-            body: `الزبون أكد استلام الطلب #${row.id}`,
-            orderId: row.id,
-            merchantId: row.merchant_id,
-            payload: {
-              orderId: row.id,
-            },
-          }
-        : null,
-      row.owner_user_id
-        ? {
-            userId: row.owner_user_id,
-            type: "owner_customer_confirmed",
-            title: "تم تأكيد الاستلام",
-            body: `الزبون أكد استلام الطلب #${row.id}`,
-            orderId: row.id,
-            merchantId: row.merchant_id,
-            payload: {
-              orderId: row.id,
-            },
-          }
-        : null,
-    ].filter(Boolean)
-  );
-
-  return true;
+  return result.rows.length > 0;
 }
 
 export async function rateDelivery(customerUserId, orderId, rating, review) {
@@ -3772,7 +4223,7 @@ export async function rateDelivery(customerUserId, orderId, rating, review) {
        merchant_id,
        delivery_user_id,
        (SELECT owner_user_id FROM merchant WHERE id = customer_order.merchant_id) AS owner_user_id`,
-    [rating, review || null, orderId, customerUserId]
+    [rating, review || null, orderId, customerUserId],
   );
   const row = r.rows[0];
   if (!row) return false;
@@ -3807,7 +4258,7 @@ export async function rateDelivery(customerUserId, orderId, rating, review) {
             },
           }
         : null,
-    ].filter(Boolean)
+    ].filter(Boolean),
   );
 
   return true;
@@ -3830,7 +4281,7 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
          AND o.customer_user_id = $2
          AND o.status IN ('delivered','completed')
        FOR UPDATE`,
-      [Number(orderId), Number(customerUserId)]
+      [Number(orderId), Number(customerUserId)],
     );
     orderRow = orderRowResult.rows[0];
     if (!orderRow) {
@@ -3838,10 +4289,9 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
       return false;
     }
 
-    await client.query(
-      `SELECT pg_advisory_xact_lock(hashtext($1))`,
-      [`merchant-review:${Number(customerUserId)}:${Number(orderRow.merchant_id)}`]
-    );
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `merchant-review:${Number(customerUserId)}:${Number(orderRow.merchant_id)}`,
+    ]);
 
     const existingReviewResult = await client.query(
       `SELECT id, merchant_id, social_post_id
@@ -3851,7 +4301,7 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
          AND review_state IN ('active', 'restored')
        ORDER BY updated_at DESC, id DESC
        LIMIT 1`,
-      [Number(customerUserId), Number(orderRow.merchant_id)]
+      [Number(customerUserId), Number(orderRow.merchant_id)],
     );
     const existingReview = existingReviewResult.rows[0];
     if (existingReview) {
@@ -3875,7 +4325,7 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
            merchant_review=$2,
            merchant_rated_at=NOW()
        WHERE id=$3`,
-      [rating, review || null, Number(orderRow.id)]
+      [rating, review || null, Number(orderRow.id)],
     );
 
     const socialPost = await insertMerchantReviewSocialPostTx(client, {
@@ -3920,7 +4370,7 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
           orderId: Number(orderRow.id),
           socialPostId: Number(socialPost.id),
         }),
-      ]
+      ],
     );
 
     await merchantReviewNotificationOutboxWriter(client, {
@@ -3951,7 +4401,7 @@ export async function rateMerchant(customerUserId, orderId, rating, review) {
            AND review_state IN ('active', 'restored')
          ORDER BY updated_at DESC, id DESC
          LIMIT 1`,
-        [Number(customerUserId), Number(orderRow?.merchant_id || 0)]
+        [Number(customerUserId), Number(orderRow?.merchant_id || 0)],
       );
       const row = conflictReview.rows[0];
       if (row) {
@@ -3980,11 +4430,44 @@ export async function listOwnerCurrentOrders(ownerUserId) {
      WHERE mo.owner_user_id=$1
        AND o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')
      ORDER BY o.id DESC`,
-    [ownerUserId]
+    [ownerUserId],
   );
   const rows = await attachItems(r.rows);
   return rows
-    .filter((row) => isOwnerCurrentStatus(row.status, row.customer_confirmed_at))
+    .filter((row) =>
+      isOwnerCurrentStatus(row.status, row.customer_confirmed_at),
+    )
+    .sort((a, b) => {
+      const rank = currentStatusRank(a.status) - currentStatusRank(b.status);
+      if (rank !== 0) return rank;
+      return Number(b.id) - Number(a.id);
+    });
+}
+
+export async function listCompanyCurrentOrders(
+  companyId,
+  { merchantId = null } = {},
+) {
+  const params = [Number(companyId)];
+  let merchantFilter = "";
+  if (merchantId != null && Number(merchantId) > 0) {
+    params.push(Number(merchantId));
+    merchantFilter = `AND o.merchant_id=$${params.length}`;
+  }
+
+  const r = await q(
+    `${orderSelect}
+     WHERE m.company_id=$1
+       ${merchantFilter}
+       AND o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')
+     ORDER BY o.id DESC`,
+    params,
+  );
+  const rows = await attachItems(r.rows);
+  return rows
+    .filter((row) =>
+      isOwnerCurrentStatus(row.status, row.customer_confirmed_at),
+    )
     .sort((a, b) => {
       const rank = currentStatusRank(a.status) - currentStatusRank(b.status);
       if (rank !== 0) return rank;
@@ -4007,7 +4490,7 @@ export async function listOwnerOrderHistory(ownerUserId, archiveDate) {
        AND o.archived_by_delivery = TRUE
        ${dateSql}
      ORDER BY o.id DESC`,
-    params
+    params,
   );
   return attachItems(r.rows);
 }
@@ -4025,7 +4508,7 @@ export async function listAdminOrdersForReport(period) {
     `${orderSelect}
      ${timeFilter ? `WHERE ${timeFilter}` : ""}
      ORDER BY o.created_at DESC`,
-    []
+    [],
   );
   return attachItems(r.rows);
 }
@@ -4038,6 +4521,7 @@ export async function listAdminMerchantOrderOverview({
   search = null,
   limit = 60,
   offset = 0,
+  summaryOnly = false,
 } = {}) {
   const normalizedStatus = normalizeAdminOrderOverviewStatus(status);
   const normalizedPeriod = normalizeAdminOverviewPeriod(period);
@@ -4055,7 +4539,7 @@ export async function listAdminMerchantOrderOverview({
     to,
   });
 
-  const summaryResult = await q(
+  const summaryPromise = q(
     `SELECT
        COUNT(*)::int AS total_orders,
        COUNT(*) FILTER (
@@ -4067,8 +4551,31 @@ export async function listAdminMerchantOrderOverview({
        )::int AS in_progress_orders
      FROM customer_order o
      WHERE ${summaryClauses.join(" AND ")}`,
-    summaryParams
+    summaryParams,
   );
+
+  if (summaryOnly === true) {
+    const summaryResult = await summaryPromise;
+    return {
+      summary: summaryResult.rows[0] || {
+        total_orders: 0,
+        completed_orders: 0,
+        cancelled_orders: 0,
+        in_progress_orders: 0,
+      },
+      items: [],
+      total: 0,
+      filters: {
+        status: normalizedStatus,
+        period: normalizedPeriod,
+        from,
+        to,
+        search: null,
+        limit: 0,
+        offset: 0,
+      },
+    };
+  }
 
   const merchantParams = [];
   const merchantClauses = [adminOrderStatusFilterSql(normalizedStatus, "o")];
@@ -4094,7 +4601,7 @@ export async function listAdminMerchantOrderOverview({
     )`;
   }
 
-  const merchantRows = await q(
+  const merchantRowsPromise = q(
     `SELECT
        m.id AS merchant_id,
        m.name AS merchant_name,
@@ -4112,10 +4619,10 @@ export async function listAdminMerchantOrderOverview({
      GROUP BY m.id, u.id
      ORDER BY orders_count DESC, last_order_at DESC NULLS LAST, m.id DESC
      LIMIT ${safeLimit} OFFSET ${safeOffset}`,
-    merchantParams
+    merchantParams,
   );
 
-  const countRows = await q(
+  const countRowsPromise = q(
     `SELECT COUNT(*)::int AS total
      FROM (
        SELECT m.id
@@ -4125,8 +4632,16 @@ export async function listAdminMerchantOrderOverview({
        WHERE ${merchantClauses.join(" AND ")}${merchantSearchSql}
        GROUP BY m.id
      ) overview`,
-    merchantParams
+    merchantParams,
   );
+
+  // These reads are independent. Running them together removes two full
+  // database round trips from the admin orders screen on slow connections.
+  const [summaryResult, merchantRows, countRows] = await Promise.all([
+    summaryPromise,
+    merchantRowsPromise,
+    countRowsPromise,
+  ]);
 
   return {
     summary: summaryResult.rows[0] || {
@@ -4182,7 +4697,7 @@ export async function listAdminMerchantOrdersOverview({
     to,
   });
 
-  const merchantResult = await q(
+  const merchantPromise = q(
     `SELECT
        m.id,
        m.name,
@@ -4195,27 +4710,32 @@ export async function listAdminMerchantOrdersOverview({
      LEFT JOIN app_user u ON u.id = m.owner_user_id
      WHERE m.id = $1
      LIMIT 1`,
-    [safeMerchantId]
+    [safeMerchantId],
   );
-  const merchant = merchantResult.rows[0];
-  if (!merchant) {
-    throw new AppError("MERCHANT_NOT_FOUND", 404);
-  }
-
-  const rowsResult = await q(
+  const rowsPromise = q(
     `${orderSelect}
      WHERE ${clauses.join(" AND ")}
      ORDER BY o.created_at DESC, o.id DESC
      LIMIT ${safeLimit} OFFSET ${safeOffset}`,
-    params
+    params,
   );
 
-  const countResult = await q(
+  const countPromise = q(
     `SELECT COUNT(*)::int AS total
      FROM customer_order o
      WHERE ${clauses.join(" AND ")}`,
-    params
+    params,
   );
+
+  const [merchantResult, rowsResult, countResult] = await Promise.all([
+    merchantPromise,
+    rowsPromise,
+    countPromise,
+  ]);
+  const merchant = merchantResult.rows[0];
+  if (!merchant) {
+    throw new AppError("MERCHANT_NOT_FOUND", 404);
+  }
 
   return {
     merchant,
@@ -4246,7 +4766,7 @@ export async function listOwnerOrdersForReport(ownerUserId, period) {
      WHERE m.owner_user_id = $1
        ${timeFilter ? `AND ${timeFilter}` : ""}
      ORDER BY o.created_at DESC`,
-    [ownerUserId]
+    [ownerUserId],
   );
   return attachItems(r.rows);
 }
@@ -4270,19 +4790,20 @@ export async function listOwnerOrdersForReport(ownerUserId, period) {
  * - هذه الدالة تفصل بين صلاحية owner وصلاحية delivery؛ لا تخلطها مع
  *   transitions الخاصة بالمندوب.
  */
-export async function updateOwnerOrderStatus(
-  ownerUserId,
+async function updateScopedOwnerOrderStatus(
+  scopeColumn,
+  scopeValue,
   orderId,
   status,
   estimatedPrepMinutes,
-  estimatedDeliveryMinutes
+  estimatedDeliveryMinutes,
 ) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     const currentResult = await client.query(
-       `SELECT
+      `SELECT
           o.id,
           o.merchant_id,
           o.order_group_id,
@@ -4297,9 +4818,9 @@ export async function updateOwnerOrderStatus(
         FROM customer_order o
         JOIN merchant m ON m.id = o.merchant_id
         WHERE o.id=$1
-         AND m.owner_user_id=$2
+         AND ${scopeColumn}=$2
        FOR UPDATE`,
-      [Number(orderId), Number(ownerUserId)]
+      [Number(orderId), Number(scopeValue)],
     );
 
     const current = currentResult.rows[0];
@@ -4380,16 +4901,21 @@ export async function updateOwnerOrderStatus(
         status === "arrived",
         status === "delivered",
         Number(orderId),
-      ]
+      ],
     );
 
     const updated = updateResult.rows[0];
+    let releasedReservations = 0;
     if (status === "approved") {
       await transitionInventoryReservationsTx(client, orderId, "consumed");
     } else if (status === "delivered") {
       await transitionInventoryReservationsTx(client, orderId, "completed");
     } else if (status === "cancelled") {
-      await transitionInventoryReservationsTx(client, orderId, "released");
+      releasedReservations = await transitionInventoryReservationsTx(
+        client,
+        orderId,
+        "released",
+      );
     }
 
     if (["cancelled", "delivered"].includes(String(status))) {
@@ -4411,7 +4937,7 @@ export async function updateOwnerOrderStatus(
              END
          WHERE order_id = $1
            AND ended_at IS NULL`,
-        [Number(orderId), String(status)]
+        [Number(orderId), String(status)],
       );
     }
 
@@ -4437,11 +4963,14 @@ export async function updateOwnerOrderStatus(
     }
 
     await client.query("COMMIT");
+    if (releasedReservations > 0) {
+      await invalidateMerchantCatalogCache(updated.merchant_id);
+    }
 
-    const shouldTriggerRecovery =
-      ["cancelled", "delivered", "ready_for_delivery"].includes(String(status)) ||
-      (orderGroupId != null &&
-        ["approved", "preparing"].includes(String(status)));
+    const shouldTriggerRecovery = shouldTriggerDeliveryAssignmentRecovery(
+      status,
+      orderGroupId,
+    );
     if (shouldTriggerRecovery) {
       void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
         console.error("[delivery-assignment] recovery trigger failed", {
@@ -4512,7 +5041,7 @@ export async function updateOwnerOrderStatus(
               },
             }
           : null,
-      ].filter(Boolean)
+      ].filter(Boolean),
     );
 
     return updated;
@@ -4524,11 +5053,45 @@ export async function updateOwnerOrderStatus(
   }
 }
 
+export async function updateOwnerOrderStatus(
+  ownerUserId,
+  orderId,
+  status,
+  estimatedPrepMinutes,
+  estimatedDeliveryMinutes,
+) {
+  return updateScopedOwnerOrderStatus(
+    "m.owner_user_id",
+    Number(ownerUserId),
+    orderId,
+    status,
+    estimatedPrepMinutes,
+    estimatedDeliveryMinutes,
+  );
+}
+
+export async function updateCompanyOrderStatus(
+  companyId,
+  orderId,
+  status,
+  estimatedPrepMinutes,
+  estimatedDeliveryMinutes,
+) {
+  return updateScopedOwnerOrderStatus(
+    "m.company_id",
+    Number(companyId),
+    orderId,
+    status,
+    estimatedPrepMinutes,
+    estimatedDeliveryMinutes,
+  );
+}
+
 export async function assignDeliveryToOwnerOrder(
   ownerUserId,
   orderId,
   deliveryUserId,
-  { assignmentMode = "platform_delivery" } = {}
+  { assignmentMode = "platform_delivery" } = {},
 ) {
   const normalizedMode =
     assignmentMode === "merchant_delivery"
@@ -4552,7 +5115,7 @@ export async function assignDeliveryToOwnerOrder(
        WHERE o.id=$1
          AND m.id=$2
        FOR UPDATE`,
-      [Number(orderId), Number(ownerUserId)]
+      [Number(orderId), Number(ownerUserId)],
     );
 
     const current = currentResult.rows[0];
@@ -4561,10 +5124,12 @@ export async function assignDeliveryToOwnerOrder(
       return false;
     }
 
-    if (!["approved", "preparing", "ready_for_delivery"].includes(current.status)) {
+    if (
+      !["approved", "preparing", "ready_for_delivery"].includes(current.status)
+    ) {
       throw new AppError(
         "Delivery can be assigned only after approval and before completion.",
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -4580,7 +5145,7 @@ export async function assignDeliveryToOwnerOrder(
          WHERE order_id = $1
            AND ended_at IS NULL
          RETURNING id`,
-        [Number(orderId)]
+        [Number(orderId)],
       );
 
       const pendingResult = await client.query(
@@ -4592,40 +5157,53 @@ export async function assignDeliveryToOwnerOrder(
              updated_at = NOW()
          WHERE id = $1
          RETURNING *`,
-        [Number(orderId)]
+        [Number(orderId)],
       );
       const pendingOrder = pendingResult.rows[0] || current;
       await client.query("COMMIT");
 
-      await createManyNotifications([
-        {
-          userId: pendingOrder.customer_user_id,
-          type: "customer_delivery_pending",
-          title: "بانتظار دلفري متاح",
-          body: `الطلب #${pendingOrder.id} بانتظار دلفري متاح حالياً.`,
-          orderId: pendingOrder.id,
-          merchantId: pendingOrder.merchant_id,
-          payload: {
+      await createManyNotifications(
+        [
+          {
+            userId: pendingOrder.customer_user_id,
+            type: "customer_delivery_pending",
+            title: "بانتظار دلفري متاح",
+            body: `الطلب #${pendingOrder.id} بانتظار دلفري متاح حالياً.`,
             orderId: pendingOrder.id,
-            assignmentStatus: "PENDING_NO_DRIVER",
-            releaseReason: "MANUAL_REASSIGNMENT",
+            merchantId: pendingOrder.merchant_id,
+            payload: {
+              orderId: pendingOrder.id,
+              assignmentStatus: "PENDING_NO_DRIVER",
+              releaseReason: "MANUAL_REASSIGNMENT",
+            },
           },
-        },
-        current.delivery_user_id
-          ? {
-              userId: Number(current.delivery_user_id),
-              type: "delivery_order_removed",
-              title: "تم تحرير الطلب",
-              body: `تم تحرير الطلب #${current.id} من جدولك.`,
-              orderId: current.id,
-              merchantId: current.merchant_id,
-              payload: {
+          current.delivery_user_id
+            ? {
+                userId: Number(current.delivery_user_id),
+                type: "delivery_order_removed",
+                title: "تم تحرير الطلب",
+                body: `تم تحرير الطلب #${current.id} من جدولك.`,
                 orderId: current.id,
-                releaseReason: "MANUAL_REASSIGNMENT",
-              },
-            }
-          : null,
-      ].filter(Boolean));
+                merchantId: current.merchant_id,
+                payload: {
+                  orderId: current.id,
+                  target: "courier_orders_current",
+                  targetModule: "courier",
+                  target_module: "courier",
+                  roleScope: "courier",
+                  role_scope: "courier",
+                  action: "refresh_orders",
+                  targetEntity: "order",
+                  target_entity: "order",
+                  entityId: Number(current.id),
+                  entity_id: Number(current.id),
+                  releaseReason: "MANUAL_REASSIGNMENT",
+                  requiresAction: true,
+                },
+              }
+            : null,
+        ].filter(Boolean),
+      );
 
       void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
         console.error("[delivery-assignment] recovery trigger failed", {
@@ -4649,16 +5227,50 @@ export async function assignDeliveryToOwnerOrder(
       merchantId: Number(current.merchant_id),
       requestedByUserId: Number(ownerUserId),
       customerBlock: current.customer_block || null,
-      assignmentType: normalizedMode === "merchant_delivery" ? "merchant_manual" : "owner_manual",
+      assignmentType:
+        normalizedMode === "merchant_delivery"
+          ? "merchant_manual"
+          : "owner_manual",
       explicitCourierUserId:
         deliveryUserId == null ? null : Number(deliveryUserId),
       allowPending: deliveryUserId == null,
-      forceMerchantCourier: normalizedMode === "merchant_delivery" ? true : false,
+      forceMerchantCourier:
+        normalizedMode === "merchant_delivery" ? true : false,
+      replaceExistingAssignment: deliveryUserId != null,
     });
 
     await client.query("COMMIT");
 
     const deliveryNotifications = [];
+    if (
+      assignmentResult.previousDriver?.id != null &&
+      Number(assignmentResult.previousDriver.id) !==
+        Number(assignmentResult.driver?.id || 0)
+    ) {
+      deliveryNotifications.push({
+        userId: Number(assignmentResult.previousDriver.id),
+        type: "delivery_order_removed",
+        title: "تم تحديث تعيين الطلب",
+        body: `لم يعد الطلب #${current.id} معيناً لك. اختار المتجر دلفرياً آخر.`,
+        orderId: current.id,
+        merchantId: current.merchant_id,
+        payload: {
+          orderId: current.id,
+          target: "courier_orders_current",
+          targetModule: "courier",
+          target_module: "courier",
+          roleScope: "courier",
+          role_scope: "courier",
+          action: "refresh_orders",
+          targetEntity: "order",
+          target_entity: "order",
+          entityId: Number(current.id),
+          entity_id: Number(current.id),
+          releaseReason: "STORE_SELECTED_ANOTHER_COURIER",
+          requiresAction: true,
+        },
+      });
+    }
     if (assignmentResult.assignmentCreated) {
       if (assignmentResult.driver?.id != null) {
         deliveryNotifications.push({
@@ -4670,6 +5282,16 @@ export async function assignDeliveryToOwnerOrder(
           merchantId: current.merchant_id,
           payload: {
             orderId: current.id,
+            target: "courier_orders_current",
+            targetModule: "courier",
+            target_module: "courier",
+            roleScope: "courier",
+            role_scope: "courier",
+            action: "open_assigned_order",
+            targetEntity: "order",
+            target_entity: "order",
+            entityId: Number(current.id),
+            entity_id: Number(current.id),
             assignedBy: "owner",
             assignmentMode: normalizedMode,
             assignmentStatus: assignmentResult.assignmentStatus,
@@ -4678,7 +5300,10 @@ export async function assignDeliveryToOwnerOrder(
         });
       }
 
-      if (assignmentResult.assignmentStatus === DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER) {
+      if (
+        assignmentResult.assignmentStatus ===
+        DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER
+      ) {
         deliveryNotifications.push({
           userId: current.customer_user_id,
           type: "customer_delivery_pending",
@@ -4698,7 +5323,8 @@ export async function assignDeliveryToOwnerOrder(
 
     const customerNotification =
       assignmentResult.assignmentCreated &&
-      assignmentResult.assignmentStatus === DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED
+      assignmentResult.assignmentStatus ===
+        DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED
         ? {
             userId: current.customer_user_id,
             type: "customer_delivery_assigned",
@@ -4710,31 +5336,33 @@ export async function assignDeliveryToOwnerOrder(
               orderId: current.id,
               assignmentMode: normalizedMode,
               assignmentStatus: assignmentResult.assignmentStatus,
-              assignmentId: assignmentResult.deliveryAssignment?.assignmentId || null,
+              assignmentId:
+                assignmentResult.deliveryAssignment?.assignmentId || null,
               driver: assignmentResult.driver || null,
             },
           }
         : assignmentResult.assignmentCreated &&
-          assignmentResult.assignmentStatus === DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER
-        ? {
-            userId: current.customer_user_id,
-            type: "customer_delivery_pending",
-            title: "بانتظار دلفري متاح",
-            body: `الطلب #${current.id} بانتظار دلفري متاح.`,
-            orderId: current.id,
-            merchantId: current.merchant_id,
-            payload: {
+            assignmentResult.assignmentStatus ===
+              DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER
+          ? {
+              userId: current.customer_user_id,
+              type: "customer_delivery_pending",
+              title: "بانتظار دلفري متاح",
+              body: `الطلب #${current.id} بانتظار دلفري متاح.`,
               orderId: current.id,
-              assignmentMode: normalizedMode,
-              assignmentStatus: assignmentResult.assignmentStatus,
-              assignmentId: null,
-              driver: null,
-            },
-          }
-        : null;
+              merchantId: current.merchant_id,
+              payload: {
+                orderId: current.id,
+                assignmentMode: normalizedMode,
+                assignmentStatus: assignmentResult.assignmentStatus,
+                assignmentId: null,
+                driver: null,
+              },
+            }
+          : null;
 
     await createManyNotifications(
-      [...deliveryNotifications, customerNotification].filter(Boolean)
+      [...deliveryNotifications, customerNotification].filter(Boolean),
     );
 
     return {
@@ -4760,7 +5388,7 @@ export async function listDeliveryCurrentOrders(deliveryUserId) {
        AND o.delivery_assignment_status = 'ASSIGNED'
        AND o.status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')
      ORDER BY o.id DESC`,
-    [Number(deliveryUserId)]
+    [Number(deliveryUserId)],
   );
   const rows = await attachItems(r.rows);
   return rows
@@ -4768,7 +5396,9 @@ export async function listDeliveryCurrentOrders(deliveryUserId) {
       ...row,
       deliveryAssignment: buildDeliveryAssignmentSnapshot(row),
     }))
-    .filter((row) => isDeliveryCurrentStatus(row.status, row.customer_confirmed_at))
+    .filter((row) =>
+      isDeliveryCurrentStatus(row.status, row.customer_confirmed_at),
+    )
     .sort((a, b) => {
       const rank = currentStatusRank(a.status) - currentStatusRank(b.status);
       if (rank !== 0) return rank;
@@ -4790,7 +5420,7 @@ export async function listDeliveryHistory(deliveryUserId, archiveDate) {
        AND o.archived_by_delivery = TRUE
        ${dateSql}
      ORDER BY o.id DESC`,
-    params
+    params,
   );
   const rows = await attachItems(r.rows);
   return rows.map((row) => ({
@@ -4800,7 +5430,11 @@ export async function listDeliveryHistory(deliveryUserId, archiveDate) {
 }
 
 function normalizeDeliveryDetailOrderState(status) {
-  switch (String(status || "").trim().toLowerCase()) {
+  switch (
+    String(status || "")
+      .trim()
+      .toLowerCase()
+  ) {
     case "approved":
       return "accepted";
     case "preparing":
@@ -4819,12 +5453,18 @@ function normalizeDeliveryDetailOrderState(status) {
     case "returned_if_needed":
       return "returned";
     default:
-      return String(status || "").trim().toLowerCase() || "pending";
+      return (
+        String(status || "")
+          .trim()
+          .toLowerCase() || "pending"
+      );
   }
 }
 
 function normalizeDeliveryDetailCourierState(order, { isAssignedToDelivery }) {
-  const status = String(order?.status || "").trim().toLowerCase();
+  const status = String(order?.status || "")
+    .trim()
+    .toLowerCase();
   if (!isAssignedToDelivery) return null;
   switch (status) {
     case "approved":
@@ -4852,7 +5492,9 @@ function buildDeliveryAllowedActions({
   isEligibleDelivery,
   canModerate,
 }) {
-  const status = String(order?.status || "").trim().toLowerCase();
+  const status = String(order?.status || "")
+    .trim()
+    .toLowerCase();
   const actions = new Set();
 
   if (isAssignedToDelivery || canModerate) {
@@ -4928,7 +5570,8 @@ function buildDeliveryTimeline(order) {
 function buildDeliveryAssignmentSnapshot(order) {
   if (!order || typeof order !== "object") return null;
   const openAssignmentRow =
-    order.delivery_assignment_ended_at == null && order.delivery_assignment_id != null
+    order.delivery_assignment_ended_at == null &&
+    order.delivery_assignment_id != null
       ? {
           id: order.delivery_assignment_id,
           status: order.delivery_assignment_row_status,
@@ -4955,7 +5598,10 @@ function buildDeliveryAssignmentSnapshot(order) {
   });
 }
 
-function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, share = null }) {
+function buildOrderTrackingEnvelope(
+  order,
+  { viewerMode, latestLocation = null, share = null },
+) {
   const items = Array.isArray(order?.items) ? order.items : [];
   const deliveryAssignment = buildDeliveryAssignmentSnapshot(order);
   const hydratedOrder = {
@@ -4965,6 +5611,12 @@ function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, 
     merchantName: order.merchant_name || null,
     merchantType: order.merchant_type || null,
     merchantActivityType: order.merchant_activity_type || null,
+    merchantLatitude:
+      order.merchant_latitude == null ? null : Number(order.merchant_latitude),
+    merchantLongitude:
+      order.merchant_longitude == null
+        ? null
+        : Number(order.merchant_longitude),
     totalAmount: Number(order.total_amount || 0),
     deliveryFee: Number(order.delivery_fee || 0),
     deliveryFeeRaw: Number(order.delivery_fee_raw || order.delivery_fee || 0),
@@ -4972,6 +5624,12 @@ function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, 
     customerBlock: order.customer_block || null,
     customerBuildingNumber: order.customer_building_number || null,
     customerApartment: order.customer_apartment || null,
+    customerLatitude:
+      order.customer_latitude == null ? null : Number(order.customer_latitude),
+    customerLongitude:
+      order.customer_longitude == null
+        ? null
+        : Number(order.customer_longitude),
     estimatedPrepMinutes:
       order.estimated_prep_minutes == null
         ? null
@@ -5014,6 +5672,14 @@ function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, 
       block: order.customer_block,
       buildingNumber: order.customer_building_number,
       apartment: order.customer_apartment,
+      latitude:
+        order.customer_latitude == null
+          ? null
+          : Number(order.customer_latitude),
+      longitude:
+        order.customer_longitude == null
+          ? null
+          : Number(order.customer_longitude),
       label: `${order.customer_city} - ${order.customer_block} - ${order.customer_building_number}`,
     },
     merchant: {
@@ -5021,6 +5687,14 @@ function buildOrderTrackingEnvelope(order, { viewerMode, latestLocation = null, 
       name: order.merchant_name,
       type: order.merchant_type || null,
       activityType: order.merchant_activity_type || null,
+      latitude:
+        order.merchant_latitude == null
+          ? null
+          : Number(order.merchant_latitude),
+      longitude:
+        order.merchant_longitude == null
+          ? null
+          : Number(order.merchant_longitude),
     },
     share,
     lastUpdatedAt:
@@ -5039,7 +5713,8 @@ function toDeliveryDetailResponse(order, context) {
   const deliveryAssignment = buildDeliveryAssignmentSnapshot(order);
   const isAssignedToDelivery =
     Number(order.delivery_user_id || 0) > 0 &&
-    Number(order.delivery_user_id || 0) === Number(context.requestUserId || 0) &&
+    Number(order.delivery_user_id || 0) ===
+      Number(context.requestUserId || 0) &&
     normalizeDeliveryAssignmentStatus(order.delivery_assignment_status) ===
       DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED;
   const isEligibleDelivery =
@@ -5066,7 +5741,9 @@ function toDeliveryDetailResponse(order, context) {
   const canonicalOrder = {
     ...order,
     items: Array.isArray(order.items) ? order.items : [],
-    normalizedStatus: String(order.status || "").trim().toLowerCase(),
+    normalizedStatus: String(order.status || "")
+      .trim()
+      .toLowerCase(),
     orderState,
     courierState,
   };
@@ -5079,7 +5756,16 @@ function toDeliveryDetailResponse(order, context) {
       name: order.merchant_name || null,
       type: order.merchant_type || null,
       phone: order.merchant_phone || null,
-      ownerUserId: order.owner_user_id == null ? null : Number(order.owner_user_id),
+      latitude:
+        order.merchant_latitude == null
+          ? null
+          : Number(order.merchant_latitude),
+      longitude:
+        order.merchant_longitude == null
+          ? null
+          : Number(order.merchant_longitude),
+      ownerUserId:
+        order.owner_user_id == null ? null : Number(order.owner_user_id),
     },
     customer: {
       userId: Number(order.customer_user_id),
@@ -5089,17 +5775,27 @@ function toDeliveryDetailResponse(order, context) {
       block: order.customer_block || null,
       buildingNumber: order.customer_building_number || null,
       apartment: order.customer_apartment || null,
+      latitude:
+        order.customer_latitude == null
+          ? null
+          : Number(order.customer_latitude),
+      longitude:
+        order.customer_longitude == null
+          ? null
+          : Number(order.customer_longitude),
       imageUrl: order.customer_image_url || null,
       note: order.note || null,
     },
     delivery: {
-      userId: order.delivery_user_id == null ? null : Number(order.delivery_user_id),
+      userId:
+        order.delivery_user_id == null ? null : Number(order.delivery_user_id),
       fullName: order.delivery_full_name || null,
       phone: order.delivery_phone || null,
       imageUrl: order.delivery_image_url || null,
       driverType: order.delivery_driver_type || null,
       courierSource: order.courier_source || null,
-      rating: order.delivery_rating == null ? null : Number(order.delivery_rating),
+      rating:
+        order.delivery_rating == null ? null : Number(order.delivery_rating),
       availabilityStatus: order.delivery_availability_status || null,
       coverageBlock: order.delivery_coverage_block || null,
       vehicleType: order.delivery_vehicle_type || null,
@@ -5111,6 +5807,27 @@ function toDeliveryDetailResponse(order, context) {
     },
     deliveryAssignment,
     invoice,
+    reconciliation: {
+      expectedStoreAmount: Math.max(
+        0,
+        Number(order.subtotal || 0),
+      ),
+      merchantPaidActual:
+        order.merchant_paid_actual == null
+          ? null
+          : Number(order.merchant_paid_actual),
+      customerReceivedActual:
+        order.customer_cash_received_actual == null
+          ? null
+          : Number(order.customer_cash_received_actual),
+      purchaseDifference: Number(order.purchase_difference_amount || 0),
+      collectionDifference: Number(order.collection_difference_amount || 0),
+      appDueFromDelivery: Number(order.app_due_from_delivery || 0),
+      courierDueFromApp: Number(order.courier_due_from_app || 0),
+      receiptUrl: order.merchant_payment_receipt_url || null,
+      withoutReceipt: order.merchant_payment_without_receipt === true,
+      reviewStatus: order.reconciliation_review_status || null,
+    },
     timeline: buildDeliveryTimeline(order),
     allowedActions: buildDeliveryAllowedActions({
       order,
@@ -5127,7 +5844,9 @@ export async function getDeliveryOrderDetail({
   userIsSuperAdmin = false,
   orderId,
 }) {
-  const normalizedRole = String(requestUserRole || "").trim().toLowerCase();
+  const normalizedRole = String(requestUserRole || "")
+    .trim()
+    .toLowerCase();
   const isBackoffice =
     userIsSuperAdmin === true ||
     normalizedRole === "admin" ||
@@ -5143,7 +5862,7 @@ export async function getDeliveryOrderDetail({
       `${orderSelect}
        WHERE o.id = $1
        LIMIT 1`,
-      [Number(orderId)]
+      [Number(orderId)],
     );
     row = result.rows[0] || null;
   } else {
@@ -5159,7 +5878,7 @@ export async function getDeliveryOrderDetail({
        WHERE o.id = $1
          AND o.delivery_user_id = $2
        LIMIT 1`,
-      [Number(orderId), Number(requestUserId)]
+      [Number(orderId), Number(requestUserId)],
     );
     row = result.rows[0] || null;
   }
@@ -5192,8 +5911,30 @@ const DELIVERY_COMPLETED_STATUSES = [
  */
 function buildDeliveryEarnings(orderRows, referenceDate) {
   const ref = referenceDate || new Date();
-  const startOfDay = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
-  const startOfMonth = new Date(ref.getFullYear(), ref.getMonth(), 1);
+  // Railway runs in UTC while the business day is Baghdad time (UTC+3).
+  // Build UTC instants for Baghdad midnight so late-night orders are assigned
+  // to the correct local day.
+  const baghdadParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Baghdad",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .formatToParts(ref)
+    .reduce((out, part) => {
+      if (part.type !== "literal") out[part.type] = Number(part.value);
+      return out;
+    }, {});
+  const baghdadDayUtc = Date.UTC(
+    baghdadParts.year,
+    baghdadParts.month - 1,
+    baghdadParts.day,
+  );
+  const baghdadOffsetMs = 3 * 60 * 60 * 1000;
+  const startOfDay = new Date(baghdadDayUtc - baghdadOffsetMs);
+  const startOfMonth = new Date(
+    Date.UTC(baghdadParts.year, baghdadParts.month - 1, 1) - baghdadOffsetMs,
+  );
   let todayEarnings = 0;
   let monthEarnings = 0;
   let completedTodayCount = 0;
@@ -5208,9 +5949,7 @@ function buildDeliveryEarnings(orderRows, referenceDate) {
   for (const o of orderRows) {
     const fee = Number(o.delivery_fee || 0);
     const serviceFee = Number(o.service_fee || 0);
-    const storeNetReceivedAmount = Number(
-      o.store_net_received_amount || 0
-    );
+    const storeNetReceivedAmount = Number(o.store_net_received_amount || 0);
     const appDueFromDelivery = Number(o.app_due_from_delivery || 0);
     const differenceAmount = Number(o.difference_amount || 0);
     const when =
@@ -5228,7 +5967,9 @@ function buildDeliveryEarnings(orderRows, referenceDate) {
       monthEarnings += fee;
       completedMonthCount += 1;
     }
-    if (whenDate && whenDate >= startOfDay) {
+    // Archived rows belong to the historical ledger. They must not keep the
+    // current-day KPI alive after the courier closes the day.
+    if (whenDate && whenDate >= startOfDay && o.archived_by_delivery !== true) {
       todayEarnings += fee;
       completedTodayCount += 1;
     }
@@ -5304,6 +6045,7 @@ export async function getDeliveryEarnings(deliveryUserId) {
             o.store_net_received_amount, o.app_due_from_delivery,
             o.difference_amount, o.settlement_status, o.store_cash_confirmed,
             o.delivered_at, o.customer_confirmed_at, o.created_at,
+            o.archived_by_delivery,
             c.full_name AS customer_name,
             m.name AS merchant_name
        FROM customer_order o
@@ -5316,7 +6058,7 @@ export async function getDeliveryEarnings(deliveryUserId) {
         AND o.status::text = ANY($2::text[])
       ORDER BY COALESCE(o.delivered_at, o.customer_confirmed_at, o.updated_at, o.created_at) DESC
       LIMIT 300`,
-    [Number(deliveryUserId), DELIVERY_COMPLETED_STATUSES]
+    [Number(deliveryUserId), DELIVERY_COMPLETED_STATUSES],
   );
   return buildDeliveryEarnings(result.rows, new Date());
 }
@@ -5335,7 +6077,7 @@ export async function getDeliveryRatings(deliveryUserId) {
         AND o.delivery_rating > 0
       ORDER BY COALESCE(o.delivered_at, o.customer_confirmed_at, o.created_at) DESC
       LIMIT 300`,
-    [Number(deliveryUserId)]
+    [Number(deliveryUserId)],
   );
   return buildDeliveryRatings(result.rows);
 }
@@ -5358,7 +6100,11 @@ export async function getDeliveryRatings(deliveryUserId) {
  * - عند تكرار شكاوى "طلب اختفى من شاشة المندوب" افحص هذه الدالة مع
  *   شروط الحالة والـ `FOR UPDATE` والحقول `delivery_user_id/status`.
  */
-export async function claimDeliveryOrder(deliveryUserId, orderId, estimatedDeliveryMinutes) {
+export async function claimDeliveryOrder(
+  deliveryUserId,
+  orderId,
+  estimatedDeliveryMinutes,
+) {
   const r = await q(
     `UPDATE customer_order o
      SET delivery_user_id = $3,
@@ -5395,7 +6141,7 @@ export async function claimDeliveryOrder(deliveryUserId, orderId, estimatedDeliv
        o.merchant_id,
        m.owner_user_id,
        m.name AS merchant_name`,
-    [estimatedDeliveryMinutes, Number(orderId), Number(deliveryUserId)]
+    [estimatedDeliveryMinutes, Number(orderId), Number(deliveryUserId)],
   );
   const row = r.rows[0];
   if (!row) return false;
@@ -5430,7 +6176,7 @@ export async function claimDeliveryOrder(deliveryUserId, orderId, estimatedDeliv
           etaMaxMinutes: 10,
         },
       },
-    ].filter(Boolean)
+    ].filter(Boolean),
   );
 
   return row;
@@ -5461,7 +6207,7 @@ export async function markOrderArrived(deliveryUserId, orderId) {
        o.customer_user_id,
        o.merchant_id,
        m.owner_user_id`,
-    [Number(orderId), Number(deliveryUserId)]
+    [Number(orderId), Number(deliveryUserId)],
   );
   const row = r.rows[0];
   if (!row) return false;
@@ -5494,14 +6240,14 @@ export async function markOrderArrived(deliveryUserId, orderId) {
             },
           }
         : null,
-    ].filter(Boolean)
+    ].filter(Boolean),
   );
 
   return row;
 }
 
 /**
- * يثبت أن الدلفري سلّم الطلب فعلياً ويبقي خطوة تأكيد العميل لاحقة منفصلة.
+ * Completes delivery when the courier marks the order as delivered.
  */
 /**
  * ينهي دورة الطلب من جانب الدليفري ويضع timestamps التسليم النهائية.
@@ -5515,7 +6261,8 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
     `UPDATE customer_order o
      SET status='delivered',
          delivery_assignment_status = 'COMPLETED',
-         delivered_at=COALESCE(delivered_at, NOW())
+         delivered_at=COALESCE(delivered_at, NOW()),
+         completed_at=COALESCE(completed_at, NOW())
      FROM merchant m
      WHERE o.id=$1
        AND o.delivery_user_id=$2
@@ -5528,7 +6275,7 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
        o.merchant_id,
        o.order_group_id,
        m.owner_user_id`,
-    [Number(orderId), Number(deliveryUserId)]
+    [Number(orderId), Number(deliveryUserId)],
   );
   const row = r.rows[0];
   if (!row) return false;
@@ -5544,7 +6291,7 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
      WHERE order_id = $1
        AND courier_user_id = $2
        AND ended_at IS NULL`,
-    [Number(orderId), Number(deliveryUserId)]
+    [Number(orderId), Number(deliveryUserId)],
   );
 
   // Finishing a grouped child through the per-order screens must also close the
@@ -5556,7 +6303,7 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
       await groupClient.query("BEGIN");
       await settleGroupedJobIfChildrenTerminalTx(
         groupClient,
-        Number(row.order_group_id)
+        Number(row.order_group_id),
       );
       await groupClient.query("COMMIT");
     } catch (error) {
@@ -5575,14 +6322,14 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
       {
         userId: row.customer_user_id,
         type: "customer_order_delivered",
-        title: "تم تسليم الطلب وبانتظار تأكيدك",
-        body: `تم تسليم الطلب #${row.id}. يرجى الضغط على استلمت الطلب لتأكيد الاستلام.`,
+        title: "تم تسليم الطلب واكتمل",
+        body: `تم تسليم الطلب #${row.id} واكتملت دورة الطلب.`,
         orderId: row.id,
         merchantId: row.merchant_id,
         payload: {
           orderId: row.id,
           status: "delivered",
-          requiresAction: true,
+          requiresAction: false,
         },
       },
       row.owner_user_id
@@ -5590,7 +6337,7 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
             userId: row.owner_user_id,
             type: "owner_order_delivered",
             title: "تم تسليم الطلب للزبون",
-            body: `تم تسليم الطلب #${row.id} وبانتظار تأكيد الزبون.`,
+            body: `تم تسليم الطلب #${row.id} واكتملت دورته.`,
             orderId: row.id,
             merchantId: row.merchant_id,
             payload: {
@@ -5599,7 +6346,7 @@ export async function markOrderDelivered(deliveryUserId, orderId) {
             },
           }
         : null,
-    ].filter(Boolean)
+    ].filter(Boolean),
   );
 
   void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
@@ -5631,7 +6378,7 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
          AND mda.is_active = TRUE
        ORDER BY mda.updated_at DESC, mda.created_at DESC
        LIMIT 1`,
-      [Number(deliveryUserId)]
+      [Number(deliveryUserId)],
     );
 
     const merchantId = merchantScope.rows[0]?.merchant_id
@@ -5658,7 +6405,7 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
            AND status IN ('pending', 'received')
            AND COALESCE(settlement_status, 'pending_store_confirmation') NOT IN ('closed', 'cancelled')
          ORDER BY requested_at ASC, id ASC`,
-        [merchantId, Number(deliveryUserId)]
+        [merchantId, Number(deliveryUserId)],
       );
       const readiness = evaluateCourierEndDayReadiness(pendingSettlements.rows);
       if (!readiness.canEndDay) {
@@ -5705,10 +6452,10 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
        WHERE delivery_user_id=$1
          AND status='delivered'
          AND archived_by_delivery=FALSE
-         AND DATE(delivered_at)=$2
+        AND (delivered_at AT TIME ZONE 'Asia/Baghdad')::date=$2
          AND ($3::bigint IS NULL OR merchant_id = $3)
        RETURNING *`,
-      [Number(deliveryUserId), date, merchantId]
+      [Number(deliveryUserId), date, merchantId],
     );
 
     const ordersCount = deliveredRows.rows.length;
@@ -5717,7 +6464,7 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
       : null;
     const settlementSnapshot = buildDeliveryCashSettlementSnapshot(
       deliveredRows.rows,
-      profile || {}
+      profile || {},
     );
     const totalAmount = settlementSnapshot.totalAmount;
     archivedOrdersCount = ordersCount;
@@ -5731,7 +6478,7 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
        DO UPDATE
        SET orders_count = delivery_day_archive.orders_count + EXCLUDED.orders_count,
            total_amount = delivery_day_archive.total_amount + EXCLUDED.total_amount`,
-      [Number(deliveryUserId), date, ordersCount, totalAmount]
+      [Number(deliveryUserId), date, ordersCount, totalAmount],
     );
 
     let pendingSettlementId = null;
@@ -5771,7 +6518,7 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
           totalAmount,
           settlementSnapshot.storeNetReceivedAmount,
           settlementSnapshot.appDueFromDelivery,
-        ]
+        ],
       );
       pendingSettlementId = Number(inserted.rows[0]?.id || 0);
 
@@ -5799,7 +6546,7 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
          FROM merchant_accountant
          WHERE merchant_id = $1
            AND is_active = TRUE`,
-        [merchantId]
+        [merchantId],
       );
 
       notifyPayload = {
@@ -5812,7 +6559,9 @@ export async function endDeliveryDay(deliveryUserId, archiveDate) {
         storeNetReceivedAmount: settlementSnapshot.storeNetReceivedAmount,
         appDueFromDelivery: settlementSnapshot.appDueFromDelivery,
         pendingSettlementId,
-        accountantUserIds: recipients.rows.map((row) => Number(row.accountant_user_id)),
+        accountantUserIds: recipients.rows.map((row) =>
+          Number(row.accountant_user_id),
+        ),
       };
     }
 
@@ -5891,7 +6640,7 @@ export async function getDeliveryEndDayReadiness(deliveryUserId) {
          AND mda.is_active = TRUE
        ORDER BY mda.updated_at DESC, mda.created_at DESC
        LIMIT 1`,
-      [Number(deliveryUserId)]
+      [Number(deliveryUserId)],
     );
     const merchantId = merchantScope.rows[0]?.merchant_id
       ? Number(merchantScope.rows[0].merchant_id)
@@ -5922,7 +6671,7 @@ export async function getDeliveryEndDayReadiness(deliveryUserId) {
          AND status IN ('pending', 'received')
          AND COALESCE(settlement_status, 'pending_store_confirmation') NOT IN ('closed', 'cancelled')
        ORDER BY requested_at ASC, id ASC`,
-      [merchantId, Number(deliveryUserId)]
+      [merchantId, Number(deliveryUserId)],
     );
 
     const readiness = evaluateCourierEndDayReadiness(pendingSettlements.rows);
@@ -5940,7 +6689,7 @@ export async function listFavoriteProductIds(customerUserId) {
     `SELECT product_id
      FROM customer_favorite_product
      WHERE customer_user_id = $1`,
-    [Number(customerUserId)]
+    [Number(customerUserId)],
   );
 
   return r.rows.map((row) => Number(row.product_id));
@@ -5948,7 +6697,7 @@ export async function listFavoriteProductIds(customerUserId) {
 
 export async function listFavoriteProducts(
   customerUserId,
-  { merchantId = null, limit = 40, offset = 0 } = {}
+  { merchantId = null, limit = 40, offset = 0 } = {},
 ) {
   const safeLimit = Math.max(1, Math.min(120, Number(limit) || 40));
   const safeOffset = Math.max(0, Math.min(100000, Number(offset) || 0));
@@ -5981,13 +6730,13 @@ export async function listFavoriteProducts(
      ORDER BY f.created_at DESC, p.id DESC
      LIMIT $${limitIndex}
      OFFSET $${offsetIndex}`,
-    params
+    params,
   );
 
   const hasMore = r.rows.length > safeLimit;
   const items = hasMore ? r.rows.slice(0, safeLimit) : r.rows;
   return {
-    items,
+    items: items.map((item) => applyFreeDeliveryCampaignToProduct(item)),
     nextOffset: hasMore ? safeOffset + safeLimit : null,
     limit: safeLimit,
     offset: safeOffset,
@@ -6005,7 +6754,7 @@ export async function addFavoriteProduct(customerUserId, productId) {
        AND m.is_disabled = FALSE
      ON CONFLICT (customer_user_id, product_id) DO NOTHING
      RETURNING product_id`,
-    [Number(customerUserId), Number(productId)]
+    [Number(customerUserId), Number(productId)],
   );
 
   if (insertResult.rows[0]) return true;
@@ -6014,7 +6763,7 @@ export async function addFavoriteProduct(customerUserId, productId) {
     `SELECT id
      FROM product
      WHERE id = $1`,
-    [Number(productId)]
+    [Number(productId)],
   );
 
   if (!existsResult.rows[0]) {
@@ -6031,7 +6780,7 @@ export async function removeFavoriteProduct(customerUserId, productId) {
     `DELETE FROM customer_favorite_product
      WHERE customer_user_id = $1
        AND product_id = $2`,
-    [Number(customerUserId), Number(productId)]
+    [Number(customerUserId), Number(productId)],
   );
 }
 
@@ -6049,7 +6798,7 @@ export async function getOrderForReorder(customerUserId, orderId) {
      WHERE id = $1
        AND customer_user_id = $2
        AND status NOT IN ('cancelled','cancelled_by_customer','cancelled_by_store','cancelled_by_admin')`,
-    [Number(orderId), Number(customerUserId)]
+    [Number(orderId), Number(customerUserId)],
   );
 
   const order = orderResult.rows[0];
@@ -6066,7 +6815,7 @@ export async function getOrderForReorder(customerUserId, orderId) {
        AND product_id IS NOT NULL
      GROUP BY product_id, selected_modifiers_json, selected_variant_json
      ORDER BY product_id ASC`,
-    [Number(order.id)]
+    [Number(order.id)],
   );
 
   return {
@@ -6087,5 +6836,3 @@ export async function getOrderForReorder(customerUserId, orderId) {
     })),
   };
 }
-
-

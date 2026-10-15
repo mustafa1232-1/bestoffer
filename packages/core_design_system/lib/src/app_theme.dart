@@ -49,24 +49,24 @@ class MaslakiThemeTokens extends ThemeExtension<MaslakiThemeTokens> {
 
   const MaslakiThemeTokens.darkPremium()
     : this(
-        backgroundPrimary: const Color(0xFF0D1B2A),
-        backgroundSecondary: const Color(0xFF11243A),
-        backgroundTertiary: const Color(0xFF162A42),
-        surfacePrimary: const Color(0xFF14263D),
-        surfaceSecondary: const Color(0xFF1A304B),
-        cardPrimary: const Color(0xFF122338),
-        cardElevated: const Color(0xFF172B44),
-        primaryAccent: const Color(0xFFD4AF37),
-        secondaryAccent: const Color(0xFFE6C98A),
-        textPrimary: const Color(0xFFF6F4EF),
-        textSecondary: const Color(0xFFD8D2C6),
-        textMuted: const Color(0xFFAFA38D),
-        borderSubtle: const Color(0x44D4AF37),
-        success: const Color(0xFF7FAE83),
-        warning: const Color(0xFFC79B57),
-        danger: const Color(0xFFBC6B69),
-        glowPrimary: const Color(0x55D4AF37),
-        glowSecondary: const Color(0x332B4F78),
+        backgroundPrimary: const Color(0xFFFBFAF6),
+        backgroundSecondary: const Color(0xFFF3F0E8),
+        backgroundTertiary: const Color(0xFFE7EEE5),
+        surfacePrimary: const Color(0xFFFFFFFF),
+        surfaceSecondary: const Color(0xFFF8F4EC),
+        cardPrimary: const Color(0xFFFFFFFF),
+        cardElevated: const Color(0xFFFCF8F0),
+        primaryAccent: const Color(0xFF2F5D46),
+        secondaryAccent: const Color(0xFFB88A2D),
+        textPrimary: const Color(0xFF071827),
+        textSecondary: const Color(0xFF2F4052),
+        textMuted: const Color(0xFF647181),
+        borderSubtle: const Color(0x5C9F8A56),
+        success: const Color(0xFF2F7D4E),
+        warning: const Color(0xFFB97817),
+        danger: const Color(0xFFB42318),
+        glowPrimary: const Color(0x332F5D46),
+        glowSecondary: const Color(0x2EB88A2D),
       );
 
   /// «مسلكي الأصلي» — نيلي/كحلي + كريمي + ذهبي (الاتجاه الرسمي، = darkPremium).
@@ -75,47 +75,47 @@ class MaslakiThemeTokens extends ThemeExtension<MaslakiThemeTokens> {
   /// «شفق مسلكي» — أزرق ليلي + تركوازي + بنفسجي مضيء، حديث دون التضحية بالوضوح.
   const MaslakiThemeTokens.maslakiTwilight()
     : this(
-        backgroundPrimary: const Color(0xFF0A1230),
-        backgroundSecondary: const Color(0xFF0E1A44),
-        backgroundTertiary: const Color(0xFF122152),
-        surfacePrimary: const Color(0xFF12204C),
-        surfaceSecondary: const Color(0xFF17285C),
-        cardPrimary: const Color(0xFF122152),
-        cardElevated: const Color(0xFF1B2E6B),
-        primaryAccent: const Color(0xFF2DD4BF),
-        secondaryAccent: const Color(0xFF9B7BFF),
-        textPrimary: const Color(0xFFF2F5FF),
-        textSecondary: const Color(0xFFC7D0EE),
-        textMuted: const Color(0xFF8A96C4),
-        borderSubtle: const Color(0x442DD4BF),
-        success: const Color(0xFF4ADE80),
-        warning: const Color(0xFFF5B759),
-        danger: const Color(0xFFF87171),
-        glowPrimary: const Color(0x552DD4BF),
-        glowSecondary: const Color(0x339B7BFF),
+        backgroundPrimary: const Color(0xFFFBFCF8),
+        backgroundSecondary: const Color(0xFFF0F5EC),
+        backgroundTertiary: const Color(0xFFEEF3F4),
+        surfacePrimary: const Color(0xFFFFFFFF),
+        surfaceSecondary: const Color(0xFFF6FAF3),
+        cardPrimary: const Color(0xFFFFFFFF),
+        cardElevated: const Color(0xFFFAFCF7),
+        primaryAccent: const Color(0xFF365F4B),
+        secondaryAccent: const Color(0xFF94723A),
+        textPrimary: const Color(0xFF071827),
+        textSecondary: const Color(0xFF2F4052),
+        textMuted: const Color(0xFF647181),
+        borderSubtle: const Color(0x5A365F4B),
+        success: const Color(0xFF2F7D4E),
+        warning: const Color(0xFFB7822C),
+        danger: const Color(0xFFB42318),
+        glowPrimary: const Color(0x30365F4B),
+        glowSecondary: const Color(0x2694723A),
       );
 
   /// «مسلكي المرجاني» — فحمي داكن + مرجاني + فيروزي + عاجي، جريء ومختلف.
   const MaslakiThemeTokens.maslakiCoral()
     : this(
-        backgroundPrimary: const Color(0xFF1A1A1D),
-        backgroundSecondary: const Color(0xFF212127),
-        backgroundTertiary: const Color(0xFF27272E),
-        surfacePrimary: const Color(0xFF212127),
-        surfaceSecondary: const Color(0xFF2B2B33),
-        cardPrimary: const Color(0xFF232329),
-        cardElevated: const Color(0xFF2E2E37),
-        primaryAccent: const Color(0xFFFF6F61),
-        secondaryAccent: const Color(0xFF20C4B4),
-        textPrimary: const Color(0xFFFDF6EC),
-        textSecondary: const Color(0xFFE4D9C8),
-        textMuted: const Color(0xFFB5A996),
-        borderSubtle: const Color(0x44FF6F61),
-        success: const Color(0xFF6FCF97),
-        warning: const Color(0xFFE8B057),
-        danger: const Color(0xFFE5695F),
-        glowPrimary: const Color(0x55FF6F61),
-        glowSecondary: const Color(0x3320C4B4),
+        backgroundPrimary: const Color(0xFFFFFAF2),
+        backgroundSecondary: const Color(0xFFF8EFE0),
+        backgroundTertiary: const Color(0xFFE9F0E7),
+        surfacePrimary: const Color(0xFFFFFCF7),
+        surfaceSecondary: const Color(0xFFFFF7EC),
+        cardPrimary: const Color(0xFFFFFFFF),
+        cardElevated: const Color(0xFFFFF8EE),
+        primaryAccent: const Color(0xFF2C5A43),
+        secondaryAccent: const Color(0xFFC19A4A),
+        textPrimary: const Color(0xFF071827),
+        textSecondary: const Color(0xFF334252),
+        textMuted: const Color(0xFF6C7280),
+        borderSubtle: const Color(0x5CC19A4A),
+        success: const Color(0xFF2F7D4E),
+        warning: const Color(0xFFB97817),
+        danger: const Color(0xFFB42318),
+        glowPrimary: const Color(0x302C5A43),
+        glowSecondary: const Color(0x2EC19A4A),
       );
 
   @override
@@ -426,10 +426,7 @@ class MaslakiShellTokens extends ThemeExtension<MaslakiShellTokens> {
   }
 
   @override
-  MaslakiShellTokens lerp(
-    ThemeExtension<MaslakiShellTokens>? other,
-    double t,
-  ) {
+  MaslakiShellTokens lerp(ThemeExtension<MaslakiShellTokens>? other, double t) {
     if (other is! MaslakiShellTokens) return this;
     return MaslakiShellTokens(
       screenRadius: lerpDouble(screenRadius, other.screenRadius, t)!,
@@ -475,17 +472,17 @@ class AppVisualTheme extends ThemeExtension<AppVisualTheme> {
 
   const AppVisualTheme.premium()
     : this(
-        bgStart: const Color(0xFF0D1B2A),
-        bgMiddle: const Color(0xFF11243A),
-        bgEnd: const Color(0xFF162A42),
-        glassBase: const Color(0xFF14263D),
-        glassStrong: const Color(0xFF1C314B),
-        heroTop: const Color(0xFF1B2E47),
-        heroBottom: const Color(0xFF10243A),
-        accentBlue: const Color(0xFF385472),
-        accentViolet: const Color(0xFF223A57),
-        accentCyan: const Color(0xFFE6C98A),
-        accentGold: const Color(0xFFD4AF37),
+        bgStart: const Color(0xFFF8F5EF),
+        bgMiddle: const Color(0xFFF2EDE4),
+        bgEnd: const Color(0xFFE9EFE7),
+        glassBase: const Color(0xFFFFFCF7),
+        glassStrong: const Color(0xFFFFFFFF),
+        heroTop: const Color(0xFFF7F0E4),
+        heroBottom: const Color(0xFFE3EBDD),
+        accentBlue: const Color(0xFF17324A),
+        accentViolet: const Color(0xFFCAD8CB),
+        accentCyan: const Color(0xFF2F5D46),
+        accentGold: const Color(0xFFB88A2D),
       );
 
   const AppVisualTheme.premiumLight() : this.premium();
@@ -599,15 +596,15 @@ class AppTheme {
   }) {
     final MaslakiThemeTokens t = tokens ?? _tokens;
     final scheme = ColorScheme(
-      brightness: Brightness.dark,
+      brightness: Brightness.light,
       primary: t.primaryAccent,
-      onPrimary: t.backgroundPrimary,
+      onPrimary: Colors.white,
       secondary: t.secondaryAccent,
-      onSecondary: t.backgroundPrimary,
+      onSecondary: const Color(0xFF071827),
       tertiary: t.success,
-      onTertiary: t.backgroundPrimary,
+      onTertiary: Colors.white,
       error: t.danger,
-      onError: t.textPrimary,
+      onError: Colors.white,
       surface: t.surfacePrimary,
       onSurface: t.textPrimary,
       primaryContainer: t.surfaceSecondary,
@@ -618,24 +615,18 @@ class AppTheme {
       onTertiaryContainer: t.textPrimary,
       outline: t.borderSubtle,
       outlineVariant: t.borderSubtle.withValues(alpha: 0.72),
-      shadow: Colors.black,
+      shadow: const Color(0x330D1B2A),
       scrim: Colors.black,
       inverseSurface: t.textPrimary,
-      onInverseSurface: t.backgroundPrimary,
+      onInverseSurface: t.surfacePrimary,
       inversePrimary: t.primaryAccent.withValues(alpha: 0.48),
     );
 
     final base = ThemeData(
       useMaterial3: true,
       colorScheme: scheme,
-      brightness: Brightness.dark,
-      extensions: <ThemeExtension<dynamic>>[
-        t,
-        _visual,
-        _type,
-        _motion,
-        _shell,
-      ],
+      brightness: Brightness.light,
+      extensions: <ThemeExtension<dynamic>>[t, _visual, _type, _motion, _shell],
     );
 
     final textTheme = _buildHybridTextTheme(base.textTheme, t);
@@ -643,7 +634,9 @@ class AppTheme {
     return base.copyWith(
       textTheme: textTheme,
       scaffoldBackgroundColor: Colors.transparent,
-      canvasColor: Colors.transparent,
+      // Legacy DropdownButton routes use canvasColor as their menu surface.
+      // Keep it opaque so menu options never blend into the form underneath.
+      canvasColor: t.surfacePrimary,
       splashFactory: InkSparkle.splashFactory,
       appBarTheme: AppBarTheme(
         elevation: 0,
@@ -659,7 +652,7 @@ class AppTheme {
         iconTheme: IconThemeData(color: t.secondaryAccent),
       ),
       drawerTheme: DrawerThemeData(
-        backgroundColor: t.surfacePrimary.withValues(alpha: 0.97),
+        backgroundColor: t.surfacePrimary.withValues(alpha: 0.98),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.horizontal(
             right: Radius.circular(_shell.screenRadius),
@@ -667,20 +660,18 @@ class AppTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: t.cardPrimary.withValues(alpha: 0.96),
+        color: t.cardPrimary.withValues(alpha: 0.98),
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.cardRadius),
-          side: BorderSide(
-            color: t.borderSubtle.withValues(alpha: 0.90),
-          ),
+          side: BorderSide(color: t.borderSubtle.withValues(alpha: 0.90)),
         ),
       ),
       dividerColor: t.borderSubtle.withValues(alpha: 0.66),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: t.surfaceSecondary.withValues(alpha: 0.82),
+        fillColor: t.surfacePrimary,
         errorMaxLines: 3,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 18,
@@ -695,7 +686,7 @@ class AppTheme {
         disabledBorder: _outlineBorder(t, _shell.fieldRadius),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
-          borderSide: BorderSide(color: t.primaryAccent, width: 1.2),
+          borderSide: BorderSide(color: t.primaryAccent, width: 1.6),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
@@ -705,17 +696,98 @@ class AppTheme {
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
           borderSide: BorderSide(color: t.danger, width: 1.3),
         ),
-        labelStyle: textTheme.bodyMedium?.copyWith(color: t.textSecondary),
-        hintStyle: textTheme.bodyMedium?.copyWith(color: t.textMuted),
+        labelStyle: textTheme.bodyMedium?.copyWith(
+          color: t.textSecondary,
+          fontWeight: FontWeight.w800,
+        ),
+        floatingLabelStyle: textTheme.bodyMedium?.copyWith(
+          color: t.primaryAccent,
+          fontWeight: FontWeight.w900,
+        ),
+        hintStyle: textTheme.bodyMedium?.copyWith(
+          color: t.textMuted,
+          fontWeight: FontWeight.w600,
+        ),
         prefixIconColor: t.primaryAccent,
         suffixIconColor: t.secondaryAccent,
+      ),
+      dropdownMenuTheme: DropdownMenuThemeData(
+        textStyle: textTheme.bodyLarge?.copyWith(
+          color: t.textPrimary,
+          fontWeight: FontWeight.w700,
+        ),
+        menuStyle: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(t.surfacePrimary),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: WidgetStatePropertyAll(
+            t.textPrimary.withValues(alpha: 0.22),
+          ),
+          elevation: const WidgetStatePropertyAll(10),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(vertical: 8),
+          ),
+          side: WidgetStatePropertyAll(
+            BorderSide(color: t.borderSubtle.withValues(alpha: 0.95)),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_shell.fieldRadius),
+            ),
+          ),
+        ),
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(t.surfacePrimary),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+          shadowColor: WidgetStatePropertyAll(
+            t.textPrimary.withValues(alpha: 0.22),
+          ),
+          elevation: const WidgetStatePropertyAll(10),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(vertical: 8),
+          ),
+          side: WidgetStatePropertyAll(
+            BorderSide(color: t.borderSubtle.withValues(alpha: 0.95)),
+          ),
+          shape: WidgetStatePropertyAll(
+            RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(_shell.fieldRadius),
+            ),
+          ),
+        ),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: t.surfacePrimary,
+        surfaceTintColor: Colors.transparent,
+        shadowColor: t.textPrimary.withValues(alpha: 0.22),
+        elevation: 10,
+        position: PopupMenuPosition.under,
+        menuPadding: const EdgeInsets.symmetric(vertical: 8),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(_shell.fieldRadius),
+          side: BorderSide(color: t.borderSubtle.withValues(alpha: 0.95)),
+        ),
+        textStyle: textTheme.bodyLarge?.copyWith(
+          color: t.textPrimary,
+          fontWeight: FontWeight.w700,
+        ),
+        labelTextStyle: WidgetStateProperty.resolveWith((states) {
+          return textTheme.bodyLarge?.copyWith(
+            color: states.contains(WidgetState.disabled)
+                ? t.textMuted
+                : t.textPrimary,
+            fontWeight: FontWeight.w700,
+          );
+        }),
+        iconColor: t.primaryAccent,
       ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           minimumSize: const Size(0, 54),
           elevation: 0,
           backgroundColor: t.primaryAccent,
-          foregroundColor: t.backgroundPrimary,
+          foregroundColor: Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(_shell.fieldRadius),
           ),
@@ -750,14 +822,24 @@ class AppTheme {
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
         backgroundColor: t.primaryAccent,
-        foregroundColor: t.backgroundPrimary,
+        foregroundColor: Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
         ),
       ),
+      tabBarTheme: TabBarThemeData(
+        labelColor: t.primaryAccent,
+        unselectedLabelColor: t.textMuted,
+        indicatorColor: t.secondaryAccent,
+        dividerColor: t.borderSubtle.withValues(alpha: 0.58),
+        labelStyle: textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900),
+        unselectedLabelStyle: textTheme.labelLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: t.surfacePrimary.withValues(alpha: 0.98),
-        indicatorColor: t.primaryAccent.withValues(alpha: 0.14),
+        backgroundColor: t.surfacePrimary.withValues(alpha: 0.99),
+        indicatorColor: t.primaryAccent.withValues(alpha: 0.12),
         indicatorShape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.navRadius),
         ),
@@ -771,9 +853,7 @@ class AppTheme {
         }),
         iconTheme: WidgetStateProperty.resolveWith((states) {
           final selected = states.contains(WidgetState.selected);
-          return IconThemeData(
-            color: selected ? t.primaryAccent : t.textMuted,
-          );
+          return IconThemeData(color: selected ? t.primaryAccent : t.textMuted);
         }),
       ),
       chipTheme: base.chipTheme.copyWith(
@@ -788,13 +868,21 @@ class AppTheme {
           fontWeight: FontWeight.w700,
         ),
         secondaryLabelStyle: textTheme.bodyMedium?.copyWith(
-          color: t.backgroundPrimary,
+          color: Colors.white,
           fontWeight: FontWeight.w800,
         ),
       ),
       listTileTheme: ListTileThemeData(
         iconColor: t.primaryAccent,
         textColor: t.textPrimary,
+        titleTextStyle: textTheme.titleSmall?.copyWith(
+          color: t.textPrimary,
+          fontWeight: FontWeight.w900,
+        ),
+        subtitleTextStyle: textTheme.bodySmall?.copyWith(
+          color: t.textSecondary,
+          fontWeight: FontWeight.w600,
+        ),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
         ),
@@ -802,9 +890,7 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: t.surfaceSecondary.withValues(alpha: 0.98),
-        contentTextStyle: textTheme.bodyMedium?.copyWith(
-          color: t.textPrimary,
-        ),
+        contentTextStyle: textTheme.bodyMedium?.copyWith(color: t.textPrimary),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(_shell.fieldRadius),
           side: BorderSide(color: t.borderSubtle.withValues(alpha: 0.92)),
@@ -832,6 +918,19 @@ class AppTheme {
           side: BorderSide(color: t.borderSubtle.withValues(alpha: 0.92)),
         ),
       ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 50),
+          backgroundColor: t.primaryAccent,
+          foregroundColor: Colors.white,
+          textStyle: textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w900,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_shell.fieldRadius),
+          ),
+        ),
+      ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
           TargetPlatform.android: _RiseFadePageTransitionsBuilder(),
@@ -850,7 +949,9 @@ class AppTheme {
   ) {
     return OutlineInputBorder(
       borderRadius: BorderRadius.circular(radius),
-      borderSide: BorderSide(color: tokens.borderSubtle.withValues(alpha: 0.88)),
+      borderSide: BorderSide(
+        color: tokens.borderSubtle.withValues(alpha: 0.88),
+      ),
     );
   }
 
@@ -903,62 +1004,62 @@ class AppTheme {
       ),
       headlineSmall: display.headlineSmall?.copyWith(
         fontWeight: FontWeight.w800,
-        fontSize: 20,
-        height: 1.18,
-        color: tokens.textPrimary,
-      ),
-      titleLarge: display.titleLarge?.copyWith(
-        fontWeight: FontWeight.w800,
-        fontSize: 18,
-        height: 1.22,
-        color: tokens.textPrimary,
-      ),
-      titleMedium: display.titleMedium?.copyWith(
-        fontWeight: FontWeight.w700,
-        fontSize: 16,
-        height: 1.22,
-        color: tokens.textPrimary,
-      ),
-      titleSmall: display.titleSmall?.copyWith(
-        fontWeight: FontWeight.w700,
-        fontSize: 14,
+        fontSize: 21,
         height: 1.2,
         color: tokens.textPrimary,
       ),
+      titleLarge: display.titleLarge?.copyWith(
+        fontWeight: FontWeight.w900,
+        fontSize: 19,
+        height: 1.24,
+        color: tokens.textPrimary,
+      ),
+      titleMedium: display.titleMedium?.copyWith(
+        fontWeight: FontWeight.w800,
+        fontSize: 16.5,
+        height: 1.25,
+        color: tokens.textPrimary,
+      ),
+      titleSmall: display.titleSmall?.copyWith(
+        fontWeight: FontWeight.w800,
+        fontSize: 14.5,
+        height: 1.22,
+        color: tokens.textPrimary,
+      ),
       bodyLarge: body.bodyLarge?.copyWith(
-        fontWeight: FontWeight.w500,
-        fontSize: 15,
-        height: 1.45,
+        fontWeight: FontWeight.w600,
+        fontSize: 15.5,
+        height: 1.48,
         color: tokens.textPrimary,
       ),
       bodyMedium: body.bodyMedium?.copyWith(
-        fontWeight: FontWeight.w500,
-        fontSize: 14,
-        height: 1.5,
+        fontWeight: FontWeight.w600,
+        fontSize: 14.5,
+        height: 1.52,
         color: tokens.textSecondary,
       ),
       bodySmall: body.bodySmall?.copyWith(
-        fontWeight: FontWeight.w500,
-        fontSize: 12,
-        height: 1.42,
+        fontWeight: FontWeight.w600,
+        fontSize: 12.5,
+        height: 1.46,
         color: tokens.textMuted,
       ),
       labelLarge: body.labelLarge?.copyWith(
         fontWeight: FontWeight.w800,
-        fontSize: 14,
-        height: 1.1,
+        fontSize: 14.5,
+        height: 1.14,
         color: tokens.textPrimary,
       ),
       labelMedium: body.labelMedium?.copyWith(
-        fontWeight: FontWeight.w700,
-        fontSize: 12,
-        height: 1.1,
+        fontWeight: FontWeight.w800,
+        fontSize: 12.5,
+        height: 1.14,
         color: tokens.textSecondary,
       ),
       labelSmall: body.labelSmall?.copyWith(
         fontWeight: FontWeight.w700,
-        fontSize: 10,
-        height: 1.08,
+        fontSize: 11,
+        height: 1.1,
         color: tokens.textMuted,
       ),
     );

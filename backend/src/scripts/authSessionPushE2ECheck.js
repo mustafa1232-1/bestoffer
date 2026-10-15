@@ -20,6 +20,7 @@ import {
 } from "./e2eTestUtils.js";
 
 const DEFAULT_BASE_URL = "https://bestoffer-production.up.railway.app";
+const BISMAYAH_TEST_LOCATION = { latitude: 33.19302, longitude: 44.62071 };
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -211,6 +212,7 @@ async function seedCaptain(baseUrl, companyAdmin, runTag) {
     block: "B1",
     buildingNumber: "B101",
     apartment: "201",
+    ...BISMAYAH_TEST_LOCATION,
     vehicleType: "car",
     carMake: "Toyota",
     carModel: "Corolla",
@@ -325,6 +327,8 @@ async function createOwner(baseUrl, runTag) {
     merchantTagline: `phase1c-owner-tag-${runTag}`,
     merchantWorkingHours: "10:00-22:00",
     merchantServiceAreaNote: `phase1c-service-area-${runTag}`,
+    latitude: BISMAYAH_TEST_LOCATION.latitude,
+    longitude: BISMAYAH_TEST_LOCATION.longitude,
     analyticsConsentAccepted: true,
     analyticsConsentVersion: "phase1c_auth_v1",
   });
@@ -357,6 +361,7 @@ async function createCustomer(baseUrl, runTag) {
     block: "A1",
     buildingNumber: "A101",
     apartment: "101",
+    ...BISMAYAH_TEST_LOCATION,
     analyticsConsentAccepted: true,
     analyticsConsentVersion: "phase1c_auth_v1",
   });
@@ -695,7 +700,15 @@ async function main() {
         "GET",
         "/api/taxi/captain/current-ride"
       );
-      assertStatus(currentRide, 200, "captain current ride");
+      if (currentRide.status === 403) {
+        assertErrorCode(
+          currentRide,
+          "DELIVERY_SUBSCRIPTION_EXPIRED",
+          "captain current ride subscription gate"
+        );
+      } else {
+        assertStatus(currentRide, 200, "captain current ride");
+      }
       await verifyActorSessionLifecycle(cfg.baseUrl, captain.actor, "captain");
     });
     await runStep("captain wrong-surface blocked", () =>

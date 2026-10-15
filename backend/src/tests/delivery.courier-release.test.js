@@ -168,9 +168,18 @@ test("delivery: a courier who completes an order becomes available again", async
   assert.equal(before.openAssignments, 1, "courier starts busy on the assignment");
   assert.equal(before.assignedOrders, 1, "courier starts busy on the order");
 
-  await courierMarkPickedUp({ courierUserId: courierId, orderId });
+  await courierMarkPickedUp({
+    courierUserId: courierId,
+    orderId,
+    merchantPaidActual: 0,
+    withoutReceipt: true,
+  });
   await courierMarkArrived({ courierUserId: courierId, orderId });
-  await courierMarkDelivered({ courierUserId: courierId, orderId });
+  await courierMarkDelivered({
+    courierUserId: courierId,
+    orderId,
+    customerReceivedActual: 0,
+  });
 
   const after = await busyMarkers(c, courierId);
   assert.equal(
@@ -254,9 +263,18 @@ test("delivery: the courier can still open the order they just delivered", async
     suffix: "o5",
   });
 
-  await courierMarkPickedUp({ courierUserId: courierId, orderId });
+  await courierMarkPickedUp({
+    courierUserId: courierId,
+    orderId,
+    merchantPaidActual: 0,
+    withoutReceipt: true,
+  });
   await courierMarkArrived({ courierUserId: courierId, orderId });
-  await courierMarkDelivered({ courierUserId: courierId, orderId });
+  await courierMarkDelivered({
+    courierUserId: courierId,
+    orderId,
+    customerReceivedActual: 0,
+  });
 
   const detail = await getDeliveryOrderDetail({
     requestUserId: courierId,

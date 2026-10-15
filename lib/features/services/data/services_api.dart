@@ -17,6 +17,11 @@ class ServicesApi {
 
   ServicesApi(this._dio);
 
+  Future<List<Map<String, dynamic>>> listCentralCatalog() async {
+    final response = await _dio.get('/api/services/public/catalog');
+    return _asMapList(response.data);
+  }
+
   Future<List<Map<String, dynamic>>> listPublicCategories({String? q}) async {
     final response = await _dio.get(
       '/api/services/public/categories',
@@ -117,6 +122,22 @@ class ServicesApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> createCentralServiceRequest(
+    Map<String, dynamic> body, {
+    List<LocalImageFile> attachmentFiles = const [],
+  }) async {
+    final requestData = await _withOptionalFiles(
+      body,
+      fileFieldName: 'attachmentFiles',
+      files: attachmentFiles,
+    );
+    final response = await _dio.post(
+      '/api/services/requests/central',
+      data: requestData,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> previewServiceBooking(
     Map<String, dynamic> body,
   ) async {
@@ -148,6 +169,49 @@ class ServicesApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> updateEmergencyLocation({
+    required int requestId,
+    required double latitude,
+    required double longitude,
+    double? accuracyMeters,
+    double? speedMps,
+    double? headingDegrees,
+    DateTime? capturedAt,
+  }) async {
+    final response = await _dio.post(
+      '/api/services/requests/$requestId/emergency-location',
+      data: {
+        'latitude': latitude,
+        'longitude': longitude,
+        if (accuracyMeters != null) 'accuracyMeters': accuracyMeters,
+        if (speedMps != null && speedMps >= 0) 'speedMps': speedMps,
+        if (headingDegrees != null && headingDegrees >= 0)
+          'headingDegrees': headingDegrees,
+        if (capturedAt != null)
+          'capturedAt': capturedAt.toUtc().toIso8601String(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getEmergencyThread(int requestId) async {
+    final response = await _dio.get(
+      '/api/services/requests/$requestId/emergency-thread',
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> sendEmergencyMessage({
+    required int requestId,
+    required String message,
+  }) async {
+    final response = await _dio.post(
+      '/api/services/requests/$requestId/emergency-thread/messages',
+      data: {'message': message.trim()},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> updateMyRequestStatus({
     required int requestId,
     required String status,
@@ -164,6 +228,90 @@ class ServicesApi {
         if (idempotencyKey != null && idempotencyKey.trim().isNotEmpty)
           'idempotencyKey': idempotencyKey.trim(),
       },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> adjustServiceRequestPrice({
+    required int requestId,
+    required num totalIqd,
+    num discountIqd = 0,
+    String? note,
+  }) async {
+    final response = await _dio.post(
+      '/api/services/provider/requests/$requestId/price-adjustment',
+      data: {
+        'totalIqd': totalIqd,
+        'discountIqd': discountIqd,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> applyServiceRequestCoupon({
+    required int requestId,
+    required String code,
+  }) async {
+    final response = await _dio.post(
+      '/api/services/requests/$requestId/coupon',
+      data: {'code': code.trim().toUpperCase()},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> submitServiceRequestPayment({
+    required int requestId,
+    String paymentMethod = 'cash',
+    String? note,
+  }) async {
+    final response = await _dio.post(
+      '/api/services/requests/$requestId/payment/submit',
+      data: {
+        'paymentMethod': paymentMethod,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> confirmServiceRequestPayment({
+    required int requestId,
+    String? note,
+  }) async {
+    final response = await _dio.post(
+      '/api/services/provider/requests/$requestId/payment/confirm',
+      data: {
+        'paymentMethod': 'cash',
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> listServiceRequestMessages({
+    required int requestId,
+    required bool provider,
+  }) async {
+    final prefix = provider
+        ? '/api/services/provider/requests'
+        : '/api/services/requests';
+    final response = await _dio.get('$prefix/$requestId/messages');
+    final data = Map<String, dynamic>.from(response.data as Map);
+    return _asMapList(data['items']);
+  }
+
+  Future<Map<String, dynamic>> sendServiceRequestMessage({
+    required int requestId,
+    required bool provider,
+    required String message,
+  }) async {
+    final prefix = provider
+        ? '/api/services/provider/requests'
+        : '/api/services/requests';
+    final response = await _dio.post(
+      '$prefix/$requestId/messages',
+      data: {'message': message.trim()},
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -424,6 +572,27 @@ class ServicesApi {
         if (expectedVersion != null) 'expectedVersion': expectedVersion,
         if (idempotencyKey != null && idempotencyKey.trim().isNotEmpty)
           'idempotencyKey': idempotencyKey.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> routeCentralServiceRequest({
+    required int requestId,
+    required String routingStatus,
+    String? professionalName,
+    String? professionalPhone,
+    String? note,
+  }) async {
+    final response = await _dio.post(
+      '/api/services/provider/requests/$requestId/route',
+      data: {
+        'routingStatus': routingStatus,
+        if (professionalName != null && professionalName.trim().isNotEmpty)
+          'professionalName': professionalName.trim(),
+        if (professionalPhone != null && professionalPhone.trim().isNotEmpty)
+          'professionalPhone': professionalPhone.trim(),
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
       },
     );
     return Map<String, dynamic>.from(response.data as Map);

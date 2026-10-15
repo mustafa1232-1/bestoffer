@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:maslaki/features/taxi/domain/taxi_assignment_contract.dart';
 import 'package:maslaki/features/tracking/tracking_map_utils.dart';
 
@@ -193,5 +194,71 @@ void main() {
       ),
       isFalse,
     );
+  });
+
+  test('tracking interpolation follows the shortest heading path', () {
+    final start = TrackingMotionSample(
+      point: const LatLng(33.193, 44.620),
+      headingDegrees: 350,
+      recordedAt: DateTime.utc(2026, 9, 29, 10),
+    );
+    final end = TrackingMotionSample(
+      point: const LatLng(33.194, 44.622),
+      headingDegrees: 10,
+      recordedAt: DateTime.utc(2026, 9, 29, 10, 0, 5),
+    );
+
+    final halfway = interpolateTrackingSample(start, end, 0.5);
+
+    expect(halfway.point.latitude, closeTo(33.1935, 0.000001));
+    expect(halfway.point.longitude, closeTo(44.621, 0.000001));
+    expect(halfway.headingDegrees, closeTo(0, 0.001));
+  });
+
+  test('tracking rejects stale samples and sub-two-metre jitter', () {
+    final current = TrackingMotionSample(
+      point: const LatLng(33.193, 44.620),
+      headingDegrees: 20,
+      recordedAt: DateTime.utc(2026, 9, 29, 10, 0, 5),
+    );
+    final stale = TrackingMotionSample(
+      point: const LatLng(33.194, 44.621),
+      headingDegrees: 20,
+      recordedAt: DateTime.utc(2026, 9, 29, 10),
+    );
+    final jitter = TrackingMotionSample(
+      point: const LatLng(33.193005, 44.620005),
+      headingDegrees: 22,
+      recordedAt: DateTime.utc(2026, 9, 29, 10, 0, 6),
+    );
+
+    expect(shouldAcceptTrackingSample(current, stale), isFalse);
+    expect(shouldAcceptTrackingSample(current, jitter), isFalse);
+  });
+
+  test('tracking snaps after a long gap or an implausible jump', () {
+    final current = TrackingMotionSample(
+      point: const LatLng(33.193, 44.620),
+      headingDegrees: 0,
+      recordedAt: DateTime.utc(2026, 9, 29, 10),
+    );
+    final delayed = TrackingMotionSample(
+      point: const LatLng(33.194, 44.621),
+      headingDegrees: 0,
+      recordedAt: DateTime.utc(2026, 9, 29, 10, 1),
+    );
+    final jumped = TrackingMotionSample(
+      point: const LatLng(33.203, 44.630),
+      headingDegrees: 0,
+      recordedAt: DateTime.utc(2026, 9, 29, 10, 0, 5),
+    );
+
+    expect(shouldSnapTrackingSample(current, delayed), isTrue);
+    expect(shouldSnapTrackingSample(current, jumped), isTrue);
+  });
+
+  test('invalid coordinates are rejected before reaching the map', () {
+    expect(latLngFromMap({'latitude': 91, 'longitude': 44}), isNull);
+    expect(latLngFromMap({'latitude': 33, 'longitude': 181}), isNull);
   });
 }

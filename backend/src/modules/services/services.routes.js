@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import { requireAuth } from '../../shared/middleware/auth.middleware.js';
 import { requireBackoffice } from '../../shared/middleware/backoffice.middleware.js';
+import { requireSuperAdmin } from '../../shared/middleware/super-admin.middleware.js';
 import { requireServiceProvider } from '../../shared/middleware/service-provider.middleware.js';
 import { imageUpload, mediaUpload } from '../../shared/utils/upload.js';
 import * as c from './services.controller.js';
@@ -13,6 +14,7 @@ export const servicesReviewsRouter = Router();
 export const servicesAdminRouter = Router();
 
 // Public discovery
+servicesPublicRouter.get('/catalog', c.listCentralCatalog);
 servicesPublicRouter.get('/categories', c.listPublicCategories);
 servicesPublicRouter.get('/search', c.searchPublic);
 servicesPublicRouter.get('/providers/:providerId', c.getPublicProvider);
@@ -63,10 +65,10 @@ servicesProviderRouter.patch(
   ]),
   c.updateProviderProfile
 );
-servicesProviderRouter.post('/offerings', imageUpload.array('mediaFiles', 10), c.createOffering);
+servicesProviderRouter.post('/offerings', mediaUpload.array('mediaFiles', 10), c.createOffering);
 servicesProviderRouter.patch(
   '/offerings/:offeringId',
-  imageUpload.array('mediaFiles', 10),
+  mediaUpload.array('mediaFiles', 10),
   c.updateOffering
 );
 servicesProviderRouter.put('/offerings/:offeringId/pricing', c.replaceOfferingPricing);
@@ -82,14 +84,31 @@ servicesProviderRouter.get('/category-suggestions', c.listMyCategorySuggestions)
 servicesProviderRouter.get('/requests', c.listProviderRequests);
 servicesProviderRouter.post('/requests/:requestId/quotes', c.createQuote);
 servicesProviderRouter.post('/requests/:requestId/status', c.updateProviderRequestStatus);
+servicesProviderRouter.post('/requests/:requestId/price-adjustment', c.adjustServiceRequestPrice);
+servicesProviderRouter.post('/requests/:requestId/payment/confirm', c.confirmServiceRequestPayment);
+servicesProviderRouter.get('/requests/:requestId/messages', c.listServiceRequestMessages);
+servicesProviderRouter.post('/requests/:requestId/messages', c.sendServiceRequestMessage);
+servicesProviderRouter.post('/requests/:requestId/route', c.routeCentralServiceRequest);
 
 // Customer requests lifecycle
 servicesRequestsRouter.use(requireAuth);
-servicesRequestsRouter.post('/', imageUpload.array('attachmentFiles', 8), c.createServiceRequest);
+servicesRequestsRouter.post('/', mediaUpload.array('attachmentFiles', 8), c.createServiceRequest);
+servicesRequestsRouter.post(
+  '/central',
+  mediaUpload.array('attachmentFiles', 8),
+  c.createCentralServiceRequest
+);
 servicesRequestsRouter.post('/preview', c.previewServiceBooking);
 servicesRequestsRouter.get('/mine', c.listMyRequests);
+servicesRequestsRouter.post('/:requestId/emergency-location', c.updateEmergencyLocation);
+servicesRequestsRouter.get('/:requestId/emergency-thread', c.getEmergencyThread);
+servicesRequestsRouter.post('/:requestId/emergency-thread/messages', c.sendEmergencyMessage);
 servicesRequestsRouter.get('/:requestId', c.getMyRequest);
 servicesRequestsRouter.post('/:requestId/status', c.updateMyRequestStatus);
+servicesRequestsRouter.post('/:requestId/coupon', c.applyServiceRequestCoupon);
+servicesRequestsRouter.post('/:requestId/payment/submit', c.submitServiceRequestPayment);
+servicesRequestsRouter.get('/:requestId/messages', c.listServiceRequestMessages);
+servicesRequestsRouter.post('/:requestId/messages', c.sendServiceRequestMessage);
 servicesRequestsRouter.post('/:requestId/quotes/:quoteId/respond', c.respondToQuote);
 
 // Reviews
@@ -100,6 +119,13 @@ servicesReviewsRouter.post('/', c.createReview);
 
 // Admin moderation
 servicesAdminRouter.use(requireAuth, requireBackoffice);
+servicesAdminRouter.get('/emergencies', requireSuperAdmin, c.listEmergencyRequestsForAdmin);
+servicesAdminRouter.get('/emergencies/:requestId', requireSuperAdmin, c.getEmergencyThreadForAdmin);
+servicesAdminRouter.post(
+  '/emergencies/:requestId/messages',
+  requireSuperAdmin,
+  c.sendEmergencyMessageAsAdmin
+);
 servicesAdminRouter.get('/subscription-requests', c.listProviderSubscriptionRequests);
 servicesAdminRouter.post(
   '/subscription-requests/:requestId/offer',
@@ -116,6 +142,8 @@ servicesAdminRouter.post(
 servicesAdminRouter.get('/providers/pending', c.listPendingProviders);
 servicesAdminRouter.patch('/providers/:providerId/status', c.adminUpdateProviderStatus);
 servicesAdminRouter.get('/offerings/pending', c.listOfferingsForAdmin);
+servicesAdminRouter.get('/categories', c.listCategoriesForAdmin);
+servicesAdminRouter.patch('/offerings/:offeringId', c.adminUpdateOfferingDetails);
 servicesAdminRouter.patch('/offerings/:offeringId/status', c.adminUpdateOfferingStatus);
 servicesAdminRouter.get('/categories/suggestions', c.listCategorySuggestionsForAdmin);
 servicesAdminRouter.patch(

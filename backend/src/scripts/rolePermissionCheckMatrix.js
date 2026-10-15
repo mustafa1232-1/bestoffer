@@ -84,7 +84,14 @@ const CHECKS = [
     id: "auth_sessions",
     method: "GET",
     path: "/api/auth/sessions",
-    allowedRoles: ["user", "owner", "delivery", "admin", "super_admin"],
+    allowedRoles: [
+      "user",
+      "owner",
+      "delivery",
+      "taxi_captain",
+      "admin",
+      "super_admin",
+    ],
   },
   {
     id: "orders_favorites_ids",
@@ -96,7 +103,14 @@ const CHECKS = [
     id: "cars_brands",
     method: "GET",
     path: "/api/cars/brands",
-    allowedRoles: ["user", "owner", "delivery", "admin", "super_admin"],
+    allowedRoles: [
+      "user",
+      "owner",
+      "delivery",
+      "taxi_captain",
+      "admin",
+      "super_admin",
+    ],
   },
   {
     id: "owner_merchant",
@@ -132,7 +146,14 @@ const CHECKS = [
     id: "feed_scopes_me",
     method: "GET",
     path: "/api/feed/communities/scopes/me",
-    allowedRoles: ["user", "owner", "delivery", "admin", "super_admin"],
+    allowedRoles: [
+      "user",
+      "owner",
+      "delivery",
+      "taxi_captain",
+      "admin",
+      "super_admin",
+    ],
   },
 ];
 
@@ -179,6 +200,10 @@ function normalizeMatrixAccount(entry) {
     companyRole: readString(entry?.companyRole || ""),
     companyId: entry?.companyId == null ? null : Number(entry.companyId),
     loginPath: readString(entry?.loginPath || ""),
+    deliveryAccountApproved:
+      entry?.deliveryAccountApproved == null
+        ? null
+        : entry.deliveryAccountApproved === true,
   };
 }
 
@@ -341,6 +366,33 @@ async function loginAccount(baseUrl, account) {
   actor.authRole = readString(payload?.user?.role || role || "");
   assert.ok(actor.userId, `${label} login -> missing user id`);
   return actor;
+}
+
+async function assertPendingDeliveryLoginBlocked(baseUrl, account) {
+  const appFlavor = readString(account.appFlavor || "delivery").toLowerCase();
+  const actor = createActor(
+    readString(account.label || "pending_delivery"),
+    buildRunTag("perm-pending"),
+    "permissions-check/1"
+  );
+  const response = await requestJson(
+    baseUrl,
+    { ...actor, appFlavor },
+    "POST",
+    readString(account.loginPath) || defaultLoginPathForAccount(account),
+    {
+      body: {
+        phone: readString(account.phone),
+        pin: readString(account.pin),
+      },
+    }
+  );
+  assert.equal(response.status, 403, `${account.label} pending login status`);
+  assert.equal(
+    readString(response.data?.message),
+    "DELIVERY_ACCOUNT_PENDING_APPROVAL",
+    `${account.label} pending login reason`
+  );
 }
 
 function isAllowedRole(check, session) {
@@ -647,6 +699,16 @@ async function run() {
     const sessions = [];
     for (const account of accounts) {
       try {
+        if (
+          readString(account.role).toLowerCase() === "delivery" &&
+          account.deliveryAccountApproved === false
+        ) {
+          await assertPendingDeliveryLoginBlocked(baseUrl, account);
+          console.log(
+            `[permissions] login blocked as expected label=${account.label} role=delivery reason=DELIVERY_ACCOUNT_PENDING_APPROVAL`
+          );
+          continue;
+        }
         const session = await loginAccount(baseUrl, account);
         sessions.push(session);
         console.log(

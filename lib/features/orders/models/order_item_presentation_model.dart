@@ -341,6 +341,22 @@ class OrderItemPresentationModel {
       final normalizedSpecs = _entryList(snapshot['specs']);
       final selectedColor = _entry(snapshot['selectedColor']);
       final selectedSize = _entry(snapshot['selectedSize']);
+      final resolvedStoreId = parseNullableInt(
+        order['merchant_id'] ??
+            order['merchantId'] ??
+            order['store_id'] ??
+            order['storeId'] ??
+            snapshot['storeId'] ??
+            snapshot['store_id'],
+      );
+      final resolvedStoreName = parseNullableString(
+        order['merchant_name'] ??
+            order['merchantName'] ??
+            order['store_name'] ??
+            order['storeName'] ??
+            snapshot['storeName'] ??
+            snapshot['store_name'],
+      );
       return OrderItemPresentationModel(
         displaySnapshotJson: snapshot,
         productId: parseNullableInt(snapshot['productId'] ?? snapshot['product_id']),
@@ -364,8 +380,8 @@ class OrderItemPresentationModel {
         removals: _entryList(snapshot['removals']),
         userNote: parseNullableString(snapshot['userNote'] ?? snapshot['user_note']),
         activityType: parseNullableString(snapshot['activityType'] ?? snapshot['activity_type']),
-        storeId: parseNullableInt(snapshot['storeId'] ?? snapshot['store_id']),
-        storeName: parseNullableString(snapshot['storeName'] ?? snapshot['store_name']),
+        storeId: resolvedStoreId,
+        storeName: resolvedStoreName,
       );
     }
 

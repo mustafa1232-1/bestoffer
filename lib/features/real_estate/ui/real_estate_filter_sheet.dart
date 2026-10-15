@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../models/real_estate_models.dart';
+import '../real_estate_building_catalog.dart';
 import 'widgets/real_estate_listing_card.dart';
 
 class RealEstateFilterSheet extends StatefulWidget {
@@ -63,7 +64,9 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
       text: query.roomsCount == null ? '' : query.roomsCount!.toString(),
     );
     _bathroomsCtrl = TextEditingController(
-      text: query.bathroomsCount == null ? '' : query.bathroomsCount!.toString(),
+      text: query.bathroomsCount == null
+          ? ''
+          : query.bathroomsCount!.toString(),
     );
     _floorMinCtrl = TextEditingController(
       text: query.floorMin == null ? '' : query.floorMin!.toString(),
@@ -109,7 +112,9 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
     Navigator.of(context).pop(
       RealEstateListingQuery(
         purpose: _purpose,
-        search: _searchCtrl.text.trim().isEmpty ? null : _searchCtrl.text.trim(),
+        search: _searchCtrl.text.trim().isEmpty
+            ? null
+            : _searchCtrl.text.trim(),
         city: _cityCtrl.text.trim().isEmpty ? null : _cityCtrl.text.trim(),
         block: _blockCtrl.text.trim().isEmpty ? null : _blockCtrl.text.trim(),
         areaMin: parseIntOrNull(_minAreaCtrl.text),
@@ -145,7 +150,9 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
           builder: (context, controller) {
             return Material(
               color: Theme.of(context).colorScheme.surface,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(28),
+              ),
               child: ListView(
                 controller: controller,
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
@@ -172,7 +179,9 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                   const SizedBox(height: 8),
                   TextField(
                     controller: _searchCtrl,
-                    decoration: InputDecoration(hintText: l10n.realEstateSearchHint),
+                    decoration: InputDecoration(
+                      hintText: l10n.realEstateSearchHint,
+                    ),
                   ),
                   const SizedBox(height: 16),
                   _SectionTitle(label: l10n.realEstatePurposeLabel),
@@ -232,7 +241,9 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                           controller: _minPriceCtrl,
                           keyboardType: TextInputType.number,
                           textDirection: TextDirection.ltr,
-                          decoration: InputDecoration(labelText: l10n.realEstateMinPrice),
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateMinPrice,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -241,7 +252,9 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                           controller: _maxPriceCtrl,
                           keyboardType: TextInputType.number,
                           textDirection: TextDirection.ltr,
-                          decoration: InputDecoration(labelText: l10n.realEstateMaxPrice),
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateMaxPrice,
+                          ),
                         ),
                       ),
                     ],
@@ -256,7 +269,9 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                           controller: _minAreaCtrl,
                           keyboardType: TextInputType.number,
                           textDirection: TextDirection.ltr,
-                          decoration: InputDecoration(labelText: l10n.realEstateMinArea),
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateMinArea,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -265,7 +280,9 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                           controller: _maxAreaCtrl,
                           keyboardType: TextInputType.number,
                           textDirection: TextDirection.ltr,
-                          decoration: InputDecoration(labelText: l10n.realEstateMaxArea),
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateMaxArea,
+                          ),
                         ),
                       ),
                     ],
@@ -280,15 +297,19 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                       ChoiceChip(
                         label: Text(l10n.commonAll),
                         selected: _paymentMethod == null,
-                        onSelected: (_) => setState(() => _paymentMethod = null),
+                        onSelected: (_) =>
+                            setState(() => _paymentMethod = null),
                       ),
                       ChoiceChip(
                         label: Text(paymentMethodLabel(context, 'cash')),
                         selected: _paymentMethod == 'cash',
-                        onSelected: (_) => setState(() => _paymentMethod = 'cash'),
+                        onSelected: (_) =>
+                            setState(() => _paymentMethod = 'cash'),
                       ),
                       ChoiceChip(
-                        label: Text(paymentMethodLabel(context, 'installments')),
+                        label: Text(
+                          paymentMethodLabel(context, 'installments'),
+                        ),
                         selected: _paymentMethod == 'installments',
                         onSelected: (_) =>
                             setState(() => _paymentMethod = 'installments'),
@@ -311,12 +332,14 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                       ChoiceChip(
                         label: Text(l10n.commonAll),
                         selected: _bankSettlementMode == null,
-                        onSelected: (_) => setState(() => _bankSettlementMode = null),
+                        onSelected: (_) =>
+                            setState(() => _bankSettlementMode = null),
                       ),
                       ChoiceChip(
                         label: Text(settlementModeLabel(context, 'none')),
                         selected: _bankSettlementMode == 'none',
-                        onSelected: (_) => setState(() => _bankSettlementMode = 'none'),
+                        onSelected: (_) =>
+                            setState(() => _bankSettlementMode = 'none'),
                       ),
                       ChoiceChip(
                         label: Text(settlementModeLabel(context, 'partial')),
@@ -327,7 +350,8 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                       ChoiceChip(
                         label: Text(settlementModeLabel(context, 'full')),
                         selected: _bankSettlementMode == 'full',
-                        onSelected: (_) => setState(() => _bankSettlementMode = 'full'),
+                        onSelected: (_) =>
+                            setState(() => _bankSettlementMode = 'full'),
                       ),
                     ],
                   ),
@@ -339,14 +363,38 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                       Expanded(
                         child: TextField(
                           controller: _cityCtrl,
-                          decoration: InputDecoration(labelText: l10n.realEstateCity),
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateCity,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: TextField(
-                          controller: _blockCtrl,
-                          decoration: InputDecoration(labelText: l10n.realEstateBlock),
+                        child: DropdownButtonFormField<String>(
+                          key: ValueKey<String>(
+                            'filter_block_${_blockCtrl.text}',
+                          ),
+                          initialValue:
+                              realEstateBlocks.contains(_blockCtrl.text.trim())
+                              ? _blockCtrl.text.trim()
+                              : null,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateBlock,
+                          ),
+                          items: <DropdownMenuItem<String>>[
+                            const DropdownMenuItem<String>(
+                              value: '',
+                              child: Text('الكل'),
+                            ),
+                            ...realEstateBlocks.map(
+                              (block) => DropdownMenuItem<String>(
+                                value: block,
+                                child: Text(block),
+                              ),
+                            ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _blockCtrl.text = value ?? ''),
                         ),
                       ),
                     ],
@@ -409,7 +457,8 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                   SwitchListTile.adaptive(
                     contentPadding: EdgeInsets.zero,
                     value: _availableOnly,
-                    onChanged: (value) => setState(() => _availableOnly = value),
+                    onChanged: (value) =>
+                        setState(() => _availableOnly = value),
                     title: Text(l10n.realEstateOnlyAvailable),
                     subtitle: Text(l10n.realEstateAvailableOnlyHint),
                   ),
@@ -447,7 +496,8 @@ class _RealEstateFilterSheetState extends State<RealEstateFilterSheet> {
                         child: Text(l10n.realEstateMostViewed),
                       ),
                     ],
-                    onChanged: (value) => setState(() => _sort = value ?? 'recent'),
+                    onChanged: (value) =>
+                        setState(() => _sort = value ?? 'recent'),
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -486,9 +536,9 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       label,
-      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-        fontWeight: FontWeight.w900,
-      ),
+      style: Theme.of(
+        context,
+      ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
     );
   }
 }

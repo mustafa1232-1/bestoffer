@@ -49,6 +49,8 @@ class SocialState {
   final bool loadingThreads;
   final List<SocialChatThread> threads;
   final String? activeKind;
+  final String feedTab;
+  final bool postsLoadFailed;
   final String? error;
 
   const SocialState({
@@ -63,6 +65,8 @@ class SocialState {
     this.loadingThreads = false,
     this.threads = const [],
     this.activeKind,
+    this.feedTab = 'for_you',
+    this.postsLoadFailed = false,
     this.error,
   });
 
@@ -80,6 +84,8 @@ class SocialState {
     List<SocialChatThread>? threads,
     String? activeKind,
     bool activeKindTouched = false,
+    String? feedTab,
+    bool? postsLoadFailed,
     String? error,
   }) {
     return SocialState(
@@ -96,15 +102,26 @@ class SocialState {
       loadingThreads: loadingThreads ?? this.loadingThreads,
       threads: threads ?? this.threads,
       activeKind: activeKindTouched ? activeKind : this.activeKind,
+      feedTab: feedTab ?? this.feedTab,
+      postsLoadFailed: postsLoadFailed ?? this.postsLoadFailed,
       error: error,
     );
   }
 }
 
 final socialControllerProvider =
-    StateNotifierProvider<SocialController, SocialState>(
-      (ref) => SocialController(ref),
-    );
+    StateNotifierProvider<SocialController, SocialState>((ref) {
+      final controller = SocialController(ref);
+      ref.listen<int?>(authControllerProvider.select((auth) => auth.user?.id), (
+        previous,
+        next,
+      ) {
+        if (previous == next) return;
+        controller.resetForAccountChange();
+        unawaited(controller.bootstrap(force: true));
+      });
+      return controller;
+    });
 
 /// المتحكم المركزي لوحدة المجتمع في الواجهة.
 ///
@@ -114,6 +131,14 @@ final socialControllerProvider =
 class SocialController extends StateNotifier<SocialState> {
   final Ref ref;
   bool _disposed = false;
+  int _postsRequestGeneration = 0;
+  Future<void>? _storiesWork;
+  Future<void>? _threadsWork;
+  bool _storiesRefreshQueued = false;
+  bool _threadsRefreshQueued = false;
+  int _accountGeneration = 0;
+  DateTime? _lastBootstrapAt;
+  Future<void>? _bootstrapWork;
 
   SocialController(this.ref) : super(const SocialState());
 
@@ -155,16 +180,56 @@ class SocialController extends StateNotifier<SocialState> {
   }
 
   /// يحمل القصص والمنشورات والـ threads معاً عند فتح التجربة الاجتماعية.
-  Future<void> bootstrap() async {
+  void resetForAccountChange() {
+    _accountGeneration += 1;
+    _postsRequestGeneration += 1;
+    _lastBootstrapAt = null;
+    _safeSetState(const SocialState());
+  }
+
+  Future<void> bootstrap({bool force = false}) async {
+    final lastBootstrap = _lastBootstrapAt;
+    if (!force &&
+        state.posts.isNotEmpty &&
+        lastBootstrap != null &&
+        DateTime.now().difference(lastBootstrap) <
+            const Duration(seconds: 90)) {
+      return;
+    }
+    final existing = _bootstrapWork;
+    if (existing != null) {
+      await existing;
+      if (force && !_disposed) {
+        if (identical(_bootstrapWork, existing)) _bootstrapWork = null;
+        await bootstrap(force: true);
+      }
+      return;
+    }
+    final work = _runBootstrap();
+    _bootstrapWork = work;
+    try {
+      await work;
+    } finally {
+      if (identical(_bootstrapWork, work)) _bootstrapWork = null;
+    }
+  }
+
+  Future<void> _runBootstrap() async {
+    final accountGeneration = _accountGeneration;
     if (_hasVerifiedSession()) {
       await Future.wait([
         loadStories(),
         loadPosts(refresh: true),
         loadThreads(),
       ]);
-      return;
+    } else {
+      await Future.wait([loadStories(), loadPosts(refresh: true)]);
     }
-    await Future.wait([loadStories(), loadPosts(refresh: true)]);
+    if (!_disposed &&
+        accountGeneration == _accountGeneration &&
+        !state.postsLoadFailed) {
+      _lastBootstrapAt = DateTime.now();
+    }
   }
 
   /// يبدل نوع المحتوى النشط ويعيد تحميل feed من البداية.
@@ -183,31 +248,55 @@ class SocialController extends StateNotifier<SocialState> {
   }
 
   /// يحمل صفحة منشورات مع دعم refresh وload-more.
+  Future<void> setFeedTab(String tab) async {
+    if (!const {'for_you', 'following', 'latest'}.contains(tab)) return;
+    if (state.feedTab == tab) return;
+    _safeSetState(
+      state.copyWith(
+        feedTab: tab,
+        posts: const [],
+        nextPostsCursor: null,
+        nextPostsCursorTouched: true,
+      ),
+    );
+    await loadPosts(refresh: true);
+  }
+
   Future<void> loadPosts({
     bool refresh = false,
     String? kind,
     bool silent = false,
   }) async {
     final effectiveKind = kind ?? state.activeKind;
+    final feedTab = state.feedTab;
+    final generation = ++_postsRequestGeneration;
     final loadingMore = !refresh && state.posts.isNotEmpty;
     if (!silent) {
       _safeSetState(
         state.copyWith(
           loadingPosts: refresh,
           loadingMorePosts: loadingMore,
+          postsLoadFailed: false,
           error: null,
         ),
       );
     }
 
     try {
-      final response = await ref
-          .read(socialApiProvider)
-          .listPosts(
-            limit: 20,
-            beforeId: loadingMore ? state.nextPostsCursor : null,
-            kind: effectiveKind,
-          );
+      final api = ref.read(socialApiProvider);
+      final response = feedTab == 'for_you'
+          ? await api.listPosts(
+              limit: 20,
+              beforeId: loadingMore ? state.nextPostsCursor : null,
+              kind: effectiveKind,
+            )
+          : await api.listFeedTabPosts(
+              feed: feedTab,
+              limit: 20,
+              beforeId: loadingMore ? state.nextPostsCursor : null,
+              kind: effectiveKind,
+            );
+      if (_disposed || generation != _postsRequestGeneration) return;
       final rawPosts = List<dynamic>.from(
         response['posts'] as List? ?? const [],
       );
@@ -223,30 +312,33 @@ class SocialController extends StateNotifier<SocialState> {
           loadingPosts: silent ? state.loadingPosts : false,
           loadingMorePosts: silent ? state.loadingMorePosts : false,
           posts: merged,
+          postsLoadFailed: false,
           activeKind: effectiveKind,
           activeKindTouched: true,
           nextPostsCursor: _parseInt(response['nextCursor']),
           nextPostsCursorTouched: true,
         ),
       );
-    } on DioException catch (_) {
+    } on DioException catch (error) {
       // The home feed never renders a technical error. A failed load keeps any
       // previously loaded posts and stops the spinners; recovery is retried
       // quietly on the next pull-to-refresh or resume.
-      if (silent) return;
+      if (_disposed || generation != _postsRequestGeneration || silent) return;
       _safeSetState(
         state.copyWith(
           loadingPosts: false,
           loadingMorePosts: false,
+          postsLoadFailed: !_isAuthFailure(error),
           error: null,
         ),
       );
     } catch (_) {
-      if (silent) return;
+      if (_disposed || generation != _postsRequestGeneration || silent) return;
       _safeSetState(
         state.copyWith(
           loadingPosts: false,
           loadingMorePosts: false,
+          postsLoadFailed: true,
           error: null,
         ),
       );
@@ -260,7 +352,27 @@ class SocialController extends StateNotifier<SocialState> {
   }
 
   /// يحمل القصص النشطة الظاهرة للمستخدم.
-  Future<void> loadStories({bool silent = false}) async {
+  Future<void> loadStories({bool silent = false}) {
+    if (_disposed) return Future.value();
+    if (_storiesWork != null) {
+      _storiesRefreshQueued = true;
+      return _storiesWork!;
+    }
+    return _storiesWork = _drainStories(
+      silent,
+    ).whenComplete(() => _storiesWork = null);
+  }
+
+  Future<void> _drainStories(bool silent) async {
+    do {
+      _storiesRefreshQueued = false;
+      await _loadStories(silent: silent);
+      silent = true;
+    } while (!_disposed && _storiesRefreshQueued);
+  }
+
+  Future<void> _loadStories({bool silent = false}) async {
+    final accountGeneration = _accountGeneration;
     if (!silent) {
       _safeSetState(state.copyWith(loadingStories: true, error: null));
     }
@@ -275,20 +387,20 @@ class SocialController extends StateNotifier<SocialState> {
                 SocialStoryGroup.fromJson(Map<String, dynamic>.from(e as Map)),
           )
           .toList(growable: false);
-      _safeSetState(
-        state.copyWith(
-          loadingStories: silent ? state.loadingStories : false,
-          stories: stories,
-        ),
-      );
+      if (_disposed || accountGeneration != _accountGeneration) return;
+      _safeSetState(state.copyWith(loadingStories: false, stories: stories));
     } on DioException catch (_) {
       // Stories load failures are silent: no "تعذر تحميل الستوري" text, no
       // request id. The strip simply stays empty/collapsed until a later load
       // succeeds.
-      if (silent) return;
+      if (_disposed || accountGeneration != _accountGeneration || silent) {
+        return;
+      }
       _safeSetState(state.copyWith(loadingStories: false, error: null));
     } catch (_) {
-      if (silent) return;
+      if (_disposed || accountGeneration != _accountGeneration || silent) {
+        return;
+      }
       _safeSetState(state.copyWith(loadingStories: false, error: null));
     }
   }
@@ -557,6 +669,8 @@ class SocialController extends StateNotifier<SocialState> {
     required String postKind,
     int? merchantId,
     int? reviewRating,
+    int? orderId,
+    int? productId,
     int? mediaAssetId,
     LocalMediaFile? mediaFile,
     List<LocalMediaFile>? mediaFiles,
@@ -566,6 +680,11 @@ class SocialController extends StateNotifier<SocialState> {
     Map<String, dynamic>? sharedSnapshot,
     String? audienceScopeType,
     String? audienceScopeCode,
+    String? linkTargetType,
+    int? linkMerchantId,
+    int? linkProductId,
+    int? linkOfferId,
+    int? linkCouponId,
   }) async {
     _safeSetState(state.copyWith(creatingPost: true, error: null));
     try {
@@ -593,6 +712,8 @@ class SocialController extends StateNotifier<SocialState> {
         postKind: postKind,
         merchantId: merchantId,
         reviewRating: reviewRating,
+        orderId: orderId,
+        productId: productId,
         mediaAssetId: resolvedAssetId,
         mediaFile: resolvedAssetId != null ? null : mediaFile,
         mediaFiles: resolvedAssetId != null ? null : mediaFiles,
@@ -602,6 +723,11 @@ class SocialController extends StateNotifier<SocialState> {
         sharedSnapshot: sharedSnapshot,
         audienceScopeType: audienceScopeType,
         audienceScopeCode: audienceScopeCode,
+        linkTargetType: linkTargetType,
+        linkMerchantId: linkMerchantId,
+        linkProductId: linkProductId,
+        linkOfferId: linkOfferId,
+        linkCouponId: linkCouponId,
       );
       final rawPost = out['post'];
       if (rawPost is! Map) {
@@ -759,20 +885,48 @@ class SocialController extends StateNotifier<SocialState> {
     }
   }
 
-  void patchCommentsCount({required int postId, required int commentsCount}) {
+  void patchCommentsCount({
+    required int postId,
+    required int commentsCount,
+    List<SocialComment>? commentPreview,
+  }) {
     _safeSetState(
       state.copyWith(
         posts: state.posts
             .map(
-              (p) =>
-                  p.id == postId ? p.copyWith(commentsCount: commentsCount) : p,
+              (p) => p.id == postId
+                  ? p.copyWith(
+                      commentsCount: commentsCount,
+                      commentPreview: commentPreview,
+                    )
+                  : p,
             )
             .toList(growable: false),
       ),
     );
   }
 
-  Future<void> loadThreads({bool silent = false}) async {
+  Future<void> loadThreads({bool silent = false}) {
+    if (_disposed) return Future.value();
+    if (_threadsWork != null) {
+      _threadsRefreshQueued = true;
+      return _threadsWork!;
+    }
+    return _threadsWork = _drainThreads(
+      silent,
+    ).whenComplete(() => _threadsWork = null);
+  }
+
+  Future<void> _drainThreads(bool silent) async {
+    do {
+      _threadsRefreshQueued = false;
+      await _loadThreads(silent: silent);
+      silent = true;
+    } while (!_disposed && _threadsRefreshQueued);
+  }
+
+  Future<void> _loadThreads({bool silent = false}) async {
+    final accountGeneration = _accountGeneration;
     if (!_hasVerifiedSession()) {
       _safeSetState(state.copyWith(loadingThreads: false, error: null));
       return;
@@ -789,13 +943,10 @@ class SocialController extends StateNotifier<SocialState> {
                 SocialChatThread.fromJson(Map<String, dynamic>.from(e as Map)),
           )
           .toList(growable: false);
-      _safeSetState(
-        state.copyWith(
-          loadingThreads: silent ? state.loadingThreads : false,
-          threads: threads,
-        ),
-      );
+      if (_disposed || accountGeneration != _accountGeneration) return;
+      _safeSetState(state.copyWith(loadingThreads: false, threads: threads));
     } on DioException catch (e) {
+      if (_disposed || accountGeneration != _accountGeneration) return;
       if (_isAuthFailure(e)) {
         _safeSetState(state.copyWith(loadingThreads: false, error: null));
         return;
@@ -812,7 +963,9 @@ class SocialController extends StateNotifier<SocialState> {
         ),
       );
     } catch (e) {
-      if (silent) return;
+      if (_disposed || accountGeneration != _accountGeneration || silent) {
+        return;
+      }
       _safeSetState(
         state.copyWith(
           loadingThreads: false,

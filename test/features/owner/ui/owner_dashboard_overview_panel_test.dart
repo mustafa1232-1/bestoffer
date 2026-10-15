@@ -49,9 +49,17 @@ OwnerState _state() {
   );
 }
 
-OrderModel _reportOrder() {
+OrderModel _reportOrder({
+  int id = 101,
+  String status = 'completed',
+  num subtotal = 10000,
+  num serviceFee = 500,
+  num deliveryFee = 1000,
+  num couponDiscountTotal = 250,
+  num totalAmount = 11250,
+}) {
   return OrderModel.fromJson({
-    'id': 101,
+    'id': id,
     'merchant_id': 9,
     'customer_user_id': 7001,
     'merchant_name': 'Maslaki Store',
@@ -61,12 +69,12 @@ OrderModel _reportOrder() {
     'customer_block': 'A',
     'customer_building_number': '12',
     'customer_apartment': '3',
-    'status': 'completed',
-    'subtotal': 10000,
-    'service_fee': 500,
-    'delivery_fee': 1000,
-    'coupon_discount_total': 250,
-    'total_amount': 11250,
+    'status': status,
+    'subtotal': subtotal,
+    'service_fee': serviceFee,
+    'delivery_fee': deliveryFee,
+    'coupon_discount_total': couponDiscountTotal,
+    'total_amount': totalAmount,
     'items': const [],
   });
 }
@@ -80,11 +88,35 @@ void main() {
     expect(summary.serviceFee, 500);
     expect(summary.deliveryFee, 1000);
     expect(summary.couponDiscount, 250);
-    expect(summary.grossSales, 11250);
+    expect(summary.grossSales, 10000);
     expect(summary.completedOrders, 1);
     expect(summary.cancelledOrders, 0);
     expect(summary.activeOrders, 0);
     expect(summary.summaryLines.join(' '), contains('رسوم الخدمة المخزنة'));
+  });
+
+  test('owner period report summary excludes cancelled orders from sales', () {
+    final summary = buildOwnerPeriodReportSummary([
+      _reportOrder(),
+      _reportOrder(
+        id: 102,
+        status: 'cancelled',
+        subtotal: 8000,
+        serviceFee: 500,
+        deliveryFee: 1000,
+        couponDiscountTotal: 0,
+        totalAmount: 9500,
+      ),
+    ]);
+
+    expect(summary.ordersCount, 2);
+    expect(summary.completedOrders, 1);
+    expect(summary.cancelledOrders, 1);
+    expect(summary.subtotal, 10000);
+    expect(summary.serviceFee, 500);
+    expect(summary.deliveryFee, 1000);
+    expect(summary.grossSales, 10000);
+    expect(summary.avgOrderValue, 10000);
   });
 
   testWidgets('owner dashboard overview renders key actions and period cards', (
@@ -125,7 +157,7 @@ void main() {
 
     expect(find.text('أهم الأرقام'), findsOneWidget);
     expect(find.text('تقارير الفترات'), findsOneWidget);
-    expect(find.text('إجمالي المبيعات'), findsWidgets);
+    expect(find.text('قيمة المنتجات'), findsWidgets);
     expect(find.text('المستحقات الحالية'), findsWidgets);
 
     await tester.ensureVisible(find.text('تفاصيل الأسبوع'));

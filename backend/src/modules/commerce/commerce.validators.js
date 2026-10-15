@@ -173,6 +173,53 @@ export function validateCourierAction(body = {}) {
   return { ok: true, errors: [], data: { note } };
 }
 
+export function validateCourierPickup(body = {}) {
+  const note = toOptionalString(body.note, 1200);
+  const merchantPaidActual = toOptionalNumber(body.merchantPaidActual);
+  const withoutReceipt = toOptionalBoolean(body.withoutReceipt) === true;
+  const errors = [];
+  if (merchantPaidActual == null || merchantPaidActual < 0) {
+    errors.push('merchantPaidActual');
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    data: {
+      note,
+      merchantPaidActual,
+      withoutReceipt,
+      merchantPaymentNote: toOptionalString(body.merchantPaymentNote, 1200),
+    },
+  };
+}
+
+export function validateCourierDelivery(body = {}) {
+  const note = toOptionalString(body.note, 1200);
+  const customerReceivedActual = toOptionalNumber(body.customerReceivedActual);
+  const errors = [];
+  if (customerReceivedActual == null || customerReceivedActual < 0) {
+    errors.push('customerReceivedActual');
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    data: { note, customerReceivedActual },
+  };
+}
+
+export function validateCourierReconciliationReview(body = {}) {
+  const errors = [];
+  const approved = toOptionalBoolean(body.approved);
+  const reviewNote = toOptionalString(body.reviewNote, 2000);
+  if (approved == null) errors.push('approved');
+  if (approved === false && reviewNote == null) errors.push('reviewNote');
+  return {
+    ok: errors.length === 0,
+    errors,
+    data: { approved: approved === true, reviewNote },
+  };
+}
+
 export function validateOrderChatMessage(body = {}) {
   const message = toOptionalString(body.message, 4000);
   return {

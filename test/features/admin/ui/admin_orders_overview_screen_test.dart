@@ -25,8 +25,8 @@ class _FakeAdminApi extends AdminApi {
       'summary': {
         'totalOrders': 1,
         'completedOrders': 0,
-        'cancelledOrders': 0,
-        'inProgressOrders': 1,
+        'cancelledOrders': 1,
+        'inProgressOrders': 0,
       },
       'items': [
         {
@@ -67,7 +67,7 @@ class _FakeAdminApi extends AdminApi {
           'order_scope': 'single',
           'store_sequence': 1,
           'merchant_name': 'Test Store',
-          'status': 'approved',
+          'status': 'cancelled_by_admin',
           'customer_full_name': 'Test Customer',
           'customer_phone': '07700000000',
           'customer_city': 'Baghdad',
@@ -169,12 +169,17 @@ void main() {
       );
 
       await tester.pumpAndSettle();
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(AdminOrdersOverviewScreen)),
+      );
 
       expect(find.text('Test Store'), findsOneWidget);
       await tester.tap(find.byType(FilledButton).first);
       await tester.pumpAndSettle();
 
       expect(find.text('Test Customer'), findsOneWidget);
+      expect(find.text(l10n.commonCancelled), findsOneWidget);
+      expect(find.text(l10n.commonInProgress), findsNothing);
       await tester.tap(find.text('Test Customer'));
       await tester.pumpAndSettle();
 

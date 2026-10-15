@@ -19,6 +19,7 @@ import 'core/widgets/maslaki_brand_mark.dart';
 import 'core/widgets/maslaki_wordmark.dart';
 import 'features/auth/presentation/role_login_screen.dart';
 import 'features/auth/state/auth_controller.dart';
+import 'features/notifications/state/notifications_controller.dart';
 import 'features/taxi/ui/taxi_captain_dashboard_screen.dart';
 import 'l10n/app_localizations.dart';
 
@@ -84,7 +85,17 @@ class _MaslakiTaxiCaptainAppState extends ConsumerState<MaslakiTaxiCaptainApp>
     });
     Future.microtask(() async {
       await ref.read(mediaCacheServiceProvider).scheduleMaintenance();
-      await ref.read(authControllerProvider.notifier).bootstrap();
+      // A network timeout must not leave the Android window stuck on splash.
+      // Session restoration remains active and AuthState drives the final
+      // route when it completes.
+      final authBootstrap = ref
+          .read(authControllerProvider.notifier)
+          .bootstrap();
+      unawaited(authBootstrap.catchError((_) {}));
+
+      if (mounted) {
+        setState(() => _bootstrapped = true);
+      }
 
       if (!mounted) return;
       final localNotifications = ref.read(localNotificationsProvider);
@@ -100,9 +111,6 @@ class _MaslakiTaxiCaptainAppState extends ConsumerState<MaslakiTaxiCaptainApp>
         await _ensurePushReadyAndSync(auth);
       }
       if (!mounted) return;
-      setState(() {
-        _bootstrapped = true;
-      });
       _consumePendingTapIfAny();
     });
   }
@@ -156,6 +164,7 @@ class _MaslakiTaxiCaptainAppState extends ConsumerState<MaslakiTaxiCaptainApp>
       return;
     }
 
+    ref.read(notificationsControllerProvider.notifier).startRealtime();
     final push = ref.read(pushNotificationsProvider);
     await push.initialize();
     await push.requestPermissionIfNeeded();
@@ -167,8 +176,8 @@ class _MaslakiTaxiCaptainAppState extends ConsumerState<MaslakiTaxiCaptainApp>
     if (_pushSyncInFlight || _pushSyncedUserId == userId) return;
     _pushSyncInFlight = true;
     try {
-      await push.syncToken(userId: userId);
-      _pushSyncedUserId = userId;
+      final synced = await push.syncToken(userId: userId);
+      if (synced) _pushSyncedUserId = userId;
     } finally {
       _pushSyncInFlight = false;
     }
@@ -243,7 +252,7 @@ class _MaslakiTaxiCaptainAppState extends ConsumerState<MaslakiTaxiCaptainApp>
           ),
         );
       },
-      home: !_bootstrapped
+      home: !_bootstrapped || auth.isSessionRecoveryInProgress
           ? const _TaxiCaptainSplashScreen()
           : _hasVerifiedSession(auth) && auth.isTaxiCaptain
           ? const TaxiCaptainDashboardScreen()

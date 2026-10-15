@@ -1,7 +1,7 @@
 name: maslaki
 description: "Maslaki - Basmaya super-app for shopping, food, and taxi"
 publish_to: 'none'
-version: 1.0.1+31
+version: 1.0.13+59
 environment:
   sdk: ^3.10.7
 
@@ -54,7 +54,7 @@ dependencies:
   latlong2: ^0.9.1
   geolocator: ^11.1.0
   url_launcher: ^6.3.0
-  flutter_webrtc: ^0.14.2
+  flutter_webrtc: 1.6.2+hotfix.3
   video_player: ^2.9.5
   audioplayers: ^6.1.0
   record: ^6.1.1
@@ -62,7 +62,7 @@ dependencies:
   permission_handler: ^11.3.1
   google_mlkit_face_detection: ^0.13.1
   ffmpeg_kit_flutter_new: ^4.2.1
-  device_info_plus: ^11.2.0
+  device_info_plus: 12.3.0
   android_intent_plus: ^5.3.1
   package_info_plus: ^8.0.2
   lottie: ^3.3.0
@@ -84,8 +84,12 @@ dependencies:
     path: packages/social_core
   social_ui:
     path: packages/social_ui
+  livekit_client: 2.13.0
 
 dev_dependencies:
+  file: ^7.0.1
+  integration_test:
+    sdk: flutter
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
@@ -101,8 +105,7 @@ dev_dependencies:
 dependency_overrides:
   firebase_core:
     path: third_party/firebase_core
-  jni:
-    path: third_party/jni
+  firebase_messaging_platform_interface: 4.6.10
 
 flutter:
   config:
@@ -111,10 +114,13 @@ flutter:
   uses-material-design: true
   assets:
     - assets/audio/attention_alert.wav
+    - assets/audio/call_ringback.wav
     - assets/brand/
     - assets/branding/
     - assets/fonts/
     - assets/lottie/
+    - assets/games/knowledge/
+    - assets/games/mafia/
   fonts:
     # Bundled complete Arabic font (Tajawal). Used as the guaranteed fallback so
     # every Arabic glyph (e.g. "ف") renders even when the runtime google_fonts

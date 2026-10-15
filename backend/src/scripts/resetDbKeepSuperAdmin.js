@@ -126,7 +126,7 @@ async function resolveSuperAdminSeed() {
       source: "existing",
       fullName: normalizeText(row.full_name, "Super Admin"),
       username: normalizeUsername("super.admin"),
-      phone: normalizeText(row.phone, env.superAdminPhone || "07746515247"),
+      phone: normalizeText(row.phone, env.superAdminPhone),
       pinHash: normalizeText(row.pin_hash, ""),
       block: normalizeText(row.block, "A"),
       buildingNumber: normalizeText(row.building_number, "1"),

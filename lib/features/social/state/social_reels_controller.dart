@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../auth/state/auth_controller.dart';
 import '../models/social_models.dart';
 import 'social_controller.dart';
 
@@ -47,15 +48,55 @@ class SocialReelsState {
 }
 
 final socialReelsControllerProvider =
-    StateNotifierProvider.autoDispose<SocialReelsController, SocialReelsState>(
-      (ref) => SocialReelsController(ref),
-    );
+    StateNotifierProvider.autoDispose<SocialReelsController, SocialReelsState>((
+      ref,
+    ) {
+      final controller = SocialReelsController(ref);
+      final keepAlive = ref.keepAlive();
+      Timer? releaseTimer;
+      ref.onCancel(() {
+        releaseTimer = Timer(const Duration(minutes: 5), keepAlive.close);
+      });
+      ref.onResume(() {
+        releaseTimer?.cancel();
+        releaseTimer = null;
+      });
+      ref.onDispose(() => releaseTimer?.cancel());
+      ref.listen<int?>(authControllerProvider.select((auth) => auth.user?.id), (
+        previous,
+        next,
+      ) {
+        if (previous == next) return;
+        controller.reset();
+        unawaited(controller.load(refresh: true));
+      });
+      return controller;
+    });
 
 class SocialReelsController extends StateNotifier<SocialReelsState> {
   final Ref ref;
   int _loadGeneration = 0;
+  DateTime? _lastSuccessfulRefreshAt;
 
   SocialReelsController(this.ref) : super(const SocialReelsState());
+
+  void reset() {
+    _loadGeneration += 1;
+    _lastSuccessfulRefreshAt = null;
+    state = const SocialReelsState();
+  }
+
+  Future<void> refreshIfStale({
+    Duration maxAge = const Duration(seconds: 90),
+  }) async {
+    final lastRefresh = _lastSuccessfulRefreshAt;
+    if (state.items.isNotEmpty &&
+        lastRefresh != null &&
+        DateTime.now().difference(lastRefresh) < maxAge) {
+      return;
+    }
+    await load(refresh: true);
+  }
 
   Future<void> load({
     bool refresh = true,
@@ -82,6 +123,7 @@ class SocialReelsController extends StateNotifier<SocialReelsState> {
           )
           .toList(growable: false);
       if (!mounted || generation != _loadGeneration) return;
+      if (refresh) _lastSuccessfulRefreshAt = DateTime.now();
       state = state.copyWith(
         loading: false,
         loadingMore: false,

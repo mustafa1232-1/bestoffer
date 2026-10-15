@@ -22,11 +22,33 @@ Future<bool> guardSectionAccess(
   required String sectionKey,
   String? displayName,
 }) async {
-  final entry = resolveSectionAvailability(
+  var entry = resolveSectionAvailability(
     ref,
     sectionKey,
     displayName: displayName,
   );
+  final availability = ref.read(sectionAvailabilityControllerProvider);
+  final lastSyncedAt = availability.lastSyncedAt;
+  final isStale =
+      lastSyncedAt == null ||
+      DateTime.now().difference(lastSyncedAt) > const Duration(seconds: 30);
+
+  if (!entry.isOpen || (availability.initialized && isStale)) {
+    try {
+      await ref
+          .read(sectionAvailabilityControllerProvider.notifier)
+          .refresh(silent: true)
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Keep the last known state when the availability check cannot complete.
+    }
+    if (!context.mounted) return false;
+    entry = resolveSectionAvailability(
+      ref,
+      sectionKey,
+      displayName: displayName,
+    );
+  }
   if (entry.isOpen) return true;
   await showSectionUnavailableSheet(context, entry);
   return false;

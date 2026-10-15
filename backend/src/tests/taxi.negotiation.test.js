@@ -94,6 +94,14 @@ async function seedCaptainReady(captainUserId, index) {
     accuracyM: 6,
     radiusM: 15000,
   });
+
+  await taxiRepo.addCaptainRideCreditTopUp({
+    captainUserId,
+    ridesToAdd: 30,
+    amountIqd: 20000,
+    adminUserId: null,
+    paymentMethod: "cash",
+  });
 }
 
 async function cleanupRows({ userIds = [], rideIds = [] }) {

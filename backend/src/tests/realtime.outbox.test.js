@@ -198,4 +198,59 @@ test("enqueue passes a dedupe_key and sanitized error to the insert", async () =
   assert.equal(typeof params[4], "string");
   assert.equal(params[4].length > 0, true);
   assert.equal(String(params[3]).includes("<"), false); // sanitized error
+  assert.match(
+    calls[0].text,
+    /status IN \('pending','processing'\) AND dedupe_key IS NOT NULL/
+  );
+});
+
+test("enqueue preserves the event while the dedupe index migration is pending", async () => {
+  const calls = [];
+  __realtimeOutboxTestApi.setQuery(async (text, params) => {
+    calls.push({ text, params });
+    if (calls.length === 1) {
+      const error = new Error(
+        "there is no unique or exclusion constraint matching the ON CONFLICT specification"
+      );
+      error.code = "42P10";
+      throw error;
+    }
+    return { rows: [{ id: 41 }] };
+  });
+
+  const id = await enqueueRealtimeOutbox({
+    topic: "order:41",
+    event: "order_status_changed",
+    payload: { entityType: "order", entityId: 41 },
+  });
+
+  assert.equal(id, 41);
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].text, /dedupe_key/);
+  assert.doesNotMatch(calls[1].text, /ON CONFLICT/);
+  assert.equal(calls[1].params.length, 5);
+});
+
+test("enqueue preserves the event before the dedupe column exists", async () => {
+  const calls = [];
+  __realtimeOutboxTestApi.setQuery(async (text, params) => {
+    calls.push({ text, params });
+    if (calls.length === 1) {
+      const error = new Error('column "dedupe_key" does not exist');
+      error.code = "42703";
+      throw error;
+    }
+    return { rows: [{ id: 42 }] };
+  });
+
+  const id = await enqueueRealtimeOutbox({
+    topic: "order:42",
+    event: "order_status_changed",
+    payload: { entityType: "order", entityId: 42 },
+  });
+
+  assert.equal(id, 42);
+  assert.equal(calls.length, 2);
+  assert.doesNotMatch(calls[1].text, /dedupe_key/);
+  assert.equal(calls[1].params.length, 4);
 });

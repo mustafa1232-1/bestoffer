@@ -44,6 +44,8 @@ companyRouter.use(requireAuth, requireCompanyAuth, resolveCompanyContext);
 companyRouter.get("/dashboard", c.dashboard);
 companyRouter.get("/branches", c.branches);
 companyRouter.get("/branches/:merchantId", c.branchDetail);
+companyRouter.get("/orders/current", c.listCurrentOrders);
+companyRouter.patch("/orders/:orderId/status", requireCompanyRoles(["company_owner", "company_manager", "operations_viewer"]), c.updateOrderStatus);
 companyRouter.post("/branches/requests", requireCompanyRoles(["company_owner", "company_manager"]), c.createBranchRequest);
 companyRouter.get("/branch-requests", c.listBranchRequests);
 companyRouter.post("/products/copy", requireCompanyRoles(["company_owner", "company_manager", "operations_viewer"]), c.copyProducts);

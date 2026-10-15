@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../../core/i18n/locale_text.dart';
 import '../../auth/ui/merchants_list_screen.dart';
+import '../state/customer_ad_board_controller.dart';
+import 'widgets/customer_marketplace_ad_surface.dart';
 
 /// Fashion Market (سوق الأزياء) landing.
 ///
@@ -41,6 +43,13 @@ class FashionMarketScreen extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
+              const CustomerMarketplaceAdSurface(
+                request: MarketplaceAdRequest(
+                  placement: 'MARKETPLACE_CATEGORY',
+                  categoryKey: 'fashion',
+                ),
+                showEmptyState: true,
+              ),
               Text(
                 context.lt(
                   ar: 'اختر القسم لعرض المتاجر',

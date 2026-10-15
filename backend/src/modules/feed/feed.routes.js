@@ -247,6 +247,7 @@ feedRouter.post("/reels", mediaUpload.single("mediaFile"), c.createReel);
 
 feedRouter.get("/chats/threads", c.listThreads);
 feedRouter.post("/chats/threads", c.createThread);
+feedRouter.post("/marketplace/contact", c.contactMarketplaceListing);
 feedRouter.delete("/chats/threads/:threadId", c.clearThread);
 feedRouter.get("/chats/threads/:threadId/group", c.getGroupThreadDetails);
 feedRouter.patch("/chats/threads/:threadId/group", c.updateGroupThread);
@@ -325,6 +326,7 @@ feedRouter.post("/chats/requests/:threadId/reject", c.rejectChatRequest);
 feedRouter.post("/chats/requests/:threadId/block", c.blockChatRequest);
 feedRouter.get("/chats/threads/:threadId/call", c.getThreadCallState);
 feedRouter.post("/chats/threads/:threadId/call/start", c.startThreadCall);
+feedRouter.post("/chats/threads/:threadId/call/voice-token", c.getThreadCallVoiceToken);
 feedRouter.post("/chats/threads/:threadId/call/signal", c.sendThreadCallSignal);
 feedRouter.post("/chats/threads/:threadId/call/end", c.endThreadCall);
 feedRouter.get("/chats/calls", c.listCallHistory);

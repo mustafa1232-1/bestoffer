@@ -17,9 +17,9 @@ void main() {
       expect(await service.ensureLocationPermission(), isFalse);
     });
     test(
-      'ensureMediaImagesPermission returns false without throwing',
+      'ensureMediaImagesPermission returns true without platform permission',
       () async {
-        expect(await service.ensureMediaImagesPermission(), isFalse);
+        expect(await service.ensureMediaImagesPermission(), isTrue);
       },
     );
     test(

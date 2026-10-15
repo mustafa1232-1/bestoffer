@@ -204,6 +204,7 @@ export async function listCommercePoolForRecommendations({
        p.free_delivery,
        p.offer_label,
        p.image_url AS product_image_url,
+       p.category_id,
        c.name AS category_name,
        m.id AS merchant_id,
        m.name AS merchant_name,
@@ -217,6 +218,10 @@ export async function listCommercePoolForRecommendations({
          ),
          0
        )::double precision AS merchant_avg_rating,
+       COUNT(o.id) FILTER (
+         WHERE o.status = 'delivered'
+           AND o.merchant_rating IS NOT NULL
+       )::int AS merchant_rating_count,
        AVG(o.estimated_delivery_minutes) FILTER (
          WHERE o.estimated_delivery_minutes IS NOT NULL
        )::double precision AS merchant_avg_delivery_minutes,
@@ -598,6 +603,126 @@ export async function listAdminAiChatSessions({ search = "", limit = 40, offset 
     [safeSearch, asLimit(limit, 40, 200), asOffset(offset)]
   );
   return r.rows;
+}
+
+export async function listAdminAiChatUsers({ search = "", limit = 40, offset = 0 }) {
+  const safeSearch = String(search || "").trim();
+  const r = await q(
+    `SELECT
+       u.id AS customer_user_id,
+       u.full_name,
+       u.phone,
+       u.ai_chat_review_consent,
+       COUNT(DISTINCT s.id)::int AS sessions_count,
+       COUNT(m.id)::int AS messages_count,
+       MAX(s.last_message_at) AS last_message_at,
+       (
+         SELECT m2.text
+         FROM ai_chat_message m2
+         JOIN ai_chat_session s2 ON s2.id = m2.session_id
+         WHERE s2.customer_user_id = u.id
+         ORDER BY m2.id DESC
+         LIMIT 1
+       ) AS last_message_text,
+       (
+         SELECT m2.role
+         FROM ai_chat_message m2
+         JOIN ai_chat_session s2 ON s2.id = m2.session_id
+         WHERE s2.customer_user_id = u.id
+         ORDER BY m2.id DESC
+         LIMIT 1
+       ) AS last_message_role
+     FROM app_user u
+     JOIN ai_chat_session s ON s.customer_user_id = u.id
+     LEFT JOIN ai_chat_message m ON m.session_id = s.id
+     WHERE COALESCE(u.ai_chat_review_consent, TRUE) = TRUE
+       AND (
+         $1::text = ''
+         OR u.full_name ILIKE ('%' || $1 || '%')
+         OR u.phone ILIKE ('%' || $1 || '%')
+       )
+     GROUP BY u.id, u.full_name, u.phone, u.ai_chat_review_consent
+     ORDER BY MAX(s.last_message_at) DESC NULLS LAST, u.id DESC
+     LIMIT $2
+     OFFSET $3`,
+    [safeSearch, asLimit(limit, 40, 200), asOffset(offset)]
+  );
+  return r.rows;
+}
+
+export async function countAdminAiChatUsers({ search = "" }) {
+  const safeSearch = String(search || "").trim();
+  const r = await q(
+    `SELECT COUNT(DISTINCT u.id)::int AS total
+     FROM app_user u
+     JOIN ai_chat_session s ON s.customer_user_id = u.id
+     WHERE COALESCE(u.ai_chat_review_consent, TRUE) = TRUE
+       AND (
+         $1::text = ''
+         OR u.full_name ILIKE ('%' || $1 || '%')
+         OR u.phone ILIKE ('%' || $1 || '%')
+       )`,
+    [safeSearch]
+  );
+  return Number(r.rows[0]?.total || 0);
+}
+
+export async function listAdminAiChatSessionsForUser({
+  customerUserId,
+  limit = 40,
+  offset = 0,
+}) {
+  const r = await q(
+    `SELECT
+       s.id,
+       s.customer_user_id,
+       s.title,
+       s.last_message_at,
+       s.created_at,
+       u.full_name,
+       u.phone,
+       u.ai_chat_review_consent,
+       (
+         SELECT COUNT(*)::int
+         FROM ai_chat_message m
+         WHERE m.session_id = s.id
+       ) AS messages_count,
+       (
+         SELECT m.role
+         FROM ai_chat_message m
+         WHERE m.session_id = s.id
+         ORDER BY m.id DESC
+         LIMIT 1
+       ) AS last_message_role,
+       (
+         SELECT m.text
+         FROM ai_chat_message m
+         WHERE m.session_id = s.id
+         ORDER BY m.id DESC
+         LIMIT 1
+       ) AS last_message_text
+     FROM ai_chat_session s
+     JOIN app_user u ON u.id = s.customer_user_id
+     WHERE s.customer_user_id = $1
+       AND COALESCE(u.ai_chat_review_consent, TRUE) = TRUE
+     ORDER BY s.last_message_at DESC, s.id DESC
+     LIMIT $2
+     OFFSET $3`,
+    [Number(customerUserId), asLimit(limit, 40, 200), asOffset(offset)]
+  );
+  return r.rows;
+}
+
+export async function countAdminAiChatSessionsForUser({ customerUserId }) {
+  const r = await q(
+    `SELECT COUNT(*)::int AS total
+     FROM ai_chat_session s
+     JOIN app_user u ON u.id = s.customer_user_id
+     WHERE s.customer_user_id = $1
+       AND COALESCE(u.ai_chat_review_consent, TRUE) = TRUE`,
+    [Number(customerUserId)]
+  );
+  return Number(r.rows[0]?.total || 0);
 }
 
 export async function countAdminAiChatSessions({ search = "" }) {

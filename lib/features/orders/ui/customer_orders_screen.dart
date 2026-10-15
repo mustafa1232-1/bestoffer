@@ -9,11 +9,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/i18n/locale_text.dart';
-import '../../../core/notifications/attention_alert_service.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
 import '../../../core/widgets/appbar_quick_actions.dart';
-import '../../auth/state/auth_controller.dart';
 import '../../pharmacy/ui/pharmacy_conversation_screen.dart';
 import '../../tracking/ui/delivery_live_tracking_screen.dart';
 import '../models/order_model.dart';
@@ -46,6 +45,18 @@ double _responsiveFont(
   return base * factor;
 }
 
+bool _isOrderTerminalForCustomer(OrderModel order) => const {
+  'delivered',
+  'completed',
+  'received_by_customer',
+  'cancelled',
+  'cancelled_by_customer',
+  'cancelled_by_store',
+  'cancelled_by_admin',
+  'failed_delivery',
+  'returned_if_needed',
+}.contains(order.status);
+
 class CustomerOrdersScreen extends ConsumerStatefulWidget {
   final int? initialOrderId;
   final CustomerOrdersFilter initialStatusFilter;
@@ -63,8 +74,6 @@ class CustomerOrdersScreen extends ConsumerStatefulWidget {
 
 class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
   int? _focusedOrderId;
-  Timer? _deliveryConfirmationAlertTimer;
-  int _deliveryConfirmationSignature = 0;
   String _statusFilter = 'all';
   late final OrdersController _ordersController;
 
@@ -86,48 +95,8 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
     _ordersController.startLiveOrders();
   }
 
-  void _syncDeliveredAlerts(List<OrderModel> orders) {
-    final awaitingIds =
-        orders
-            .where(
-              (order) =>
-                  order.status == 'delivered' &&
-                  order.customerConfirmedAt == null,
-            )
-            .map((order) => order.id)
-            .toList()
-          ..sort();
-
-    if (awaitingIds.isEmpty) {
-      _stopDeliveredAlerts();
-      return;
-    }
-
-    final signature = Object.hashAll(awaitingIds);
-    if (signature != _deliveryConfirmationSignature) {
-      _deliveryConfirmationSignature = signature;
-      _playDeliveredAlert();
-    }
-
-    _deliveryConfirmationAlertTimer ??= Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => _playDeliveredAlert(),
-    );
-  }
-
-  void _playDeliveredAlert() {
-    ref.read(attentionAlertServiceProvider).play();
-  }
-
-  void _stopDeliveredAlerts() {
-    _deliveryConfirmationAlertTimer?.cancel();
-    _deliveryConfirmationAlertTimer = null;
-    _deliveryConfirmationSignature = 0;
-  }
-
   @override
   void dispose() {
-    _stopDeliveredAlerts();
     _ordersController.stopLiveOrders();
     super.dispose();
   }
@@ -135,7 +104,6 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(ordersControllerProvider);
-    _syncDeliveredAlerts(state.orders);
 
     ref.listen<OrdersState>(ordersControllerProvider, (prev, next) {
       if (!mounted) return;
@@ -144,7 +112,6 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
           context,
         ).showSnackBar(SnackBar(content: Text(next.error!)));
       }
-      _syncDeliveredAlerts(next.orders);
     });
 
     final orders = _prioritizeOrders(state.orders, _focusedOrderId);
@@ -210,17 +177,25 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
       case 'active':
         return orders
             .where(
-              (order) =>
-                  order.status != 'cancelled' &&
-                  order.customerConfirmedAt == null,
+              (order) => !const {
+                'delivered',
+                'completed',
+                'received_by_customer',
+                'cancelled',
+                'cancelled_by_customer',
+                'cancelled_by_store',
+                'cancelled_by_admin',
+              }.contains(order.status),
             )
             .toList(growable: false);
       case 'delivered':
         return orders
             .where(
-              (order) =>
-                  order.status == 'delivered' ||
-                  order.customerConfirmedAt != null,
+              (order) => const {
+                'delivered',
+                'completed',
+                'received_by_customer',
+              }.contains(order.status),
             )
             .toList(growable: false);
       case 'cancelled':
@@ -279,7 +254,7 @@ class _OrdersFilterStrip extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           _OrdersFilterCard(
-            label: 'قيد التنيذ',
+            label: 'قيد التنفيذ',
             count: activeCount,
             selected: selected == 'active',
             onTap: () => onSelect('active'),
@@ -354,8 +329,9 @@ class _OrdersFilterCard extends StatelessWidget {
               Text(
                 label,
                 textDirection: TextDirection.rtl,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                maxLines: 2,
+                overflow: TextOverflow.fade,
+                softWrap: true,
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: selected
@@ -379,6 +355,7 @@ class _OrderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     final status = orderStatusLabelForCustomer(
       order.status,
       customerConfirmed: order.customerConfirmedAt != null,
@@ -386,8 +363,15 @@ class _OrderCard extends StatelessWidget {
     final progress = _buildProgress(order);
     final stepLabel = _kTrackingSteps[progress.activeIndex].label;
     final completion = _timelineCompletion(order, progress);
-    final isLive =
-        order.status != 'cancelled' && order.customerConfirmedAt == null;
+    final isLive = !const {
+      'delivered',
+      'completed',
+      'received_by_customer',
+      'cancelled',
+      'cancelled_by_customer',
+      'cancelled_by_store',
+      'cancelled_by_admin',
+    }.contains(order.status);
 
     return Card(
       margin: EdgeInsets.zero,
@@ -396,7 +380,7 @@ class _OrderCard extends StatelessWidget {
         side: BorderSide(
           color: highlighted
               ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.55)
-              : Colors.white.withValues(alpha: 0.08),
+              : tokens.borderSubtle.withValues(alpha: 0.72),
         ),
       ),
       child: InkWell(
@@ -411,9 +395,7 @@ class _OrderCard extends StatelessWidget {
                 // show the status-timeline screen instead, which renders
                 // instantly from the already-loaded order.
                 const inTransit = {'on_the_way', 'arrived'};
-                final showLiveMap =
-                    inTransit.contains(order.status) &&
-                    order.customerConfirmedAt == null;
+                final showLiveMap = inTransit.contains(order.status);
                 return showLiveMap
                     ? DeliveryLiveTrackingScreen(orderId: order.id)
                     : _OrderTrackingDetailsScreen(
@@ -471,7 +453,7 @@ class _OrderCard extends StatelessWidget {
                 '\u0627\u0644\u0645\u062a\u062c\u0631: ${order.merchantName}',
                 textDirection: TextDirection.rtl,
                 style: TextStyle(
-                  color: Colors.white70,
+                  color: tokens.textSecondary,
                   fontWeight: FontWeight.w600,
                   fontSize: _responsiveFont(context, 13),
                 ),
@@ -507,7 +489,7 @@ class _OrderCard extends StatelessWidget {
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: _responsiveFont(context, 14),
-                  color: Colors.white,
+                  color: tokens.textPrimary,
                 ),
               ),
               const SizedBox(height: 10),
@@ -540,7 +522,7 @@ class _OrderCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: _responsiveFont(context, 12.5),
                         fontWeight: FontWeight.w700,
-                        color: Colors.white70,
+                        color: tokens.textSecondary,
                       ),
                     ),
                   ),
@@ -553,7 +535,7 @@ class _OrderCard extends StatelessWidget {
                 child: LinearProgressIndicator(
                   value: completion,
                   minHeight: 6,
-                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  backgroundColor: tokens.borderSubtle.withValues(alpha: 0.38),
                 ),
               ),
             ],
@@ -587,7 +569,7 @@ class _OrderTrackingDetailsScreenState
     final progress = _buildProgress(order);
     final completion = _timelineCompletion(order, progress);
     final isCancelled = order.status == 'cancelled';
-    final isLive = !isCancelled && order.customerConfirmedAt == null;
+    final isLive = !_isOrderTerminalForCustomer(order);
     final currentStep = _kTrackingSteps[progress.activeIndex].label;
 
     return Scaffold(
@@ -626,12 +608,7 @@ class _OrderTrackingDetailsScreenState
             ),
             const SizedBox(height: 12),
             _OrderStatusTimeline(order: order),
-            if (const {
-                  'on_the_way',
-                  'arrived',
-                  'delivered',
-                }.contains(order.status) &&
-                order.customerConfirmedAt == null) ...[
+            if (const {'on_the_way', 'arrived'}.contains(order.status)) ...[
               const SizedBox(height: 12),
               _DeliveryEtaPanel(order: order),
             ],
@@ -1004,8 +981,7 @@ class _OrderTrackingDetailsScreenState
           const SizedBox(height: 8),
         ],
         if (order.hasAssignedDelivery &&
-            order.status != 'cancelled' &&
-            order.customerConfirmedAt == null) ...[
+            !_isOrderTerminalForCustomer(order)) ...[
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
@@ -1067,40 +1043,6 @@ class _OrderTrackingDetailsScreenState
           ),
         ],
         const SizedBox(height: 8),
-        if (order.status == 'delivered' && order.customerConfirmedAt == null)
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () async {
-                final ok = await ref
-                    .read(ordersControllerProvider.notifier)
-                    .confirmDelivered(order.id);
-                if (!ok || !mounted) return;
-
-                final result = await _showRatingDialog(
-                  context,
-                  title:
-                      '\u062a\u0642\u064a\u064a\u0645 \u0627\u0644\u062f\u0644\u0641\u0631\u064a',
-                );
-                if (!mounted) return;
-                if (result != null) {
-                  await ref
-                      .read(ordersControllerProvider.notifier)
-                      .rateDelivery(
-                        orderId: order.id,
-                        rating: result.rating,
-                        review: result.review,
-                      );
-                }
-                if (!mounted) return;
-                await _showFirstAppRating(context, ref);
-              },
-              icon: const Icon(Icons.check_circle_outline_rounded),
-              label: const Text(
-                '\u062a\u0645 \u0627\u0633\u062a\u0644\u0627\u0645 \u0627\u0644\u0637\u0644\u0628',
-              ),
-            ),
-          ),
         if (order.status == 'delivered') ...[
           const SizedBox(height: 8),
           SizedBox(
@@ -1222,20 +1164,13 @@ class _OrderTrackingDetailsScreenState
     final progress = _buildProgress(order);
     final currentStep = _kTrackingSteps[progress.activeIndex].label;
     final eta = _computeEta(order, DateTime.now());
-    final deliveryConfirmationHint = customerOrderTrackingHint(
-      order.status,
-      hasDeliveryAssigned:
-          order.hasAssignedDelivery || order.isMerchantDelivery,
-      customerConfirmed: order.customerConfirmedAt != null,
-    );
     final etaLabel = switch (order.status) {
       'on_the_way' =>
         eta.isLate
             ? 'متأخر (${eta.lateByMinutes} دقيقة) - وصول محدث خلال ${eta.minMinutes}-${eta.maxMinutes} دقيقة'
             : 'وصول خلال ${eta.minMinutes}-${eta.maxMinutes} دقيقة',
       'arrived' => 'الدلري وصل إلى موقعك',
-      'delivered' when order.customerConfirmedAt == null =>
-        deliveryConfirmationHint ?? 'تم التسليم وبانتظار تأكيدك',
+      'delivered' => 'تم التسليم واكتمل الطلب',
       _ => 'غير متاح حاليًا',
     };
 
@@ -1320,32 +1255,6 @@ class _OrderTrackingDetailsScreenState
     reviewCtrl.dispose();
     return out;
   }
-
-  Future<void> _showFirstAppRating(BuildContext context, WidgetRef ref) async {
-    final store = ref.read(secureStoreProvider);
-    final alreadyPrompted =
-        await store.readBool('app_rating_prompted') ?? false;
-    if (alreadyPrompted) return;
-
-    await store.writeBool('app_rating_prompted', true);
-    if (!context.mounted) return;
-    final appResult = await _showRatingDialog(
-      context,
-      title:
-          '\u062a\u0642\u064a\u064a\u0645 \u0627\u0644\u062a\u0637\u0628\u064a\u0642',
-    );
-    if (appResult == null) return;
-
-    await store.writeString('app_rating_value', '${appResult.rating}');
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          '\u0634\u0643\u0631\u0627\u064b \u0639\u0644\u0649 \u062a\u0642\u064a\u064a\u0645\u0643',
-        ),
-      ),
-    );
-  }
 }
 
 class _OrderActionReasonOption {
@@ -1380,6 +1289,7 @@ class _TrackingHeroCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -1392,7 +1302,7 @@ class _TrackingHeroCard extends StatelessWidget {
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
         ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.72)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1432,7 +1342,7 @@ class _TrackingHeroCard extends StatelessWidget {
             '\u0627\u0644\u0645\u062a\u062c\u0631: ${order.merchantName}',
             textDirection: TextDirection.rtl,
             style: TextStyle(
-              color: Colors.white70,
+              color: tokens.textSecondary,
               fontWeight: FontWeight.w600,
               fontSize: _responsiveFont(context, 13.2),
             ),
@@ -1501,7 +1411,7 @@ class _OrderJourneyRibbon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDelivered = order.customerConfirmedAt != null;
+    final isDelivered = _isOrderTerminalForCustomer(order) && !isCancelled;
     final doneFlags = List<bool>.generate(
       _kTrackingSteps.length,
       (index) =>
@@ -1847,20 +1757,15 @@ const _kTrackingSteps = <_TimelineStep>[
   ),
   _TimelineStep(
     label:
-        '\u062a\u0645 \u0627\u0644\u062a\u0633\u0644\u064a\u0645 \u0648\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u062a\u0623\u0643\u064a\u062f\u0643',
+        '\u062a\u0645 \u0627\u0644\u062a\u0633\u0644\u064a\u0645 \u0648\u0627\u0643\u062a\u0645\u0644 \u0627\u0644\u0637\u0644\u0628',
     icon: Icons.inventory_2_outlined,
-  ),
-  _TimelineStep(
-    label:
-        '\u062a\u0645 \u0627\u0633\u062a\u0644\u0627\u0645 \u0627\u0644\u0637\u0644\u0628',
-    icon: Icons.check_circle_outline,
   ),
 ];
 
 double _timelineCompletion(OrderModel order, _TimelineProgress progress) {
   final raw = (progress.activeIndex + 1) / _kTrackingSteps.length;
   if (order.status == 'cancelled') return raw.clamp(0.06, 0.92);
-  if (order.customerConfirmedAt != null) return 1;
+  if (_isOrderTerminalForCustomer(order)) return 1;
   return raw.clamp(0.08, 0.98);
 }
 
@@ -1873,7 +1778,7 @@ class _OrderStatusTimeline extends StatelessWidget {
   Widget build(BuildContext context) {
     final progress = _buildProgress(order);
     final isCancelled = order.status == 'cancelled';
-    final isDelivered = order.customerConfirmedAt != null;
+    final isDelivered = _isOrderTerminalForCustomer(order) && !isCancelled;
     final trackingHint = customerOrderTrackingHint(
       order.status,
       hasDeliveryAssigned:
@@ -1923,10 +1828,6 @@ class _OrderStatusTimeline extends StatelessWidget {
               text:
                   '\u062a\u0645 \u0625\u0644\u063a\u0627\u0621 \u0627\u0644\u0637\u0644\u0628 \u0645\u0646 \u0627\u0644\u0645\u062a\u062c\u0631',
             ),
-          if (order.status == 'delivered' &&
-              order.customerConfirmedAt == null &&
-              trackingHint != null)
-            _TrackingHintBanner(color: Colors.green, text: trackingHint),
           const SizedBox(height: 6),
           for (var i = 0; i < _kTrackingSteps.length; i++)
             _TrackingStageTile(
@@ -2106,8 +2007,6 @@ DateTime? _stageTimestamp(OrderModel order, int stageIndex) {
       return order.arrivedAt;
     case 5:
       return order.deliveredAt;
-    case 6:
-      return order.customerConfirmedAt;
     default:
       return null;
   }
@@ -2130,8 +2029,7 @@ class _DeliveryEtaPanel extends StatelessWidget {
     final awaitingPickup = order.pickedUpAt == null;
     final title = switch (order.status) {
       'arrived' => 'الدلري وصل إلى موقعك',
-      'delivered' when order.customerConfirmedAt == null =>
-        'تم التسليم وبانتظار تأكيدك',
+      'delivered' => 'تم التسليم واكتمل الطلب',
       _ =>
         awaitingPickup
             ? '\u0628\u0627\u0646\u062a\u0638\u0627\u0631 \u0627\u0633\u062a\u0644\u0627\u0645 \u0627\u0644\u0633\u0627\u0626\u0642 \u0644\u0644\u0637\u0644\u0628'
@@ -2170,8 +2068,7 @@ class _DeliveryEtaPanel extends StatelessWidget {
               switch (order.status) {
                 'arrived' =>
                   'يمكنك الآن التواصل مباشرة مع الدلري إذا لزم الأمر.',
-                'delivered' when order.customerConfirmedAt == null =>
-                  'اضغط على "تم استلام الطلب" لإيقا التنبيه وإكمال الطلب.',
+                'delivered' => 'اكتمل الطلب عند تأكيد الدلفري للتسليم.',
                 _ =>
                   awaitingPickup
                       ? '\u0633\u064a\u0628\u062f\u0623 \u0627\u062d\u062a\u0633\u0627\u0628 \u0627\u0644\u0648\u0642\u062a \u0628\u0639\u062f \u0627\u0633\u062a\u0644\u0627\u0645 \u0627\u0644\u0633\u0627\u0626\u0642 \u0644\u0644\u0637\u0644\u0628'
@@ -2349,14 +2246,12 @@ _TimelineProgress _buildProgress(OrderModel order) {
       const {'arrived', 'delivered'}.contains(order.status);
   final handedOverRaw =
       order.deliveredAt != null || const {'delivered'}.contains(order.status);
-  final receivedRaw = order.customerConfirmedAt != null;
 
   final assignedDriver = approved && assignedDriverRaw;
   final preparing = approved && preparingRaw;
   final picked = preparing && pickedRaw;
   final arrived = picked && arrivedRaw;
   final handedOver = arrived && handedOverRaw;
-  final received = handedOver && receivedRaw;
 
   final done = [
     approved,
@@ -2365,7 +2260,6 @@ _TimelineProgress _buildProgress(OrderModel order) {
     picked,
     arrived,
     handedOver,
-    received,
   ];
 
   var activeIndex = 0;

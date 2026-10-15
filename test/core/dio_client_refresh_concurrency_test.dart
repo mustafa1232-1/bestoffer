@@ -472,6 +472,54 @@ void main() {
     expect(store.clearCount, 0);
   });
 
+  test(
+    'rejected session token is gated locally after one failed recovery cycle',
+    () async {
+      final store = _MemorySecureStore(
+        accessToken: 'access-rejected',
+        refreshToken: 'refresh-rejected',
+        deviceId: 'device-1',
+        deviceSessionId: 'device-session-1',
+        deviceRecoverySecret: 'secret-1-012345678901234',
+      );
+      final adapter = _RefreshConcurrencyAdapter(
+        validAccessToken: 'access-valid',
+        refreshResponder: (_) async =>
+            _json(401, <String, dynamic>{'message': 'INVALID_REFRESH_TOKEN'}),
+        recoverResponder: (_) async =>
+            _json(401, <String, dynamic>{'message': 'SESSION_REVOKED'}),
+      );
+      final client = DioClient(store);
+      client.dio.httpClientAdapter = adapter;
+      client.dio.options.baseUrl = 'http://127.0.0.1';
+      final recoveryTickBefore = SessionRecoveryBus.instance.tick;
+
+      await expectLater(
+        client.dio.get('/api/admin/services/stats'),
+        throwsA(isA<DioException>()),
+      );
+      await expectLater(
+        client.dio.get('/api/admin/services/stats'),
+        throwsA(
+          isA<DioException>().having(
+            (error) => error.response?.data,
+            'local recovery response',
+            const <String, dynamic>{'message': 'SESSION_RECOVERY_REQUIRED'},
+          ),
+        ),
+      );
+
+      expect(adapter.protectedFetchCount, 1);
+      expect(adapter.refreshFetchCount, 1);
+      expect(adapter.recoverFetchCount, 1);
+      expect(SessionRecoveryBus.instance.tick, recoveryTickBefore + 1);
+      expect(store.value('access_token'), 'access-rejected');
+      expect(store.value('refresh_token'), 'refresh-rejected');
+      expect(store.clearCount, 0);
+      expect(store.guestMode, isFalse);
+    },
+  );
+
   test('stale refresh failure keeps the newer session intact', () async {
     final store = _MemorySecureStore(
       accessToken: 'access-old',

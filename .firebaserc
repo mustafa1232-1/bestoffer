@@ -16,6 +16,9 @@
         ],
         "delivery": [
           "maslaki-delivery"
+        ],
+        "company": [
+          "maslaki-company"
         ]
       }
     }

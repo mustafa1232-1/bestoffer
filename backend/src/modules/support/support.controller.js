@@ -1,6 +1,7 @@
 import * as service from "./support.service.js";
 import * as repo from "./support.repo.js";
 import { recordAudit, auditContextFromReq } from "../security/audit.service.js";
+import { checkPermission } from "../security/permissions.service.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 import {
   validateCreateTicket,
@@ -68,6 +69,22 @@ function boolQuery(value) {
   return value === true || value === "true" || value === "1" || value === 1;
 }
 
+async function supportAgentAccess(req, permissionKey = "support.tickets.read") {
+  const role = String(req.userRole || "").trim().toLowerCase();
+  const isBackofficeRole = ["admin", "deputy_admin", "staff"].includes(role);
+  if (!isBackofficeRole && req.userIsSuperAdmin !== true) {
+    return { allowed: false, scope: null };
+  }
+  if (req.userIsSuperAdmin === true) {
+    return { allowed: true, scope: "all" };
+  }
+  const result = await checkPermission(req.userId, permissionKey);
+  return {
+    allowed: result.allowed === true,
+    scope: result.allowed === true ? result.scope || "assigned" : null,
+  };
+}
+
 function audit(req, { actionKey, summary, targetId, metadata = null }) {
   void recordAudit({
     ...auditContextFromReq(req),
@@ -93,6 +110,27 @@ export async function createTicket(req, res, next) {
 
 export async function listMyTickets(req, res, next) {
   try {
+    const agentAccess = await supportAgentAccess(req, "support.tickets.read");
+    if (agentAccess.allowed) {
+      const out = await service.listTicketsForAgent({
+        actorUserId: req.userId,
+        permissionScope: agentAccess.scope || "assigned",
+        team: req.query?.team || null,
+        my: boolQuery(req.query?.my),
+        domain: req.query?.domain || null,
+        status: req.query?.status || null,
+        priority: req.query?.priority || null,
+        waiting: boolQuery(req.query?.waiting),
+        urgent: boolQuery(req.query?.urgent),
+        breachedSla: boolQuery(req.query?.breachedSla),
+        search: req.query?.search || null,
+        from: req.query?.from || null,
+        to: req.query?.to || null,
+        limit: req.query?.limit ? Number(req.query.limit) : 25,
+        offset: req.query?.offset ? Number(req.query.offset) : 0,
+      });
+      return res.json(out);
+    }
     const out = await service.listMyTickets({
       userId: req.userId,
       status: req.query?.status || null,
@@ -109,6 +147,20 @@ export async function getMyTicket(req, res, next) {
   try {
     const id = ticketId(req, res);
     if (!id) return;
+    const agentAccess = await supportAgentAccess(req, "support.tickets.read");
+    if (agentAccess.allowed) {
+      const out = await service.getTicketForViewer({
+        ticketId: id,
+        viewer: {
+          userId: req.userId,
+          isAgent: true,
+          canReadInternal: true,
+          permissionScope: agentAccess.scope || "assigned",
+          team: req.query?.team || null,
+        },
+      });
+      return res.json(out);
+    }
     const out = await service.getTicketForViewer({
       ticketId: id,
       viewer: { userId: req.userId, isAgent: false, canReadInternal: false },
@@ -125,6 +177,23 @@ export async function postMyMessage(req, res, next) {
     if (!id) return;
     const v = validateMessage(req.body || {});
     if (!v.ok) return badRequest(res, v.errors);
+    const agentAccess = await supportAgentAccess(req, "support.tickets.reply");
+    if (agentAccess.allowed) {
+      const out = await service.agentReply({
+        ticketId: id,
+        agentUserId: req.userId,
+        agentRole: req.userRole || "agent",
+        body: v.value.body,
+        attachments: v.value.attachments,
+      });
+      audit(req, {
+        actionKey: "support.tickets.reply",
+        summary: `Agent replied to support ticket #${id} through public compatibility route`,
+        targetId: id,
+        metadata: { route: "public_support_compat" },
+      });
+      return res.status(201).json(out);
+    }
     const message = await service.addCustomerMessage({
       ticketId: id,
       userId: req.userId,
@@ -141,6 +210,22 @@ export async function reopenMyTicket(req, res, next) {
   try {
     const id = ticketId(req, res);
     if (!id) return;
+    const agentAccess = await supportAgentAccess(req, "support.tickets.reply");
+    if (agentAccess.allowed) {
+      const ticket = await service.reopenTicket({
+        ticketId: id,
+        actorUserId: req.userId,
+        actorRole: req.userRole || "agent",
+        reason: typeof req.body?.reason === "string" ? req.body.reason.trim() : null,
+      });
+      audit(req, {
+        actionKey: "support.tickets.reply",
+        summary: `Agent reopened support ticket #${id} through public compatibility route`,
+        targetId: id,
+        metadata: { route: "public_support_compat" },
+      });
+      return res.json({ ticket });
+    }
     const ticket = await service.reopenTicket({
       ticketId: id,
       actorUserId: req.userId,

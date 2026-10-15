@@ -150,6 +150,7 @@ class _SocialMessageRequestsScreenState
           peerPhone: thread.peerPhone,
           peerUserId: thread.peer.id,
           peerImageUrl: thread.peer.imageUrl,
+          allowPeerProfile: thread.contextType != 'real_estate_listing',
           readOnly: true,
         ),
       ),

@@ -15,6 +15,7 @@ import 'package:maslaki/features/orders/state/orders_controller.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
 import 'package:maslaki/features/taxi/data/taxi_route_service.dart';
 import 'package:maslaki/features/tracking/ui/delivery_live_tracking_screen.dart';
+import 'package:maslaki/features/tracking/ui/live_tracking_shell.dart';
 import 'package:maslaki/features/tracking/ui/taxi_live_tracking_screen.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
 import 'package:maslaki/pages/map_page.dart';
@@ -90,7 +91,7 @@ class _FakeHttpClientRequest implements HttpClientRequest {
 class _FakeHttpClientResponse extends Stream<List<int>>
     implements HttpClientResponse {
   static final List<int> _transparentPng = base64Decode(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO5nX0cAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
   );
 
   @override
@@ -178,13 +179,18 @@ class _FakeHttpHeaders implements HttpHeaders {
 }
 
 class _FakeOrdersApi extends OrdersApi {
-  _FakeOrdersApi(this.snapshot) : super(Dio());
+  _FakeOrdersApi(this.snapshot, {this.streamController}) : super(Dio());
 
   final Map<String, dynamic> snapshot;
+  final StreamController<OrderTrackingLiveEvent>? streamController;
+  int snapshotCalls = 0;
+  int streamCalls = 0;
 
   @override
-  Future<Map<String, dynamic>> getTrackingSnapshot(int orderId) async =>
-      snapshot;
+  Future<Map<String, dynamic>> getTrackingSnapshot(int orderId) async {
+    snapshotCalls += 1;
+    return snapshot;
+  }
 
   @override
   Future<Map<String, dynamic>> getPublicTrackingByToken(String token) async {
@@ -195,7 +201,10 @@ class _FakeOrdersApi extends OrdersApi {
   Stream<OrderTrackingLiveEvent> streamTrackingEvents({
     required int orderId,
     int? lastEventId,
-  }) async* {}
+  }) {
+    streamCalls += 1;
+    return streamController?.stream ?? const Stream.empty();
+  }
 
   @override
   Stream<OrderTrackingLiveEvent> streamPublicTrackingByToken(
@@ -246,6 +255,7 @@ class _FakeTaxiApi extends TaxiApi {
   int rideDetailsCalls = 0;
   int currentRideCalls = 0;
   int sharedRideTrackCalls = 0;
+  int streamCalls = 0;
 
   @override
   Future<Map<String, dynamic>?> getCurrentRideForCustomer() async {
@@ -274,7 +284,10 @@ class _FakeTaxiApi extends TaxiApi {
   Stream<TaxiLiveEvent> streamRideEvents({
     required int rideId,
     int? lastEventId,
-  }) => streamController?.stream ?? const Stream<TaxiLiveEvent>.empty();
+  }) {
+    streamCalls += 1;
+    return streamController?.stream ?? const Stream<TaxiLiveEvent>.empty();
+  }
 
   @override
   Stream<TaxiLiveEvent> streamPublicTrackByToken(String token) async* {}
@@ -538,9 +551,11 @@ void main() {
   setUpAll(() {
     previousOverrides = HttpOverrides.current;
     HttpOverrides.global = _TestHttpOverrides();
+    LiveTrackingShell.disableNetworkTilesForTests = true;
   });
 
   tearDownAll(() {
+    LiveTrackingShell.disableNetworkTilesForTests = false;
     HttpOverrides.global = previousOverrides;
   });
 
@@ -604,6 +619,32 @@ void main() {
     expect(find.byTooltip('Call'), findsOneWidget);
     expect(find.byTooltip('Share'), findsOneWidget);
   });
+
+  testWidgets(
+    'delivery tracking keeps one realtime subscription while polling',
+    (tester) async {
+      await _setTallSurface(tester);
+      final events = StreamController<OrderTrackingLiveEvent>.broadcast();
+      addTearDown(events.close);
+      final api = _FakeOrdersApi(
+        _assignedDeliverySnapshot(),
+        streamController: events,
+      );
+
+      await tester.pumpWidget(
+        _wrapForTest(
+          const DeliveryLiveTrackingScreen(orderId: 41),
+          overrides: [ordersApiProvider.overrideWithValue(api)],
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 45));
+
+      expect(tester.takeException(), isNull);
+      expect(api.streamCalls, 1);
+      expect(api.snapshotCalls, greaterThanOrEqualTo(2));
+    },
+  );
 
   testWidgets('taxi tracking survives malformed ride payloads', (tester) async {
     await _setTallSurface(tester);
@@ -808,6 +849,31 @@ void main() {
       expect(find.text('Cancel ride'), findsOneWidget);
     },
   );
+
+  testWidgets('taxi tracking keeps one realtime subscription while polling', (
+    tester,
+  ) async {
+    await _setTallSurface(tester);
+    final events = StreamController<TaxiLiveEvent>.broadcast();
+    addTearDown(events.close);
+    final api = _FakeTaxiApi(_assignedTaxiEnvelope(), streamController: events);
+
+    await tester.pumpWidget(
+      _wrapForTest(
+        TaxiLiveTrackingScreen(
+          rideId: 77,
+          initialEnvelope: _assignedTaxiEnvelope(),
+        ),
+        overrides: [taxiApiProvider.overrideWithValue(api)],
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 45));
+
+    expect(tester.takeException(), isNull);
+    expect(api.streamCalls, 1);
+    expect(api.rideDetailsCalls, greaterThanOrEqualTo(2));
+  });
 
   testWidgets(
     'taxi tracking only exposes cancel on cancellable active states',

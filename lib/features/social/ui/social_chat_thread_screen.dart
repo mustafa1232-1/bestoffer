@@ -1,4 +1,6 @@
 import 'dart:async';
+import '../state/social_message_snapshot.dart';
+import '../state/social_read_receipt_queue.dart';
 
 import 'package:dio/dio.dart';
 import 'package:core_maps/core_maps.dart';
@@ -133,6 +135,7 @@ class SocialChatThreadScreen extends ConsumerStatefulWidget {
   final String? peerImageUrl;
   final bool readOnly;
   final bool monitorMode;
+  final bool allowPeerProfile;
 
   const SocialChatThreadScreen({
     super.key,
@@ -143,6 +146,7 @@ class SocialChatThreadScreen extends ConsumerStatefulWidget {
     this.peerImageUrl,
     this.readOnly = false,
     this.monitorMode = false,
+    this.allowPeerProfile = true,
   });
 
   @override
@@ -178,8 +182,24 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   int _reconnectAttempt = 0;
   DateTime? _lastTypingEmitAt;
   bool? _lastTypingSent;
-  bool _markReadInFlight = false;
-  int? _queuedReadMessageId;
+  late final _readReceipts = SocialReadReceiptQueue(
+    canSend: () =>
+        mounted &&
+        _appInForeground &&
+        ModalRoute.of(context)?.isCurrent == true,
+    send: (messageId) async {
+      final response = await _api.markThreadRead(threadId: _threadId);
+      final acknowledged =
+          _parseInt(
+            response['lastReadMessageId'] ?? response['last_read_message_id'],
+          ) ??
+          messageId;
+      if (mounted && acknowledged > (_lastMarkedReadMessageId ?? 0)) {
+        _lastMarkedReadMessageId = acknowledged;
+      }
+      return acknowledged;
+    },
+  );
   int? _lastMarkedReadMessageId;
 
   List<SocialChatMessage> _messages = const [];
@@ -201,6 +221,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   late final SocialVoiceComposerController _voiceComposer;
   late final LocalPendingMessageController _pendingMessagesController;
   bool _loading = false;
+  bool _messagesInFlight = false;
+  bool _messagesRefreshQueued = false;
   bool _loadingMore = false;
   bool _sending = false;
   bool _showJumpToBottom = false;
@@ -222,6 +244,13 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
 
   int? get _currentUserId => ref.read(authControllerProvider).user?.id;
   int get _threadId => _resolvedThreadId ?? widget.threadId;
+  bool get _allowPeerProfile {
+    final contextType = _thread?.contextType;
+    final marketplaceThread =
+        contextType == 'real_estate_listing' || contextType == 'car_listing';
+    return widget.allowPeerProfile && !marketplaceThread;
+  }
+
   SocialAuthor get _widgetPeerAuthor => SocialAuthor(
     id: widget.peerUserId ?? 0,
     username: null,
@@ -324,15 +353,18 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
 
   /// يجهز read-state الأولية، يحمل الرسائل، ثم يربط realtime/polling.
   Future<void> _bootstrap() async {
-    await ref
-        .read(notificationsControllerProvider.notifier)
-        .markSocialChatNotificationsRead(threadId: _threadId);
+    unawaited(
+      ref
+          .read(notificationsControllerProvider.notifier)
+          .markSocialChatNotificationsRead(threadId: _threadId)
+          .catchError((_) {}),
+    );
+    // Subscribe before the snapshot so messages arriving during a slow GET
+    // cannot disappear into the bootstrap gap.
+    if (!widget.monitorMode) _connectRealtime();
     await _loadMessages(initial: true);
-    await _loadScheduledMessages(silent: true);
+    unawaited(_loadScheduledMessages(silent: true));
     if (!mounted) return;
-    if (!widget.monitorMode) {
-      _connectRealtime();
-    }
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(_kChatFallbackPollInterval, (_) {
       if (!mounted || !_appInForeground) return;
@@ -520,8 +552,16 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     bool silent = false,
     bool loadMore = false,
   }) async {
+    if (_messagesInFlight) {
+      if (!loadMore) _messagesRefreshQueued = true;
+      return;
+    }
     if (_loading && !loadMore) return;
     if (loadMore && (_loadingMore || _nextCursor == null)) return;
+    _messagesInFlight = true;
+    final atRequestStart = {
+      for (final message in _messages) message.id: message,
+    };
 
     if (mounted) {
       setState(() {
@@ -579,7 +619,9 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
             _lastMarkedReadMessageId = serverReadId;
           }
         }
-        _nextCursor = _parseInt(out['nextCursor']);
+        if (initial || loadMore || _messages.isEmpty) {
+          _nextCursor = _parseInt(out['nextCursor']);
+        }
         if (pinnedRaw.isNotEmpty || !loadMore) {
           _setPinnedMessages(
             pinnedParsed
@@ -587,27 +629,14 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                 .toList(growable: false),
           );
         }
-        if (loadMore) {
-          _messages = [
-            ...parsed.map((message) => _resolveMessageForViewer(message)),
-            ..._messages,
-          ];
-        } else if (initial) {
-          _messages = parsed
-              .map((message) => _resolveMessageForViewer(message))
-              .toList(growable: false);
-        } else {
-          final merged = <int, SocialChatMessage>{};
-          for (final m in _messages) {
-            merged[m.id] = m;
-          }
-          for (final m in parsed) {
-            merged[m.id] = _resolveMessageForViewer(m);
-          }
-          final ordered = merged.values.toList()
-            ..sort((a, b) => a.id.compareTo(b.id));
-          _messages = ordered;
-        }
+        _messages = mergeSocialMessageSnapshot(
+          current: _messages,
+          atRequestStart: atRequestStart,
+          snapshot: parsed
+              .map(_resolveMessageForViewer)
+              .toList(growable: false),
+          historical: loadMore,
+        );
         _loading = false;
         _loadingMore = false;
       });
@@ -628,6 +657,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
             recoveryAttempted: _threadRecoveryAttempted,
           ) &&
           await _recoverMissingThread()) {
+        _messagesInFlight = false;
+        _loading = false;
         await _loadMessages(initial: initial, silent: silent, loadMore: false);
         return;
       }
@@ -644,6 +675,12 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
           );
         }
       });
+    } finally {
+      _messagesInFlight = false;
+      if (mounted && _messagesRefreshQueued) {
+        _messagesRefreshQueued = false;
+        unawaited(_loadMessages(silent: true));
+      }
     }
   }
 
@@ -874,48 +911,10 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   }
 
   Future<void> _markThreadReadIfNeeded({int? messageId}) async {
-    if (widget.monitorMode) return;
-    final candidateMessageId = messageId ?? _latestPeerMessageId();
-    if (candidateMessageId == null || candidateMessageId <= 0) return;
-    if (_lastMarkedReadMessageId != null &&
-        candidateMessageId <= _lastMarkedReadMessageId!) {
-      return;
-    }
-    if (_markReadInFlight) {
-      if (_queuedReadMessageId == null ||
-          candidateMessageId > _queuedReadMessageId!) {
-        _queuedReadMessageId = candidateMessageId;
-      }
-      return;
-    }
-
-    _markReadInFlight = true;
-    try {
-      final response = await _api.markThreadRead(threadId: _threadId);
-      final acknowledgedId =
-          _parseInt(
-            response['lastReadMessageId'] ?? response['last_read_message_id'],
-          ) ??
-          candidateMessageId;
-      if (_lastMarkedReadMessageId == null ||
-          acknowledgedId > _lastMarkedReadMessageId!) {
-        _lastMarkedReadMessageId = acknowledgedId;
-      }
-    } catch (_) {
-      if (_queuedReadMessageId == null ||
-          candidateMessageId > _queuedReadMessageId!) {
-        _queuedReadMessageId = candidateMessageId;
-      }
-    } finally {
-      _markReadInFlight = false;
-      final queuedMessageId = _queuedReadMessageId;
-      _queuedReadMessageId = null;
-      if (queuedMessageId != null &&
-          (_lastMarkedReadMessageId == null ||
-              queuedMessageId > _lastMarkedReadMessageId!)) {
-        unawaited(_markThreadReadIfNeeded(messageId: queuedMessageId));
-      }
-    }
+    if (!mounted || widget.monitorMode) return;
+    _readReceipts.acknowledge(_lastMarkedReadMessageId ?? 0);
+    final candidate = messageId ?? _latestPeerMessageId();
+    if (candidate != null && candidate > 0) _readReceipts.request(candidate);
   }
 
   void _upsertRealtimeMessage(SocialChatMessage next) {
@@ -1881,10 +1880,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (sheetContext) => _StickerPickerSheet(
-        stickers: stickers,
-        isEnglish: _isEnglishLocale,
-      ),
+      builder: (sheetContext) =>
+          _StickerPickerSheet(stickers: stickers, isEnglish: _isEnglishLocale),
     );
     if (!mounted || pick == null) return;
     if (pick.createFromImage) {
@@ -1958,10 +1955,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (sheetContext) => SocialGifPickerSheet(
-        api: _api,
-        isEnglish: _isEnglishLocale,
-      ),
+      builder: (sheetContext) =>
+          SocialGifPickerSheet(api: _api, isEnglish: _isEnglishLocale),
     );
     if (!mounted || gif == null) return;
     await _sendGifMessage(gif);
@@ -2783,6 +2778,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     _voiceComposer.dispose();
     _pendingMessagesController.removeListener(_handlePendingMessagesChanged);
     _pendingMessagesController.dispose();
+    _readReceipts.dispose();
     _searchDebounceTimer?.cancel();
     _typingStopTimer?.cancel();
     _peerTypingResetTimer?.cancel();
@@ -2811,6 +2807,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _appInForeground = true;
+      _readReceipts.resume();
       ActiveChatContextRegistry.enterSocialThread(_threadId);
       if (!widget.monitorMode) {
         _connectRealtime();
@@ -2824,6 +2821,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _appInForeground = false;
+      _readReceipts.pause();
       _liveSub?.cancel();
       _liveSub = null;
       _reconnectTimer?.cancel();
@@ -2897,7 +2895,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                 )
               : InkWell(
                   onTap:
-                      (_thread?.isGroup == true ||
+                      (!_allowPeerProfile ||
+                          _thread?.isGroup == true ||
                           (widget.peerUserId ?? peer.id) <= 0)
                       ? null
                       : () => _openUserProfile(
@@ -2910,7 +2909,8 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                     children: [
                       InkWell(
                         onTap:
-                            (_thread?.isGroup == true ||
+                            (!_allowPeerProfile ||
+                                _thread?.isGroup == true ||
                                 (widget.peerUserId ?? peer.id) <= 0)
                             ? null
                             : () => _openUserAvatar(
@@ -3350,48 +3350,52 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
                                                     entity:
                                                         message.sharedEntity!,
                                                   ),
-                                            onOpenAuthorAvatar: () =>
-                                                _openUserAvatar(
-                                                  userId:
-                                                      _resolveMessageForViewer(
-                                                        message,
-                                                        currentUserId:
-                                                            currentUserId,
-                                                        currentUserAuthor:
-                                                            currentUserAuthor,
-                                                        peerAuthor: peer,
-                                                      ).sender.id,
-                                                  fullName:
-                                                      _resolveMessageForViewer(
-                                                        message,
-                                                        currentUserId:
-                                                            currentUserId,
-                                                        currentUserAuthor:
-                                                            currentUserAuthor,
-                                                        peerAuthor: peer,
-                                                      ).sender.fullName,
-                                                ),
-                                            onOpenAuthorProfile: () =>
-                                                _openUserProfile(
-                                                  userId:
-                                                      _resolveMessageForViewer(
-                                                        message,
-                                                        currentUserId:
-                                                            currentUserId,
-                                                        currentUserAuthor:
-                                                            currentUserAuthor,
-                                                        peerAuthor: peer,
-                                                      ).sender.id,
-                                                  fullName:
-                                                      _resolveMessageForViewer(
-                                                        message,
-                                                        currentUserId:
-                                                            currentUserId,
-                                                        currentUserAuthor:
-                                                            currentUserAuthor,
-                                                        peerAuthor: peer,
-                                                      ).sender.fullName,
-                                                ),
+                                            onOpenAuthorAvatar:
+                                                !_allowPeerProfile
+                                                ? null
+                                                : () => _openUserAvatar(
+                                                    userId:
+                                                        _resolveMessageForViewer(
+                                                          message,
+                                                          currentUserId:
+                                                              currentUserId,
+                                                          currentUserAuthor:
+                                                              currentUserAuthor,
+                                                          peerAuthor: peer,
+                                                        ).sender.id,
+                                                    fullName:
+                                                        _resolveMessageForViewer(
+                                                          message,
+                                                          currentUserId:
+                                                              currentUserId,
+                                                          currentUserAuthor:
+                                                              currentUserAuthor,
+                                                          peerAuthor: peer,
+                                                        ).sender.fullName,
+                                                  ),
+                                            onOpenAuthorProfile:
+                                                !_allowPeerProfile
+                                                ? null
+                                                : () => _openUserProfile(
+                                                    userId:
+                                                        _resolveMessageForViewer(
+                                                          message,
+                                                          currentUserId:
+                                                              currentUserId,
+                                                          currentUserAuthor:
+                                                              currentUserAuthor,
+                                                          peerAuthor: peer,
+                                                        ).sender.id,
+                                                    fullName:
+                                                        _resolveMessageForViewer(
+                                                          message,
+                                                          currentUserId:
+                                                              currentUserId,
+                                                          currentUserAuthor:
+                                                              currentUserAuthor,
+                                                          peerAuthor: peer,
+                                                        ).sender.fullName,
+                                                  ),
                                             onMore: widget.readOnly
                                                 ? null
                                                 : () => _openMessageActions(
@@ -3873,8 +3877,8 @@ class _ChatBubble extends StatelessWidget {
   final int? currentUserId;
   final VoidCallback? onOpenAttachment;
   final VoidCallback? onOpenSharedEntity;
-  final VoidCallback onOpenAuthorAvatar;
-  final VoidCallback onOpenAuthorProfile;
+  final VoidCallback? onOpenAuthorAvatar;
+  final VoidCallback? onOpenAuthorProfile;
   final VoidCallback? onMore;
 
   const _ChatBubble({
@@ -4691,16 +4695,15 @@ class _EmojiGridSheet extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
               child: Text(
                 title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
             ),
             Flexible(
               child: GridView.builder(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
-                gridDelegate:
-                    const SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 8,
                   mainAxisSpacing: 4,
                   crossAxisSpacing: 4,
@@ -4720,10 +4723,7 @@ class _EmojiGridSheet extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       alignment: Alignment.center,
-                      child: Text(
-                        emoji,
-                        style: const TextStyle(fontSize: 24),
-                      ),
+                      child: Text(emoji, style: const TextStyle(fontSize: 24)),
                     ),
                   );
                 },
@@ -4737,7 +4737,11 @@ class _EmojiGridSheet extends StatelessWidget {
 }
 
 class _StickerPick {
-  const _StickerPick({this.emoji, this.createFromImage = false, this.gif = false});
+  const _StickerPick({
+    this.emoji,
+    this.createFromImage = false,
+    this.gif = false,
+  });
 
   final String? emoji;
   final bool createFromImage;
@@ -4746,10 +4750,7 @@ class _StickerPick {
 
 /// Sticker picker sheet: server-seeded emoji stickers + "create from image" + GIF.
 class _StickerPickerSheet extends StatelessWidget {
-  const _StickerPickerSheet({
-    required this.stickers,
-    required this.isEnglish,
-  });
+  const _StickerPickerSheet({required this.stickers, required this.isEnglish});
 
   final List<Map<String, dynamic>> stickers;
   final bool isEnglish;
@@ -4780,16 +4781,15 @@ class _StickerPickerSheet extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: Text(
                 isEnglish ? 'Stickers' : 'الملصقات',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
             ),
             Flexible(
               child: GridView.builder(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-                gridDelegate:
-                    const SliverGridDelegateWithFixedCrossAxisCount(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                   crossAxisCount: 5,
                   mainAxisSpacing: 6,
                   crossAxisSpacing: 6,
@@ -4810,10 +4810,7 @@ class _StickerPickerSheet extends StatelessWidget {
                         borderRadius: BorderRadius.circular(14),
                       ),
                       alignment: Alignment.center,
-                      child: Text(
-                        glyph,
-                        style: const TextStyle(fontSize: 34),
-                      ),
+                      child: Text(glyph, style: const TextStyle(fontSize: 34)),
                     ),
                   );
                 },
@@ -4826,9 +4823,9 @@ class _StickerPickerSheet extends StatelessWidget {
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => Navigator.of(context).pop(
-                        const _StickerPick(createFromImage: true),
-                      ),
+                      onPressed: () => Navigator.of(
+                        context,
+                      ).pop(const _StickerPick(createFromImage: true)),
                       icon: const Icon(Icons.add_photo_alternate_outlined),
                       label: Text(
                         isEnglish ? 'From image' : 'من صورة',
@@ -4839,8 +4836,9 @@ class _StickerPickerSheet extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: () => Navigator.of(context)
-                          .pop(const _StickerPick(gif: true)),
+                      onPressed: () => Navigator.of(
+                        context,
+                      ).pop(const _StickerPick(gif: true)),
                       icon: const Icon(Icons.gif_box_outlined),
                       label: Text(
                         isEnglish ? 'GIF' : 'GIF',
@@ -4872,15 +4870,114 @@ const List<String> _kReactionQuickEmojis = <String>[
 
 /// Full emoji palette (~100) opened from the "＋" button, reusable for stickers.
 const List<String> _kReactionEmojiGrid = <String>[
-  '👍', '👎', '❤️', '🧡', '💛', '💚', '💙', '💜', '🖤', '🤍',
-  '😀', '😃', '😄', '😁', '😆', '😅', '😂', '🤣', '🙂', '😊',
-  '😇', '😍', '🥰', '😘', '😗', '😙', '😚', '😋', '😛', '😜',
-  '🤪', '😝', '🤗', '🤭', '🤫', '🤔', '😐', '😑', '😶', '😏',
-  '😒', '🙄', '😬', '😌', '😔', '😪', '😴', '😷', '🤒', '🤕',
-  '🥳', '🥺', '😢', '😭', '😤', '😠', '😡', '🤬', '😳', '🥵',
-  '🥶', '😱', '😨', '😰', '😥', '😓', '🤯', '😲', '🙃', '🤠',
-  '🥸', '😎', '🤓', '🧐', '🤡', '👻', '💀', '👽', '🤖', '😺',
-  '🙏', '👏', '🙌', '🤝', '👋', '🤙', '💪', '👊', '✊', '👌',
-  '✌️', '🤞', '🤟', '🖐️', '✋', '👐', '🔥', '💯', '⭐', '🌟',
-  '✨', '🎉', '🎊', '🎁', '💝', '💖', '💗', '💓', '💞', '💕',
+  '👍',
+  '👎',
+  '❤️',
+  '🧡',
+  '💛',
+  '💚',
+  '💙',
+  '💜',
+  '🖤',
+  '🤍',
+  '😀',
+  '😃',
+  '😄',
+  '😁',
+  '😆',
+  '😅',
+  '😂',
+  '🤣',
+  '🙂',
+  '😊',
+  '😇',
+  '😍',
+  '🥰',
+  '😘',
+  '😗',
+  '😙',
+  '😚',
+  '😋',
+  '😛',
+  '😜',
+  '🤪',
+  '😝',
+  '🤗',
+  '🤭',
+  '🤫',
+  '🤔',
+  '😐',
+  '😑',
+  '😶',
+  '😏',
+  '😒',
+  '🙄',
+  '😬',
+  '😌',
+  '😔',
+  '😪',
+  '😴',
+  '😷',
+  '🤒',
+  '🤕',
+  '🥳',
+  '🥺',
+  '😢',
+  '😭',
+  '😤',
+  '😠',
+  '😡',
+  '🤬',
+  '😳',
+  '🥵',
+  '🥶',
+  '😱',
+  '😨',
+  '😰',
+  '😥',
+  '😓',
+  '🤯',
+  '😲',
+  '🙃',
+  '🤠',
+  '🥸',
+  '😎',
+  '🤓',
+  '🧐',
+  '🤡',
+  '👻',
+  '💀',
+  '👽',
+  '🤖',
+  '😺',
+  '🙏',
+  '👏',
+  '🙌',
+  '🤝',
+  '👋',
+  '🤙',
+  '💪',
+  '👊',
+  '✊',
+  '👌',
+  '✌️',
+  '🤞',
+  '🤟',
+  '🖐️',
+  '✋',
+  '👐',
+  '🔥',
+  '💯',
+  '⭐',
+  '🌟',
+  '✨',
+  '🎉',
+  '🎊',
+  '🎁',
+  '💝',
+  '💖',
+  '💗',
+  '💓',
+  '💞',
+  '💕',
 ];

@@ -56,8 +56,10 @@ class _RealEstateMarketplaceScreenState
     _searchDebounce = Timer(const Duration(milliseconds: 350), () {
       if (!mounted) return;
       final value = _searchCtrl.text.trim();
-      final nextQuery =
-          _query.copyWith(search: value.isEmpty ? null : value, sort: _query.sort);
+      final nextQuery = _query.copyWith(
+        search: value.isEmpty ? null : value,
+        sort: _query.sort,
+      );
       setState(() => _query = nextQuery);
       _load();
     });
@@ -100,7 +102,10 @@ class _RealEstateMarketplaceScreenState
       if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = mapAnyError(error, fallback: context.l10n.realEstateLoadFailed);
+        _error = mapAnyError(
+          error,
+          fallback: context.l10n.realEstateLoadFailed,
+        );
       });
     }
   }
@@ -127,6 +132,7 @@ class _RealEstateMarketplaceScreenState
       isScrollControlled: true,
       builder: (_) => RealEstateFilterSheet(initialQuery: _query),
     );
+
     if (next == null || !mounted) return;
     _searchCtrl.text = next.search ?? '';
     setState(() => _query = next);
@@ -201,12 +207,7 @@ class _RealEstateMarketplaceScreenState
     final chips = <Widget>[];
 
     void addChip(String label, VoidCallback onDeleted) {
-      chips.add(
-        InputChip(
-          label: Text(label),
-          onDeleted: onDeleted,
-        ),
-      );
+      chips.add(InputChip(label: Text(label), onDeleted: onDeleted));
     }
 
     if ((_query.search ?? '').isNotEmpty) {
@@ -224,7 +225,9 @@ class _RealEstateMarketplaceScreenState
     }
     if (_query.furnished != null) {
       addChip(
-        _query.furnished! ? l10n.realEstateFurnished : l10n.realEstateUnfurnished,
+        _query.furnished!
+            ? l10n.realEstateFurnished
+            : l10n.realEstateUnfurnished,
         () {
           setState(() => _query = _query.copyWith(furnished: null));
           _load();
@@ -447,7 +450,9 @@ class _RealEstateMarketplaceScreenState
                               await _load();
                             }
                           },
-                          onToggleSaved: isAuthed ? () => _toggleSaved(item) : null,
+                          onToggleSaved: isAuthed
+                              ? () => _toggleSaved(item)
+                              : null,
                         );
                       },
                       separatorBuilder: (_, _) => const SizedBox(height: 14),

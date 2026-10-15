@@ -19,6 +19,7 @@ function normalizeOriginFromUrl(raw) {
 
 function buildCspDirectives() {
   const r2Origin = normalizeOriginFromUrl(env.cfR2PublicBaseUrl);
+  const livekitOrigin = normalizeOriginFromUrl(env.livekitUrl);
   const extraOrigins = [r2Origin].filter(Boolean).join(" ");
   const imgSrc = [
     "img-src 'self' data: blob:",
@@ -35,6 +36,7 @@ function buildCspDirectives() {
     "connect-src 'self'",
     "https://*.googleapis.com",
     "https://fcm.googleapis.com",
+    livekitOrigin,
     extraOrigins,
   ]
     .filter(Boolean)
@@ -48,7 +50,12 @@ export function securityHeaders(req, res, next) {
   res.setHeader("X-Frame-Options", "DENY");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
   res.setHeader("X-DNS-Prefetch-Control", "off");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  // PWA features request these capabilities only from the first-party app.
+  // Blocking them globally breaks LiveKit voice rooms and location workflows.
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(self), microphone=(self), geolocation=(self)",
+  );
   res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
   res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
   res.setHeader("Origin-Agent-Cluster", "?1");

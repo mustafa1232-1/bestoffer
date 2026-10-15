@@ -11,6 +11,7 @@ import {
   createActor,
   request,
 } from "./e2eTestUtils.js";
+import { cleanupE2EArtifacts } from "./cleanupE2EArtifacts.js";
 
 const DEFAULT_BASE_URL = "https://bestoffer-production.up.railway.app";
 
@@ -70,6 +71,17 @@ async function registerCustomer(actor, baseUrl, payload, label) {
   return response.data;
 }
 
+async function archivePost(baseUrl, actor, postId, label) {
+  const response = await request(
+    baseUrl,
+    actor,
+    "POST",
+    `/api/feed/posts/${postId}/archive`,
+    {}
+  );
+  assertStatus(response, 200, label);
+}
+
 async function main() {
   const baseUrl = String(process.env.E2E_BASE_URL || DEFAULT_BASE_URL).trim();
   const runTag = buildRunTag("streams");
@@ -78,6 +90,10 @@ async function main() {
   const customerPin = "4321";
   const customerName = `E2E Streams ${runTag}`;
   const listingTitle = `Real Estate ${runTag}`;
+  const registrationPoint = {
+    latitude: env.serviceAreaCenterLatitude || 33.19302,
+    longitude: env.serviceAreaCenterLongitude || 44.62071,
+  };
 
   const admin = createActor("super-admin", runTag, "e2e-new-streams/1");
   const customer = createActor("customer", runTag, "e2e-new-streams/1");
@@ -104,12 +120,26 @@ async function main() {
       block: "A1",
       buildingNumber: "A101",
       apartment: "101",
+      latitude: registrationPoint.latitude,
+      longitude: registrationPoint.longitude,
       analyticsConsentAccepted: true,
     },
     "customer register"
   );
   await login(customer, baseUrl, customerPhone, customerPin, "customer login");
   console.log(`[e2e:new-streams] customer ready -> userId=${customer.userId}`);
+
+  const makeSocialPrivate = await request(
+    baseUrl,
+    customer,
+    "PATCH",
+    "/api/feed/profile/me",
+    {
+      postsPublic: false,
+      storiesPublic: false,
+    }
+  );
+  assertStatus(makeSocialPrivate, 200, "make E2E social content private");
 
   // Residence change
   const residenceBefore = await request(
@@ -202,6 +232,12 @@ async function main() {
   assertStatus(postBeforeRestriction, 201, "create baseline social post");
   const baselinePostId = Number(postBeforeRestriction.data?.post?.id || 0);
   assert.ok(baselinePostId > 0, "baseline post id missing");
+  await archivePost(
+    baseUrl,
+    customer,
+    baselinePostId,
+    "archive baseline social post"
+  );
 
   const restrictionCreate = await request(
     baseUrl,
@@ -259,6 +295,12 @@ async function main() {
   assertStatus(postAfterRestriction, 201, "create post after restriction revoke");
   const allowedPostId = Number(postAfterRestriction.data?.post?.id || 0);
   assert.ok(allowedPostId > 0, "allowed post id missing");
+  await archivePost(
+    baseUrl,
+    customer,
+    allowedPostId,
+    "archive post after restriction revoke"
+  );
   console.log("[e2e:new-streams] social restriction workflow passed");
 
   const paidUpgradesAdmin = createActor(
@@ -454,8 +496,27 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error("[e2e:new-streams] FAILED");
-  console.error(error?.stack || error?.message || error);
-  process.exitCode = 1;
-});
+async function run() {
+  let failed = false;
+  try {
+    await main();
+  } catch (error) {
+    failed = true;
+    console.error("[e2e:new-streams] FAILED");
+    console.error(error?.stack || error?.message || error);
+  } finally {
+    try {
+      await cleanupE2EArtifacts();
+    } catch (error) {
+      failed = true;
+      console.error("[e2e:new-streams] cleanup failed");
+      console.error(error?.stack || error?.message || error);
+    }
+  }
+
+  if (failed) {
+    process.exitCode = 1;
+  }
+}
+
+run();

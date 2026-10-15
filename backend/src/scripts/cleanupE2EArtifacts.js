@@ -1,6 +1,9 @@
 /* eslint-disable no-console */
 import "dotenv/config";
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { ensureSchema, pool } from "../config/db.js";
 import { validateRuntimeEnv } from "../config/env.js";
 
@@ -120,7 +123,7 @@ async function fetchCleanupTargets(client, patterns) {
   };
 }
 
-async function cleanup() {
+export async function cleanupE2EArtifacts({ closePool = true } = {}) {
   validateRuntimeEnv();
   await ensureSchema();
 
@@ -365,11 +368,18 @@ async function cleanup() {
     throw error;
   } finally {
     client.release();
-    await pool.end();
+    if (closePool) {
+      await pool.end();
+    }
   }
 }
 
-cleanup().catch((error) => {
-  console.error("[cleanup-e2e] failed", error);
-  process.exit(1);
-});
+const currentFile = path.resolve(fileURLToPath(import.meta.url));
+const invokedFile = process.argv[1] ? path.resolve(process.argv[1]) : "";
+
+if (invokedFile === currentFile) {
+  cleanupE2EArtifacts().catch((error) => {
+    console.error("[cleanup-e2e] failed", error);
+    process.exit(1);
+  });
+}

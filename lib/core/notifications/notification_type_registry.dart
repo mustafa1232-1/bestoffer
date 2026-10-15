@@ -26,6 +26,25 @@ class NotificationTypeRegistry {
     final normalizedModule = targetModule.trim().toLowerCase();
     final normalizedRole = roleScope.trim().toLowerCase();
 
+    if (normalizedTarget == 'admin_emergency_request') {
+      return const NotificationRouteSpec(
+        targetModule: 'admin',
+        targetScreen: 'admin_emergency_request',
+        fallbackScreen: 'admin_emergency_request',
+        allowedRoleScopes: {'admin', 'super_admin', 'deputy_admin', 'staff'},
+        expectedPayloadKeys: {'requestId'},
+      );
+    }
+    if (normalizedTarget == 'customer_emergency_request') {
+      return const NotificationRouteSpec(
+        targetModule: 'customer',
+        targetScreen: 'customer_emergency_request',
+        fallbackScreen: 'customer_notifications',
+        allowedRoleScopes: {'user', 'customer'},
+        expectedPayloadKeys: {'requestId'},
+      );
+    }
+
     if (normalizedType == 'delivery_order_available' ||
         normalizedType == 'delivery_order_offer' ||
         normalizedType == 'courier_order_offer') {
@@ -35,6 +54,46 @@ class NotificationTypeRegistry {
         fallbackScreen: 'courier_notifications',
         allowedRoleScopes: {'courier', 'delivery'},
         expectedPayloadKeys: {'orderId', 'merchantId'},
+      );
+    }
+
+    if (normalizedType == 'courier_reconciliation_approved' ||
+        normalizedType == 'courier_reconciliation_rejected' ||
+        normalizedTarget == 'courier_reconciliation') {
+      return const NotificationRouteSpec(
+        targetModule: 'courier',
+        targetScreen: 'courier_reconciliation',
+        fallbackScreen: 'courier_notifications',
+        allowedRoleScopes: {'courier', 'delivery'},
+        expectedPayloadKeys: {'orderId'},
+      );
+    }
+
+    if (normalizedTarget == 'admin_order_details' ||
+        normalizedTarget == 'admin_orders' ||
+        normalizedTarget == 'admin_orders_monitoring' ||
+        normalizedType == 'admin_order_created' ||
+        normalizedType.startsWith('admin.order.')) {
+      return const NotificationRouteSpec(
+        targetModule: 'admin',
+        targetScreen: 'admin_order_details',
+        fallbackScreen: 'admin_orders_monitoring',
+        allowedRoleScopes: {'admin', 'deputy_admin', 'staff'},
+        expectedPayloadKeys: {'orderId'},
+      );
+    }
+
+    if (normalizedTarget == 'admin_taxi_ride_details' ||
+        normalizedTarget == 'admin_taxi_rides' ||
+        normalizedTarget == 'admin_taxi_rides_monitoring' ||
+        normalizedType == 'admin_taxi_ride_requested' ||
+        normalizedType.startsWith('admin.taxi.ride.')) {
+      return const NotificationRouteSpec(
+        targetModule: 'admin',
+        targetScreen: 'admin_taxi_ride_details',
+        fallbackScreen: 'admin_taxi_rides',
+        allowedRoleScopes: {'admin', 'deputy_admin', 'staff'},
+        expectedPayloadKeys: {'rideId'},
       );
     }
 
@@ -77,6 +136,9 @@ class NotificationTypeRegistry {
 
     if (normalizedType == 'delivery_order_ready_for_pickup' ||
         normalizedType == 'delivery_order_assigned' ||
+        normalizedType == 'delivery_order_removed' ||
+        normalizedType == 'delivery_order_reassigned' ||
+        normalizedType == 'delivery_assigned_by_owner' ||
         normalizedType.startsWith('courier.') ||
         normalizedType.startsWith('courier_')) {
       if (normalizedType.contains('competition')) {

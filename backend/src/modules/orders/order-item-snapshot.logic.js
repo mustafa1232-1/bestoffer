@@ -400,11 +400,28 @@ function normalizeStoredSnapshot(row) {
 export function hydrateOrderItemDisplaySnapshot(row, order = null) {
   if (!row || typeof row !== "object") return row;
   const displaySnapshot = normalizeStoredSnapshot(row) || buildFallbackSnapshot(row, order);
+  const orderInfo = asObject(order) || {};
+  const authoritativeStoreId = asInt(
+    orderInfo.merchant_id ?? orderInfo.merchantId ?? orderInfo.store_id ?? orderInfo.storeId,
+    null
+  );
+  const authoritativeStoreName = asText(
+    orderInfo.merchant_name ?? orderInfo.merchantName ?? orderInfo.store_name ?? orderInfo.storeName,
+    240
+  );
+  const scopedDisplaySnapshot =
+    authoritativeStoreId != null || authoritativeStoreName
+      ? buildOrderItemDisplaySnapshot({
+          ...displaySnapshot,
+          storeId: authoritativeStoreId ?? displaySnapshot.storeId,
+          storeName: authoritativeStoreName ?? displaySnapshot.storeName,
+        })
+      : displaySnapshot;
   return {
     ...row,
-    display_snapshot_json: displaySnapshot,
-    display_snapshot: displaySnapshot,
-    displaySnapshot,
+    display_snapshot_json: scopedDisplaySnapshot,
+    display_snapshot: scopedDisplaySnapshot,
+    displaySnapshot: scopedDisplaySnapshot,
   };
 }
 

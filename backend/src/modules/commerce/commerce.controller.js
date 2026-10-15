@@ -18,6 +18,9 @@ import {
   validateCompetitionPatch,
   validateCourierCancelRequest,
   validateCourierAction,
+  validateCourierDelivery,
+  validateCourierPickup,
+  validateCourierReconciliationReview,
   validateMerchantCourierPatch,
   validateMerchantCourierUpsert,
   validateOrderChatMessage,
@@ -27,6 +30,7 @@ import {
   validatePaymentRequest,
   validateReadyForPickup,
 } from "./commerce.validators.js";
+import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 
 function asPositiveInt(value) {
   const n = Number(value);
@@ -156,10 +160,18 @@ export async function courierPickedUpOrder(req, res, next) {
     const orderParsed = parseOrderId(req.params);
     if (!orderParsed.ok) return sendValidation(res, orderParsed.errors);
 
-    const v = validateCourierAction(req.body || {});
+    const v = validateCourierPickup(req.body || {});
     if (!v.ok) return sendValidation(res, v.errors);
 
-    const out = await service.courierPickedUpOrder(req.userId, orderParsed.value, v.data);
+    const receiptUrl = buildUploadedFileUrl(req, req.file);
+    if (!receiptUrl && v.data.withoutReceipt !== true) {
+      return sendValidation(res, ["receiptFile"]);
+    }
+
+    const out = await service.courierPickedUpOrder(req.userId, orderParsed.value, {
+      ...v.data,
+      receiptUrl,
+    });
     res.json(out);
   } catch (error) {
     next(error);
@@ -186,7 +198,7 @@ export async function courierDeliveredOrder(req, res, next) {
     const orderParsed = parseOrderId(req.params);
     if (!orderParsed.ok) return sendValidation(res, orderParsed.errors);
 
-    const v = validateCourierAction(req.body || {});
+    const v = validateCourierDelivery(req.body || {});
     if (!v.ok) return sendValidation(res, v.errors);
 
     const out = await service.courierDeliveredOrder(req.userId, orderParsed.value, v.data);
@@ -382,6 +394,41 @@ export async function courierReports(req, res, next) {
 export async function courierEarnings(req, res, next) {
   try {
     const out = await service.getCourierEarnings(req.userId, req.query || {});
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function courierReconciliation(req, res, next) {
+  try {
+    const out = await service.getCourierReconciliation(req.userId, req.query || {});
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function adminCourierReconciliation(req, res, next) {
+  try {
+    const out = await service.getAdminCourierReconciliation(req.query || {});
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function adminReviewCourierReconciliation(req, res, next) {
+  try {
+    const orderParsed = parseOrderId(req.params);
+    if (!orderParsed.ok) return sendValidation(res, orderParsed.errors);
+    const v = validateCourierReconciliationReview(req.body || {});
+    if (!v.ok) return sendValidation(res, v.errors);
+    const out = await service.adminReviewCourierReconciliation(
+      req.userId,
+      orderParsed.value,
+      v.data,
+    );
     res.json(out);
   } catch (error) {
     next(error);

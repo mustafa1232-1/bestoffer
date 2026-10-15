@@ -166,7 +166,11 @@ test("eligibility: each rule excludes with a precise reason", async (t) => {
   assert.equal(await reason(c, await makeCourier(c, { suffix: "napp", isApp: false })), "not_app_courier");
   assert.equal(await reason(c, await makeCourier(c, { suffix: "nact", active: false })), "account_not_active");
   assert.equal(await reason(c, await makeCourier(c, { suffix: "off", online: false })), "offline");
-  assert.equal(await reason(c, await makeCourier(c, { suffix: "stale", presenceAgeSec: 9999 })), "presence_stale");
+  assert.equal(
+    await reason(c, await makeCourier(c, { suffix: "stale", presenceAgeSec: 9999 })),
+    "SELECTED",
+    "online intent remains assignable even when the last heartbeat is old"
+  );
 
   // Busy in a legacy single-order courier_assignment → excluded.
   const legacyBusy = await makeCourier(c, { suffix: "leg" });
@@ -233,11 +237,11 @@ test("delivery: completed courier receives a second grouped job without relogin"
   await acknowledgeGroupedJob({ courierUserId: fxA.courierId, deliveryJobId: jobAId });
   await headingToPickups({ courierUserId: fxA.courierId, deliveryJobId: jobAId });
   await markStopArrived({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopA });
-  await markStopCollected({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopA });
+  await markStopCollected({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopA, merchantPaidActual: 0, withoutReceipt: true });
   await markStopArrived({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopB });
-  await markStopCollected({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopB });
+  await markStopCollected({ courierUserId: fxA.courierId, deliveryJobId: jobAId, stopId: stopB, merchantPaidActual: 0, withoutReceipt: true });
   await headingToCustomer({ courierUserId: fxA.courierId, deliveryJobId: jobAId });
-  const delivered = await markGroupedDelivered({ courierUserId: fxA.courierId, deliveryJobId: jobAId });
+  const delivered = await markGroupedDelivered({ courierUserId: fxA.courierId, deliveryJobId: jobAId, customerReceivedActual: 0 });
   assert.equal(delivered.lifecycleStatus, "DELIVERED");
 
   const jobA = (await c.query("SELECT * FROM delivery_job WHERE id=$1", [jobAId])).rows[0];

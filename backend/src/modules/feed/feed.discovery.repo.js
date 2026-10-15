@@ -30,6 +30,7 @@ export async function listVisiblePostCandidates({
   hashtagId = null,
   mentionedUserId = null,
   includeCommunityScoped = true,
+  followingOnly = false,
 }) {
   const viewerId =
     Number.isInteger(Number(viewerUserId)) && Number(viewerUserId) > 0
@@ -43,6 +44,10 @@ export async function listVisiblePostCandidates({
        p.user_id,
        p.post_kind,
        p.caption,
+       p.story_style,
+       p.shared_entity_type,
+       p.shared_entity_id,
+       p.shared_snapshot_json,
        p.media_url,
        p.media_kind,
        p.media_asset_id,
@@ -83,6 +88,12 @@ export async function listVisiblePostCandidates({
        COALESCE(sv.is_saved, FALSE) AS is_saved,
        COALESCE(rp.report_count, 0)::int AS report_count,
        asset.normalized_url AS asset_normalized_url,
+       asset.provider AS asset_provider,
+       asset.stream_uid AS asset_stream_uid,
+       asset.playback_url AS asset_playback_url,
+       asset.thumbnail_url AS asset_thumbnail_url,
+       asset.width AS asset_width,
+       asset.height AS asset_height,
        asset.poster_url AS asset_poster_url,
        asset.duration_ms AS asset_duration_ms,
        asset.processing_status AS asset_processing_status,
@@ -184,6 +195,10 @@ export async function listVisiblePostCandidates({
          )
        )
        AND ($2::bigint IS NULL OR p.id < $2::bigint)
+       AND (
+         $13::boolean = FALSE
+         OR (rel.status = 'accepted' AND rel.initiator_user_id = $1)
+       )
        AND ($3::bigint IS NULL OR p.user_id = $3::bigint)
        AND ($4::text[] IS NULL OR p.post_kind = ANY($4::text[]))
        AND ($5::text = '' OR COALESCE(p.caption, '') ILIKE ('%' || $5 || '%'))
@@ -222,6 +237,7 @@ export async function listVisiblePostCandidates({
       viewerCompoundCode == null ? null : String(viewerCompoundCode).trim().toUpperCase(),
       viewerBuildingCode == null ? null : String(viewerBuildingCode).trim().toUpperCase(),
       includeCommunityScoped === true,
+      followingOnly === true,
     ]
   );
   return r.rows;
@@ -486,8 +502,14 @@ export async function listSuggestedPeopleCandidates({ viewerUserId, limit = 36 }
        ON rel.user_a_id = LEAST($1::bigint, u.id)
       AND rel.user_b_id = GREATEST($1::bigint, u.id)
      WHERE u.id <> $1
+       AND u.role = 'user'
        AND COALESCE(u.is_account_disabled, FALSE) = FALSE
        AND COALESCE(u.is_internal_staff, FALSE) = FALSE
+       AND NOT EXISTS (
+         SELECT 1
+         FROM merchant merchant_account
+         WHERE merchant_account.owner_user_id = u.id
+       )
        AND COALESCE(rel.status, '') NOT IN ('accepted', 'blocked')
      ORDER BY
        CASE WHEN u.building_number = v.building_number AND u.block = v.block THEN 0 ELSE 1 END ASC,

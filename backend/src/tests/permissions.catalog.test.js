@@ -85,9 +85,20 @@ test("scope + key validators reject unknown values", () => {
 });
 
 test("least-privilege sanity: monitoring roles cannot emergency-cancel or manage permissions", () => {
-  for (const roleKey of ["taxi_monitoring", "order_monitoring", "call_center_agent"]) {
+  for (const roleKey of [
+    "taxi_monitoring",
+    "order_monitoring",
+    "delivery_monitoring",
+    "call_center_agent",
+  ]) {
     assert.ok(!ROLE_TEMPLATES[roleKey].includes("taxi.rides.emergency_cancel"));
     assert.ok(!ROLE_TEMPLATES[roleKey].includes("employees.permissions.manage"));
     assert.ok(!ROLE_TEMPLATES[roleKey].includes("payroll.release"));
   }
+});
+
+test("delivery monitoring has its own courier screen permission", () => {
+  assert.ok(ROLE_TEMPLATES.delivery_monitoring.includes("delivery.couriers.read"));
+  assert.ok(!ROLE_TEMPLATES.order_monitoring.includes("delivery.couriers.read"));
+  assert.ok(isValidPermissionKey("delivery.couriers.read"));
 });

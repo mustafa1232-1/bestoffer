@@ -7,6 +7,7 @@ import { requireCustomer } from "../../shared/middleware/customer.middleware.js"
 import { requireBackoffice } from "../../shared/middleware/backoffice.middleware.js";
 import { requirePermission } from "../../shared/middleware/permission.middleware.js";
 import { requireSignedRequest } from "../../shared/middleware/request-signing.middleware.js";
+import { imageUpload } from "../../shared/utils/upload.js";
 
 export const commerceRouter = Router();
 const requireSensitiveWriteSignature = requireSignedRequest();
@@ -27,7 +28,12 @@ commerceRouter.post("/orders/:orderId/store/ready-for-pickup", requireOwner, c.o
 // Order lifecycle: courier side
 commerceRouter.post("/orders/:orderId/courier/accept", requireDeliveryAgent, c.courierAcceptOrder);
 commerceRouter.post("/orders/:orderId/courier/reject", requireDeliveryAgent, c.courierRejectOrder);
-commerceRouter.post("/orders/:orderId/courier/picked-up", requireDeliveryAgent, c.courierPickedUpOrder);
+commerceRouter.post(
+  "/orders/:orderId/courier/picked-up",
+  requireDeliveryAgent,
+  imageUpload.single("receiptFile"),
+  c.courierPickedUpOrder
+);
 commerceRouter.post("/orders/:orderId/courier/arrived", requireDeliveryAgent, c.courierArrivedOrder);
 commerceRouter.post("/orders/:orderId/courier/delivered", requireDeliveryAgent, c.courierDeliveredOrder);
 commerceRouter.post(
@@ -67,6 +73,18 @@ commerceRouter.get(
 );
 commerceRouter.get("/courier/reports", requireDeliveryAgent, c.courierReports);
 commerceRouter.get("/courier/earnings", requireDeliveryAgent, c.courierEarnings);
+commerceRouter.get("/courier/reconciliation", requireDeliveryAgent, c.courierReconciliation);
+commerceRouter.get(
+  "/admin/courier-reconciliation",
+  requireBackoffice,
+  c.adminCourierReconciliation
+);
+commerceRouter.patch(
+  "/admin/courier-reconciliation/:orderId/review",
+  requireBackoffice,
+  requireSensitiveWriteSignature,
+  c.adminReviewCourierReconciliation
+);
 commerceRouter.get("/courier/competitions", requireDeliveryAgent, c.courierCompetitions);
 commerceRouter.get(
   "/courier/competitions/achievements/summary",

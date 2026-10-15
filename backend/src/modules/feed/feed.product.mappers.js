@@ -7,7 +7,7 @@ import {
 /// Cloudflare Stream playback (HLS) + thumbnail (image) URLs from the stream UID
 /// when the stored columns are empty. A thumbnail is never an HLS manifest and a
 /// playback URL is never an image — this is what left reels blank in the feed.
-function normalizeAssetContract(a) {
+function normalizeAssetContract(a, coverFrameMs = null) {
   if (!a) return null;
   const streamUid = a.streamUid || null;
   let playbackUrl = a.playbackUrl || null;
@@ -23,6 +23,15 @@ function normalizeAssetContract(a) {
       if (d) thumbnailUrl = d;
     }
     if (!posterUrl && thumbnailUrl) posterUrl = thumbnailUrl;
+    if (coverFrameMs != null && Number.isFinite(coverFrameMs) && coverFrameMs >= 0) {
+      const durationMs = Number(a.durationMs);
+      const timeMs = Math.min(coverFrameMs, durationMs > 0 ? Math.max(0, durationMs - 1) : 3600000);
+      const selected = buildStreamThumbnailUrl(streamUid, `${(timeMs / 1000).toFixed(3)}s`);
+      if (selected) {
+        thumbnailUrl = selected;
+        posterUrl = selected;
+      }
+    }
   }
   const width = a.width == null ? null : Number(a.width);
   const height = a.height == null ? null : Number(a.height);
@@ -136,7 +145,7 @@ export function mapSocialPostProductRow(row) {
           height: row.asset_height ?? row.height ?? null,
           processingStatus:
             row.asset_processing_status || row.processing_status || null,
-        })
+        }, row.story_style?.coverFrameMs)
       : null,
     mediaGallery: Array.isArray(row.media_gallery)
       ? row.media_gallery.map((item) => ({
@@ -164,7 +173,7 @@ export function mapSocialPostProductRow(row) {
                     item.asset.processingStatus ||
                     item.asset.processing_status ||
                     null,
-                })
+                }, row.story_style?.coverFrameMs)
               : null,
         }))
       : [],

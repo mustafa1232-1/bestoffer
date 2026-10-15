@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_session.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 
 import '../../../core/files/local_media_file.dart';
-import 'creator_filter_registry.dart';
 import 'creator_temp_media_service.dart';
+import 'reel_export_arguments.dart';
 
 class ReelExportService {
   final CreatorTempMediaService tempMediaService;
@@ -17,51 +20,75 @@ class ReelExportService {
     required double maxDurationSeconds,
     required String? filterId,
     required String prefix,
+    double startSeconds = 0,
+    double speed = 1,
+    double volume = 1,
+    void Function(double)? onProgress,
+    CancelToken? cancelToken,
   }) async {
     final inputPath = (sourceFile.path ?? '').trim();
     if (inputPath.isEmpty) {
       throw StateError('The recorded clip has no readable file path.');
     }
-    final preset = resolveCreatorFilterPreset(filterId);
+    if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
     final outputPath = await tempMediaService.newFilePath(
       prefix: prefix,
       extension: 'mp4',
     );
-    // Always normalise to 8-bit yuv420p. Phones that record 10-bit HEVC (or the
-    // color filter chain) can otherwise produce a pixel format the Android /
-    // video_player decoder cannot display — the video shows black while audio
-    // still plays. Appending format=yuv420p to the filter graph (or -pix_fmt
-    // when there is no graph) guarantees a universally decodable output.
-    final hasFilter = preset.id != creatorNoFilter.id;
-    final videoGraph = hasFilter
-        ? '${preset.ffmpegFilterGraph},format=yuv420p'
-        : 'format=yuv420p';
-    final args = <String>[
-      '-y',
-      '-i',
-      inputPath,
-      '-t',
-      maxDurationSeconds.toStringAsFixed(3),
-      '-vf',
-      videoGraph,
-      '-c:v',
-      'libx264',
-      '-preset',
-      'veryfast',
-      '-crf',
-      '22',
-      '-pix_fmt',
-      'yuv420p',
-      '-c:a',
-      'aac',
-      '-movflags',
-      '+faststart',
-      outputPath,
-    ];
-    final session = await FFmpegKit.executeWithArguments(args);
-    final returnCode = await session.getReturnCode();
-    if (!ReturnCode.isSuccess(returnCode)) {
-      throw StateError('Video export failed with code ${returnCode?.getValue()}.');
+    final args = buildReelExportArguments(
+      inputPath: inputPath,
+      outputPath: outputPath,
+      durationSeconds: maxDurationSeconds,
+      startSeconds: startSeconds,
+      speed: speed,
+      volume: volume,
+      filterId: filterId,
+    );
+    final complete = Completer<FFmpegSession>();
+    var finished = false;
+    try {
+      if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
+      final session = await FFmpegKit.executeWithArgumentsAsync(
+        args,
+        (session) {
+          if (!complete.isCompleted) complete.complete(session);
+        },
+        null,
+        (statistics) {
+          if (!finished && cancelToken?.isCancelled != true) {
+            onProgress?.call(
+              (statistics.getTime() / (maxDurationSeconds * 1000 / speed))
+                  .clamp(0.0, 1.0),
+            );
+          }
+        },
+      );
+      final sessionId = session.getSessionId();
+      // Never cancel without an id: that would terminate unrelated exports.
+      if (cancelToken != null && sessionId != null) {
+        unawaited(
+          cancelToken.whenCancel
+              .then((_) async {
+                if (!finished) await FFmpegKit.cancel(sessionId);
+              })
+              .catchError((Object _) {}),
+        );
+      }
+      final completedSession = await complete.future;
+      final returnCode = await completedSession.getReturnCode();
+      if (cancelToken?.isCancelled == true) throw cancelToken!.cancelError!;
+      if (!ReturnCode.isSuccess(returnCode)) {
+        throw StateError(
+          'Video export failed with code ${returnCode?.getValue()}.',
+        );
+      }
+      onProgress?.call(1);
+    } catch (_) {
+      final output = File(outputPath);
+      if (await output.exists()) await output.delete();
+      rethrow;
+    } finally {
+      finished = true;
     }
     return LocalMediaFile(
       name: File(outputPath).uri.pathSegments.last,

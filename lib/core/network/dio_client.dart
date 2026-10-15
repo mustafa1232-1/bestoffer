@@ -35,28 +35,40 @@ class DioClient {
             final skipAuth = options.extra['skipAuth'] == true;
             final sessionGateExempt =
                 skipAuth || isSessionInvalidationExemptRequest(options);
-            final token = skipAuth ? null : await _readUsableAccessToken();
+            var token = skipAuth ? null : await _readUsableAccessToken();
             if (!skipAuth) {
               if (token != null && token.isNotEmpty) {
-                // A usable token is back (e.g. after re-login) - clear the gate.
-                _sessionInvalidated = false;
-                SessionRecoveryCoordinator.instance.reset();
+                if (_sessionInvalidated && token == _rejectedAccessToken) {
+                  if (!sessionGateExempt && !_canRetryRejectedToken()) {
+                    return handler.reject(_rejectedSessionError(options));
+                  }
+                  if (!sessionGateExempt) {
+                    try {
+                      final recovered = await _refreshAccessToken(
+                        token,
+                        allowExpired: true,
+                      );
+                      if (recovered != null &&
+                          recovered.isNotEmpty &&
+                          recovered != token) {
+                        token = recovered;
+                        _clearRejectedSessionGate();
+                      } else {
+                        _deferRejectedTokenRetry();
+                        return handler.reject(_rejectedSessionError(options));
+                      }
+                    } on DioException {
+                      _deferRejectedTokenRetry();
+                      return handler.reject(_rejectedSessionError(options));
+                    }
+                  }
+                } else if (_rejectedAccessToken != null &&
+                    token != _rejectedAccessToken) {
+                  // Login/refresh produced a genuinely new token.
+                  _clearRejectedSessionGate();
+                }
               } else if (_sessionInvalidated && !sessionGateExempt) {
-                // Session was terminally invalidated and there is no token.
-                // Fail fast locally so background pollers stop spamming the
-                // server with guaranteed-401 requests. Public (skipAuth) calls
-                // are unaffected.
-                return handler.reject(
-                  DioException(
-                    requestOptions: options,
-                    response: Response(
-                      requestOptions: options,
-                      statusCode: 401,
-                      data: const {'message': 'INVALID_TOKEN'},
-                    ),
-                    type: DioExceptionType.badResponse,
-                  ),
-                );
+                return handler.reject(_rejectedSessionError(options));
               }
             }
             if (!skipAuth && token != null && token.isNotEmpty) {
@@ -99,6 +111,8 @@ class DioClient {
           } on DioException catch (refreshError) {
             return handler.next(refreshError);
           }
+
+          await _gateUnresolvedSessionFailure(error);
 
           if (!_isRetryableConnectionError(error)) {
             return handler.next(error);
@@ -151,11 +165,14 @@ class DioClient {
   RequestSigningMaterial? _cachedSigningMaterial;
   Future<RequestSigningMaterial?>? _signingRefreshFuture;
 
-  /// Set once a confirmed terminal auth failure (INVALID_TOKEN) is observed and
-  /// the session is cleared. While true (and no token exists) protected requests
-  /// fail fast locally instead of hitting the server. Cleared when a usable
-  /// token reappears (re-login).
+  /// Guards a token that the server has definitively rejected. Session storage
+  /// remains intact so device recovery and an explicit re-login stay possible;
+  /// protected background pollers are held locally until a retry window opens.
   bool _sessionInvalidated = false;
+  String? _rejectedAccessToken;
+  DateTime? _rejectedTokenRetryAt;
+
+  static const _rejectedTokenRetryDelay = Duration(seconds: 30);
 
   Future<String?> recoverStoredSession() async {
     final result = await restoreStoredSession();
@@ -188,9 +205,7 @@ class DioClient {
   }
 
   Future<String?> _readUsableAccessToken() async {
-    final token =
-        await store.readToken() ??
-        AuthSessionTokenCache.currentToken(flavor: store.flavor);
+    final token = await _readCachedOrStoredAccessToken();
     if (token == null || token.isEmpty) {
       final refreshToken = await store.readRefreshToken();
       if (refreshToken != null && refreshToken.isNotEmpty) {
@@ -207,6 +222,12 @@ class DioClient {
       if (_isAccessTokenExpired(token)) rethrow;
       return token;
     }
+  }
+
+  Future<String?> _readCachedOrStoredAccessToken() async {
+    final cached = AuthSessionTokenCache.currentToken(flavor: store.flavor);
+    if (cached != null && cached.isNotEmpty) return cached;
+    return store.readToken();
   }
 
   bool _shouldRefreshAccessToken(String token) {
@@ -427,7 +448,7 @@ class DioClient {
             ? null
             : nextRecoverySecret,
       );
-      _sessionInvalidated = false;
+      _clearRejectedSessionGate();
       return SessionRestoreResult.recovered(accessToken);
     } on DioException catch (error) {
       return _restoreFailureResult(error);
@@ -492,9 +513,7 @@ class DioClient {
       return null;
     }
 
-    final currentToken =
-        await store.readToken() ??
-        AuthSessionTokenCache.currentToken(flavor: store.flavor);
+    final currentToken = await _readCachedOrStoredAccessToken();
 
     final requestToken = _readBearerHeader(request.headers['Authorization']);
     final nextToken =
@@ -535,6 +554,69 @@ class DioClient {
     } on DioException {
       return null;
     }
+  }
+
+  Future<void> _gateUnresolvedSessionFailure(DioException error) async {
+    final request = error.requestOptions;
+    if (error.response?.statusCode != 401 ||
+        request.extra['skipTerminalSessionInvalidation'] == true ||
+        isSessionInvalidationExemptRequest(request)) {
+      return;
+    }
+
+    final code = _extractAuthCode(error.response?.data);
+    if (!isSessionAuthFailureCode(code)) return;
+
+    final rejectedToken = _readBearerHeader(request.headers['Authorization']);
+    if (rejectedToken == null || rejectedToken.isEmpty) return;
+
+    final currentToken = await _readCachedOrStoredAccessToken();
+    if (currentToken != null &&
+        currentToken.isNotEmpty &&
+        currentToken != rejectedToken) {
+      // A parallel refresh/login already replaced the failed request token.
+      return;
+    }
+
+    final shouldNotify =
+        !_sessionInvalidated || _rejectedAccessToken != rejectedToken;
+    _sessionInvalidated = true;
+    _rejectedAccessToken = rejectedToken;
+    _deferRejectedTokenRetry();
+
+    if (shouldNotify) {
+      await SessionRecoveryCoordinator.instance.runRecovery(
+        cleanup: () async {},
+      );
+    }
+  }
+
+  bool _canRetryRejectedToken() {
+    final retryAt = _rejectedTokenRetryAt;
+    return retryAt == null || !DateTime.now().isBefore(retryAt);
+  }
+
+  void _deferRejectedTokenRetry() {
+    _rejectedTokenRetryAt = DateTime.now().add(_rejectedTokenRetryDelay);
+  }
+
+  void _clearRejectedSessionGate() {
+    _sessionInvalidated = false;
+    _rejectedAccessToken = null;
+    _rejectedTokenRetryAt = null;
+    SessionRecoveryCoordinator.instance.reset();
+  }
+
+  DioException _rejectedSessionError(RequestOptions options) {
+    return DioException(
+      requestOptions: options,
+      response: Response<dynamic>(
+        requestOptions: options,
+        statusCode: 401,
+        data: const {'message': 'SESSION_RECOVERY_REQUIRED'},
+      ),
+      type: DioExceptionType.badResponse,
+    );
   }
 
   Future<void> _attachRequestSignature(
@@ -648,9 +730,7 @@ class DioClient {
   String? _cachedBindingKey;
 
   Future<RequestSigningMaterial?> _readStoredSigningMaterial() async {
-    final token =
-        await store.readToken() ??
-        AuthSessionTokenCache.currentToken(flavor: store.flavor);
+    final token = await _readCachedOrStoredAccessToken();
     if (token == null || token.isEmpty) {
       await _clearSigningMaterial();
       return null;
@@ -754,7 +834,25 @@ class _RequestSessionBinding {
   String get bindingKey => '$sessionId:$deviceFingerprint';
 }
 
-Future<String> _ensureDeviceId(SecureStore store) async {
+final Expando<Future<String>> _deviceIdFutureByStore = Expando<Future<String>>(
+  'deviceIdFuture',
+);
+
+Future<String> _ensureDeviceId(SecureStore store) {
+  final existing = _deviceIdFutureByStore[store];
+  if (existing != null) return existing;
+  final future = _loadDeviceId(store).catchError((
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    _deviceIdFutureByStore[store] = null;
+    Error.throwWithStackTrace(error, stackTrace);
+  });
+  _deviceIdFutureByStore[store] = future;
+  return future;
+}
+
+Future<String> _loadDeviceId(SecureStore store) async {
   final key = store.storageKey(DioClient._deviceIdKey);
   final existing = await store
       .readString(DioClient._deviceIdKey)

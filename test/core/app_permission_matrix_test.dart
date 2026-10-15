@@ -92,5 +92,18 @@ void main() {
         );
       }
     });
+
+    test('staff accounts can land on the admin dashboard shell', () {
+      final staff = AppPermissionMatrix.fromAuth(
+        AuthState(
+          token: 'token',
+          user: _user(role: 'staff'),
+        ),
+      );
+
+      expect(staff.can(AppCapability.adminDashboard), isTrue);
+      expect(staff.can(AppCapability.adminCompanies), isFalse);
+      expect(staff.can(AppCapability.customerHome), isFalse);
+    });
   });
 }

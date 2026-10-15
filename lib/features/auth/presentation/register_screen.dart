@@ -2,8 +2,10 @@
 
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
@@ -27,9 +29,13 @@ class RegisterScreen extends ConsumerStatefulWidget {
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
+  static const double _webFallbackLatitude = 33.19302;
+  static const double _webFallbackLongitude = 44.62071;
+
   final fullNameCtrl = TextEditingController();
   final phoneCtrl = TextEditingController();
   final pinCtrl = TextEditingController();
+  final referralCodeCtrl = TextEditingController();
   final workTitleCtrl = TextEditingController();
   final workCompanyCtrl = TextEditingController();
 
@@ -63,6 +69,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     fullNameCtrl.dispose();
     phoneCtrl.dispose();
     pinCtrl.dispose();
+    referralCodeCtrl.dispose();
     workTitleCtrl.dispose();
     workCompanyCtrl.dispose();
     cardFullNameCtrl.dispose();
@@ -131,6 +138,44 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         setState(() => extractingCard = false);
       }
     }
+  }
+
+  Future<Position?> _captureRegistrationPosition() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _showLocationRequirement();
+        return null;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        _showLocationRequirement();
+        return null;
+      }
+
+      return await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 12),
+      );
+    } catch (_) {
+      if (mounted) _showLocationRequirement();
+      return null;
+    }
+  }
+
+  void _showLocationRequirement() {
+    if (!mounted) return;
+    setState(() {
+      _formError = context.localizedText(
+        ar: 'لا يمكن إنشاء الحساب بدون السماح بالموقع داخل منطقة الخدمة.',
+        en: 'Account registration requires location permission inside the service area.',
+      );
+    });
   }
 
   void _applyExtraction(ResidenceCardExtraction extraction) {
@@ -223,6 +268,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         return l10n.authPhoneLabel;
       case 'pin':
         return l10n.authPinLabel;
+      case 'referralCode':
+        return context.localizedText(
+          ar: 'رمز إحالة المؤثر أو المشهور',
+          en: 'Influencer referral code',
+        );
       case 'block':
         return l10n.basmayaSectorLabel;
       case 'buildingNumber':
@@ -248,7 +298,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       if (field == 'analyticsConsent') {
         _consentError = null;
       }
-      if (field == 'block' || field == 'buildingNumber' || field == 'apartment') {
+      if (field == 'block' ||
+          field == 'buildingNumber' ||
+          field == 'apartment') {
         _addressError = null;
       }
       _formError = null;
@@ -308,6 +360,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       nextErrors['pin'] = pinError;
     }
 
+    final referralCode = referralCodeCtrl.text.trim();
+    if (referralCode.isNotEmpty &&
+        !RegExp(r'^[A-Za-z0-9-]{4,64}$').hasMatch(referralCode)) {
+      nextErrors['referralCode'] = context.localizedText(
+        ar: 'أدخل رمزًا صحيحًا كما أرسله لك المؤثر، من دون مسافات.',
+        en: 'Enter the code exactly as shared by the influencer, without spaces.',
+      );
+    }
+
     if ((selectedBlock ?? '').trim().isEmpty) {
       nextErrors['block'] = resolveFormFieldError(
         l10n: context.l10n,
@@ -333,7 +394,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       );
     }
 
-    final nextAddressError = nextErrors.containsKey('block') ||
+    final nextAddressError =
+        nextErrors.containsKey('block') ||
             nextErrors.containsKey('buildingNumber') ||
             nextErrors.containsKey('apartment')
         ? null
@@ -359,7 +421,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         ..addAll(nextErrors);
       _addressError = nextAddressError;
       _consentError = nextConsentError;
-      _formError = nextErrors.isEmpty &&
+      _formError =
+          nextErrors.isEmpty &&
               nextAddressError == null &&
               nextConsentError == null
           ? null
@@ -390,6 +453,20 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     final topLevelCode = auth.errorCode?.trim().toUpperCase();
     if (!fieldCodes.containsKey('phone') && topLevelCode == 'PHONE_EXISTS') {
       fieldCodes['phone'] = 'PHONE_EXISTS';
+    }
+    const referralCodes = <String>{
+      'INFLUENCER_CODE_NOT_FOUND',
+      'REFERRAL_ATTRIBUTION_LOCKED',
+      'REFERRAL_DEVICE_ALREADY_ATTRIBUTED',
+      'REFERRAL_CAMPAIGN_INACTIVE',
+      'REFERRAL_NEW_CUSTOMERS_ONLY',
+      'REFERRAL_DEVICE_ID_REQUIRED',
+      'COUPON_NOT_STARTED',
+      'COUPON_EXPIRED',
+    };
+    if (!fieldCodes.containsKey('referralCode') &&
+        referralCodes.contains(topLevelCode)) {
+      fieldCodes['referralCode'] = topLevelCode;
     }
 
     final nextErrors = <String, String>{};
@@ -438,6 +515,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       return;
     }
 
+    final position = kIsWeb ? null : await _captureRegistrationPosition();
+    if (position == null && !kIsWeb) {
+      await _focusFirstError();
+      return;
+    }
+    final latitude =
+        position?.latitude ?? (kIsWeb ? _webFallbackLatitude : null);
+    final longitude =
+        position?.longitude ?? (kIsWeb ? _webFallbackLongitude : null);
+
     final payload = <String, dynamic>{
       'fullName': fullNameCtrl.text.trim(),
       'phone': phoneCtrl.text.trim(),
@@ -447,6 +534,10 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       'block': selectedBlock!,
       'buildingNumber': selectedBuilding!,
       'apartment': selectedApartment!,
+      'latitude': ?latitude,
+      'longitude': ?longitude,
+      if (referralCodeCtrl.text.trim().isNotEmpty)
+        'referralCode': referralCodeCtrl.text.trim().toUpperCase(),
       'analyticsConsentAccepted': true,
       'analyticsConsentVersion': 'analytics_v1',
     };
@@ -512,9 +603,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
-    final textStyle = Theme.of(
-      context,
-    ).textTheme.bodyMedium?.copyWith(color: Colors.white);
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final fieldInk = scheme.onSurface;
+    final mutedInk = scheme.onSurface.withValues(alpha: 0.70);
+    final cardColor = Color.alphaBlend(
+      scheme.surface.withValues(alpha: 0.96),
+      Colors.white.withValues(alpha: 0.04),
+    );
+    final textStyle = theme.textTheme.bodyMedium?.copyWith(color: fieldInk);
 
     Widget buildField({
       required String field,
@@ -524,6 +621,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       TextInputType keyboardType = TextInputType.text,
       bool obscure = false,
       TextDirection? textDirection,
+      TextCapitalization textCapitalization = TextCapitalization.none,
     }) {
       return _scrollCoordinator.anchor(
         field,
@@ -533,12 +631,23 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
           obscureText: obscure,
           focusNode: _scrollCoordinator.focusNodeFor(field),
           textDirection: textDirection,
+          textCapitalization: textCapitalization,
           onChanged: (_) => _clearFieldError(field),
-          style: const TextStyle(color: Colors.white),
+          style: TextStyle(color: fieldInk, fontWeight: FontWeight.w700),
+          cursorColor: scheme.primary,
           decoration: InputDecoration(
             labelText: label,
             hintText: hint,
             errorText: _errorOf(field),
+            labelStyle: TextStyle(color: mutedInk, fontWeight: FontWeight.w800),
+            floatingLabelStyle: TextStyle(
+              color: scheme.primary,
+              fontWeight: FontWeight.w900,
+            ),
+            hintStyle: TextStyle(
+              color: mutedInk.withValues(alpha: 0.72),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       );
@@ -562,10 +671,17 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(24),
-                          color: Colors.white.withValues(alpha: 0.08),
+                          color: cardColor,
                           border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.18),
+                            color: scheme.outline.withValues(alpha: 0.72),
                           ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: scheme.shadow.withValues(alpha: 0.08),
+                              blurRadius: 24,
+                              offset: const Offset(0, 12),
+                            ),
+                          ],
                         ),
                         child: Directionality(
                           textDirection: context.appTextDirection,
@@ -578,19 +694,16 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                     IconButton(
                                       onPressed: () =>
                                           Navigator.of(context).pop(),
-                                      icon: const Icon(
-                                        Icons.arrow_back,
-                                        color: Colors.white,
-                                      ),
+                                      icon: const Icon(Icons.arrow_back),
                                     ),
                                     Expanded(
                                       child: Text(
                                         context.l10n.authRegisterTitle,
                                         textAlign: TextAlign.center,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 22,
                                           fontWeight: FontWeight.w800,
-                                          color: Colors.white,
+                                          color: fieldInk,
                                         ),
                                       ),
                                     ),
@@ -786,6 +899,30 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                 ),
                                 const SizedBox(height: 10),
                                 buildField(
+                                  field: 'referralCode',
+                                  controller: referralCodeCtrl,
+                                  label: context.localizedText(
+                                    ar: 'رمز إحالة المؤثر (اختياري)',
+                                    en: 'Influencer referral code (optional)',
+                                  ),
+                                  hint: 'AB12',
+                                  textDirection: TextDirection.ltr,
+                                  textCapitalization:
+                                      TextCapitalization.characters,
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  context.localizedText(
+                                    ar: 'هذا رمز إحالة لتحديد المؤثر الذي عرّفك على مسلكي، وليس كوبون خصم. يُثبت مرة واحدة على الحساب والجهاز.',
+                                    en: 'This referral code identifies who introduced you to Maslaki. It is not a discount coupon and is locked once to the account and device.',
+                                  ),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: mutedInk,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                buildField(
                                   field: 'workTitle',
                                   controller: workTitleCtrl,
                                   label:
@@ -891,8 +1028,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                                       controlAffinity:
                                           ListTileControlAffinity.leading,
                                       title: Text(
-                                        context.l10n.authRegisterConsentCheckbox,
-                                        style: const TextStyle(color: Colors.white),
+                                        context
+                                            .l10n
+                                            .authRegisterConsentCheckbox,
+                                        style: TextStyle(
+                                          color: fieldInk,
+                                          fontWeight: FontWeight.w700,
+                                        ),
                                       ),
                                       subtitle: _consentError == null
                                           ? null

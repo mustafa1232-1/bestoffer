@@ -36,7 +36,7 @@ class ImagePickerField extends StatelessWidget {
     final hasError = errorText != null && errorText!.trim().isNotEmpty;
     final borderColor = hasError
         ? theme.colorScheme.error
-        : Colors.white.withValues(alpha: 0.18);
+        : theme.colorScheme.outline.withValues(alpha: 0.72);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -116,19 +116,25 @@ class ImagePickerField extends StatelessWidget {
         imageUrl: existingImageUrl!,
         fit: BoxFit.cover,
         errorWidget: (context, error, stackTrace) {
-          return _placeholder();
+          return _placeholder(context);
         },
       );
     }
 
-    return _placeholder();
+    return _placeholder(context);
   }
 
-  Widget _placeholder() {
+  Widget _placeholder(BuildContext context) {
     return Container(
-      color: Colors.white.withValues(alpha: 0.04),
+      color: Theme.of(
+        context,
+      ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.38),
       alignment: Alignment.center,
-      child: const Icon(Icons.image_outlined, size: 34),
+      child: Icon(
+        Icons.image_outlined,
+        size: 34,
+        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.78),
+      ),
     );
   }
 }

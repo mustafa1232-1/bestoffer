@@ -60,6 +60,9 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   bool _lifecycleResumed = true;
   bool _submitting = false;
   bool _returnedToTaxiHome = false;
+  bool _loadInFlight = false;
+  DateTime? _lastLiveEventAt;
+  String? _envelopeFingerprint;
   late final VoidCallback _sessionRecoveryListener;
 
   TaxiApi get _taxiApi => ref.read(taxiApiProvider);
@@ -74,6 +77,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     _sessionRecoveryListener = _handleSessionRecovery;
     SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
     _envelope = widget.initialEnvelope;
+    _envelopeFingerprint = trackingPayloadFingerprint(_envelope);
     _loading = widget.initialEnvelope == null;
     unawaited(_load(silent: widget.initialEnvelope != null));
     _startLiveUpdates();
@@ -123,13 +127,18 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
       return;
     }
     _reconnectTimer?.cancel();
-    _connectStream();
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(Duration(seconds: _isPublic ? 12 : 6), (_) {
+    _reconnectTimer = null;
+    if (_streamSub == null) _connectStream();
+    _pollTimer ??= Timer.periodic(Duration(seconds: _isPublic ? 30 : 20), (_) {
       if (!_returnedToTaxiHome &&
           _lifecycleResumed &&
           taxiTrackingIsActive(_envelope)) {
-        unawaited(_load(silent: true));
+        final staleAfter = Duration(seconds: _isPublic ? 25 : 15);
+        final lastEvent = _lastLiveEventAt;
+        if (lastEvent == null ||
+            DateTime.now().difference(lastEvent) >= staleAfter) {
+          unawaited(_load(silent: true));
+        }
       }
     });
   }
@@ -189,6 +198,8 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
   }
 
   Future<void> _load({bool silent = false}) async {
+    if (_loadInFlight) return;
+    _loadInFlight = true;
     final previousEnvelope = _envelope;
     final previousRide = taxiRideViewFromEnvelope(previousEnvelope);
     final preserveTerminalSnapshot =
@@ -211,17 +222,16 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
       if (!mounted) return;
       final nextEnvelope = trackingMap(data);
       final hasNextEnvelope = nextEnvelope != null && nextEnvelope.isNotEmpty;
-      setState(() {
-        _envelope = hasNextEnvelope
+      _commitEnvelope(
+        hasNextEnvelope
             ? nextEnvelope
             : (preserveTerminalSnapshot
-                  ? previousEnvelope
-                  : const <String, dynamic>{});
-        _loading = false;
-        _error = null;
-      });
+                  ? previousEnvelope ?? const <String, dynamic>{}
+                  : const <String, dynamic>{}),
+      );
       if (_returnedToTaxiHome) return;
       _maybeReturnToTaxiHomeIfTerminal();
+      _startLiveUpdates();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -231,11 +241,13 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
           en: 'Failed to load live tracking for this ride.',
         );
       });
+    } finally {
+      _loadInFlight = false;
     }
   }
 
   void _connectStream() {
-    _streamSub?.cancel();
+    if (_streamSub != null) return;
     final stream = _isPublic
         ? _taxiApi.streamPublicTrackByToken(widget.publicToken!)
         : _taxiApi.streamRideEvents(
@@ -247,16 +259,13 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
         if (!mounted) return;
         if (_returnedToTaxiHome) return;
         _reconnectAttempt = 0;
+        _lastLiveEventAt = DateTime.now();
         if (event.eventId != null) {
           _lastEventId = event.eventId;
         }
         if (_isPublic) {
           if (event.event == 'taxi_location_update') {
-            setState(() {
-              _envelope = mergeTaxiTrackingEvent(_envelope, event.data);
-              _loading = false;
-              _error = null;
-            });
+            _commitEnvelope(mergeTaxiTrackingEvent(_envelope, event.data));
             if (!taxiTrackingIsActive(_envelope)) _stopLiveUpdates();
             _maybeReturnToTaxiHomeIfTerminal();
           } else if (event.event == 'resync_required' ||
@@ -282,21 +291,36 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
         if (eventRideId != widget.rideId) return;
         if (event.event == 'taxi_location_update' ||
             event.event.startsWith('taxi_')) {
-          setState(() {
-            _envelope = mergeTaxiTrackingEvent(_envelope, event.data);
-            _loading = false;
-            _error = null;
-          });
+          _commitEnvelope(mergeTaxiTrackingEvent(_envelope, event.data));
           if (!taxiTrackingIsActive(_envelope)) _stopLiveUpdates();
           _maybeReturnToTaxiHomeIfTerminal();
         }
       },
       onError: (error, stack) {
+        _streamSub = null;
         unawaited(_load(silent: true));
         _scheduleReconnect();
       },
-      onDone: _scheduleReconnect,
+      onDone: () {
+        _streamSub = null;
+        _scheduleReconnect();
+      },
     );
+  }
+
+  void _commitEnvelope(Map<String, dynamic> next) {
+    if (!mounted) return;
+    final fingerprint = trackingPayloadFingerprint(next);
+    final changed = fingerprint != _envelopeFingerprint;
+    if (!changed && !_loading && _error == null) return;
+    setState(() {
+      if (changed) {
+        _envelope = next;
+        _envelopeFingerprint = fingerprint;
+      }
+      _loading = false;
+      _error = null;
+    });
   }
 
   // ignore: unused_element
@@ -443,7 +467,9 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text(context.lt(ar: 'مساعدة / حالة طارئة', en: 'Help / Emergency')),
+          title: Text(
+            context.lt(ar: 'مساعدة / حالة طارئة', en: 'Help / Emergency'),
+          ),
           content: Text(
             context.lt(
               ar: 'سيتم فتح تذكرة عاجلة وإبلاغ الدعم فوراً. لن تُلغى الرحلة تلقائياً؛ سيتواصل معك فريق مسلكي.',
@@ -457,7 +483,9 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: Text(context.lt(ar: 'إرسال طلب المساعدة', en: 'Send help request')),
+              child: Text(
+                context.lt(ar: 'إرسال طلب المساعدة', en: 'Send help request'),
+              ),
             ),
           ],
         );
@@ -1631,6 +1659,26 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     return trackingMap(_envelope?['latestLocation']);
   }
 
+  TrackingMotionSample? get _trackedCaptainSample {
+    final ride = _ride;
+    final point = taxiRideCaptainPoint(ride);
+    if (point == null) return null;
+    final raw = <String, dynamic>{
+      ...?_latestLocation,
+      'latitude': point.latitude,
+      'longitude': point.longitude,
+      'heading':
+          _latestLocation?['heading'] ??
+          _latestLocation?['bearing'] ??
+          ride?['captainHeading'],
+      'updatedAt':
+          _latestLocation?['updatedAt'] ??
+          _latestLocation?['createdAt'] ??
+          ride?['updatedAt'],
+    };
+    return trackingMotionSampleFromMap(raw);
+  }
+
   Map<String, dynamic>? get _captain {
     return trackingMap(_ride?['captain']);
   }
@@ -1642,8 +1690,6 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     final tokens = context.maslakiTokens;
     final pickup = taxiRidePickupPoint(_ride);
     final dropoff = taxiRideDropoffPoint(_ride);
-    final captainPoint = taxiRideCaptainPoint(_ride);
-    final heading = _readNum(_ride?['captainHeading']);
     return [
       if (pickup != null)
         Marker(
@@ -1665,34 +1711,6 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
             Icons.location_on_rounded,
             color: tokens.primaryAccent,
             size: 40,
-          ),
-        ),
-      if (captainPoint != null)
-        Marker(
-          point: captainPoint,
-          width: 56,
-          height: 56,
-          child: Transform.rotate(
-            angle: (heading ?? 0) * math.pi / 180,
-            child: Container(
-              decoration: BoxDecoration(
-                color: tokens.surfaceSecondary,
-                shape: BoxShape.circle,
-                border: Border.all(color: tokens.primaryAccent, width: 1.4),
-                boxShadow: [
-                  BoxShadow(
-                    color: tokens.glowPrimary.withValues(alpha: 0.36),
-                    blurRadius: 18,
-                    spreadRadius: 1,
-                  ),
-                ],
-              ),
-              child: Icon(
-                Icons.directions_car_rounded,
-                color: tokens.primaryAccent,
-                size: 30,
-              ),
-            ),
           ),
         ),
     ];
@@ -1743,6 +1761,34 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
       initialCenter: _initialCenter,
       markers: _markers,
       polylines: _polylines,
+      trackedSample: _trackedCaptainSample,
+      trackedMarkerWidth: 56,
+      trackedMarkerHeight: 56,
+      trackedMarkerBuilder: (context, headingDegrees) {
+        final tokens = context.maslakiTokens;
+        return Transform.rotate(
+          angle: headingDegrees * math.pi / 180,
+          child: Container(
+            decoration: BoxDecoration(
+              color: tokens.surfaceSecondary,
+              shape: BoxShape.circle,
+              border: Border.all(color: tokens.primaryAccent, width: 1.4),
+              boxShadow: [
+                BoxShadow(
+                  color: tokens.glowPrimary.withValues(alpha: 0.36),
+                  blurRadius: 18,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: Icon(
+              Icons.directions_car_rounded,
+              color: tokens.primaryAccent,
+              size: 30,
+            ),
+          ),
+        );
+      },
       sheetBuilder: (context, scrollController) {
         return _buildTrackingSheet(context, scrollController, ride);
         /*

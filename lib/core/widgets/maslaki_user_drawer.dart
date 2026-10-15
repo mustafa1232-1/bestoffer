@@ -15,11 +15,13 @@ import '../../features/customer/ui/customer_main_market_screen.dart';
 import '../../features/customer/ui/maslaki_user_shell.dart';
 import '../../features/customer/ui/customer_style_hub_screen.dart';
 import '../../features/jobs/ui/jobs_hub_screen.dart';
+import '../../features/games/ui/maslaki_games_screen.dart';
 import '../../features/orders/ui/delivery_addresses_screen.dart';
 import '../../features/orders/ui/favorite_products_screen.dart';
 import '../../features/real_estate/ui/real_estate_marketplace_screen.dart';
 import '../../features/services/ui/services_marketplace_screen.dart';
 import '../../features/settings/ui/settings_screen.dart';
+import '../../features/support/ui/support_tickets_screen.dart';
 import '../../features/taxi/ui/taxi_customer_tools_screen.dart';
 import '../../pages/map_page.dart';
 import '../i18n/app_localizations_context.dart';
@@ -207,6 +209,11 @@ class MaslakiUserDrawer extends ConsumerWidget {
             label: context.lt(ar: 'المساعد الذكي', en: 'Assistant'),
             onTap: () => open(const AssistantChatScreen()),
           ),
+          MaslakiDrawerEntry(
+            icon: Icons.sports_esports_rounded,
+            label: context.lt(ar: 'ألعاب مسلكي', en: 'Maslaki Games'),
+            onTap: () => open(const MaslakiGamesScreen()),
+          ),
         ],
       ),
       MaslakiDrawerSection(
@@ -216,6 +223,11 @@ class MaslakiUserDrawer extends ConsumerWidget {
             icon: Icons.person_outline_rounded,
             label: context.lt(ar: 'حسابي', en: 'My account'),
             onTap: () => goToTab(4),
+          ),
+          MaslakiDrawerEntry(
+            icon: Icons.forum_outlined,
+            label: context.lt(ar: 'طلبات الدعم', en: 'Support requests'),
+            onTap: () => open(const SupportTicketsScreen()),
           ),
           MaslakiDrawerEntry(
             icon: Icons.settings_outlined,

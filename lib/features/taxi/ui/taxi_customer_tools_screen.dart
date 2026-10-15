@@ -30,7 +30,7 @@ final taxiCustomerToolsApiProvider = Provider<TaxiApi>(
 
 TaxiApi _taxiApi(WidgetRef ref) => ref.read(taxiCustomerToolsApiProvider);
 
-const LatLng _defaultPickerCenter = LatLng(33.3128, 44.3615);
+const LatLng _defaultPickerCenter = LatLng(33.19302, 44.62071);
 
 class TaxiCustomerToolsScreen extends ConsumerWidget {
   final int initialTab;
@@ -236,7 +236,9 @@ class _SavedPlacesTabState extends ConsumerState<_SavedPlacesTab> {
     }
     if (value == 'dropoff') {
       await Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => MapPage(initialDropoffSnapshot: item)),
+        MaterialPageRoute(
+          builder: (_) => MapPage(initialDropoffSnapshot: item),
+        ),
       );
       return;
     }
@@ -384,10 +386,10 @@ class _FavoriteTripsTabState extends ConsumerState<_FavoriteTripsTab> {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => MapPage(
-          initialPickupSnapshot:
-              (item['pickupSnapshot'] as Map?)?.cast<String, dynamic>(),
-          initialDropoffSnapshot:
-              (item['dropoffSnapshot'] as Map?)?.cast<String, dynamic>(),
+          initialPickupSnapshot: (item['pickupSnapshot'] as Map?)
+              ?.cast<String, dynamic>(),
+          initialDropoffSnapshot: (item['dropoffSnapshot'] as Map?)
+              ?.cast<String, dynamic>(),
         ),
       ),
     );
@@ -580,10 +582,9 @@ class _RideHistoryTabState extends ConsumerState<_RideHistoryTab> {
       _error = null;
     });
     try {
-      final items = await _taxiApi(ref).listMyRideHistory(
-        period: 'all',
-        limit: 40,
-      );
+      final items = await _taxiApi(
+        ref,
+      ).listMyRideHistory(period: 'all', limit: 40);
       if (!mounted) return;
       setState(() {
         _items = items;
@@ -760,7 +761,9 @@ class _RideHistoryTabState extends ConsumerState<_RideHistoryTab> {
                         child: MaslakiPrimaryButton(
                           onPressed: _rebooking ? null : () => _rebookNow(item),
                           icon: Icons.refresh_rounded,
-                          label: _rebooking ? 'جاري التنفيذ...' : 'إعادة الحجز الآن',
+                          label: _rebooking
+                              ? 'جاري التنفيذ...'
+                              : 'إعادة الحجز الآن',
                         ),
                       ),
                     ],
@@ -853,8 +856,7 @@ class _MyCouponsTabState extends ConsumerState<_MyCouponsTab> {
 
   _CouponPreviewState _previewFromCouponItem(Map<String, dynamic> item) {
     final code = '${item['statusCode'] ?? 'OK'}'.trim().toUpperCase();
-    final title =
-        item['title']?.toString().trim().isNotEmpty == true
+    final title = item['title']?.toString().trim().isNotEmpty == true
         ? item['title'].toString().trim()
         : item['code']?.toString().trim().isNotEmpty == true
         ? item['code'].toString().trim()
@@ -867,7 +869,8 @@ class _MyCouponsTabState extends ConsumerState<_MyCouponsTab> {
       'COUPON_NOT_STARTED' => 'هذا الكوبون غير متاح بعد.',
       'COUPON_INACTIVE' => 'هذا الكوبون غير مفعل حالياً.',
       'COUPON_NOT_TARGETED' => 'هذا الكوبون غير مخصص لحسابك الحالي.',
-      'COUPON_USER_LIMIT_REACHED' => 'استنفدت عدد الاستخدامات المسموح بها لهذا الكوبون.',
+      'COUPON_USER_LIMIT_REACHED' =>
+        'استنفدت عدد الاستخدامات المسموح بها لهذا الكوبون.',
       'COUPON_TOTAL_LIMIT_REACHED' => 'تم استنفاد هذا الكوبون بالكامل.',
       'COUPON_NO_TIERS' => 'لا توجد شرائح خصم صالحة لهذا الكوبون حالياً.',
       _ => 'تعذر معاينة هذا الكوبون حالياً.',
@@ -886,8 +889,7 @@ class _MyCouponsTabState extends ConsumerState<_MyCouponsTab> {
     final coupon =
         (preview['coupon'] as Map?)?.cast<String, dynamic>() ??
         const <String, dynamic>{};
-    final title =
-        coupon['title']?.toString().trim().isNotEmpty == true
+    final title = coupon['title']?.toString().trim().isNotEmpty == true
         ? coupon['title'].toString().trim()
         : coupon['code']?.toString().trim().isNotEmpty == true
         ? coupon['code'].toString().trim()
@@ -941,9 +943,9 @@ class _MyCouponsTabState extends ConsumerState<_MyCouponsTab> {
   Future<void> _previewCoupon({bool useSelectedItemFallback = true}) async {
     final code = _codeCtrl.text.trim().toUpperCase();
     if (code.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('أدخل رمز الكوبون أولاً.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('أدخل رمز الكوبون أولاً.')));
       return;
     }
 
@@ -976,10 +978,9 @@ class _MyCouponsTabState extends ConsumerState<_MyCouponsTab> {
 
     setState(() => _previewing = true);
     try {
-      final preview = await _taxiApi(ref).previewCoupon(
-        couponCode: code,
-        proposedFareIqd: fare,
-      );
+      final preview = await _taxiApi(
+        ref,
+      ).previewCoupon(couponCode: code, proposedFareIqd: fare);
       if (!mounted) return;
       setState(() {
         _preview = _previewFromSuccess(preview);
@@ -1072,7 +1073,9 @@ class _MyCouponsTabState extends ConsumerState<_MyCouponsTab> {
             ),
           for (final item in _items) ...[
             InkWell(
-              borderRadius: BorderRadius.circular(context.maslakiShell.cardRadius),
+              borderRadius: BorderRadius.circular(
+                context.maslakiShell.cardRadius,
+              ),
               onTap: () => _previewSelectedCoupon(item),
               child: MaslakiCard(
                 child: Column(
@@ -1089,9 +1092,8 @@ class _MyCouponsTabState extends ConsumerState<_MyCouponsTab> {
                               item['code']?.toString() ??
                               '-',
                           textDirection: TextDirection.rtl,
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w900,
-                          ),
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w900),
                         ),
                       ],
                     ),
@@ -1162,9 +1164,9 @@ class _CouponPreviewCard extends StatelessWidget {
               Text(
                 preview.title,
                 textDirection: TextDirection.rtl,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
               ),
             ],
           ),
@@ -1189,9 +1191,9 @@ class _CouponPreviewCard extends StatelessWidget {
             Text(
               'الأجرة بعد الخصم: ${formatIqd(preview.finalFareIqd ?? 0)}',
               textDirection: TextDirection.rtl,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w900),
             ),
           ],
         ],
@@ -1204,7 +1206,8 @@ class _SavedPlaceEditorScreen extends StatefulWidget {
   const _SavedPlaceEditorScreen();
 
   @override
-  State<_SavedPlaceEditorScreen> createState() => _SavedPlaceEditorScreenState();
+  State<_SavedPlaceEditorScreen> createState() =>
+      _SavedPlaceEditorScreenState();
 }
 
 class _SavedPlaceEditorScreenState extends State<_SavedPlaceEditorScreen> {
@@ -1288,27 +1291,28 @@ class _SavedPlaceEditorScreenState extends State<_SavedPlaceEditorScreen> {
       _error = null;
     });
     try {
-      final response = await Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 8),
-          receiveTimeout: const Duration(seconds: 8),
-          headers: const {
-            'User-Agent': 'MaslakiTaxi/1.0',
-            'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
-          },
-        ),
-      ).get(
-        'https://nominatim.openstreetmap.org/search',
-        queryParameters: {
-          'format': 'jsonv2',
-          'addressdetails': 1,
-          'bounded': 1,
-          'countrycodes': 'iq',
-          'viewbox': '44.62,33.48,44.15,33.10',
-          'limit': 8,
-          'q': query,
-        },
-      );
+      final response =
+          await Dio(
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 8),
+              receiveTimeout: const Duration(seconds: 8),
+              headers: const {
+                'User-Agent': 'MaslakiTaxi/1.0',
+                'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
+              },
+            ),
+          ).get(
+            'https://nominatim.openstreetmap.org/search',
+            queryParameters: {
+              'format': 'jsonv2',
+              'addressdetails': 1,
+              'bounded': 1,
+              'countrycodes': 'iq',
+              'viewbox': '44.62,33.48,44.15,33.10',
+              'limit': 8,
+              'q': query,
+            },
+          );
       final raw = response.data is List ? response.data as List : const [];
       final items = raw
           .whereType<Map>()
@@ -1336,25 +1340,26 @@ class _SavedPlaceEditorScreenState extends State<_SavedPlaceEditorScreen> {
   }) async {
     setState(() => _loadingAddress = true);
     try {
-      final response = await Dio(
-        BaseOptions(
-          connectTimeout: const Duration(seconds: 8),
-          receiveTimeout: const Duration(seconds: 8),
-          headers: const {
-            'User-Agent': 'MaslakiTaxi/1.0',
-            'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
-          },
-        ),
-      ).get(
-        'https://nominatim.openstreetmap.org/reverse',
-        queryParameters: {
-          'format': 'jsonv2',
-          'lat': point.latitude,
-          'lon': point.longitude,
-          'zoom': 18,
-          'addressdetails': 1,
-        },
-      );
+      final response =
+          await Dio(
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 8),
+              receiveTimeout: const Duration(seconds: 8),
+              headers: const {
+                'User-Agent': 'MaslakiTaxi/1.0',
+                'Accept-Language': 'ar-IQ,ar;q=0.9,en;q=0.8',
+              },
+            ),
+          ).get(
+            'https://nominatim.openstreetmap.org/reverse',
+            queryParameters: {
+              'format': 'jsonv2',
+              'lat': point.latitude,
+              'lon': point.longitude,
+              'zoom': 18,
+              'addressdetails': 1,
+            },
+          );
       final data = response.data;
       if (data is! Map || !mounted) return;
       final rawAddress = '${data['display_name'] ?? ''}'.trim();
@@ -1467,10 +1472,8 @@ class _SavedPlaceEditorScreenState extends State<_SavedPlaceEditorScreen> {
                       child: ListView.separated(
                         shrinkWrap: true,
                         itemCount: _searchResults.length,
-                        separatorBuilder: (_, _) => Divider(
-                          height: 1,
-                          color: tokens.borderSubtle,
-                        ),
+                        separatorBuilder: (_, _) =>
+                            Divider(height: 1, color: tokens.borderSubtle),
                         itemBuilder: (context, index) {
                           final item = _searchResults[index];
                           return ListTile(
@@ -1507,10 +1510,14 @@ class _SavedPlaceEditorScreenState extends State<_SavedPlaceEditorScreen> {
                   children: [
                     TileLayer(
                       urlTemplate:
-                          'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                      fallbackUrl:
                           'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      maxZoom: 19,
                       userAgentPackageName: 'app.maslaki.user',
+                    ),
+                    const RichAttributionWidget(
+                      attributions: [
+                        TextSourceAttribution('OpenStreetMap contributors'),
+                      ],
                     ),
                   ],
                 ),
@@ -1519,16 +1526,16 @@ class _SavedPlaceEditorScreenState extends State<_SavedPlaceEditorScreen> {
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.location_on_rounded,
                           size: 44,
-                          color: Color(0xFFD4AF37),
+                          color: tokens.secondaryAccent,
                         ),
                         Container(
                           width: 10,
                           height: 10,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFD4AF37),
+                          decoration: BoxDecoration(
+                            color: tokens.secondaryAccent,
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -1559,7 +1566,9 @@ class _SavedPlaceEditorScreenState extends State<_SavedPlaceEditorScreen> {
                               const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
                               ),
                             const Spacer(),
                             Text(
@@ -1572,7 +1581,9 @@ class _SavedPlaceEditorScreenState extends State<_SavedPlaceEditorScreen> {
                         ),
                         const SizedBox(height: MaslakiSpacing.sm),
                         Text(
-                          (_addressText ?? 'حرك الخريطة أو اختر نتيجة بحث لتحديد الموقع').trim(),
+                          (_addressText ??
+                                  'حرك الخريطة أو اختر نتيجة بحث لتحديد الموقع')
+                              .trim(),
                           textDirection: TextDirection.rtl,
                           style: Theme.of(context).textTheme.bodySmall,
                         ),

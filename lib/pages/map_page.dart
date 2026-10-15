@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/core/auth/auth_guard.dart';
 import 'package:maslaki/features/taxi/data/taxi_api.dart';
+import 'package:maslaki/features/taxi/data/taxi_place_index.dart';
 import 'package:maslaki/features/taxi/data/taxi_route_service.dart';
 import 'package:maslaki/features/taxi/domain/taxi_assignment_contract.dart';
 import 'package:maslaki/features/taxi/domain/taxi_fare_policy.dart';
@@ -76,12 +77,12 @@ class MapPage extends ConsumerStatefulWidget {
 }
 
 class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
-  static const LatLng _bismayahCenter = LatLng(33.3128, 44.3615);
+  static const LatLng _bismayahCenter = LatLng(33.19302, 44.62071);
   static const String _iraqViewbox = '38.79,37.39,48.58,29.06';
   static const double _initialZoom = 15;
-  static const double _collapsedSheetExtent = 0.18;
-  static const double _halfSheetExtent = 0.46;
-  static const double _expandedSheetExtent = 0.88;
+  static const double _collapsedSheetExtent = 0.24;
+  static const double _halfSheetExtent = 0.54;
+  static const double _expandedSheetExtent = 0.92;
 
   final MapController _mapController = MapController();
   final DraggableScrollableController _requestSheetController =
@@ -1266,6 +1267,16 @@ class _MapPageState extends ConsumerState<MapPage> with WidgetsBindingObserver {
       }
     }
 
+    final localResults = searchTaxiPlaceIndex(
+      query,
+      bias: _myLocation ?? _pickupPoint ?? _bismayahCenter,
+      limit: 14,
+    );
+    for (final result in localResults) {
+      addSuggestion(_PlaceSuggestion.fromTaxiPlaceRecord(result));
+      if (suggestions.length >= 16) return suggestions;
+    }
+
     for (final plan in _buildNominatimPlans(query)) {
       final List<_PlaceSuggestion> results;
       try {
@@ -1633,6 +1644,7 @@ out center 20;
           initialQuery: forPickup
               ? _pickupSearchController.text.trim()
               : _dropoffSearchController.text.trim(),
+          bias: _myLocation ?? _pickupPoint ?? _bismayahCenter,
         ),
       ),
     );
@@ -4072,6 +4084,118 @@ out center 20;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
+  bool get _shouldShowRideComposerRestoreCta {
+    if (_activeRideEnvelope != null || _dropoffPoint == null) return false;
+    final canContinue =
+        _requestStep == TaxiRequestStep.dropoffConfirm ||
+        _requestStep == TaxiRequestStep.summaryAndSubmit;
+    if (!canContinue) return false;
+    return _lastSheetExtent <= _collapsedSheetExtent + 0.08;
+  }
+
+  Widget _buildRideComposerRestoreCta(BuildContext context) {
+    final confirmDropoff = _requestStep == TaxiRequestStep.dropoffConfirm;
+    final bottom =
+        18 +
+        MediaQuery.sizeOf(context).height *
+            _lastSheetExtent.clamp(_collapsedSheetExtent, _halfSheetExtent);
+    final scheme = Theme.of(context).colorScheme;
+
+    return Positioned(
+      left: 16,
+      right: 16,
+      bottom: bottom,
+      child: SafeArea(
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 180),
+          child: Material(
+            key: ValueKey(_requestStep),
+            elevation: 12,
+            color: scheme.primary,
+            borderRadius: BorderRadius.circular(18),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: _submitting
+                  ? null
+                  : () {
+                      if (confirmDropoff) {
+                        _confirmDropoff();
+                      } else {
+                        _setSheetStage(TaxiSheetStage.expanded);
+                      }
+                    },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 13,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: scheme.onPrimary.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        confirmDropoff
+                            ? Icons.check_circle_outline_rounded
+                            : Icons.keyboard_arrow_up_rounded,
+                        color: scheme.onPrimary,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            confirmDropoff
+                                ? context.l10n.mapPageConfirmDropoffLabel
+                                : context.l10n.mapPageRouteSummaryTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: scheme.onPrimary,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            confirmDropoff
+                                ? context.lt(
+                                    ar: 'تأكد من العلامة على الخريطة ثم ثبت الوجهة',
+                                    en: 'Check the pin on the map, then confirm it',
+                                  )
+                                : context.lt(
+                                    ar: 'ارفع التفاصيل لإكمال طلب التكسي',
+                                    en: 'Open the summary to finish your taxi request',
+                                  ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: scheme.onPrimary.withValues(alpha: 0.78),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.arrow_forward_rounded, color: scheme.onPrimary),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final taxiSection = ref
@@ -4089,11 +4213,13 @@ out center 20;
     // القفل مصدره الخادم: بعد توجه الكابتن (captain_arriving) يصبح
     // cancellationLocked = true فيُمنع الإلغاء العادي ويظهر مخرج الطوارئ بدلاً منه.
     final rideLocked = ride?['cancellationLocked'] == true;
-    final canCancel = !rideLocked &&
+    final canCancel =
+        !rideLocked &&
         (rideStatus == 'searching' ||
             rideStatus == 'price_raise_required' ||
             rideStatus == 'captain_assigned');
-    final canRaiseEmergency = rideLocked ||
+    final canRaiseEmergency =
+        rideLocked ||
         rideStatus == 'captain_arriving' ||
         rideStatus == 'ride_started';
     final scheme = Theme.of(context).colorScheme;
@@ -4138,18 +4264,22 @@ out center 20;
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 retinaMode:
                     (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) >
                     1.0,
-                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                maxZoom: 19,
                 userAgentPackageName: 'app.maslaki.user',
                 tileProvider: NetworkTileProvider(
                   headers: {
                     'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
                   },
                 ),
+              ),
+              const RichAttributionWidget(
+                attributions: [
+                  TextSourceAttribution('OpenStreetMap contributors'),
+                ],
               ),
               if (_routePoints.length >= 2)
                 PolylineLayer(
@@ -4200,6 +4330,8 @@ out center 20;
             ),
           ] else
             _buildRideRequestSheetV3(context),
+          if (_shouldShowRideComposerRestoreCta)
+            _buildRideComposerRestoreCta(context),
         ],
       ),
       floatingActionButton: Column(
@@ -5781,6 +5913,7 @@ out center 20;
 
   Widget _buildRideRequestSheetV3(BuildContext context) {
     final l10n = context.l10n;
+    final scheme = Theme.of(context).colorScheme;
     final estimate = _fareEstimate;
     final parsedFare = tryParseLocalizedInt(_fareController.text.trim());
     final farePreview = parsedFare ?? estimate.suggestedIqd;
@@ -5824,11 +5957,22 @@ out center 20;
       final selectedText = forPickup
           ? _pickupSearchController.text.trim()
           : _dropoffSearchController.text.trim();
+      final searchSurface = scheme.surfaceContainerHighest.withValues(
+        alpha: 0.92,
+      );
+      final searchBorder = scheme.outlineVariant.withValues(alpha: 0.82);
 
       return Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(label, style: const TextStyle(fontWeight: FontWeight.w700)),
+          Text(
+            label,
+            style: TextStyle(
+              color: scheme.onSurface,
+              fontWeight: FontWeight.w800,
+            ),
+            textDirection: TextDirection.rtl,
+          ),
           const SizedBox(height: 8),
           InkWell(
             borderRadius: BorderRadius.circular(14),
@@ -5838,23 +5982,28 @@ out center 20;
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.05),
+                color: searchSurface,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.09)),
+                border: Border.all(color: searchBorder),
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.search_rounded),
+                  Icon(Icons.search_rounded, color: scheme.primary),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       selectedText.isEmpty ? hint : selectedText,
+                      textDirection: TextDirection.rtl,
+                      textAlign: TextAlign.right,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: selectedText.isEmpty
-                            ? Colors.white.withValues(alpha: 0.7)
-                            : null,
+                            ? scheme.onSurfaceVariant
+                            : scheme.onSurface,
+                        fontWeight: selectedText.isEmpty
+                            ? FontWeight.w500
+                            : FontWeight.w800,
                       ),
                     ),
                   ),
@@ -5870,8 +6019,10 @@ out center 20;
                   : l10n.mapPageTapMapForDropoff,
               style: TextStyle(
                 fontSize: 12,
-                color: Colors.white.withValues(alpha: 0.7),
+                color: scheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
               ),
+              textDirection: TextDirection.rtl,
             ),
             const SizedBox(height: 8),
             Row(
@@ -5955,7 +6106,9 @@ out center 20;
                 borderRadius: const BorderRadius.vertical(
                   top: Radius.circular(22),
                 ),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.72),
+                ),
                 boxShadow: const [
                   BoxShadow(
                     color: Colors.black26,
@@ -5983,48 +6136,104 @@ out center 20;
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Center(
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(999),
-                              onTap: () {
-                                final next = switch (_sheetStage) {
-                                  TaxiSheetStage.collapsed =>
-                                    TaxiSheetStage.half,
-                                  TaxiSheetStage.half =>
-                                    TaxiSheetStage.expanded,
-                                  TaxiSheetStage.expanded =>
-                                    TaxiSheetStage.collapsed,
-                                };
-                                _setSheetStage(next);
-                              },
-                              child: Container(
-                                width: 48,
-                                height: 24,
-                                alignment: Alignment.center,
-                                child: Container(
-                                  width: 36,
-                                  height: 4,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.4),
-                                    borderRadius: BorderRadius.circular(999),
+                            child: Semantics(
+                              button: true,
+                              label: _t(
+                                'اسحب لوحة الرحلة للأعلى أو للأسفل',
+                                'Drag the ride panel up or down',
+                              ),
+                              child: Tooltip(
+                                message: _t(
+                                  'اسحب للأعلى أو للأسفل',
+                                  'Drag up or down',
+                                ),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(999),
+                                  onTap: () {
+                                    final next = switch (_sheetStage) {
+                                      TaxiSheetStage.collapsed =>
+                                        TaxiSheetStage.half,
+                                      TaxiSheetStage.half =>
+                                        TaxiSheetStage.expanded,
+                                      TaxiSheetStage.expanded =>
+                                        TaxiSheetStage.half,
+                                    };
+                                    _setSheetStage(next);
+                                  },
+                                  child: Container(
+                                    constraints: const BoxConstraints(
+                                      minHeight: 36,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: scheme.surfaceContainerHighest
+                                          .withValues(alpha: 0.86),
+                                      borderRadius: BorderRadius.circular(999),
+                                      border: Border.all(
+                                        color: scheme.outlineVariant.withValues(
+                                          alpha: 0.72,
+                                        ),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          _sheetStage == TaxiSheetStage.expanded
+                                              ? Icons
+                                                    .keyboard_arrow_down_rounded
+                                              : Icons.unfold_more_rounded,
+                                          size: 20,
+                                          color: scheme.primary,
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          _sheetStage == TaxiSheetStage.expanded
+                                              ? _t(
+                                                  'اسحب للأسفل لرؤية الخريطة',
+                                                  'Drag down to see the map',
+                                                )
+                                              : _t(
+                                                  'اسحب لعرض تفاصيل الرحلة',
+                                                  'Drag for ride details',
+                                                ),
+                                          style: TextStyle(
+                                            color: scheme.onSurfaceVariant,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
+                          const SizedBox(height: 4),
                           FormErrorBanner(message: _rideFormError),
                           if (_pickupPoint != null) ...[
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.04),
+                                color: scheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.92),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.09),
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: 0.82,
+                                  ),
                                 ),
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.trip_origin_rounded),
+                                  Icon(
+                                    Icons.trip_origin_rounded,
+                                    color: scheme.primary,
+                                  ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
@@ -6076,15 +6285,21 @@ out center 20;
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.04),
+                                color: scheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.92),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.09),
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: 0.82,
+                                  ),
                                 ),
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.location_on_rounded),
+                                  Icon(
+                                    Icons.location_on_rounded,
+                                    color: scheme.primary,
+                                  ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: Column(
@@ -6128,10 +6343,13 @@ out center 20;
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.04),
+                                color: scheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.92),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.09),
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: 0.82,
+                                  ),
                                 ),
                               ),
                               child: Column(
@@ -6181,10 +6399,13 @@ out center 20;
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.04),
+                                color: scheme.surfaceContainerHighest
+                                    .withValues(alpha: 0.92),
                                 borderRadius: BorderRadius.circular(16),
                                 border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.09),
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: 0.82,
+                                  ),
                                 ),
                               ),
                               child: Column(
@@ -6234,12 +6455,11 @@ out center 20;
                                       Text(
                                         '${l10n.mapPageRouteFarePreviewLabel}: ${formatIqd(farePreview)}',
                                         style: TextStyle(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.74,
-                                          ),
+                                          color: scheme.onSurfaceVariant,
                                           fontSize: 12,
-                                          fontWeight: FontWeight.w600,
+                                          fontWeight: FontWeight.w700,
                                         ),
+                                        textDirection: TextDirection.rtl,
                                       ),
                                       if (parsedFare == null)
                                         TextButton.icon(
@@ -6261,10 +6481,11 @@ out center 20;
                                     Text(
                                       l10n.mapPageFareMayReduceAcceptance,
                                       style: TextStyle(
-                                        color: Colors.amberAccent.shade100,
+                                        color: Colors.orange.shade800,
                                         fontSize: 12,
-                                        fontWeight: FontWeight.w600,
+                                        fontWeight: FontWeight.w700,
                                       ),
+                                      textDirection: TextDirection.rtl,
                                     ),
                                   ],
                                   if (fareTooLow) ...[
@@ -6330,9 +6551,7 @@ out center 20;
                                       child: Text(
                                         '${l10n.taxiCouponCodeField}: ${_couponCodeController.text.trim()}',
                                         style: TextStyle(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.72,
-                                          ),
+                                          color: scheme.onSurfaceVariant,
                                           fontSize: 12,
                                           fontWeight: FontWeight.w600,
                                         ),
@@ -6380,32 +6599,48 @@ out center 20;
     List<_PlaceSuggestion> items, {
     required bool forPickup,
   }) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       constraints: const BoxConstraints(maxHeight: 170),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: Colors.black.withValues(alpha: 0.08),
+        color: scheme.surfaceContainerHighest,
+        border: Border.all(color: scheme.outlineVariant),
       ),
+      clipBehavior: Clip.antiAlias,
       child: ListView.separated(
         shrinkWrap: true,
         itemCount: items.length,
-        separatorBuilder: (_, _) =>
-            Divider(height: 1, color: Colors.white.withValues(alpha: 0.12)),
+        separatorBuilder: (_, _) => Divider(
+          height: 1,
+          color: scheme.outlineVariant.withValues(alpha: 0.72),
+        ),
         itemBuilder: (context, index) {
           final place = items[index];
           return ListTile(
             dense: true,
-            leading: const Icon(Icons.place_rounded),
+            leading: Icon(Icons.place_rounded, color: scheme.primary),
             title: Text(
               place.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              textDirection: TextDirection.rtl,
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             subtitle: Text(
               place.fullAddress,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
+              textDirection: TextDirection.rtl,
+              style: TextStyle(color: scheme.onSurfaceVariant),
+            ),
+            trailing: Icon(
+              Icons.north_west_rounded,
+              color: scheme.onSurfaceVariant,
+              size: 18,
             ),
             onTap: () => _selectPlaceSuggestion(place, forPickup: forPickup),
           );
@@ -6601,6 +6836,16 @@ class _PlaceSuggestion {
     required this.fullAddress,
     this.kind,
   });
+
+  factory _PlaceSuggestion.fromTaxiPlaceRecord(TaxiPlaceRecord record) {
+    return _PlaceSuggestion(
+      latitude: record.latitude,
+      longitude: record.longitude,
+      title: record.title,
+      fullAddress: record.subtitle,
+      kind: 'smart-local',
+    );
+  }
 }
 
 class _NominatimSearchPlan {
@@ -6707,11 +6952,13 @@ class _TaxiLocationSearchPage extends StatefulWidget {
     required this.title,
     required this.hintText,
     this.initialQuery = '',
+    this.bias,
   });
 
   final String title;
   final String hintText;
   final String initialQuery;
+  final LatLng? bias;
 
   @override
   State<_TaxiLocationSearchPage> createState() =>
@@ -6719,6 +6966,18 @@ class _TaxiLocationSearchPage extends StatefulWidget {
 }
 
 class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
+  static const List<String> _quickSearches = [
+    'الكرادة',
+    'كافيه',
+    'مطعم',
+    'جامعة',
+    'مول',
+    'مستشفى',
+    'مطار',
+    'سوق',
+    'بسماية',
+  ];
+
   late final TextEditingController _queryController = TextEditingController(
     text: widget.initialQuery,
   );
@@ -6734,6 +6993,7 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
   );
   Timer? _debounce;
   bool _loading = false;
+  bool _hasSearched = false;
   String? _error;
   List<_TaxiLocationSearchResult> _results = const [];
 
@@ -6755,9 +7015,19 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
 
   void _onQueryChanged(String value) {
     _debounce?.cancel();
+    if (mounted) setState(() {});
     _debounce = Timer(const Duration(milliseconds: 650), () {
       _search(value.trim());
     });
+  }
+
+  void _useQuickSearch(String value) {
+    _debounce?.cancel();
+    _queryController.value = TextEditingValue(
+      text: value,
+      selection: TextSelection.collapsed(offset: value.length),
+    );
+    _search(value);
   }
 
   Future<void> _search(String query) async {
@@ -6765,6 +7035,7 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
       if (!mounted) return;
       setState(() {
         _loading = false;
+        _hasSearched = false;
         _error = null;
         _results = const [];
       });
@@ -6772,10 +7043,12 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
     }
     setState(() {
       _loading = true;
+      _hasSearched = true;
       _error = null;
+      _results = _localResults(query);
     });
     try {
-      final items = await _fetchResults(query);
+      final items = await _fetchResults(query, initial: _results);
 
       if (!mounted) return;
       if (_queryController.text.trim() != query) return;
@@ -6792,9 +7065,41 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
     }
   }
 
-  Future<List<_TaxiLocationSearchResult>> _fetchResults(String query) async {
+  List<_TaxiLocationSearchResult> _localResults(String query) {
+    return searchTaxiPlaceIndex(query, bias: widget.bias, limit: 14)
+        .map(
+          (local) => _TaxiLocationSearchResult(
+            latitude: local.latitude,
+            longitude: local.longitude,
+            title: local.title,
+            address: local.subtitle,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<List<_TaxiLocationSearchResult>> _fetchResults(
+    String query, {
+    List<_TaxiLocationSearchResult> initial = const [],
+  }) async {
     final results = <_TaxiLocationSearchResult>[];
     final seen = <String>{};
+
+    void addResult(_TaxiLocationSearchResult result) {
+      final key =
+          '${result.latitude.toStringAsFixed(5)},'
+          '${result.longitude.toStringAsFixed(5)}:'
+          '${result.title.toLowerCase()}';
+      if (seen.add(key)) {
+        results.add(result);
+      }
+    }
+
+    for (final result in initial.isEmpty ? _localResults(query) : initial) {
+      addResult(result);
+      if (results.length >= 16) return results;
+    }
+
     for (final variant in _queryVariants(query)) {
       final Response<dynamic> response;
       try {
@@ -6809,7 +7114,7 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
             'polygon_geojson': 0,
             'countrycodes': 'iq',
             'bounded': 0,
-            'viewbox': '38.79,37.39,48.58,29.06',
+            'viewbox': _searchViewbox,
             'limit': 12,
             'q': variant,
           },
@@ -6824,18 +7129,23 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
               .map((item) => Map<String, dynamic>.from(item))
               .map(_resultFromNominatim)
               .whereType<_TaxiLocationSearchResult>()) {
-        final key =
-            '${result.latitude.toStringAsFixed(5)},'
-            '${result.longitude.toStringAsFixed(5)}:'
-            '${result.title.toLowerCase()}';
-        if (seen.add(key)) {
-          results.add(result);
-          if (results.length >= 16) return results;
-        }
+        addResult(result);
+        if (results.length >= 16) return results;
       }
       if (results.length >= 8) return results;
     }
     return results;
+  }
+
+  String get _searchViewbox {
+    final bias = widget.bias;
+    if (bias == null) return '38.79,37.39,48.58,29.06';
+    const span = 0.55;
+    final left = (bias.longitude - span).clamp(38.79, 48.58);
+    final right = (bias.longitude + span).clamp(38.79, 48.58);
+    final top = (bias.latitude + span).clamp(29.06, 37.39);
+    final bottom = (bias.latitude - span).clamp(29.06, 37.39);
+    return '$left,$top,$right,$bottom';
   }
 
   List<String> _queryVariants(String query) {
@@ -6870,6 +7180,23 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
     }
     if (normalized.contains('منطقة') || normalized.contains('حي')) {
       add('$query neighborhood Iraq');
+    }
+    if (normalized.contains('مستشفى') ||
+        normalized.contains('عيادة') ||
+        normalized.contains('مركز صحي')) {
+      add('$query hospital Iraq');
+      add('$query clinic Iraq');
+    }
+    if (normalized.contains('مول') ||
+        normalized.contains('سوق') ||
+        normalized.contains('مطعم') ||
+        normalized.contains('كافيه')) {
+      add('$query mall Iraq');
+      add('$query restaurant Iraq');
+      add('$query cafe Iraq');
+    }
+    if (normalized.contains('مطار')) {
+      add('$query airport Iraq');
     }
     return variants;
   }
@@ -6909,6 +7236,7 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
       body: Column(
@@ -6922,7 +7250,10 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
               decoration: InputDecoration(
                 labelText: widget.title,
                 hintText: widget.hintText,
+                filled: true,
+                fillColor: scheme.surfaceContainerHighest,
                 border: const OutlineInputBorder(),
+                prefixIcon: Icon(Icons.search_rounded, color: scheme.primary),
                 suffixIcon: _loading
                     ? const Padding(
                         padding: EdgeInsets.all(10),
@@ -6932,8 +7263,43 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         ),
                       )
-                    : const Icon(Icons.search_rounded),
+                    : (_queryController.text.trim().isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: context.lt(
+                                ar: 'مسح البحث',
+                                en: 'Clear search',
+                              ),
+                              onPressed: () {
+                                _debounce?.cancel();
+                                _queryController.clear();
+                                setState(() {
+                                  _hasSearched = false;
+                                  _results = const [];
+                                  _error = null;
+                                });
+                              },
+                              icon: const Icon(Icons.close_rounded),
+                            )),
               ),
+            ),
+          ),
+          SizedBox(
+            height: 42,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              scrollDirection: Axis.horizontal,
+              itemCount: _quickSearches.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final value = _quickSearches[index];
+                return ActionChip(
+                  visualDensity: VisualDensity.compact,
+                  avatar: const Icon(Icons.near_me_rounded, size: 16),
+                  label: Text(value),
+                  onPressed: () => _useQuickSearch(value),
+                );
+              },
             ),
           ),
           if (_error != null)
@@ -6948,27 +7314,104 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
               ),
             ),
           Expanded(
-            child: ListView.separated(
-              itemCount: _results.length,
-              separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (context, index) {
-                final item = _results[index];
-                return ListTile(
-                  leading: const Icon(Icons.place_outlined),
-                  title: Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+            child: _loading && _results.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _results.isEmpty
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            _hasSearched
+                                ? Icons.location_off_outlined
+                                : Icons.travel_explore_rounded,
+                            size: 46,
+                            color: scheme.primary,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _hasSearched
+                                ? context.lt(
+                                    ar: 'لم نعثر على هذا المكان بعد',
+                                    en: 'We could not find this place yet',
+                                  )
+                                : context.lt(
+                                    ar: 'اكتب اسم المنطقة أو المعلم أو المتجر',
+                                    en: 'Search for an area, landmark, or store',
+                                  ),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: scheme.onSurface,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _hasSearched
+                                ? context.lt(
+                                    ar: 'جرّب كتابة اسم أقصر أو اختر النقطة مباشرة من الخريطة.',
+                                    en: 'Try a shorter name or choose the point directly on the map.',
+                                  )
+                                : context.lt(
+                                    ar: 'مثال: الكرادة، كهرمانة، جامعة بغداد، أو مطار بغداد.',
+                                    en: 'For example: Karrada, Kahramana, Baghdad University, or Baghdad Airport.',
+                                  ),
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: scheme.onSurfaceVariant),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+                    itemCount: _results.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final item = _results[index];
+                      return Material(
+                        color: scheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(14),
+                        clipBehavior: Clip.antiAlias,
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 4,
+                          ),
+                          leading: CircleAvatar(
+                            backgroundColor: scheme.primaryContainer,
+                            foregroundColor: scheme.onPrimaryContainer,
+                            child: const Icon(Icons.place_outlined),
+                          ),
+                          title: Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: scheme.onSurface,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          subtitle: Text(
+                            item.address,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(color: scheme.onSurfaceVariant),
+                          ),
+                          trailing: Icon(
+                            Icons.arrow_back_rounded,
+                            color: scheme.primary,
+                          ),
+                          onTap: () => Navigator.of(context).pop(item),
+                        ),
+                      );
+                    },
                   ),
-                  subtitle: Text(
-                    item.address,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () => Navigator.of(context).pop(item),
-                );
-              },
-            ),
           ),
         ],
       ),

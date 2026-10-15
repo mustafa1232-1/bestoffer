@@ -51,6 +51,8 @@ class _ThrowingAuthRepo implements AuthRepo {
     bool? merchantSupportsChat,
     bool? merchantSupportsAttachments,
     bool? merchantSupportsPharmacyWorkflow,
+    double? latitude,
+    double? longitude,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? ownerImageFile,
@@ -77,6 +79,19 @@ class _ThrowingAuthRepo implements AuthRepo {
   }
 
   @override
+  Future<void> requestPinReset({required String phone}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<UserModel> completeTemporaryPinChange({
+    required String currentPin,
+    required String newPin,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<UserModel> me() {
     throw UnimplementedError();
   }
@@ -89,6 +104,11 @@ class _ThrowingAuthRepo implements AuthRepo {
     required String block,
     required String buildingNumber,
     required String apartment,
+    String? workTitle,
+    String? workCompany,
+    double? latitude,
+    double? longitude,
+    String? referralCode,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? imageFile,
@@ -130,6 +150,8 @@ class _ThrowingAuthRepo implements AuthRepo {
     String? plateLetter,
     String? plateDigits,
     String? carColor,
+    double? latitude,
+    double? longitude,
     required bool analyticsConsentAccepted,
     String analyticsConsentVersion = 'analytics_v1',
     LocalImageFile? profileImageFile,

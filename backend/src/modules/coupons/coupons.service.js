@@ -1,9 +1,20 @@
+import crypto from "crypto";
+
 import { AppError } from "../../shared/utils/errors.js";
 import { checkPermission } from "../security/permissions.service.js";
 import { computeOrderFinancialSnapshot } from "../commerce/merchant-financial.logic.js";
 import * as repo from "./coupons.repo.js";
 
 const DEFAULT_AGENT_COMMISSION_SHARE_PERCENT = 25;
+
+function buildReferralDeviceFingerprint(deviceContext) {
+  const deviceId = String(deviceContext?.deviceId || "").trim();
+  if (!deviceId) return "";
+  return crypto
+    .createHash("sha256")
+    .update(`influencer-referral:v1:${deviceId}`)
+    .digest("hex");
+}
 
 function normalizeSharePercent(value) {
   const n = Number(value);
@@ -17,7 +28,14 @@ function normalizeSharePercent(value) {
  */
 export async function validateCoupon(
   code,
-  { customerId, merchantId, orderTotal, orderSubtotal }
+  {
+    customerId,
+    merchantId,
+    orderTotal,
+    orderSubtotal,
+    deviceContext = null,
+    authSessionId = null,
+  }
 ) {
   if (!code || typeof code !== "string" || !code.trim()) {
     const err = new Error("COUPON_CODE_REQUIRED");
@@ -43,7 +61,6 @@ export async function validateCoupon(
         : null,
     orderTotal: eligibleAmount,
   });
-
   if (!result?.coupon) {
     const err = new Error(result?.reasonCode || "COUPON_INVALID_OR_EXPIRED");
     err.status = 404;
@@ -119,6 +136,36 @@ export async function listCustomerCoupons(query = {}, actor = {}) {
       createdAt: row.created_at || null,
     })),
   };
+}
+
+export async function getPendingCouponPopup(actor = {}) {
+  const userId = Number(actor?.userId || 0);
+  if (!Number.isInteger(userId) || userId <= 0) {
+    throw new AppError("UNAUTHORIZED", { status: 401 });
+  }
+  const coupon = await repo.getPendingCouponPopupForUser(userId);
+  if (!coupon) return { popup: null };
+  return {
+    popup: {
+      couponId: Number(coupon.id),
+      code: coupon.code,
+      title: coupon.popup_title || "مبروك، حصلت على خصم",
+      message: coupon.popup_message || coupon.description || null,
+      discountType: coupon.discount_type,
+      discountValue: Number(coupon.discount_value || 0),
+      surfaceScope: coupon.surface_scope || "shopping",
+    },
+  };
+}
+
+export async function acknowledgeCouponPopup({ userId, couponId }) {
+  const uid = Number(userId || 0);
+  const cid = Number(couponId || 0);
+  if (!Number.isInteger(uid) || uid <= 0 || !Number.isInteger(cid) || cid <= 0) {
+    throw new AppError("VALIDATION_ERROR", { status: 400 });
+  }
+  await repo.acknowledgeCouponPopupForUser({ couponId: cid, userId: uid });
+  return { acknowledged: true };
 }
 
 async function resolveCouponManager(actor) {
@@ -222,10 +269,24 @@ export async function createCoupon(dto, actor) {
   }
 
   const scopedMerchantId = manager.kind === "owner" ? manager.merchantId : null;
+  const surfaceScope = String(dto.surfaceScope || "shopping").trim().toLowerCase();
+  if (!["shopping", "taxi", "services", "all"].includes(surfaceScope)) {
+    throwCouponValidation({ surfaceScope: "SELECT_OPTION" });
+  }
+  const targetUserId = Number(dto.targetUserId || 0);
+  if (manager.kind !== "super_admin" && (targetUserId > 0 || dto.popupEnabled === true)) {
+    throw new AppError("FORBIDDEN_SUPER_ADMIN_ONLY", { status: 403 });
+  }
 
   const coupon = await repo.createCoupon({
     code, description, discountType, discountValue, minOrderTotal,
     maxUses, merchantId: scopedMerchantId, validFrom, validUntil, createdBy: manager.userId,
+    surfaceScope,
+    targetUserId: targetUserId > 0 ? targetUserId : null,
+    popupEnabled: dto.popupEnabled === true,
+    popupTitle: dto.popupTitle,
+    popupMessage: dto.popupMessage,
+    newCustomersOnly: dto.newCustomersOnly === true,
   });
   return { coupon };
 }
@@ -571,6 +632,9 @@ export async function deleteCoupon(couponId, actor) {
   if (!Number.isFinite(id) || id <= 0) {
     throw new AppError("COUPON_NOT_FOUND", { status: 404 });
   }
+  if (await repo.isInfluencerCoupon(id)) {
+    throw new AppError("INFLUENCER_COUPON_PROTECTED", { status: 409 });
+  }
 
   let deleted = false;
   if (manager.kind === "owner") {
@@ -586,4 +650,291 @@ export async function deleteCoupon(couponId, actor) {
     throw new AppError("COUPON_NOT_FOUND", { status: 404 });
   }
   return { ok: true };
+}
+
+// ── Influencer referral campaigns ───────────────────────────────────────────
+
+function normalizeOptionalText(value, maxLength) {
+  const text = String(value || "").trim();
+  return text ? text.slice(0, maxLength) : null;
+}
+
+function normalizeInfluencerCodePrefix(prefix) {
+  return String(prefix || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 10);
+}
+
+function buildInfluencerTrackingCode() {
+  const firstLetter = String.fromCharCode(65 + crypto.randomInt(26));
+  const secondLetter = String.fromCharCode(65 + crypto.randomInt(26));
+  const firstDigit = crypto.randomInt(10);
+  const secondDigit = crypto.randomInt(10);
+  return `${firstLetter}${secondLetter}${firstDigit}${secondDigit}`;
+}
+
+function buildInfluencerCouponCode(prefix) {
+  const normalizedPrefix = normalizeInfluencerCodePrefix(prefix);
+  const random = crypto.randomBytes(5).toString("hex").toUpperCase();
+  return `OFF-${normalizedPrefix ? `${normalizedPrefix}-` : ""}${random}`;
+}
+
+function mapInfluencerProfile(row) {
+  const attributedUsers = Number(row.attributed_users || 0);
+  const convertedUsers = Number(row.converted_users || 0);
+  const qualificationRule =
+    row.qualification_rule === "claim" ? "claim" : "first_completed_order";
+  const qualifiedUsers =
+    qualificationRule === "claim" ? attributedUsers : convertedUsers;
+  const rewardPerQualifiedUser = Number(row.reward_per_qualified_user || 0);
+  const coupons = Array.isArray(row.coupons)
+    ? row.coupons.map((coupon) => ({
+        campaignId: Number(coupon.campaignId || 0),
+        couponId: Number(coupon.couponId || 0),
+        code: coupon.code,
+        label: coupon.label || null,
+        discountType: coupon.discountType,
+        discountValue: Number(coupon.discountValue || 0),
+        minOrderTotal: Number(coupon.minOrderTotal || 0),
+        maxUses: coupon.maxUses == null ? null : Number(coupon.maxUses),
+        usesCount: Number(coupon.usesCount || 0),
+        maxUsesPerUser: Number(coupon.maxUsesPerUser || 1),
+        isActive: coupon.isActive === true,
+        validFrom: coupon.validFrom || null,
+        validUntil: coupon.validUntil || null,
+        createdAt: coupon.createdAt || null,
+      }))
+    : [];
+  return {
+    influencerId: Number(row.id),
+    trackingCode: row.tracking_code,
+    influencerName: row.display_name,
+    influencerHandle: row.handle || null,
+    contactPhone: row.contact_phone || null,
+    notes: row.notes || null,
+    rewardPerQualifiedUser,
+    qualificationRule,
+    isActive: row.is_active === true,
+    attributedUsers,
+    convertedUsers,
+    qualifiedUsers,
+    completedOrders: Number(row.completed_orders || 0),
+    totalSpent: Number(row.total_spent || 0),
+    payableAmount: Math.round(qualifiedUsers * rewardPerQualifiedUser),
+    coupons,
+    createdAt: row.created_at || null,
+  };
+}
+
+export async function createInfluencerProfile(dto, actor) {
+  await resolveAgentCouponManager(actor);
+  const influencerName = String(dto?.influencerName || "").trim();
+  if (influencerName.length < 2 || influencerName.length > 160) {
+    throwCouponValidation({ influencerName: "INVALID_LENGTH" });
+  }
+
+  const rewardPerQualifiedUser = Number(dto?.rewardPerQualifiedUser || 0);
+  if (!Number.isFinite(rewardPerQualifiedUser) || rewardPerQualifiedUser < 0) {
+    throwCouponValidation({ rewardPerQualifiedUser: "INVALID_NUMBER" });
+  }
+  const qualificationRule =
+    dto?.qualificationRule === "claim" ? "claim" : "first_completed_order";
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const trackingCode = buildInfluencerTrackingCode();
+    try {
+      const created = await repo.createInfluencerProfile({
+        trackingCode,
+        displayName: influencerName,
+        handle: normalizeOptionalText(dto?.influencerHandle, 160),
+        contactPhone: normalizeOptionalText(dto?.contactPhone, 40),
+        notes: normalizeOptionalText(dto?.notes, 2000),
+        rewardPerQualifiedUser,
+        qualificationRule,
+        createdByUserId: actor.userId,
+      });
+      return {
+        influencer: mapInfluencerProfile({
+          ...created,
+          attributed_users: 0,
+          converted_users: 0,
+          completed_orders: 0,
+          total_spent: 0,
+          coupons: [],
+        }),
+      };
+    } catch (error) {
+      if (String(error?.code || "") === "23505" && attempt < 19) continue;
+      throw error;
+    }
+  }
+  throw new AppError("INFLUENCER_CODE_GENERATION_FAILED", { status: 503 });
+}
+
+export async function createInfluencerMarketingCoupon(
+  influencerId,
+  dto,
+  actor,
+) {
+  await resolveAgentCouponManager(actor);
+  const id = Number(influencerId || 0);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new AppError("INFLUENCER_NOT_FOUND", { status: 404 });
+  }
+  const discountType = dto?.discountType === "fixed" ? "fixed" : "percent";
+  const discountValue = Number(dto?.discountValue || 0);
+  if (!Number.isFinite(discountValue) || discountValue <= 0) {
+    throwCouponValidation({ discountValue: "INVALID_NUMBER" });
+  }
+  if (discountType === "percent" && discountValue > 100) {
+    throwCouponValidation({ discountValue: "PERCENT_DISCOUNT_TOO_HIGH" });
+  }
+  const minOrderTotal = Number(dto?.minOrderTotal || 0);
+  if (!Number.isFinite(minOrderTotal) || minOrderTotal < 0) {
+    throwCouponValidation({ minOrderTotal: "INVALID_NUMBER" });
+  }
+  const maxUsesRaw = dto?.maxUses;
+  const maxUses =
+    maxUsesRaw == null || String(maxUsesRaw).trim() === ""
+      ? null
+      : Number(maxUsesRaw);
+  if (maxUses != null && (!Number.isInteger(maxUses) || maxUses <= 0)) {
+    throwCouponValidation({ maxUses: "INVALID_NUMBER" });
+  }
+  if (dto?.validFrom && dto?.validUntil) {
+    const from = new Date(dto.validFrom).getTime();
+    const until = new Date(dto.validUntil).getTime();
+    if (!Number.isFinite(from) || !Number.isFinite(until) || until < from) {
+      throwCouponValidation({ validUntil: "INVALID_DATE_RANGE" });
+    }
+  }
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const code = buildInfluencerCouponCode(dto?.codePrefix);
+    try {
+      const created = await repo.createInfluencerCoupon({
+        influencerId: id,
+        code,
+        label: normalizeOptionalText(dto?.label, 160),
+        discountType,
+        discountValue,
+        minOrderTotal,
+        maxUses,
+        validFrom: dto?.validFrom || null,
+        validUntil: dto?.validUntil || null,
+        createdByUserId: actor.userId,
+      });
+      return {
+        coupon: {
+          campaignId: Number(created.id),
+          couponId: Number(created.coupon.id),
+          code: created.coupon.code,
+          label: created.label || null,
+          discountType: created.coupon.discount_type,
+          discountValue: Number(created.coupon.discount_value || 0),
+          minOrderTotal: Number(created.coupon.min_order_total || 0),
+          maxUses:
+            created.coupon.max_uses == null
+              ? null
+              : Number(created.coupon.max_uses),
+          usesCount: Number(created.coupon.uses_count || 0),
+          maxUsesPerUser: 1,
+          isActive: created.coupon.is_active === true,
+          validFrom: created.coupon.valid_from || null,
+          validUntil: created.coupon.valid_until || null,
+          createdAt: created.created_at || null,
+        },
+      };
+    } catch (error) {
+      if (String(error?.code || "") === "23505" && attempt < 4) continue;
+      throw error;
+    }
+  }
+  throw new AppError("INFLUENCER_COUPON_GENERATION_FAILED", { status: 503 });
+}
+
+export async function claimInfluencerCode({
+  code,
+  userId,
+  deviceContext,
+  authSessionId,
+  transactionClient = null,
+}) {
+  const normalizedCode = String(code || "").trim();
+  if (!normalizedCode) {
+    throwCouponValidation({ code: "REQUIRED" });
+  }
+  const fingerprint = buildReferralDeviceFingerprint(deviceContext);
+  const deviceId = String(deviceContext?.deviceId || "").trim();
+  if (!deviceId || fingerprint.length < 32) {
+    throw new AppError("REFERRAL_DEVICE_ID_REQUIRED", { status: 400 });
+  }
+  const result = await repo.claimInfluencerReferral({
+    code: normalizedCode,
+    userId: Number(userId),
+    deviceFingerprint: fingerprint,
+    authSessionId,
+    transactionClient,
+  });
+  return {
+    claimed: true,
+    created: result.created === true,
+    referral: {
+      code: result.influencer.tracking_code,
+      influencerName: result.influencer.display_name,
+      influencerHandle: result.influencer.handle || null,
+      claimedAt: result.attribution.claimed_at || null,
+      locked: true,
+    },
+  };
+}
+
+export async function listInfluencerProfiles(actor) {
+  await resolveAgentCouponManager(actor);
+  const rows = await repo.listInfluencerProfiles();
+  return { influencers: rows.map(mapInfluencerProfile) };
+}
+
+export async function getInfluencerReferrals(influencerId, actor) {
+  await resolveAgentCouponManager(actor);
+  const id = Number(influencerId || 0);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new AppError("INFLUENCER_NOT_FOUND", { status: 404 });
+  }
+  const rows = await repo.listInfluencerReferrals(id);
+  return {
+    referrals: rows.map((row) => {
+      const qualified =
+        row.qualification_rule === "claim" ||
+        row.first_completed_order_at != null;
+      return {
+        attributionId: Number(row.id),
+        userId: Number(row.user_id),
+        customerName: row.full_name || null,
+        customerPhone: row.phone || null,
+        claimedAt: row.claimed_at || null,
+        qualified,
+        qualifiedAt: row.first_completed_order_at ||
+          (row.qualification_rule === "claim" ? row.claimed_at : null),
+        completedOrders: Number(row.completed_orders || 0),
+        totalSpent: Number(row.total_spent || 0),
+        firstCompletedOrderAt: row.first_completed_order_at || null,
+        lastCompletedOrderAt: row.last_completed_order_at || null,
+      };
+    }),
+  };
+}
+
+export async function toggleInfluencerProfile(influencerId, isActive, actor) {
+  await resolveAgentCouponManager(actor);
+  const id = Number(influencerId || 0);
+  if (!Number.isInteger(id) || id <= 0 || typeof isActive !== "boolean") {
+    throw new AppError("VALIDATION_ERROR", { status: 400 });
+  }
+  const influencer = await repo.setInfluencerProfileActive(id, isActive);
+  if (!influencer) {
+    throw new AppError("INFLUENCER_NOT_FOUND", { status: 404 });
+  }
+  return { ok: true, isActive: influencer.is_active === true };
 }

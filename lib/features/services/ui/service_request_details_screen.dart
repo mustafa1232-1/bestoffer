@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
@@ -8,9 +9,32 @@ import '../../../core/media/media_url.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/services_api.dart';
 import '../models/service_models.dart';
+import 'emergency_request_tracking_screen.dart';
 import 'service_my_requests_screen.dart';
 
 const double _servicePlatformCommissionRate = 0.10;
+
+String _serviceRequestLifecycleStatus(ServiceRequestModel request) {
+  final bookingStatus = (request.bookingStatus ?? '').trim();
+  return bookingStatus.isNotEmpty ? bookingStatus : request.status.trim();
+}
+
+String _normalizedServiceRequestLifecycleStatus(ServiceRequestModel request) {
+  return _serviceRequestLifecycleStatus(request).toLowerCase();
+}
+
+bool _isV2ServiceBooking(ServiceRequestModel request) {
+  return (request.bookingFlowKind ?? '').trim().toUpperCase() == 'V2';
+}
+
+String? _serviceTransitionIdempotencyKey(
+  ServiceRequestModel request,
+  String status,
+) {
+  final version = request.bookingVersion;
+  if (version == null) return null;
+  return 'service-request:${request.id}:$version:$status';
+}
 
 double _serviceRequestGrossAmount(ServiceRequestModel request) {
   final candidates = <double?>[
@@ -42,6 +66,12 @@ String _formatIqd(num value) {
     }
   }
   return '${buffer.toString()} IQD';
+}
+
+String _whatsAppPhone(String value) {
+  final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+  if (digits.startsWith('0')) return '964${digits.substring(1)}';
+  return digits;
 }
 
 class ServiceRequestDetailsScreen extends ConsumerStatefulWidget {
@@ -93,6 +123,8 @@ class _ServiceRequestDetailsScreenState
 
   Future<void> _updateCustomerStatus(String status, {String? note}) async {
     if (_busy) return;
+    final request = _request;
+    if (request == null) return;
     setState(() => _busy = true);
     try {
       await ref
@@ -101,6 +133,8 @@ class _ServiceRequestDetailsScreenState
             requestId: widget.requestId,
             status: status,
             note: note,
+            expectedVersion: request.bookingVersion,
+            idempotencyKey: _serviceTransitionIdempotencyKey(request, status),
           );
       await _load();
     } catch (error) {
@@ -120,6 +154,8 @@ class _ServiceRequestDetailsScreenState
     DateTime? scheduledEndAt,
   }) async {
     if (_busy) return;
+    final request = _request;
+    if (request == null) return;
     setState(() => _busy = true);
     try {
       await ref
@@ -130,6 +166,8 @@ class _ServiceRequestDetailsScreenState
             note: note,
             scheduledStartAt: scheduledStartAt,
             scheduledEndAt: scheduledEndAt,
+            expectedVersion: request.bookingVersion,
+            idempotencyKey: _serviceTransitionIdempotencyKey(request, status),
           );
       await _load();
     } catch (error) {
@@ -230,6 +268,221 @@ class _ServiceRequestDetailsScreenState
     }
   }
 
+  Future<void> _adjustInvoice() async {
+    final request = _request;
+    if (request == null || _busy) return;
+    final priceCtrl = TextEditingController(
+      text: (request.finalPrice ?? request.bookingTotalIqd ?? 0)
+          .round()
+          .toString(),
+    );
+    final discountCtrl = TextEditingController(
+      text: request.invoiceAdminDiscountIqd.round().toString(),
+    );
+    final noteCtrl = TextEditingController(
+      text: request.invoiceAdminDiscountNote ?? '',
+    );
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('تعديل فاتورة الخدمة'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: priceCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'سعر الخدمة'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: discountCtrl,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'خصم الإدارة'),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: noteCtrl,
+              decoration: const InputDecoration(
+                labelText: 'سبب التعديل أو الخصم',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('حفظ الفاتورة'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final price = double.tryParse(priceCtrl.text.trim());
+    final discount = double.tryParse(discountCtrl.text.trim()) ?? 0;
+    if (price == null || price < 0 || discount < 0 || discount > price) return;
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(servicesApiProvider)
+          .adjustServiceRequestPrice(
+            requestId: request.id,
+            totalIqd: price,
+            discountIqd: discount,
+            note: noteCtrl.text.trim(),
+          );
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+      priceCtrl.dispose();
+      discountCtrl.dispose();
+      noteCtrl.dispose();
+    }
+  }
+
+  Future<void> _applyCoupon() async {
+    final request = _request;
+    if (request == null || _busy) return;
+    final codeCtrl = TextEditingController();
+    final code = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('استخدام كوبون خصم'),
+        content: TextField(
+          controller: codeCtrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.characters,
+          decoration: const InputDecoration(labelText: 'كود الخصم'),
+          onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(codeCtrl.text.trim()),
+            child: const Text('تطبيق'),
+          ),
+        ],
+      ),
+    );
+    if ((code ?? '').isEmpty) return;
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(servicesApiProvider)
+          .applyServiceRequestCoupon(requestId: request.id, code: code!);
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      codeCtrl.dispose();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _submitPayment() async {
+    final request = _request;
+    if (request == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(servicesApiProvider)
+          .submitServiceRequestPayment(
+            requestId: request.id,
+            paymentMethod: 'cash',
+          );
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _confirmPayment() async {
+    final request = _request;
+    if (request == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(servicesApiProvider)
+          .confirmServiceRequestPayment(requestId: request.id);
+      await _load();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$error')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _openRequestChat(bool isProvider) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _ServiceRequestChatSheet(
+        requestId: widget.requestId,
+        provider: isProvider,
+      ),
+    );
+  }
+
+  Future<void> _cancelByProvider() async {
+    final reasonCtrl = TextEditingController();
+    final reason = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('إلغاء حجز الخدمة'),
+        content: TextField(
+          controller: reasonCtrl,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'سبب الإلغاء',
+            hintText: 'سيظهر السبب للزبون بوضوح',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('رجوع'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(reasonCtrl.text.trim()),
+            child: const Text('تأكيد الإلغاء'),
+          ),
+        ],
+      ),
+    );
+    reasonCtrl.dispose();
+    if ((reason ?? '').trim().isEmpty) return;
+    await _updateProviderStatus('CANCELLED_BY_PROVIDER', note: reason);
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authControllerProvider);
@@ -271,11 +524,22 @@ class _ServiceRequestDetailsScreenState
     }
     final amount = _serviceRequestGrossAmount(request);
     final commission = _servicePlatformCommission(amount);
+    final lifecycleStatus = _normalizedServiceRequestLifecycleStatus(request);
+    final isV2Booking = _isV2ServiceBooking(request);
+    final cancelAvailableAt = DateTime.tryParse(
+      request.customerCancelAvailableAt ?? '',
+    );
+    final canCustomerCancel =
+        cancelAvailableAt == null ||
+        !DateTime.now().isBefore(cancelAvailableAt.toLocal());
+    final invoiceAmount =
+        request.invoiceTotalIqd ??
+        request.finalPrice ??
+        request.bookingTotalIqd ??
+        0;
 
     final allowCustomerReview =
-        !isProvider &&
-        request.status.trim().toLowerCase() == 'completed' &&
-        !_reviewSubmitted;
+        !isProvider && lifecycleStatus == 'completed' && !_reviewSubmitted;
     final latestQuote = request.quotes.isEmpty ? null : request.quotes.first;
     final pendingCustomerQuote =
         !isProvider &&
@@ -304,6 +568,23 @@ class _ServiceRequestDetailsScreenState
         child: ListView(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
           children: [
+            if (!isProvider && request.urgency == 'emergency') ...[
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                  backgroundColor: Theme.of(context).colorScheme.error,
+                ),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        EmergencyRequestTrackingScreen(requestId: request.id),
+                  ),
+                ),
+                icon: const Icon(Icons.location_searching_rounded),
+                label: const Text('فتح الموقع الحي ومحادثة الطوارئ'),
+              ),
+              const SizedBox(height: 12),
+            ],
             if (servicesSection.isBlocked)
               Card(
                 child: Padding(
@@ -328,6 +609,10 @@ class _ServiceRequestDetailsScreenState
                   ),
                 ),
               ),
+            if (request.serviceKey != null && !isV2Booking) ...[
+              _CentralRoutingCard(request: request),
+              const SizedBox(height: 12),
+            ],
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(14),
@@ -335,7 +620,9 @@ class _ServiceRequestDetailsScreenState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      request.offeringName ?? 'طلب خدمة',
+                      request.serviceTitle ??
+                          request.offeringName ??
+                          'طلب خدمة',
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w900,
@@ -343,7 +630,7 @@ class _ServiceRequestDetailsScreenState
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'الحالة الحالية: ${serviceRequestStatusLabel(request.status)}',
+                      'الحالة الحالية: ${serviceRequestStatusLabel(_serviceRequestLifecycleStatus(request))}',
                     ),
                     if ((request.providerBusinessName ?? '').trim().isNotEmpty)
                       Padding(
@@ -362,10 +649,67 @@ class _ServiceRequestDetailsScreenState
                           'الموقع: ${request.city ?? ''} ${request.area ?? ''}',
                         ),
                       ),
+                    if ((request.addressLine ?? '').trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text('العنوان: ${request.addressLine}'),
+                      ),
+                    if ((request.requestedDate ?? '').trim().isNotEmpty ||
+                        (request.requestedTime ?? '').trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          'الموعد المطلوب: ${request.requestedDate ?? ''} ${request.requestedTime ?? ''}'
+                              .trim(),
+                        ),
+                      ),
                     if ((request.notes ?? '').trim().isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 6),
                         child: Text('ملاحظات: ${request.notes}'),
+                      ),
+                    if ((request.contactPhone ?? '').trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'طريقة التواصل: ${request.preferredContact} - ${request.contactPhone}',
+                            ),
+                            if (isProvider)
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: () => launchUrl(
+                                      Uri.parse('tel:${request.contactPhone}'),
+                                    ),
+                                    icon: const Icon(Icons.call_outlined),
+                                    label: const Text('اتصال'),
+                                  ),
+                                  OutlinedButton.icon(
+                                    onPressed: () => launchUrl(
+                                      Uri.parse(
+                                        'https://wa.me/${_whatsAppPhone(request.contactPhone!)}',
+                                      ),
+                                      mode: LaunchMode.externalApplication,
+                                    ),
+                                    icon: const Icon(Icons.chat_outlined),
+                                    label: const Text('واتساب'),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
+                      ),
+                    if (request.medicalInfo.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          'المعلومات الطبية الاختيارية: ${request.medicalInfo.values.where((value) => '$value'.trim().isNotEmpty).join('، ')}',
+                        ),
                       ),
                     if (request.finalPrice != null)
                       Padding(
@@ -406,6 +750,31 @@ class _ServiceRequestDetailsScreenState
                   ],
                 ),
               ),
+            ),
+            if (<String>{
+              'accepted',
+              'confirmed',
+              'in_progress',
+              'provider_completed',
+              'completed',
+            }.contains(lifecycleStatus)) ...[
+              const SizedBox(height: 12),
+              _ServiceInvoiceCard(
+                request: request,
+                invoiceAmount: invoiceAmount,
+                isProvider: isProvider,
+                busy: _busy,
+                onApplyCoupon: _applyCoupon,
+                onAdjust: _adjustInvoice,
+                onSubmitPayment: _submitPayment,
+                onConfirmPayment: _confirmPayment,
+              ),
+            ],
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () => _openRequestChat(isProvider),
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+              label: const Text('محادثة طلب الخدمة'),
             ),
             if (request.attachments.isNotEmpty) ...[
               const SizedBox(height: 12),
@@ -557,28 +926,22 @@ class _ServiceRequestDetailsScreenState
                   if (<String>{
                     'pending',
                     'awaiting_provider',
+                    'pending_provider_confirmation',
                     'accepted',
+                    'confirmed',
                     'scheduled',
                     'in_progress',
-                  }.contains(request.status.trim().toLowerCase()))
+                  }.contains(lifecycleStatus))
                     OutlinedButton.icon(
-                      onPressed: _busy
+                      onPressed: _busy || !canCustomerCancel
                           ? null
                           : () => _updateCustomerStatus('cancelled'),
                       icon: const Icon(Icons.cancel_outlined),
-                      label: const Text('إلغاء الطلب'),
-                    ),
-                  if (<String>{
-                    'accepted',
-                    'scheduled',
-                    'in_progress',
-                  }.contains(request.status.trim().toLowerCase()))
-                    OutlinedButton.icon(
-                      onPressed: _busy
-                          ? null
-                          : () => _updateCustomerStatus('completed'),
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('تأكيد الاكتمال'),
+                      label: Text(
+                        canCustomerCancel
+                            ? 'إلغاء الطلب'
+                            : 'الإلغاء متاح بعد 15 دقيقة',
+                      ),
                     ),
                 ],
               ),
@@ -588,19 +951,22 @@ class _ServiceRequestDetailsScreenState
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  if (request.status.trim().toLowerCase() == 'pending' ||
-                      request.status.trim().toLowerCase() ==
-                          'awaiting_provider')
+                  if (<String>{
+                    'pending',
+                    'awaiting_provider',
+                    'pending_provider_confirmation',
+                  }.contains(lifecycleStatus))
                     OutlinedButton(
                       onPressed: _busy
                           ? null
-                          : () => _updateProviderStatus('accepted'),
-                      child: const Text('قبول'),
+                          : () => _updateProviderStatus('CONFIRMED'),
+                      child: const Text('تأكيد الحجز بالسعر الظاهر'),
                     ),
                   if (<String>{
                     'accepted',
                     'awaiting_provider',
-                  }.contains(request.status.trim().toLowerCase()))
+                    'confirmed',
+                  }.contains(lifecycleStatus))
                     OutlinedButton(
                       onPressed: _busy
                           ? null
@@ -613,29 +979,44 @@ class _ServiceRequestDetailsScreenState
                   if (<String>{
                     'accepted',
                     'scheduled',
-                  }.contains(request.status.trim().toLowerCase()))
+                    'confirmed',
+                  }.contains(lifecycleStatus))
                     OutlinedButton(
                       onPressed: _busy
                           ? null
-                          : () => _updateProviderStatus('in_progress'),
-                      child: const Text('بدء التنفيذ'),
+                          : () => _updateProviderStatus('IN_PROGRESS'),
+                      child: const Text('التوجه إلى الزبون'),
                     ),
-                  if (request.status.trim().toLowerCase() == 'in_progress')
+                  if (lifecycleStatus == 'in_progress')
                     OutlinedButton(
                       onPressed: _busy
                           ? null
-                          : () => _updateProviderStatus('completed'),
-                      child: const Text('إنهاء'),
+                          : () => _updateProviderStatus(
+                              isV2Booking ? 'PROVIDER_COMPLETED' : 'completed',
+                            ),
+                      child: const Text('إتمام الخدمة وإظهار الفاتورة'),
                     ),
                   if (<String>{
                     'pending',
                     'awaiting_provider',
-                  }.contains(request.status.trim().toLowerCase()))
+                    'pending_provider_confirmation',
+                  }.contains(lifecycleStatus))
                     OutlinedButton(
                       onPressed: _busy
                           ? null
                           : () => _updateProviderStatus('rejected'),
                       child: const Text('رفض'),
+                    ),
+                  if (<String>{
+                    'accepted',
+                    'confirmed',
+                    'scheduled',
+                    'in_progress',
+                  }.contains(lifecycleStatus))
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : _cancelByProvider,
+                      icon: const Icon(Icons.cancel_outlined),
+                      label: const Text('إلغاء الحجز'),
                     ),
                 ],
               ),
@@ -646,6 +1027,404 @@ class _ServiceRequestDetailsScreenState
     );
   }
 }
+
+class _ServiceInvoiceCard extends StatelessWidget {
+  final ServiceRequestModel request;
+  final double invoiceAmount;
+  final bool isProvider;
+  final bool busy;
+  final VoidCallback onApplyCoupon;
+  final VoidCallback onAdjust;
+  final VoidCallback onSubmitPayment;
+  final VoidCallback onConfirmPayment;
+
+  const _ServiceInvoiceCard({
+    required this.request,
+    required this.invoiceAmount,
+    required this.isProvider,
+    required this.busy,
+    required this.onApplyCoupon,
+    required this.onAdjust,
+    required this.onSubmitPayment,
+    required this.onConfirmPayment,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final paymentSubmitted = request.paymentSubmittedAt != null;
+    final paymentConfirmed = request.paymentConfirmedAt != null;
+    final serviceCompleted =
+        (request.bookingStatus ?? request.status).toLowerCase() ==
+            'provider_completed' ||
+        paymentSubmitted ||
+        paymentConfirmed;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Theme.of(
+          context,
+        ).colorScheme.primaryContainer.withValues(alpha: 0.38),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.receipt_long_outlined),
+              SizedBox(width: 8),
+              Text(
+                'فاتورة الخدمة',
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          _invoiceRow(
+            'سعر الخدمة',
+            _formatIqd(request.finalPrice ?? request.bookingTotalIqd ?? 0),
+          ),
+          if (request.invoiceAdminDiscountIqd > 0)
+            _invoiceRow(
+              'خصم الإدارة',
+              '- ${_formatIqd(request.invoiceAdminDiscountIqd)}',
+            ),
+          if (request.invoiceCouponDiscountIqd > 0)
+            _invoiceRow(
+              'كوبون ${request.invoiceCouponCode ?? ''}',
+              '- ${_formatIqd(request.invoiceCouponDiscountIqd)}',
+            ),
+          const Divider(),
+          _invoiceRow('المبلغ المطلوب', _formatIqd(invoiceAmount), bold: true),
+          const SizedBox(height: 10),
+          if (paymentConfirmed)
+            const Text(
+              'تم تأكيد الدفع وأرشفة الخدمة ضمن الخدمات المكتملة.',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            )
+          else if (paymentSubmitted)
+            const Text(
+              'أكد العميل الدفع. الطلب بانتظار تأكيد الاستلام من الإدارة.',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (isProvider && !paymentConfirmed)
+                OutlinedButton.icon(
+                  onPressed: busy ? null : onAdjust,
+                  icon: const Icon(Icons.edit_note_rounded),
+                  label: const Text('تعديل السعر أو الخصم'),
+                ),
+              if (!isProvider && !paymentSubmitted && !paymentConfirmed)
+                OutlinedButton.icon(
+                  onPressed: busy ? null : onApplyCoupon,
+                  icon: const Icon(Icons.local_offer_outlined),
+                  label: const Text('إضافة كوبون'),
+                ),
+              if (!isProvider &&
+                  serviceCompleted &&
+                  !paymentSubmitted &&
+                  !paymentConfirmed)
+                FilledButton.icon(
+                  onPressed: busy ? null : onSubmitPayment,
+                  icon: const Icon(Icons.payments_outlined),
+                  label: const Text('تم الدفع'),
+                ),
+              if (isProvider && paymentSubmitted && !paymentConfirmed)
+                FilledButton.icon(
+                  onPressed: busy ? null : onConfirmPayment,
+                  icon: const Icon(Icons.verified_outlined),
+                  label: const Text('تأكيد استلام الدفع'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _invoiceRow(String label, String value, {bool bold = false}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: TextStyle(fontWeight: bold ? FontWeight.w900 : null),
+          ),
+          Text(
+            value,
+            style: TextStyle(fontWeight: bold ? FontWeight.w900 : null),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ServiceRequestChatSheet extends ConsumerStatefulWidget {
+  final int requestId;
+  final bool provider;
+
+  const _ServiceRequestChatSheet({
+    required this.requestId,
+    required this.provider,
+  });
+
+  @override
+  ConsumerState<_ServiceRequestChatSheet> createState() =>
+      _ServiceRequestChatSheetState();
+}
+
+class _ServiceRequestChatSheetState
+    extends ConsumerState<_ServiceRequestChatSheet> {
+  final _messageCtrl = TextEditingController();
+  List<Map<String, dynamic>> _items = const [];
+  bool _loading = true;
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _messageCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final items = await ref
+          .read(servicesApiProvider)
+          .listServiceRequestMessages(
+            requestId: widget.requestId,
+            provider: widget.provider,
+          );
+      if (mounted) {
+        setState(() {
+          _items = items;
+          _loading = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _send() async {
+    final message = _messageCtrl.text.trim();
+    if (message.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      await ref
+          .read(servicesApiProvider)
+          .sendServiceRequestMessage(
+            requestId: widget.requestId,
+            provider: widget.provider,
+            message: message,
+          );
+      _messageCtrl.clear();
+      await _load();
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUserId = ref.watch(authControllerProvider).user?.id;
+    return FractionallySizedBox(
+      heightFactor: 0.82,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          14,
+          10,
+          14,
+          12 + MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade400,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'محادثة طلب الخدمة',
+              style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18),
+            ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _items.isEmpty
+                  ? const Center(
+                      child: Text('ابدأ المحادثة لتوضيح تفاصيل الطلب.'),
+                    )
+                  : ListView.builder(
+                      itemCount: _items.length,
+                      itemBuilder: (context, index) {
+                        final item = _items[index];
+                        final mine =
+                            '${item['senderUserId']}' == '$currentUserId';
+                        return Align(
+                          alignment: mine
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 9,
+                            ),
+                            decoration: BoxDecoration(
+                              color: mine
+                                  ? Theme.of(
+                                      context,
+                                    ).colorScheme.primaryContainer
+                                  : Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text('${item['message'] ?? ''}'),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _messageCtrl,
+                    maxLines: 3,
+                    minLines: 1,
+                    decoration: const InputDecoration(
+                      hintText: 'اكتب رسالتك...',
+                    ),
+                    onSubmitted: (_) => _send(),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  tooltip: 'إرسال',
+                  onPressed: _sending ? null : _send,
+                  icon: const Icon(Icons.send_rounded),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _CentralRoutingCard extends StatelessWidget {
+  const _CentralRoutingCard({required this.request});
+
+  final ServiceRequestModel request;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final emergency = request.urgency == 'emergency';
+    final color = emergency ? scheme.error : scheme.primary;
+    final professional = (request.assignedProfessionalName ?? '').trim();
+    final phone = (request.assignedProfessionalPhone ?? '').trim();
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withValues(alpha: 0.32)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            textDirection: TextDirection.rtl,
+            children: [
+              Icon(
+                emergency ? Icons.sos_rounded : Icons.route_rounded,
+                color: color,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  emergency ? 'متابعة نداء المساعدة' : 'متابعة توجيه الطلب',
+                  textDirection: TextDirection.rtl,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(color: color, fontWeight: FontWeight.w900),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _centralRoutingDescription(request.routingStatus),
+            textDirection: TextDirection.rtl,
+            textAlign: TextAlign.right,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          if (professional.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'المختص المعيّن: $professional',
+              textDirection: TextDirection.rtl,
+              textAlign: TextAlign.right,
+            ),
+          ],
+          if (phone.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: TextButton.icon(
+                onPressed: () => launchUrl(Uri.parse('tel:$phone')),
+                icon: const Icon(Icons.call_rounded),
+                label: Text('اتصال بالمختص: $phone'),
+              ),
+            ),
+          ],
+          if ((request.assignmentNote ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              'ملاحظة الفريق: ${request.assignmentNote}',
+              textDirection: TextDirection.rtl,
+              textAlign: TextAlign.right,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+String _centralRoutingDescription(String? value) => switch (value) {
+  'triaged' => 'راجع فريق مسلكي الطلب ويختار المختص المناسب الآن.',
+  'assigned' => 'تم تعيين مختص لهذا الطلب وسيتم التواصل معك.',
+  'contacted' => 'تم التواصل مع المختص وتأكيد تفاصيل الطلب.',
+  'en_route' => 'المختص في الطريق إلى الموقع المحدد.',
+  'resolved' => 'تم إنجاز الخدمة وإغلاق التوجيه.',
+  'cancelled' => 'تم إلغاء توجيه هذا الطلب. راجع الملاحظة أدناه.',
+  _ => 'وصل طلبك إلى فريق خدمات مسلكي وهو بانتظار المراجعة.',
+};
 
 bool _canAccessRequestWithSectionPolicy(
   ServiceRequestModel request,

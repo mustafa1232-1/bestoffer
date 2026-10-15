@@ -16,7 +16,9 @@ import 'social_api.dart';
 class SocialStreamUploadService {
   static const Duration defaultReadyTimeout = Duration(minutes: 2);
   static const Duration defaultReadyPollInterval = Duration(seconds: 2);
-  static const int defaultChunkSizeBytes = 1024 * 1024;
+  // Cloudflare Stream TUS requires upload chunks of at least 5 MiB.
+  // The last chunk may be smaller when it reaches the end of the file.
+  static const int defaultChunkSizeBytes = 5 * 1024 * 1024;
   static const int _maxChunkRetries = 5;
 
   final SocialApi api;
@@ -27,14 +29,14 @@ class SocialStreamUploadService {
   /// applying those to a one-time Cloudflare TUS URL can both leak irrelevant
   /// headers and make large mobile uploads fail on slower connections.
   SocialStreamUploadService(this.api)
-      : dio = Dio(
-          BaseOptions(
-            connectTimeout: const Duration(seconds: 20),
-            sendTimeout: const Duration(minutes: 2),
-            receiveTimeout: const Duration(seconds: 30),
-            responseType: ResponseType.plain,
-          ),
-        );
+    : dio = Dio(
+        BaseOptions(
+          connectTimeout: const Duration(seconds: 20),
+          sendTimeout: const Duration(minutes: 2),
+          receiveTimeout: const Duration(seconds: 30),
+          responseType: ResponseType.plain,
+        ),
+      );
 
   Future<SocialMediaAsset> uploadVideoAndWaitReady({
     required LocalMediaFile mediaFile,

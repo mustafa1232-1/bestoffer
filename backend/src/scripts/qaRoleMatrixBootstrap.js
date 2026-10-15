@@ -230,17 +230,29 @@ async function createStoreEmployee(baseUrl, runTag, ownerActor, ownerMerchantId,
 
 async function createDeliveryCourier(baseUrl, runTag, superAdminActor, label, approved) {
   const phone = buildPhone(approved ? "076" : "075", Number(String(Date.now()).slice(-8)));
-  const createResponse = await request(baseUrl, superAdminActor, "POST", "/api/admin/users", {
+  const createResponse = await request(
+    baseUrl,
+    makeActor(label, runTag, "delivery"),
+    "POST",
+    "/api/delivery/register",
+    {
     fullName: `${label} ${runTag}`,
     phone,
     pin: "1234",
     block: "B1",
     buildingNumber: "B101",
     apartment: "301",
-    role: "delivery",
-    driverType: "app_driver",
-  });
-  assertStatus(createResponse, 201, `${label} create`);
+      vehicleType: "car",
+      carMake: "Toyota",
+      carModel: "Corolla",
+      carYear: 2023,
+      carColor: "White",
+      plateNumber: `DLV-${String(Date.now()).slice(-5)}`,
+      analyticsConsentAccepted: true,
+      analyticsConsentVersion: "phase3d_matrix_v1",
+    }
+  );
+  assertStatus(createResponse, 201, `${label} register`);
   const userId = readId(createResponse.data?.user);
   assert.ok(userId, `${label} -> missing user id`);
 
@@ -271,8 +283,8 @@ async function createTaxiCaptain(baseUrl, runTag, superAdminActor, label) {
     fullName: `${label} ${runTag}`,
     phone,
     pin: "1234",
-    block: "C1",
-    buildingNumber: "C101",
+    block: "A3",
+    buildingNumber: "A301",
     apartment: "401",
     vehicleType: "car",
     carMake: "Toyota",

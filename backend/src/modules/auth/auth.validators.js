@@ -5,7 +5,21 @@ function isNonEmptyString(v, max = 200) {
 }
 
 function isOptionalString(v, max = 1000) {
-  return v === undefined || v === null || (typeof v === "string" && v.trim().length <= max);
+  return (
+    v === undefined ||
+    v === null ||
+    (typeof v === "string" && v.trim().length <= max)
+  );
+}
+
+function isOptionalCoordinate(v, min, max) {
+  if (v === undefined || v === null || v === "") return true;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= min && n <= max;
+}
+
+function hasCoordinateValue(v) {
+  return v !== undefined && v !== null && v !== "";
 }
 
 function normalizeDigits(value) {
@@ -32,12 +46,26 @@ export function validateRegister(body) {
   if (!isNonEmptyString(body.apartment, 20)) errors.push("apartment");
   if (!isOptionalString(body.workTitle, 160)) errors.push("workTitle");
   if (!isOptionalString(body.workCompany, 180)) errors.push("workCompany");
+  if (!isOptionalString(body.referralCode, 64)) errors.push("referralCode");
+  const referralCode = String(body.referralCode || "").trim();
+  if (referralCode && !/^[A-Za-z0-9-]{4,64}$/.test(referralCode)) {
+    errors.push("referralCode");
+  }
   if (!isOptionalString(body.imageUrl, 1000)) errors.push("imageUrl");
   if (!isExplicitTrue(body.analyticsConsentAccepted)) {
     errors.push("analyticsConsentAccepted");
   }
   if (!isOptionalString(body.analyticsConsentVersion, 32)) {
     errors.push("analyticsConsentVersion");
+  }
+  if (!isOptionalCoordinate(body.latitude, -90, 90)) errors.push("latitude");
+  if (!isOptionalCoordinate(body.longitude, -180, 180)) {
+    errors.push("longitude");
+  }
+  if (
+    hasCoordinateValue(body.latitude) !== hasCoordinateValue(body.longitude)
+  ) {
+    errors.push("location");
   }
 
   if (
@@ -76,7 +104,9 @@ export function validateLogin(body) {
 
 export function validateRefreshSession(body) {
   const errors = [];
-  const refreshToken = String(body?.refreshToken || body?.refresh_token || "").trim();
+  const refreshToken = String(
+    body?.refreshToken || body?.refresh_token || "",
+  ).trim();
   if (refreshToken.length < 24 || refreshToken.length > 256) {
     errors.push("refreshToken");
   }
@@ -89,9 +119,11 @@ export function validateRefreshSession(body) {
 
 export function validateRecoverSession(body) {
   const errors = [];
-  const deviceSessionId = String(body?.deviceSessionId || body?.device_session_id || "").trim();
+  const deviceSessionId = String(
+    body?.deviceSessionId || body?.device_session_id || "",
+  ).trim();
   const deviceRecoverySecret = String(
-    body?.deviceRecoverySecret || body?.device_recovery_secret || ""
+    body?.deviceRecoverySecret || body?.device_recovery_secret || "",
   ).trim();
   const deviceId = String(body?.deviceId || body?.device_id || "").trim();
   const appFlavor = String(body?.appFlavor || body?.app_flavor || "").trim();
@@ -121,8 +153,10 @@ export function validateUpdateAccount(body) {
   const errors = [];
 
   const currentPin = normalizeDigits(body.currentPin).replace(/[^\d]/g, "");
-  const hasPhone = typeof body.newPhone === "string" && body.newPhone.trim().length > 0;
-  const hasPin = typeof body.newPin === "string" && body.newPin.trim().length > 0;
+  const hasPhone =
+    typeof body.newPhone === "string" && body.newPhone.trim().length > 0;
+  const hasPin =
+    typeof body.newPin === "string" && body.newPin.trim().length > 0;
   const nextPin = normalizeDigits(body.newPin).replace(/[^\d]/g, "");
 
   if (!/^\d{4,8}$/.test(currentPin)) errors.push("currentPin");
@@ -130,7 +164,8 @@ export function validateUpdateAccount(body) {
 
   if (hasPhone) {
     const phoneDigits = normalizeDigits(body.newPhone).replace(/[^\d]/g, "");
-    if (phoneDigits.length < 8 || phoneDigits.length > 20) errors.push("newPhone");
+    if (phoneDigits.length < 8 || phoneDigits.length > 20)
+      errors.push("newPhone");
   }
 
   if (hasPin && !/^\d{4,8}$/.test(nextPin)) errors.push("newPin");
@@ -142,14 +177,20 @@ export function validateAddressCreate(body) {
   const errors = [];
 
   if (!isNonEmptyString(body.label, 80)) errors.push("label");
-  if (body.city !== undefined && !isOptionalString(body.city, 80)) errors.push("city");
+  if (body.city !== undefined && !isOptionalString(body.city, 80))
+    errors.push("city");
   if (!isNonEmptyString(body.block, 20)) errors.push("block");
   if (!isNonEmptyString(body.buildingNumber, 20)) errors.push("buildingNumber");
   if (!isNonEmptyString(body.apartment, 20)) errors.push("apartment");
+  if (!isOptionalCoordinate(body.latitude, -90, 90)) errors.push("latitude");
+  if (!isOptionalCoordinate(body.longitude, -180, 180))
+    errors.push("longitude");
   if (
-    body.isDefault !== undefined &&
-    typeof body.isDefault !== "boolean"
+    hasCoordinateValue(body.latitude) !== hasCoordinateValue(body.longitude)
   ) {
+    errors.push("coordinates");
+  }
+  if (body.isDefault !== undefined && typeof body.isDefault !== "boolean") {
     errors.push("isDefault");
   }
 
@@ -179,18 +220,34 @@ export function validateAddressUpdate(body) {
     body.block !== undefined ||
     body.buildingNumber !== undefined ||
     body.apartment !== undefined ||
+    body.latitude !== undefined ||
+    body.longitude !== undefined ||
     body.isDefault !== undefined;
 
   if (!hasAny) errors.push("changes_required");
 
-  if (body.label !== undefined && !isNonEmptyString(body.label, 80)) errors.push("label");
-  if (body.city !== undefined && !isOptionalString(body.city, 80)) errors.push("city");
-  if (body.block !== undefined && !isNonEmptyString(body.block, 20)) errors.push("block");
-  if (body.buildingNumber !== undefined && !isNonEmptyString(body.buildingNumber, 20)) {
+  if (body.label !== undefined && !isNonEmptyString(body.label, 80))
+    errors.push("label");
+  if (body.city !== undefined && !isOptionalString(body.city, 80))
+    errors.push("city");
+  if (body.block !== undefined && !isNonEmptyString(body.block, 20))
+    errors.push("block");
+  if (
+    body.buildingNumber !== undefined &&
+    !isNonEmptyString(body.buildingNumber, 20)
+  ) {
     errors.push("buildingNumber");
   }
   if (body.apartment !== undefined && !isNonEmptyString(body.apartment, 20)) {
     errors.push("apartment");
+  }
+  if (!isOptionalCoordinate(body.latitude, -90, 90)) errors.push("latitude");
+  if (!isOptionalCoordinate(body.longitude, -180, 180))
+    errors.push("longitude");
+  if (
+    hasCoordinateValue(body.latitude) !== hasCoordinateValue(body.longitude)
+  ) {
+    errors.push("coordinates");
   }
   if (body.isDefault !== undefined && typeof body.isDefault !== "boolean") {
     errors.push("isDefault");
@@ -228,7 +285,10 @@ function isOptionalTown(v) {
 function isOptionalIsoOrDmyDate(v) {
   if (v === undefined || v === null || v === "") return true;
   const text = normalizeDigits(String(v).trim());
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) || /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}$/.test(text);
+  return (
+    /^\d{4}-\d{2}-\d{2}$/.test(text) ||
+    /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{4}$/.test(text)
+  );
 }
 
 export function validateRegisterWithCard(body) {
@@ -236,22 +296,40 @@ export function validateRegisterWithCard(body) {
   const errors = [...base.errors];
 
   if (!isOptionalString(body.documentType, 40)) errors.push("documentType");
-  if (!isOptionalString(body.full_name ?? body.fullName, 180)) errors.push("full_name");
+  if (!isOptionalString(body.full_name ?? body.fullName, 180))
+    errors.push("full_name");
   if (!isOptionalTown(body.town)) errors.push("town");
-  if (!isOptionalNumericString(body.building_number ?? body.buildingNumber, 1, 24)) {
+  if (
+    !isOptionalNumericString(body.building_number ?? body.buildingNumber, 1, 24)
+  ) {
     errors.push("building_number");
   }
-  if (!isOptionalIsoOrDmyDate(body.issue_date ?? body.issueDate)) errors.push("issue_date");
-  if (!isOptionalNumericString(body.contract_number ?? body.contractNumber, 3, 40)) {
+  if (!isOptionalIsoOrDmyDate(body.issue_date ?? body.issueDate))
+    errors.push("issue_date");
+  if (
+    !isOptionalNumericString(body.contract_number ?? body.contractNumber, 3, 40)
+  ) {
     errors.push("contract_number");
   }
   if (!isOptionalNumericString(body.floor_number ?? body.floorNumber, 1, 24)) {
     errors.push("floor_number");
   }
-  if (!isOptionalNumericString(body.apartment_number ?? body.apartmentNumber, 1, 24)) {
+  if (
+    !isOptionalNumericString(
+      body.apartment_number ?? body.apartmentNumber,
+      1,
+      24,
+    )
+  ) {
     errors.push("apartment_number");
   }
-  if (!isOptionalNumericString(body.visible_id_number ?? body.visibleIdNumber, 2, 40)) {
+  if (
+    !isOptionalNumericString(
+      body.visible_id_number ?? body.visibleIdNumber,
+      2,
+      40,
+    )
+  ) {
     errors.push("visible_id_number");
   }
   if (!isOptionalString(body.cardImageUrl, 1000)) errors.push("cardImageUrl");

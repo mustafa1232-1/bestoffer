@@ -8,10 +8,12 @@
 
 #include <audioplayers_linux/audioplayers_linux_plugin.h>
 #include <charset_converter/charset_converter_plugin.h>
+#include <ffmpeg_kit_flutter_new/f_fmpeg_kit_flutter_plugin.h>
 #include <file_selector_linux/file_selector_plugin.h>
 #include <flutter_secure_storage_linux/flutter_secure_storage_linux_plugin.h>
 #include <flutter_webrtc/flutter_web_r_t_c_plugin.h>
 #include <gtk/gtk_plugin.h>
+#include <livekit_client/live_kit_plugin.h>
 #include <printing/printing_plugin.h>
 #include <record_linux/record_linux_plugin.h>
 #include <sentry_flutter/sentry_flutter_plugin.h>
@@ -24,6 +26,9 @@ void fl_register_plugins(FlPluginRegistry* registry) {
   g_autoptr(FlPluginRegistrar) charset_converter_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "CharsetConverterPlugin");
   charset_converter_plugin_register_with_registrar(charset_converter_registrar);
+  g_autoptr(FlPluginRegistrar) ffmpeg_kit_flutter_new_registrar =
+      fl_plugin_registry_get_registrar_for_plugin(registry, "FFmpegKitFlutterPlugin");
+  f_fmpeg_kit_flutter_plugin_register_with_registrar(ffmpeg_kit_flutter_new_registrar);
   g_autoptr(FlPluginRegistrar) file_selector_linux_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "FileSelectorPlugin");
   file_selector_plugin_register_with_registrar(file_selector_linux_registrar);
@@ -36,6 +41,9 @@ void fl_register_plugins(FlPluginRegistry* registry) {
   g_autoptr(FlPluginRegistrar) gtk_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "GtkPlugin");
   gtk_plugin_register_with_registrar(gtk_registrar);
+  g_autoptr(FlPluginRegistrar) livekit_client_registrar =
+      fl_plugin_registry_get_registrar_for_plugin(registry, "LiveKitPlugin");
+  live_kit_plugin_register_with_registrar(livekit_client_registrar);
   g_autoptr(FlPluginRegistrar) printing_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "PrintingPlugin");
   printing_plugin_register_with_registrar(printing_registrar);

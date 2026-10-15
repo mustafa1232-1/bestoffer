@@ -15,6 +15,8 @@ import {
   invalidateMerchantCatalogCache,
 } from "../merchants/merchants.repo.js";
 import { updateMerchantBillingProfile } from "../commerce/commerce.repo.js";
+import * as ordersRepo from "../orders/orders.repo.js";
+import { invalidateOrderListCacheForUser } from "../orders/orders.service.js";
 import * as repo from "./company.repo.js";
 
 const COMPANY_ROLES = new Set([
@@ -667,6 +669,40 @@ export async function getCompanyBranchDetail(companyId, merchantId) {
     products,
     categories,
   };
+}
+
+export async function listCompanyCurrentOrders(companyId, query = {}) {
+  const merchantId = toPositiveInt(query.merchantId);
+  if (merchantId != null) {
+    await ensureCompanyBranch(companyId, merchantId);
+  }
+  const orders = await ordersRepo.listCompanyCurrentOrders(Number(companyId), {
+    merchantId,
+  });
+  return { orders };
+}
+
+export async function updateCompanyOrderStatus(
+  companyId,
+  orderId,
+  status,
+  estimatedPrepMinutes,
+  estimatedDeliveryMinutes,
+) {
+  const updated = await ordersRepo.updateCompanyOrderStatus(
+    Number(companyId),
+    Number(orderId),
+    status,
+    estimatedPrepMinutes === undefined ? null : Number(estimatedPrepMinutes),
+    estimatedDeliveryMinutes === undefined
+      ? null
+      : Number(estimatedDeliveryMinutes),
+  );
+  if (!updated) {
+    throw new AppError("ORDER_NOT_FOUND", { status: 404 });
+  }
+  invalidateOrderListCacheForUser(updated.customer_user_id);
+  return updated;
 }
 
 export async function listCompanyUsers(companyId) {

@@ -42,10 +42,10 @@ function buildSeedUsername(prefix, phone) {
 
 async function run() {
   const targetPhone = normalizePhone(
-    process.argv[2] || process.env.SUPER_ADMIN_PHONE || "07746515247"
+    process.argv[2] || process.env.SUPER_ADMIN_PHONE || ""
   );
   const targetPin = normalizePin(
-    process.argv[3] || process.env.SUPER_ADMIN_PIN || "1998"
+    process.argv[3] || process.env.SUPER_ADMIN_PIN || ""
   );
   const targetName = String(
     process.argv[4] || process.env.SUPER_ADMIN_NAME || "Super Admin"

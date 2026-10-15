@@ -1,4 +1,5 @@
 import { validateBasmayaAddress } from "../../shared/utils/basmaya-address.js";
+import { isTrustedMerchantMediaUrl } from "../../shared/utils/merchant-media-url-policy.js";
 
 function isNonEmptyString(v, max = 200) {
   return typeof v === "string" && v.trim().length > 0 && v.trim().length <= max;
@@ -6,6 +7,10 @@ function isNonEmptyString(v, max = 200) {
 
 function isOptionalString(v, max = 500) {
   return v === undefined || v === null || (typeof v === "string" && v.trim().length <= max);
+}
+
+function isOptionalTrustedMerchantMediaUrl(v, max = 1000) {
+  return isOptionalString(v, max) && isTrustedMerchantMediaUrl(v);
 }
 
 function isValidPrice(v) {
@@ -25,6 +30,16 @@ function isOptionalBool(v) {
 
 function isOptionalObject(v) {
   return v === undefined || v === null || (typeof v === "object" && !Array.isArray(v));
+}
+
+function isOptionalCoordinate(v, min, max) {
+  if (v === undefined || v === null || v === "") return true;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= min && n <= max;
+}
+
+function hasCoordinateValue(v) {
+  return v !== undefined && v !== null && v !== "";
 }
 
 function isOptionalStringArray(v, maxItems = 30, maxLength = 80) {
@@ -91,7 +106,14 @@ export function validateOwnerRegister(body) {
   if (!isOptionalString(body.merchantWorkingHours, 160)) errors.push("merchantWorkingHours");
   if (!isOptionalString(body.merchantServiceAreaNote, 240)) errors.push("merchantServiceAreaNote");
   if (!isOptionalString(body.ownerImageUrl, 1000)) errors.push("ownerImageUrl");
-  if (!isOptionalString(body.merchantImageUrl, 1000)) errors.push("merchantImageUrl");
+  if (!isOptionalTrustedMerchantMediaUrl(body.merchantImageUrl, 1000)) {
+    errors.push("merchantImageUrl");
+  }
+  if (!isOptionalCoordinate(body.latitude, -90, 90)) errors.push("latitude");
+  if (!isOptionalCoordinate(body.longitude, -180, 180)) errors.push("longitude");
+  if (hasCoordinateValue(body.latitude) !== hasCoordinateValue(body.longitude)) {
+    errors.push("location");
+  }
   if (!isExplicitTrue(body.analyticsConsentAccepted)) errors.push("analyticsConsentAccepted");
   if (!isOptionalString(body.analyticsConsentVersion, 32)) errors.push("analyticsConsentVersion");
 
@@ -145,16 +167,18 @@ export function validateOwnerMerchantUpdate(body) {
     body.deliveryEtaMinMinutes !== undefined ||
     body.deliveryEtaMaxMinutes !== undefined ||
     body.deliveryFee !== undefined ||
-    body.minimumOrder !== undefined;
+    body.minimumOrder !== undefined ||
+    body.latitude !== undefined ||
+    body.longitude !== undefined;
 
   if (!hasAnyField) errors.push("empty_update");
 
-  if (body.logoUrl !== undefined && !isOptionalString(body.logoUrl, 1000)) {
+  if (body.logoUrl !== undefined && !isOptionalTrustedMerchantMediaUrl(body.logoUrl, 1000)) {
     errors.push("logoUrl");
   }
   if (
     body.coverImageUrl !== undefined &&
-    !isOptionalString(body.coverImageUrl, 1000)
+    !isOptionalTrustedMerchantMediaUrl(body.coverImageUrl, 1000)
   ) {
     errors.push("coverImageUrl");
   }
@@ -194,13 +218,18 @@ export function validateOwnerMerchantUpdate(body) {
   }
   if (body.description !== undefined && !isOptionalString(body.description, 1000)) errors.push("description");
   if (body.phone !== undefined && !isOptionalString(body.phone, 20)) errors.push("phone");
-  if (body.imageUrl !== undefined && !isOptionalString(body.imageUrl, 1000)) errors.push("imageUrl");
+  if (body.imageUrl !== undefined && !isOptionalTrustedMerchantMediaUrl(body.imageUrl, 1000)) errors.push("imageUrl");
   if (body.tagline !== undefined && !isOptionalString(body.tagline, 160)) errors.push("tagline");
   if (body.workingHours !== undefined && !isOptionalString(body.workingHours, 160)) {
     errors.push("workingHours");
   }
   if (body.serviceAreaNote !== undefined && !isOptionalString(body.serviceAreaNote, 240)) {
     errors.push("serviceAreaNote");
+  }
+  if (!isOptionalCoordinate(body.latitude, -90, 90)) errors.push("latitude");
+  if (!isOptionalCoordinate(body.longitude, -180, 180)) errors.push("longitude");
+  if (hasCoordinateValue(body.latitude) !== hasCoordinateValue(body.longitude)) {
+    errors.push("location");
   }
   if (body.isOpen !== undefined && typeof body.isOpen !== "boolean") errors.push("isOpen");
   if (body.serviceFlags !== undefined && !isOptionalObject(body.serviceFlags)) {
@@ -653,6 +682,42 @@ export function validateOwnerStaffSearchQuery(query) {
       limit: Number.isInteger(limit) ? Math.max(1, Math.min(200, limit)) : 100,
     },
   };
+}
+
+export function validateOwnerInventoryItemUpdate(body) {
+  const errors = [];
+  const hasAnyField =
+    body.quantity !== undefined ||
+    body.isAvailable !== undefined ||
+    body.reorderThreshold !== undefined ||
+    body.note !== undefined;
+
+  if (!hasAnyField) errors.push("empty_update");
+
+  if (!Number.isInteger(Number(body.quantity)) || Number(body.quantity) < 0) {
+    errors.push("quantity");
+  }
+  if (body.isAvailable !== undefined && typeof body.isAvailable !== "boolean") {
+    errors.push("isAvailable");
+  }
+  if (
+    body.reorderThreshold !== undefined &&
+    body.reorderThreshold !== null &&
+    body.reorderThreshold !== "" &&
+    (!Number.isInteger(Number(body.reorderThreshold)) ||
+      Number(body.reorderThreshold) < 0)
+  ) {
+    errors.push("reorderThreshold");
+  }
+  if (!isOptionalString(body.note, 500)) errors.push("note");
+
+  return { ok: errors.length === 0, errors };
+}
+
+export function validateOwnerDailyInventoryCheck(body = {}) {
+  const errors = [];
+  if (!isOptionalString(body.note, 2000)) errors.push("note");
+  return { ok: errors.length === 0, errors };
 }
 
 /**

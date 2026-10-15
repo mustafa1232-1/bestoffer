@@ -21,13 +21,35 @@ Future<void> _settle() => Future<void>.delayed(Duration.zero);
 
 void main() {
   group('ReelPlaybackCoordinator', () {
-    test('retains only {prev, active, next} controllers', () async {
+    test(
+      'runtime video failure releases the player and waits for retry',
+      () async {
+        final c = fakeCoordinator();
+        c.setItems(List.generate(3, _videoMedia));
+        await _settle();
+        final first = c.controllerFor(0) as FakeVideoPlayerController;
+        first.value = first.value.copyWith(errorDescription: 'offline');
+        await _settle();
+        expect(c.isFailed(0), isTrue);
+        expect(c.isBuffering(0), isFalse);
+        expect(first.disposed, isTrue);
+        c.setItems(List.generate(3, _videoMedia));
+        expect(c.controllerFor(0), isNull);
+        c.retry(0);
+        await _settle();
+        expect(c.isFailed(0), isFalse);
+        expect(c.controllerFor(0)!.value.isPlaying, isTrue);
+        c.dispose();
+      },
+    );
+
+    test('retains only {active, next} controllers', () async {
       final c = fakeCoordinator();
       c.setItems(List.generate(6, _videoMedia));
       await c.setActiveIndex(2);
       await _settle();
 
-      expect(c.controllerFor(1), isNotNull);
+      expect(c.controllerFor(1), isNull);
       expect(c.controllerFor(2), isNotNull);
       expect(c.controllerFor(3), isNotNull);
       expect(c.controllerFor(0), isNull);
@@ -42,10 +64,9 @@ void main() {
       await _settle();
 
       final active = c.controllerFor(1) as FakeVideoPlayerController;
-      final prev = c.controllerFor(0) as FakeVideoPlayerController;
       final next = c.controllerFor(2) as FakeVideoPlayerController;
       expect(active.value.isPlaying, isTrue);
-      expect(prev.value.isPlaying, isFalse);
+      expect(c.controllerFor(0), isNull);
       expect(next.value.isPlaying, isFalse);
       c.dispose();
     });
@@ -53,8 +74,6 @@ void main() {
     test('advancing disposes the now-distant controller', () async {
       final c = fakeCoordinator();
       c.setItems(List.generate(6, _videoMedia));
-      await c.setActiveIndex(1);
-      await _settle();
       final zero = c.controllerFor(0) as FakeVideoPlayerController;
 
       await c.setActiveIndex(3);
@@ -114,6 +133,48 @@ void main() {
       expect(active.value.isPlaying, isTrue);
       c.dispose();
     });
+
+    test('refreshing the active item preserves a manual pause', () async {
+      final c = fakeCoordinator();
+      c.setItems(List.generate(3, _videoMedia));
+      await _settle();
+      c.togglePlay();
+      c.setItems(List.generate(3, _videoMedia));
+      await c.setActiveIndex(0);
+      await _settle();
+      expect(c.controllerFor(0)!.value.isPlaying, isFalse);
+      expect(c.isActivePaused, isTrue);
+      c.dispose();
+    });
+
+    test(
+      'rapidly traversing 25 reels leaves at most two live controllers',
+      () async {
+        final c = fakeCoordinator();
+        c.setItems(List.generate(25, _videoMedia));
+        final retired = <FakeVideoPlayerController>[];
+        for (var index = 0; index < 25; index++) {
+          if (index > 0) {
+            retired.add(
+              c.controllerFor(index - 1)! as FakeVideoPlayerController,
+            );
+          }
+          await c.setActiveIndex(index);
+          await _settle();
+          final live = List.generate(
+            25,
+            c.controllerFor,
+          ).whereType<FakeVideoPlayerController>().toList();
+          expect(live.length, lessThanOrEqualTo(2));
+          expect(live.where((v) => v.value.isPlaying).length, 1);
+          expect(retired.every((v) => v.disposed), isTrue);
+        }
+        final last = c.controllerFor(24)! as FakeVideoPlayerController;
+        c.dispose();
+        await _settle();
+        expect(last.disposed, isTrue);
+      },
+    );
 
     test(
       're-asserting the same active index does not recreate the controller',

@@ -1,4 +1,5 @@
 import { env } from "./env.js";
+import { classifyServiceConnection } from "../shared/utils/connection-transport.js";
 
 let RedisCtor = null;
 let redisClient = null;
@@ -73,9 +74,11 @@ export async function getRedisClient() {
 }
 
 export async function redisHealthSnapshot() {
+  const transport = classifyServiceConnection(env.redisUrl);
   if (!env.redisUrl) {
     return {
       configured: false,
+      transport,
       ok: false,
       error: "REDIS_NOT_CONFIGURED",
     };
@@ -86,6 +89,7 @@ export async function redisHealthSnapshot() {
   if (!client) {
     return {
       configured: true,
+      transport,
       ok: false,
       responseMs: Date.now() - startedAt,
       error: "REDIS_CLIENT_UNAVAILABLE",
@@ -96,6 +100,7 @@ export async function redisHealthSnapshot() {
     const pong = await client.ping();
     return {
       configured: true,
+      transport,
       ok: String(pong || "").toUpperCase() === "PONG",
       responseMs: Date.now() - startedAt,
       status: client.status,
@@ -103,6 +108,7 @@ export async function redisHealthSnapshot() {
   } catch (error) {
     return {
       configured: true,
+      transport,
       ok: false,
       responseMs: Date.now() - startedAt,
       error: safeErrorCode(error),

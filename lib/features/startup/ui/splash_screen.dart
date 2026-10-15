@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:lottie/lottie.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/maslaki_brand_mark.dart';
 import '../../../core/widgets/maslaki_wordmark.dart';
 
@@ -51,31 +52,31 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
   static const List<_ServiceIconDatum> _serviceIcons = [
     _ServiceIconDatum(
       icon: Icons.restaurant_rounded,
-      color: Color(0xFFD4B07A),
+      color: Color(0xFFB88A2D),
       angleDeg: -94,
       label: _SplashServiceLabel.food,
     ),
     _ServiceIconDatum(
       icon: Icons.shopping_bag_rounded,
-      color: Color(0xFFE6C98A),
+      color: Color(0xFF2F5D46),
       angleDeg: -22,
       label: _SplashServiceLabel.shopping,
     ),
     _ServiceIconDatum(
       icon: Icons.local_taxi_rounded,
-      color: Color(0xFFE1C38F),
+      color: Color(0xFFC69B3C),
       angleDeg: 48,
       label: _SplashServiceLabel.taxi,
     ),
     _ServiceIconDatum(
       icon: Icons.work_rounded,
-      color: Color(0xFFC6A96D),
+      color: Color(0xFF2F7D4E),
       angleDeg: 124,
       label: _SplashServiceLabel.jobs,
     ),
     _ServiceIconDatum(
       icon: Icons.groups_rounded,
-      color: Color(0xFF9FB2C8),
+      color: Color(0xFF17324A),
       angleDeg: 196,
       label: _SplashServiceLabel.community,
     ),
@@ -84,27 +85,27 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
   static const List<_SplashFeatureDatum> _features = [
     _SplashFeatureDatum(
       icon: Icons.restaurant_menu_rounded,
-      color: Color(0xFFFFB24C),
+      color: Color(0xFFB88A2D),
       kind: _SplashFeatureKind.restaurants,
     ),
     _SplashFeatureDatum(
       icon: Icons.shopping_bag_outlined,
-      color: Color(0xFF63C6FF),
+      color: Color(0xFF2F5D46),
       kind: _SplashFeatureKind.shopping,
     ),
     _SplashFeatureDatum(
       icon: Icons.local_taxi_rounded,
-      color: Color(0xFFFFD264),
+      color: Color(0xFFC69B3C),
       kind: _SplashFeatureKind.taxi,
     ),
     _SplashFeatureDatum(
       icon: Icons.work_outline_rounded,
-      color: Color(0xFF7BE39B),
+      color: Color(0xFF2F7D4E),
       kind: _SplashFeatureKind.jobs,
     ),
     _SplashFeatureDatum(
       icon: Icons.groups_rounded,
-      color: Color(0xFFD29EFF),
+      color: Color(0xFF17324A),
       kind: _SplashFeatureKind.community,
     ),
   ];
@@ -177,6 +178,8 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    final visual = context.visualTheme;
     return Scaffold(
       body: AnimatedBuilder(
         animation: Listenable.merge([_introController, _ambientController]),
@@ -220,15 +223,15 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
               return Stack(
                 fit: StackFit.expand,
                 children: [
-                  const DecoratedBox(
+                  DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                         colors: [
-                          Color(0xFF071224),
-                          Color(0xFF112741),
-                          Color(0xFF183454),
+                          tokens.backgroundPrimary,
+                          tokens.backgroundSecondary,
+                          tokens.backgroundTertiary,
                         ],
                       ),
                     ),
@@ -257,7 +260,7 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                             ),
                             radius: 0.95,
                             colors: [
-                              const Color(0xFFE1BF8A).withValues(alpha: 0.16),
+                              visual.accentGold.withValues(alpha: 0.10),
                               Colors.transparent,
                             ],
                           ),
@@ -276,7 +279,7 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                             ),
                             radius: 0.92,
                             colors: [
-                              const Color(0xFF5C7CA7).withValues(alpha: 0.18),
+                              tokens.primaryAccent.withValues(alpha: 0.08),
                               Colors.transparent,
                             ],
                           ),
@@ -381,9 +384,10 @@ class _MaslakiSplashScreenState extends State<MaslakiSplashScreen>
                                                   boxShadow: [
                                                     BoxShadow(
                                                       blurRadius: 24,
-                                                      color: const Color(
-                                                        0xFFE1BF8A,
-                                                      ).withValues(alpha: 0.18),
+                                                      color: visual.accentGold
+                                                          .withValues(
+                                                            alpha: 0.18,
+                                                          ),
                                                     ),
                                                   ],
                                                 ),
@@ -562,11 +566,12 @@ class _BrandPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: Colors.white.withValues(alpha: 0.08),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        color: tokens.surfacePrimary.withValues(alpha: 0.88),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.72)),
       ),
       child: const Padding(
         padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -615,6 +620,8 @@ class _SplashBottomPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (title, description) = copy;
+    final tokens = context.maslakiTokens;
+    final visual = context.visualTheme;
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 700),
@@ -625,15 +632,17 @@ class _SplashBottomPanel extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              Colors.white.withValues(alpha: 0.12),
-              Colors.white.withValues(alpha: 0.06),
+              tokens.surfacePrimary.withValues(alpha: 0.94),
+              tokens.cardElevated.withValues(alpha: 0.88),
             ],
           ),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          border: Border.all(
+            color: tokens.borderSubtle.withValues(alpha: 0.80),
+          ),
           boxShadow: [
             BoxShadow(
               blurRadius: 28,
-              color: Colors.black.withValues(alpha: 0.16),
+              color: tokens.textPrimary.withValues(alpha: 0.10),
             ),
           ],
         ),
@@ -646,8 +655,8 @@ class _SplashBottomPanel extends StatelessWidget {
                 arabicSize: 34,
                 latinSize: 12,
                 latinLetterSpacing: 5.0,
-                arabicColor: Color(0xFFF8F0E2),
-                latinColor: Color(0xFFE0BC88),
+                arabicColor: Color(0xFF0D1B2A),
+                latinColor: Color(0xFFB88A2D),
                 crossAxisAlignment: CrossAxisAlignment.center,
               ),
               const SizedBox(height: 6),
@@ -655,7 +664,7 @@ class _SplashBottomPanel extends StatelessWidget {
                 context.l10n.splashTagline,
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: const Color(0xFFF7EFDF).withValues(alpha: 0.84),
+                  color: tokens.textSecondary,
                   fontSize: 14.5,
                   fontWeight: FontWeight.w500,
                 ),
@@ -683,7 +692,7 @@ class _SplashBottomPanel extends StatelessWidget {
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(22),
-                    color: Colors.white.withValues(alpha: 0.05),
+                    color: tokens.surfaceSecondary.withValues(alpha: 0.68),
                     border: Border.all(
                       color: feature.color.withValues(alpha: 0.24),
                     ),
@@ -703,7 +712,7 @@ class _SplashBottomPanel extends StatelessWidget {
                         ),
                         child: Icon(
                           feature.icon,
-                          color: Colors.white,
+                          color: feature.color,
                           size: 28,
                         ),
                       ),
@@ -714,8 +723,8 @@ class _SplashBottomPanel extends StatelessWidget {
                           children: [
                             Text(
                               title,
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: tokens.textPrimary,
                                 fontSize: 15.5,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -726,7 +735,7 @@ class _SplashBottomPanel extends StatelessWidget {
                               maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.80),
+                                color: tokens.textSecondary,
                                 fontSize: 12.8,
                                 height: 1.45,
                               ),
@@ -751,8 +760,8 @@ class _SplashBottomPanel extends StatelessWidget {
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(999),
                       color: active
-                          ? const Color(0xFFE0BC88)
-                          : Colors.white.withValues(alpha: 0.26),
+                          ? visual.accentGold
+                          : tokens.borderSubtle.withValues(alpha: 0.72),
                     ),
                   );
                 }),
@@ -762,8 +771,8 @@ class _SplashBottomPanel extends StatelessWidget {
                 alignment: AlignmentDirectional.centerStart,
                 child: Text(
                   statusTitle,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: tokens.textPrimary,
                     fontSize: 15,
                     fontWeight: FontWeight.w800,
                   ),
@@ -775,7 +784,7 @@ class _SplashBottomPanel extends StatelessWidget {
                 child: Text(
                   statusMessage,
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.82),
+                    color: tokens.textSecondary,
                     fontSize: 13.2,
                     height: 1.45,
                   ),
@@ -793,7 +802,7 @@ class _SplashBottomPanel extends StatelessWidget {
                   child: Text(
                     context.l10n.startupIntroAttempts(attempts),
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.62),
+                      color: tokens.textMuted,
                       fontSize: 12.3,
                       fontWeight: FontWeight.w600,
                     ),
@@ -851,7 +860,7 @@ class _OrbitRoadPainter extends CustomPainter {
     final basePaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2.6
-      ..color = Colors.white.withValues(alpha: 0.16);
+      ..color = const Color(0xFF2F5D46).withValues(alpha: 0.18);
     canvas.drawCircle(center, radius, basePaint);
 
     final glowAlpha = lerpDouble(
@@ -863,14 +872,14 @@ class _OrbitRoadPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 10
       ..strokeCap = StrokeCap.round
-      ..color = const Color(0xFFD9B980).withValues(alpha: glowAlpha);
+      ..color = const Color(0xFFB88A2D).withValues(alpha: glowAlpha);
 
     final roadPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4.2
       ..strokeCap = StrokeCap.round
       ..shader = const LinearGradient(
-        colors: [Color(0xFFDAB887), Color(0xFF6A87AC), Color(0xFF4A6D93)],
+        colors: [Color(0xFFB88A2D), Color(0xFF2F5D46), Color(0xFF17324A)],
       ).createShader(rect);
 
     final effectiveDraw = drawProgress.clamp(0.0, 1.0);
@@ -888,8 +897,8 @@ class _OrbitRoadPainter extends CustomPainter {
       );
       final dotGlow = Paint()
         ..style = PaintingStyle.fill
-        ..color = const Color(0xFFE2C590).withValues(alpha: 0.35);
-      final dot = Paint()..color = const Color(0xFFE4C692);
+        ..color = const Color(0xFFB88A2D).withValues(alpha: 0.35);
+      final dot = Paint()..color = const Color(0xFFC69B3C);
       canvas.drawCircle(point, 11.5, dotGlow);
       canvas.drawCircle(point, 4.5, dot);
     }

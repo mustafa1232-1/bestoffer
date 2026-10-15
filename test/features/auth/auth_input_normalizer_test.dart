@@ -18,5 +18,17 @@ void main() {
     test('does not rewrite unrecognized international numbers as Iraqi', () {
       expect(normalizeIraqiPhoneForAuth('+15551234567'), '+15551234567');
     });
+
+    test('accepts existing staff account phone lengths for login', () {
+      expect(isPlausibleAuthLoginPhone('07710111111'), isTrue);
+      expect(isPlausibleAuthLoginPhone('077010111111'), isTrue);
+      expect(isPlausibleAuthLoginPhone('07701'), isFalse);
+      expect(isPlausibleAuthLoginPhone('0770101111111111'), isFalse);
+    });
+
+    test('keeps customer registration phone validation strict', () {
+      expect(isPlausibleIraqiAuthPhone('07710111111'), isTrue);
+      expect(isPlausibleIraqiAuthPhone('077010111111'), isFalse);
+    });
   });
 }

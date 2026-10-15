@@ -142,6 +142,17 @@ export function validateRecommendCommerceBody(body) {
   if (!isOptionalString(body?.query, 300)) errors.push("query");
   const kindRaw = String(body?.kind || "shopping").trim().toLowerCase();
   const kind = kindRaw === "restaurants" ? "restaurants" : "shopping";
+  const priorityRaw = String(body?.priority || "balanced").trim().toLowerCase();
+  const allowedPriorities = new Set(["balanced", "price", "rating", "speed", "offers"]);
+  if (!allowedPriorities.has(priorityRaw)) errors.push("priority");
+  const maxPriceRaw = body?.maxPrice;
+  const maxPrice =
+    maxPriceRaw === undefined || maxPriceRaw === null || maxPriceRaw === ""
+      ? null
+      : Number(maxPriceRaw);
+  if (maxPrice !== null && (!Number.isFinite(maxPrice) || maxPrice <= 0 || maxPrice > 100000000)) {
+    errors.push("maxPrice");
+  }
   const limit = parseLimit(body?.limit, 12, 1, 60);
   return {
     ok: errors.length === 0,
@@ -149,6 +160,8 @@ export function validateRecommendCommerceBody(body) {
     value: {
       kind,
       query: body?.query == null ? null : String(body.query).trim(),
+      priority: allowedPriorities.has(priorityRaw) ? priorityRaw : "balanced",
+      maxPrice,
       limit,
     },
   };

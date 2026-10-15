@@ -4,7 +4,12 @@
  * قراءة السجل نفسها فعل حسّاس فتُسجَّل.
  */
 
-import { searchAuditEvents, recordAudit, auditContextFromReq } from "./audit.service.js";
+import {
+  searchAuditEvents,
+  searchEmployeeActivity,
+  recordAudit,
+  auditContextFromReq,
+} from "./audit.service.js";
 
 export async function listAuditEvents(req, res, next) {
   try {
@@ -33,6 +38,21 @@ export async function listAuditEvents(req, res, next) {
       metadata: { filters: req.query || {} },
     });
 
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function listEmployeeActivityEvents(req, res, next) {
+  try {
+    if (req.userIsSuperAdmin !== true) {
+      return res.status(403).json({ message: "SUPER_ADMIN_ONLY" });
+    }
+    const out = await searchEmployeeActivity({
+      limit: req.query?.limit ? Number(req.query.limit) : 100,
+      offset: req.query?.offset ? Number(req.query.offset) : 0,
+    });
     return res.json(out);
   } catch (error) {
     return next(error);

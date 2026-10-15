@@ -15,14 +15,15 @@ import {
 } from "./competition.engine.js";
 import {
   computeOrderFinancialSnapshot as buildOrderFinancialSnapshot,
+  getMerchantBillingProfile,
   normalizeApprovalStatus,
   normalizeMerchantBillingProfile,
 } from "./merchant-financial.logic.js";
-import {
-  loadProductRichCatalogByIds,
-} from "../products/products.repo.js";
+import { loadProductRichCatalogByIds } from "../products/products.repo.js";
 import { syncOrderIncentiveConsumptionForStatusTx } from "../orders/order-incentives.repo.js";
 import { settleGroupedJobIfChildrenTerminalTx } from "../delivery/delivery-job.service.js";
+import { applyFreeDeliveryCampaignToProduct } from "./free-delivery-campaign.js";
+import { calculateCourierOrderReconciliation } from "./courier-reconciliation.logic.js";
 
 const DELIVERY_APPROVED_FILTER = `
   u.role = 'delivery'
@@ -37,7 +38,9 @@ const DELIVERY_APPROVED_FILTER = `
 
 function courierPresenceMaxAgeSeconds() {
   const configured = Number(env?.courierPresenceMaxAgeSeconds);
-  return Number.isFinite(configured) && configured >= 20 ? Math.floor(configured) : 90;
+  return Number.isFinite(configured) && configured >= 20
+    ? Math.floor(configured)
+    : 90;
 }
 
 const DEFAULT_ASSIGNMENT_TTL_MIN = 8;
@@ -95,47 +98,47 @@ function normalizeDeliveryDispatchPolicyConfig(input = {}) {
         source.maxRecipients,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.maxRecipients,
         1,
-        60
-      )
+        60,
+      ),
     ),
     waveSize: Math.round(
       clampDispatchNumber(
         source.waveSize,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.waveSize,
         1,
-        20
-      )
+        20,
+      ),
     ),
     weights: {
       rating: clampDispatchNumber(
         weightsSource.rating,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.weights.rating,
         0,
-        1
+        1,
       ),
       speed: clampDispatchNumber(
         weightsSource.speed,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.weights.speed,
         0,
-        1
+        1,
       ),
       proximity: clampDispatchNumber(
         weightsSource.proximity,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.weights.proximity,
         0,
-        1
+        1,
       ),
       availability: clampDispatchNumber(
         weightsSource.availability,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.weights.availability,
         0,
-        1
+        1,
       ),
       fatigue: clampDispatchNumber(
         weightsSource.fatigue,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.weights.fatigue,
         0,
-        1
+        1,
       ),
     },
     fallback: {
@@ -143,25 +146,25 @@ function normalizeDeliveryDispatchPolicyConfig(input = {}) {
         fallbackSource.unratedCourierRating,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.fallback.unratedCourierRating,
         0,
-        5
+        5,
       ),
       avgDeliveryMinutes: clampDispatchNumber(
         fallbackSource.avgDeliveryMinutes,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.fallback.avgDeliveryMinutes,
         5,
-        180
+        180,
       ),
       sameBlockProximity: clampDispatchNumber(
         fallbackSource.sameBlockProximity,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.fallback.sameBlockProximity,
         0,
-        1
+        1,
       ),
       nearbyBlockProximity: clampDispatchNumber(
         fallbackSource.nearbyBlockProximity,
         DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.fallback.nearbyBlockProximity,
         0,
-        1
+        1,
       ),
     },
   };
@@ -174,9 +177,11 @@ async function loadDeliveryDispatchPolicyTx(client) {
        FROM delivery_dispatch_policy
        WHERE policy_key = 'default'
        ORDER BY updated_at DESC
-       LIMIT 1`
+       LIMIT 1`,
     );
-    return normalizeDeliveryDispatchPolicyConfig(result.rows[0]?.config_json || {});
+    return normalizeDeliveryDispatchPolicyConfig(
+      result.rows[0]?.config_json || {},
+    );
   } catch (error) {
     if (String(error?.code || "") === "42P01") {
       return normalizeDeliveryDispatchPolicyConfig({});
@@ -185,31 +190,45 @@ async function loadDeliveryDispatchPolicyTx(client) {
   }
 }
 
-function computeCourierDispatchScore(row, { normalizedBlock, useBlock, policy }) {
-  const availabilityStatus = String(row?.availability_status || "").trim().toLowerCase();
-  const block = String(row?.block || "").trim().toUpperCase();
+function computeCourierDispatchScore(
+  row,
+  { normalizedBlock, useBlock, policy },
+) {
+  const availabilityStatus = String(row?.availability_status || "")
+    .trim()
+    .toLowerCase();
+  const block = String(row?.block || "")
+    .trim()
+    .toUpperCase();
   const sameBlock =
     useBlock &&
     normalizedBlock.length > 0 &&
     block.length > 0 &&
     block === normalizedBlock.toUpperCase();
 
-  const fallback = policy.fallback || DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.fallback;
-  const weights = policy.weights || DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.weights;
+  const fallback =
+    policy.fallback || DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.fallback;
+  const weights =
+    policy.weights || DEFAULT_DELIVERY_DISPATCH_POLICY_CONFIG.weights;
   const ratingRaw = clampDispatchNumber(
     row?.courier_rating,
     fallback.unratedCourierRating,
     0,
-    5
+    5,
   );
   const ratingScore = ratingRaw / 5;
   const avgDeliveryMinutes = clampDispatchNumber(
     row?.avg_delivery_minutes,
     fallback.avgDeliveryMinutes,
     1,
-    240
+    240,
   );
-  const speedScore = clampDispatchNumber((90 - avgDeliveryMinutes) / 90, 0, 0, 1);
+  const speedScore = clampDispatchNumber(
+    (90 - avgDeliveryMinutes) / 90,
+    0,
+    0,
+    1,
+  );
   const proximityScore = useBlock
     ? sameBlock
       ? fallback.sameBlockProximity
@@ -217,7 +236,9 @@ function computeCourierDispatchScore(row, { normalizedBlock, useBlock, policy })
     : fallback.nearbyBlockProximity;
   const availabilityScore =
     availabilityStatus === "online"
-      ? 1
+      ? Number(row?.presence_is_fresh) === 1 || row?.presence_is_fresh === true
+        ? 1
+        : 0.72
       : availabilityStatus === "away"
         ? 0.5
         : 0.2;
@@ -227,7 +248,7 @@ function computeCourierDispatchScore(row, { normalizedBlock, useBlock, policy })
     rejectCount * 0.12 + pendingCount * 0.06,
     0,
     0,
-    1
+    1,
   );
 
   const score =
@@ -247,6 +268,10 @@ function computeCourierDispatchScore(row, { normalizedBlock, useBlock, policy })
       proximityScore,
       availabilityStatus,
       availabilityScore,
+      presenceAgeSeconds:
+        row?.presence_age == null ? null : Number(row.presence_age),
+      presenceIsFresh:
+        Number(row?.presence_is_fresh) === 1 || row?.presence_is_fresh === true,
       fatiguePenalty,
       recentRejectCount: rejectCount,
       recentPendingCount: pendingCount,
@@ -257,7 +282,9 @@ function computeCourierDispatchScore(row, { normalizedBlock, useBlock, policy })
 }
 
 function normalizeCourierDriverType(value, fallback = DRIVER_TYPE_APP) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === DRIVER_TYPE_STORE) return DRIVER_TYPE_STORE;
   if (normalized === DRIVER_TYPE_APP) return DRIVER_TYPE_APP;
   return fallback;
@@ -340,13 +367,18 @@ function round2(value) {
 }
 
 function normalizePaymentRequestType(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === REQUEST_TYPE_APP_PAYS_STORE) return REQUEST_TYPE_APP_PAYS_STORE;
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === REQUEST_TYPE_APP_PAYS_STORE)
+    return REQUEST_TYPE_APP_PAYS_STORE;
   return REQUEST_TYPE_STORE_PAYS_APP;
 }
 
 function normalizePaymentScope(value) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (["commission", "service", "delivery", "all"].includes(normalized)) {
     return normalized;
   }
@@ -354,7 +386,9 @@ function normalizePaymentScope(value) {
 }
 
 function normalizeSelectionMode(value) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (
     [
       SELECTION_MODE_ALL_INVOICES,
@@ -368,13 +402,17 @@ function normalizeSelectionMode(value) {
 }
 
 function normalizePaymentMethod(value) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (STORE_PAYMENT_METHODS.has(normalized)) return normalized;
   return null;
 }
 
 function normalizeRequestStatus(value) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   return Object.values(REQUEST_STATUS).includes(normalized)
     ? normalized
     : REQUEST_STATUS.pendingAdminConfirmation;
@@ -385,7 +423,8 @@ function parseJsonOrEmpty(value) {
   if (typeof value === "object" && !Array.isArray(value)) return value;
   try {
     const parsed = JSON.parse(String(value));
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      return parsed;
     return {};
   } catch (_) {
     return {};
@@ -393,7 +432,13 @@ function parseJsonOrEmpty(value) {
 }
 
 function lifecycleFromStatus(status, fallback = "PENDING") {
-  return LIFECYCLE_LABEL[String(status || "").trim().toLowerCase()] || fallback;
+  return (
+    LIFECYCLE_LABEL[
+      String(status || "")
+        .trim()
+        .toLowerCase()
+    ] || fallback
+  );
 }
 
 function assertOwnerOrderEditable(status) {
@@ -421,7 +466,7 @@ async function insertStatusHistoryTx(
     changedByUserId,
     changedByRole,
     note = null,
-  }
+  },
 ) {
   let actorUserId = null;
   if (changedByUserId != null) {
@@ -430,7 +475,7 @@ async function insertStatusHistoryTx(
        FROM app_user
        WHERE id = $1
        LIMIT 1`,
-      [Number(changedByUserId)]
+      [Number(changedByUserId)],
     );
     if (actorCheck.rowCount > 0) {
       actorUserId = Number(changedByUserId);
@@ -459,7 +504,7 @@ async function insertStatusHistoryTx(
       actorUserId,
       changedByRole || null,
       note,
-    ]
+    ],
   );
 }
 
@@ -474,7 +519,7 @@ async function ensureCourierProfileTx(
     vehicleType = null,
     availabilityStatus = null,
     activeStatus = null,
-  }
+  },
 ) {
   const normalizedMerchantId =
     merchantId == null || merchantId === "" ? null : Number(merchantId);
@@ -508,7 +553,7 @@ async function ensureCourierProfileTx(
       normalizedMerchantId,
       flags.driverType,
       merchantIdSet === true,
-    ]
+    ],
   );
 
   if (
@@ -529,14 +574,20 @@ async function ensureCourierProfileTx(
         Number(userId),
         coverageBlock || null,
         vehicleType ? String(vehicleType).trim().slice(0, 60) : null,
-        availabilityStatus ? String(availabilityStatus).trim().slice(0, 20) : null,
+        availabilityStatus
+          ? String(availabilityStatus).trim().slice(0, 20)
+          : null,
         typeof activeStatus === "boolean" ? activeStatus : null,
-      ]
+      ],
     );
   }
 }
 
-async function deactivateCourierMerchantLinksTx(client, userId, exceptMerchantId = null) {
+async function deactivateCourierMerchantLinksTx(
+  client,
+  userId,
+  exceptMerchantId = null,
+) {
   await client.query(
     `UPDATE merchant_delivery_agent
      SET is_active = FALSE,
@@ -544,7 +595,10 @@ async function deactivateCourierMerchantLinksTx(client, userId, exceptMerchantId
      WHERE delivery_user_id = $1
        AND is_active = TRUE
        AND ($2::bigint IS NULL OR merchant_id <> $2::bigint)`,
-    [Number(userId), exceptMerchantId == null ? null : Number(exceptMerchantId)]
+    [
+      Number(userId),
+      exceptMerchantId == null ? null : Number(exceptMerchantId),
+    ],
   );
 }
 
@@ -564,7 +618,7 @@ export async function courierHasActiveOrders(courierUserId, client = null) {
          'cancelled_by_customer'
        )
      LIMIT 1`,
-    [Number(courierUserId)]
+    [Number(courierUserId)],
   );
   return !!result.rows[0];
 }
@@ -603,11 +657,14 @@ export async function syncCourierDriverAffiliation({
        FROM courier_profile
        WHERE user_id = $1
        LIMIT 1`,
-      [Number(userId)]
+      [Number(userId)],
     );
     const currentProfileRow = currentProfile.rows[0] || null;
     const currentDriverType = currentProfileRow?.driver_type
-      ? normalizeCourierDriverType(currentProfileRow.driver_type, DRIVER_TYPE_APP)
+      ? normalizeCourierDriverType(
+          currentProfileRow.driver_type,
+          DRIVER_TYPE_APP,
+        )
       : null;
 
     if (
@@ -615,9 +672,12 @@ export async function syncCourierDriverAffiliation({
       currentDriverType !== normalizedDriverType &&
       (await courierHasActiveOrders(Number(userId), client))
     ) {
-      throw new AppError("DELIVERY_DRIVER_TYPE_CHANGE_BLOCKED_BY_ACTIVE_ORDERS", {
-        status: 409,
-      });
+      throw new AppError(
+        "DELIVERY_DRIVER_TYPE_CHANGE_BLOCKED_BY_ACTIVE_ORDERS",
+        {
+          status: 409,
+        },
+      );
     }
 
     await ensureCourierProfileTx(client, {
@@ -632,7 +692,11 @@ export async function syncCourierDriverAffiliation({
     });
 
     if (normalizedDriverType === DRIVER_TYPE_STORE) {
-      await deactivateCourierMerchantLinksTx(client, Number(userId), normalizedMerchantId);
+      await deactivateCourierMerchantLinksTx(
+        client,
+        Number(userId),
+        normalizedMerchantId,
+      );
       await client.query(
         `INSERT INTO merchant_delivery_agent
           (
@@ -656,7 +720,7 @@ export async function syncCourierDriverAffiliation({
           Number(userId),
           Number(actorUserId) || null,
           String(source || "admin").slice(0, 20),
-        ]
+        ],
       );
     } else {
       await deactivateCourierMerchantLinksTx(client, Number(userId), null);
@@ -687,7 +751,7 @@ export async function listBackofficeUserIds() {
     `SELECT id
      FROM app_user
      WHERE role IN ('admin', 'deputy_admin')
-       AND is_account_disabled = FALSE`
+       AND is_account_disabled = FALSE`,
   );
   return r.rows.map((row) => Number(row.id)).filter((id) => id > 0);
 }
@@ -699,7 +763,7 @@ export async function listActiveCourierUsers() {
        u.full_name
      FROM app_user u
      WHERE ${DELIVERY_APPROVED_FILTER}
-     ORDER BY u.id DESC`
+     ORDER BY u.id DESC`,
   );
   return r.rows.map((row) => ({
     id: Number(row.id),
@@ -711,7 +775,7 @@ export async function getOwnerOrderWithMerchant(
   ownerUserId,
   orderId,
   client = null,
-  { forUpdate = false } = {}
+  { forUpdate = false } = {},
 ) {
   const exec = client || { query: q };
   const r = await exec.query(
@@ -730,14 +794,14 @@ export async function getOwnerOrderWithMerchant(
      WHERE o.id = $1
        AND m.owner_user_id = $2
      ${forUpdate ? "FOR UPDATE" : ""}`,
-    [Number(orderId), Number(ownerUserId)]
+    [Number(orderId), Number(ownerUserId)],
   );
   return r.rows[0] || null;
 }
 
 async function listEligibleCouriersTx(
   client,
-  { merchantId, customerBlock = null, explicitCourierUserId = null }
+  { merchantId, customerBlock = null, explicitCourierUserId = null },
 ) {
   const dispatchPolicy = await loadDeliveryDispatchPolicyTx(client);
   if (explicitCourierUserId) {
@@ -758,13 +822,27 @@ async function listEligibleCouriersTx(
          END AS is_merchant_courier,
          COALESCE(cds.avg_delivery_minutes, 0)::numeric AS avg_delivery_minutes,
          COALESCE(fatigue.recent_reject_count, 0)::int AS recent_reject_count,
-         COALESCE(fatigue.recent_pending_count, 0)::int AS recent_pending_count
+         COALESCE(fatigue.recent_pending_count, 0)::int AS recent_pending_count,
+         COALESCE(presence.is_online, FALSE) AS presence_is_online,
+         EXTRACT(EPOCH FROM (NOW()-presence.recorded_at)) AS presence_age,
+         CASE
+           WHEN presence.is_online = TRUE
+            AND presence.updated_at >= NOW() - ($3::int * INTERVAL '1 second')
+           THEN 1 ELSE 0
+         END AS presence_is_fresh
        FROM app_user u
        LEFT JOIN courier_profile cp ON cp.user_id = u.id
        LEFT JOIN merchant_delivery_agent mda
          ON mda.delivery_user_id = u.id
         AND mda.merchant_id = $2
         AND mda.is_active = TRUE
+       LEFT JOIN LATERAL (
+         SELECT p.is_online, p.recorded_at, p.updated_at
+         FROM courier_presence p
+         WHERE p.courier_user_id = u.id
+         ORDER BY p.updated_at DESC
+         LIMIT 1
+       ) presence ON TRUE
        LEFT JOIN LATERAL (
          SELECT AVG(cds.avg_delivery_minutes)::numeric AS avg_delivery_minutes
          FROM courier_daily_stats cds
@@ -786,13 +864,8 @@ async function listEligibleCouriersTx(
      ) fatigue ON TRUE
      WHERE u.id = $1
        AND ${DELIVERY_APPROVED_FILTER}
-       AND EXISTS (
-         SELECT 1
-         FROM courier_presence presence
-         WHERE presence.courier_user_id = u.id
-           AND presence.is_online = TRUE
-           AND presence.updated_at >= NOW() - ($3::int * INTERVAL '1 second')
-       )
+       AND COALESCE(LOWER(cp.availability_status), 'online') = 'online'
+       AND presence.is_online = TRUE
        AND (
          COALESCE(cp.driver_type, CASE WHEN mda.delivery_user_id IS NULL THEN '${DRIVER_TYPE_APP}' ELSE '${DRIVER_TYPE_STORE}' END) = '${DRIVER_TYPE_APP}'
          OR (
@@ -804,7 +877,7 @@ async function listEligibleCouriersTx(
         Number(explicitCourierUserId),
         Number(merchantId),
         courierPresenceMaxAgeSeconds(),
-      ]
+      ],
     );
     const normalizedBlock = String(customerBlock || "").trim();
     return explicit.rows.map((row) => {
@@ -844,13 +917,27 @@ async function listEligibleCouriersTx(
        END AS is_merchant_courier,
        COALESCE(cds.avg_delivery_minutes, 0)::numeric AS avg_delivery_minutes,
        COALESCE(fatigue.recent_reject_count, 0)::int AS recent_reject_count,
-       COALESCE(fatigue.recent_pending_count, 0)::int AS recent_pending_count
+       COALESCE(fatigue.recent_pending_count, 0)::int AS recent_pending_count,
+       COALESCE(presence.is_online, FALSE) AS presence_is_online,
+       EXTRACT(EPOCH FROM (NOW()-presence.recorded_at)) AS presence_age,
+       CASE
+         WHEN presence.is_online = TRUE
+          AND presence.updated_at >= NOW() - ($2::int * INTERVAL '1 second')
+         THEN 1 ELSE 0
+       END AS presence_is_fresh
      FROM app_user u
      LEFT JOIN courier_profile cp ON cp.user_id = u.id
      LEFT JOIN merchant_delivery_agent mda
        ON mda.delivery_user_id = u.id
       AND mda.merchant_id = $1
       AND mda.is_active = TRUE
+     LEFT JOIN LATERAL (
+       SELECT p.is_online, p.recorded_at, p.updated_at
+       FROM courier_presence p
+       WHERE p.courier_user_id = u.id
+       ORDER BY p.updated_at DESC
+       LIMIT 1
+     ) presence ON TRUE
      LEFT JOIN LATERAL (
        SELECT AVG(cds.avg_delivery_minutes)::numeric AS avg_delivery_minutes
        FROM courier_daily_stats cds
@@ -871,13 +958,8 @@ async function listEligibleCouriersTx(
      WHERE ca.courier_user_id = u.id
    ) fatigue ON TRUE
     WHERE ${DELIVERY_APPROVED_FILTER}
-      AND EXISTS (
-        SELECT 1
-        FROM courier_presence presence
-        WHERE presence.courier_user_id = u.id
-          AND presence.is_online = TRUE
-          AND presence.updated_at >= NOW() - ($2::int * INTERVAL '1 second')
-      )
+      AND COALESCE(LOWER(cp.availability_status), 'online') = 'online'
+      AND presence.is_online = TRUE
       AND (
         (
           COALESCE(cp.driver_type, '${DRIVER_TYPE_APP}') = '${DRIVER_TYPE_STORE}'
@@ -895,7 +977,7 @@ async function listEligibleCouriersTx(
          COALESCE(cp.driver_type, '${DRIVER_TYPE_APP}') = '${DRIVER_TYPE_APP}'
        )
      ORDER BY u.id DESC`,
-    [Number(merchantId), courierPresenceMaxAgeSeconds()]
+    [Number(merchantId), courierPresenceMaxAgeSeconds()],
   );
 
   const ranked = r.rows
@@ -913,11 +995,14 @@ async function listEligibleCouriersTx(
     })
     .sort((a, b) => {
       const merchantRankDiff =
-        Number(b.is_merchant_courier === true) - Number(a.is_merchant_courier === true);
+        Number(b.is_merchant_courier === true) -
+        Number(a.is_merchant_courier === true);
       if (merchantRankDiff !== 0) return merchantRankDiff;
-      const scoreDiff = Number(b.dispatch_score || 0) - Number(a.dispatch_score || 0);
+      const scoreDiff =
+        Number(b.dispatch_score || 0) - Number(a.dispatch_score || 0);
       if (scoreDiff !== 0) return scoreDiff;
-      const ratingDiff = Number(b.courier_rating || 0) - Number(a.courier_rating || 0);
+      const ratingDiff =
+        Number(b.courier_rating || 0) - Number(a.courier_rating || 0);
       if (ratingDiff !== 0) return ratingDiff;
       return Number(b.id || 0) - Number(a.id || 0);
     })
@@ -925,7 +1010,8 @@ async function listEligibleCouriersTx(
     .map((row, index) => ({
       ...row,
       dispatch_rank: index + 1,
-      dispatch_wave: Math.floor(index / Math.max(1, dispatchPolicy.waveSize)) + 1,
+      dispatch_wave:
+        Math.floor(index / Math.max(1, dispatchPolicy.waveSize)) + 1,
       dispatch_wave_size: Math.max(1, dispatchPolicy.waveSize),
     }));
 
@@ -947,8 +1033,29 @@ function shuffleRows(rows) {
 
 async function lockEligibleCourierCandidateTx(
   client,
-  { merchantId, customerBlock = null, courierId, forceMerchantCourier = null }
+  {
+    merchantId,
+    customerBlock = null,
+    courierId,
+    forceMerchantCourier = null,
+    allowBusyCourier = false,
+    allowStalePresenceCourier = false,
+  },
 ) {
+  const busyCourierFilter = allowBusyCourier
+    ? ""
+    : `AND NOT EXISTS (
+         SELECT 1
+         FROM customer_order active_order
+         WHERE active_order.delivery_user_id = u.id
+           AND active_order.delivery_assignment_status = 'ASSIGNED'
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM courier_assignment open_assignment
+         WHERE open_assignment.courier_user_id = u.id
+           AND open_assignment.ended_at IS NULL
+       )`;
   const r = await client.query(
     `SELECT
        u.id,
@@ -1002,20 +1109,12 @@ async function lockEligibleCourierCandidateTx(
          FROM courier_presence presence
          WHERE presence.courier_user_id = u.id
            AND presence.is_online = TRUE
-           AND presence.updated_at >= NOW() - ($5::int * INTERVAL '1 second')
+           AND (
+             $6::boolean
+             OR presence.updated_at >= NOW() - ($5::int * INTERVAL '1 second')
+           )
        )
-       AND NOT EXISTS (
-         SELECT 1
-         FROM customer_order active_order
-         WHERE active_order.delivery_user_id = u.id
-           AND active_order.delivery_assignment_status = 'ASSIGNED'
-       )
-       AND NOT EXISTS (
-         SELECT 1
-         FROM courier_assignment open_assignment
-         WHERE open_assignment.courier_user_id = u.id
-           AND open_assignment.ended_at IS NULL
-       )
+       ${busyCourierFilter}
        AND NOT EXISTS (
          SELECT 1
          FROM taxi_captain_profile tcp
@@ -1048,7 +1147,8 @@ async function lockEligibleCourierCandidateTx(
       forceMerchantCourier,
       customerBlock == null ? null : String(customerBlock).trim() || null,
       courierPresenceMaxAgeSeconds(),
-    ]
+      Boolean(allowStalePresenceCourier),
+    ],
   );
   const row = r.rows[0] || null;
   if (!row) return null;
@@ -1078,7 +1178,12 @@ export async function directAssignDeliveryOrderTx(
     allowPending = true,
     note = null,
     forceMerchantCourier = null,
-  }
+    allowBusyCourier = false,
+    allowStalePresenceCourier = true,
+    replaceExistingAssignment = false,
+    changedByRole = "owner",
+    assignedByStore = true,
+  },
 ) {
   const currentResult = await client.query(
     `SELECT
@@ -1108,7 +1213,7 @@ export async function directAssignDeliveryOrderTx(
      WHERE o.id = $1
        AND m.id = $2
       FOR UPDATE OF o, m`,
-    [Number(orderId), Number(merchantId)]
+    [Number(orderId), Number(merchantId)],
   );
 
   const current = currentResult.rows[0] || null;
@@ -1117,11 +1222,15 @@ export async function directAssignDeliveryOrderTx(
   }
 
   const normalizedStatus = normalizeDeliveryAssignmentStatus(
-    current.delivery_assignment_status
+    current.delivery_assignment_status,
   );
+  const currentDeliveryUserId = Number(current.delivery_user_id || 0);
+  const replacementRequested = replaceExistingAssignment === true;
+  const explicitCourierId = Number(explicitCourierUserId || 0);
   if (
     normalizedStatus === DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED &&
-    Number(current.delivery_user_id || 0) > 0
+    currentDeliveryUserId > 0 &&
+    (!replacementRequested || currentDeliveryUserId === explicitCourierId)
   ) {
     const snapshot = await client.query(
       `SELECT
@@ -1135,7 +1244,7 @@ export async function directAssignDeliveryOrderTx(
          AND ca.ended_at IS NULL
        ORDER BY ca.id DESC
        LIMIT 1`,
-      [Number(orderId)]
+      [Number(orderId)],
     );
     const deliveryAssignment = buildDeliveryAssignmentPresentation({
       order: current,
@@ -1153,18 +1262,25 @@ export async function directAssignDeliveryOrderTx(
     };
   }
 
-  const orderStatus = String(current.status || "").trim().toLowerCase();
+  const orderStatus = String(current.status || "")
+    .trim()
+    .toLowerCase();
   const assignableStatuses = new Set([
     "approved",
     "preparing",
     "ready_for_delivery",
     "ready_for_pickup",
+    "picked_up",
+    "on_the_way",
+    "arrived",
   ]);
   if (!assignableStatuses.has(orderStatus)) {
     return {
       order: current,
       driver: null,
-      deliveryAssignment: buildDeliveryAssignmentPresentation({ order: current }),
+      deliveryAssignment: buildDeliveryAssignmentPresentation({
+        order: current,
+      }),
       alreadyAssigned: false,
       assignmentStatus: normalizedStatus,
       pendingNoDriver: false,
@@ -1180,6 +1296,8 @@ export async function directAssignDeliveryOrderTx(
       customerBlock: customerBlock ?? current.customer_block ?? null,
       courierId: Number(explicitCourierUserId),
       forceMerchantCourier,
+      allowBusyCourier,
+      allowStalePresenceCourier,
     });
     if (explicit) eligibleRows.push(explicit);
   } else {
@@ -1224,7 +1342,7 @@ export async function directAssignDeliveryOrderTx(
          responded_at = COALESCE(responded_at, NOW())
      WHERE order_id = $1
        AND ended_at IS NULL`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
 
   const retryableErrors = new Set(["23505", "40001", "40P01"]);
@@ -1245,23 +1363,27 @@ export async function directAssignDeliveryOrderTx(
         customerBlock: customerBlock ?? current.customer_block ?? null,
         courierId: Number(candidate.id),
         forceMerchantCourier,
+        allowBusyCourier,
+        allowStalePresenceCourier,
       });
       if (!candidateLock) {
         await client.query("RELEASE SAVEPOINT sp_assign_candidate");
         continue;
       }
 
-      const activeAssignmentCheck = await client.query(
-        `SELECT 1
-         FROM customer_order active_order
-         WHERE active_order.delivery_user_id = $1
-           AND active_order.delivery_assignment_status = 'ASSIGNED'
-         LIMIT 1`,
-        [Number(candidateLock.id)]
-      );
-      if (activeAssignmentCheck.rowCount > 0) {
-        await client.query("RELEASE SAVEPOINT sp_assign_candidate");
-        continue;
+      if (!allowBusyCourier) {
+        const activeAssignmentCheck = await client.query(
+          `SELECT 1
+           FROM customer_order active_order
+           WHERE active_order.delivery_user_id = $1
+             AND active_order.delivery_assignment_status = 'ASSIGNED'
+           LIMIT 1`,
+          [Number(candidateLock.id)],
+        );
+        if (activeAssignmentCheck.rowCount > 0) {
+          await client.query("RELEASE SAVEPOINT sp_assign_candidate");
+          continue;
+        }
       }
 
       let requestedByUserIdForAssignment = null;
@@ -1271,7 +1393,7 @@ export async function directAssignDeliveryOrderTx(
            FROM app_user
            WHERE id = $1
            LIMIT 1`,
-          [Number(requestedByUserId)]
+          [Number(requestedByUserId)],
         );
         if (requestedByCheck.rowCount > 0) {
           requestedByUserIdForAssignment = Number(requestedByUserId);
@@ -1301,7 +1423,7 @@ export async function directAssignDeliveryOrderTx(
           String(assignmentType || "store_auto"),
           requestedByUserIdForAssignment,
           note || null,
-        ]
+        ],
       );
       const assignment = assignmentInsert.rows[0];
       if (!assignment) {
@@ -1312,7 +1434,10 @@ export async function directAssignDeliveryOrderTx(
         `UPDATE customer_order
          SET delivery_user_id = $1,
              delivery_assignment_status = 'ASSIGNED',
-             courier_assigned_at = COALESCE(courier_assigned_at, NOW()),
+             courier_assigned_at = CASE
+               WHEN $5::boolean THEN NOW()
+               ELSE COALESCE(courier_assigned_at, NOW())
+             END,
              courier_requested_at = COALESCE(courier_requested_at, NOW()),
              courier_source = CASE
                WHEN $2::text = 'merchant_delivery' THEN 'merchant'
@@ -1322,11 +1447,21 @@ export async function directAssignDeliveryOrderTx(
                WHEN $2::text = 'merchant_delivery' THEN TRUE
                ELSE FALSE
              END,
-             assigned_by_store = TRUE,
+             assigned_by_store = $4::boolean,
              updated_at = NOW()
          WHERE id = $3
          RETURNING *`,
-        [Number(candidateLock.id), String(forceMerchantCourier === true ? "merchant_delivery" : assignmentType || "store_auto"), Number(orderId)]
+        [
+          Number(candidateLock.id),
+          String(
+            forceMerchantCourier === true
+              ? "merchant_delivery"
+              : assignmentType || "store_auto",
+          ),
+          Number(orderId),
+          Boolean(assignedByStore),
+          Boolean(replacementRequested),
+        ],
       );
       const updatedOrder = orderUpdate.rows[0];
 
@@ -1336,8 +1471,9 @@ export async function directAssignDeliveryOrderTx(
         newStatus: String(current.status),
         lifecycleOld: lifecycleFromStatus(current.status),
         lifecycleNew: "DELIVERY_ASSIGNED",
-        changedByUserId: requestedByUserId == null ? null : Number(requestedByUserId),
-        changedByRole: "owner",
+        changedByUserId:
+          requestedByUserId == null ? null : Number(requestedByUserId),
+        changedByRole,
         note,
       });
 
@@ -1375,6 +1511,16 @@ export async function directAssignDeliveryOrderTx(
         pendingNoDriver: false,
         assignmentCreated: true,
         assignment,
+        previousDriver:
+          currentDeliveryUserId > 0 &&
+          currentDeliveryUserId !== Number(candidateLock.id)
+            ? {
+                id: currentDeliveryUserId,
+                full_name: current.delivery_full_name || null,
+                phone: current.delivery_phone || null,
+                image_url: current.delivery_image_url || null,
+              }
+            : null,
       };
     } catch (error) {
       lastError = error;
@@ -1394,6 +1540,29 @@ export async function directAssignDeliveryOrderTx(
     throw lastError || new AppError("PENDING_NO_DRIVER", { status: 409 });
   }
 
+  if (
+    normalizedStatus === DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER &&
+    !currentDeliveryUserId
+  ) {
+    logAssignmentOutcome({
+      assignedDeliveryUserId: null,
+      assignmentId: null,
+      assignmentStatus: DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER,
+      unchanged: true,
+    });
+    return {
+      order: current,
+      driver: null,
+      deliveryAssignment: buildDeliveryAssignmentPresentation({
+        order: current,
+      }),
+      alreadyAssigned: false,
+      assignmentStatus: DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER,
+      pendingNoDriver: true,
+      assignmentCreated: false,
+    };
+  }
+
   const pendingUpdate = await client.query(
     `UPDATE customer_order
      SET delivery_user_id = NULL,
@@ -1403,7 +1572,7 @@ export async function directAssignDeliveryOrderTx(
          updated_at = NOW()
      WHERE id = $1
      RETURNING *`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
   const pendingOrder = pendingUpdate.rows[0] || current;
   await insertStatusHistoryTx(client, {
@@ -1412,8 +1581,9 @@ export async function directAssignDeliveryOrderTx(
     newStatus: String(current.status),
     lifecycleOld: lifecycleFromStatus(current.status),
     lifecycleNew: "DELIVERY_PENDING_NO_DRIVER",
-    changedByUserId: requestedByUserId == null ? null : Number(requestedByUserId),
-    changedByRole: "owner",
+    changedByUserId:
+      requestedByUserId == null ? null : Number(requestedByUserId),
+    changedByRole,
     note,
   });
   logAssignmentOutcome({
@@ -1452,14 +1622,13 @@ export async function directAssignDeliveryOrderTx(
  */
 async function releaseOrderCourierTx(
   client,
-  { orderId, outcome = "COMPLETED", endedReason = null }
+  { orderId, outcome = "COMPLETED", endedReason = null },
 ) {
   const isCancelled = String(outcome).toUpperCase() === "CANCELLED";
   const nextAssignmentStatus = isCancelled
     ? DELIVERY_ASSIGNMENT_STATUSES.CANCELLED
     : DELIVERY_ASSIGNMENT_STATUSES.COMPLETED;
-  const reason =
-    endedReason || (isCancelled ? "ORDER_CANCELLED" : "COMPLETED");
+  const reason = endedReason || (isCancelled ? "ORDER_CANCELLED" : "COMPLETED");
 
   await client.query(
     `UPDATE courier_assignment
@@ -1481,7 +1650,7 @@ async function releaseOrderCourierTx(
          END
      WHERE order_id = $1
        AND ended_at IS NULL`,
-    [Number(orderId), reason, isCancelled]
+    [Number(orderId), reason, isCancelled],
   );
 
   const updated = await client.query(
@@ -1491,7 +1660,7 @@ async function releaseOrderCourierTx(
      WHERE id = $1
        AND delivery_assignment_status IS DISTINCT FROM $2
      RETURNING id, order_group_id`,
-    [Number(orderId), nextAssignmentStatus]
+    [Number(orderId), nextAssignmentStatus],
   );
 
   // Read the group id independently of the UPDATE above: on a repeat call the
@@ -1504,16 +1673,20 @@ async function releaseOrderCourierTx(
           (
             await client.query(
               "SELECT order_group_id FROM customer_order WHERE id = $1",
-              [Number(orderId)]
+              [Number(orderId)],
             )
-          ).rows[0]?.order_group_id || 0
+          ).rows[0]?.order_group_id || 0,
         ) || null;
   if (orderGroupId) {
     await settleGroupedJobIfChildrenTerminalTx(client, orderGroupId);
   }
 }
 
-async function cancelPendingAssignmentsTx(client, orderId, exceptCourierId = null) {
+async function cancelPendingAssignmentsTx(
+  client,
+  orderId,
+  exceptCourierId = null,
+) {
   // Close the rows (ended_at) in addition to marking them cancelled. The open
   // uniqueness indexes key on `ended_at IS NULL`, so a 'cancelled' row that
   // still had ended_at NULL kept counting as an OPEN assignment and blocked
@@ -1527,7 +1700,7 @@ async function cancelPendingAssignmentsTx(client, orderId, exceptCourierId = nul
      WHERE order_id = $1
        AND status = 'pending'
        AND ($2::bigint IS NULL OR courier_user_id <> $2::bigint)`,
-    [Number(orderId), exceptCourierId ? Number(exceptCourierId) : null]
+    [Number(orderId), exceptCourierId ? Number(exceptCourierId) : null],
   );
 }
 
@@ -1540,7 +1713,7 @@ async function createAssignmentsTx(
     courierIds,
     courierRows = null,
     ttlMinutes = DEFAULT_ASSIGNMENT_TTL_MIN,
-  }
+  },
 ) {
   const inserted = [];
   const targets =
@@ -1548,11 +1721,13 @@ async function createAssignmentsTx(
       ? courierRows.map((row) => ({
           courierId: Number(row.id),
           dispatchRank:
-            Number.isInteger(Number(row.dispatch_rank)) && Number(row.dispatch_rank) > 0
+            Number.isInteger(Number(row.dispatch_rank)) &&
+            Number(row.dispatch_rank) > 0
               ? Number(row.dispatch_rank)
               : null,
           dispatchWave:
-            Number.isInteger(Number(row.dispatch_wave)) && Number(row.dispatch_wave) > 0
+            Number.isInteger(Number(row.dispatch_wave)) &&
+            Number(row.dispatch_wave) > 0
               ? Number(row.dispatch_wave)
               : null,
         }))
@@ -1586,7 +1761,7 @@ async function createAssignmentsTx(
           Number(ttlMinutes || DEFAULT_ASSIGNMENT_TTL_MIN),
           target.dispatchRank,
           target.dispatchWave,
-        ]
+        ],
       );
       inserted.push(r.rows[0]);
     } catch (error) {
@@ -1610,7 +1785,7 @@ async function createAssignmentsTx(
           String(assignmentType || "broadcast"),
           requestedByUserId ? Number(requestedByUserId) : null,
           Number(ttlMinutes || DEFAULT_ASSIGNMENT_TTL_MIN),
-        ]
+        ],
       );
       inserted.push(legacyInsert.rows[0]);
     }
@@ -1627,7 +1802,7 @@ async function recordCourierDispatchAuditTx(
     assignmentType = "broadcast",
     customerBlock = null,
     couriers = [],
-  }
+  },
 ) {
   const rows = Array.isArray(couriers) ? couriers : [];
   const normalizedCouriers = rows.map((row) => ({
@@ -1645,7 +1820,9 @@ async function recordCourierDispatchAuditTx(
     debug: row.dispatch_debug || null,
   }));
   const waveSize =
-    normalizedCouriers.length > 0 ? Number(rows[0]?.dispatch_wave_size || 1) : 1;
+    normalizedCouriers.length > 0
+      ? Number(rows[0]?.dispatch_wave_size || 1)
+      : 1;
   try {
     const inserted = await client.query(
       `INSERT INTO delivery_dispatch_audit
@@ -1666,11 +1843,13 @@ async function recordCourierDispatchAuditTx(
         Number(merchantId),
         requestedByUserId == null ? null : Number(requestedByUserId),
         String(assignmentType || "broadcast").slice(0, 30),
-        customerBlock == null ? null : String(customerBlock || "").trim() || null,
+        customerBlock == null
+          ? null
+          : String(customerBlock || "").trim() || null,
         normalizedCouriers.length,
         Math.max(1, Number(waveSize || 1)),
         JSON.stringify(normalizedCouriers),
-      ]
+      ],
     );
     return Number(inserted.rows[0]?.id || 0) || null;
   } catch (error) {
@@ -1692,9 +1871,14 @@ export async function startPreparingAndRequestCourier({
   try {
     await client.query("BEGIN");
 
-    const current = await getOwnerOrderWithMerchant(ownerUserId, orderId, client, {
-      forUpdate: true,
-    });
+    const current = await getOwnerOrderWithMerchant(
+      ownerUserId,
+      orderId,
+      client,
+      {
+        forUpdate: true,
+      },
+    );
     if (!current) throw new AppError("ORDER_NOT_FOUND", { status: 404 });
 
     assertOwnerOrderEditable(current.status);
@@ -1718,7 +1902,7 @@ export async function startPreparingAndRequestCourier({
         estimatedPrepMinutes == null ? null : Number(estimatedPrepMinutes),
         preferredCourierUserId == null ? null : Number(preferredCourierUserId),
         Number(orderId),
-      ]
+      ],
     );
     const updated = updatedResult.rows[0];
 
@@ -1743,6 +1927,9 @@ export async function startPreparingAndRequestCourier({
       allowPending: true,
       note,
       forceMerchantCourier: null,
+      // A courier explicitly chosen by the store must win over an assignment
+      // created by the recovery worker between approval and preparation.
+      replaceExistingAssignment: preferredCourierUserId != null,
     });
 
     await client.query("COMMIT");
@@ -1761,6 +1948,7 @@ export async function startPreparingAndRequestCourier({
           ? [assignmentResult.driver]
           : [],
       deliveryAssignment: assignmentResult.deliveryAssignment,
+      previousDriver: assignmentResult.previousDriver || null,
       dispatchAuditId: null,
       preferredOnly: Boolean(preferredCourierUserId),
     };
@@ -1782,13 +1970,22 @@ export async function assignCourierByStore({
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const current = await getOwnerOrderWithMerchant(ownerUserId, orderId, client, {
-      forUpdate: true,
-    });
+    const current = await getOwnerOrderWithMerchant(
+      ownerUserId,
+      orderId,
+      client,
+      {
+        forUpdate: true,
+      },
+    );
     if (!current) throw new AppError("ORDER_NOT_FOUND", { status: 404 });
 
     assertOwnerOrderEditable(current.status);
-    if (!["approved", "preparing", "ready_for_delivery", "pending"].includes(String(current.status))) {
+    if (
+      !["approved", "preparing", "ready_for_delivery", "pending"].includes(
+        String(current.status),
+      )
+    ) {
       throw new AppError("ORDER_ASSIGNMENT_NOT_ALLOWED", { status: 409 });
     }
 
@@ -1801,15 +1998,21 @@ export async function assignCourierByStore({
       explicitCourierUserId: Number(courierUserId),
       allowPending: false,
       note,
-      forceMerchantCourier: assignmentMode === "merchant_delivery" ? true : false,
+      forceMerchantCourier:
+        assignmentMode === "merchant_delivery" ? true : false,
+      replaceExistingAssignment: true,
     });
 
     await client.query("COMMIT");
     return {
       order: assignmentResult.order || current,
+      merchantName: current.merchant_name,
       assignment: assignmentResult.assignment || null,
-      courier: assignmentResult.assignmentCreated ? assignmentResult.driver : null,
+      courier: assignmentResult.assignmentCreated
+        ? assignmentResult.driver
+        : null,
       deliveryAssignment: assignmentResult.deliveryAssignment,
+      previousDriver: assignmentResult.previousDriver || null,
       assignmentCreated: assignmentResult.assignmentCreated,
       assignmentStatus: assignmentResult.assignmentStatus,
       dispatchAuditId: null,
@@ -1832,9 +2035,14 @@ export async function markReadyForPickupByStore({
   try {
     await client.query("BEGIN");
 
-    const current = await getOwnerOrderWithMerchant(ownerUserId, orderId, client, {
-      forUpdate: true,
-    });
+    const current = await getOwnerOrderWithMerchant(
+      ownerUserId,
+      orderId,
+      client,
+      {
+        forUpdate: true,
+      },
+    );
     if (!current) throw new AppError("ORDER_NOT_FOUND", { status: 404 });
 
     assertOwnerOrderEditable(current.status);
@@ -1855,9 +2063,11 @@ export async function markReadyForPickupByStore({
        WHERE id = $2
        RETURNING *`,
       [
-        estimatedDeliveryMinutes == null ? null : Number(estimatedDeliveryMinutes),
+        estimatedDeliveryMinutes == null
+          ? null
+          : Number(estimatedDeliveryMinutes),
         Number(orderId),
-      ]
+      ],
     );
     const updated = updatedResult.rows[0];
 
@@ -1906,7 +2116,7 @@ export async function markReadyForPickupByStore({
 
 async function resolveCourierOrderForActionTx(
   client,
-  { courierUserId, orderId, lock = true }
+  { courierUserId, orderId, lock = true },
 ) {
   const r = await client.query(
     `SELECT
@@ -1923,7 +2133,7 @@ async function resolveCourierOrderForActionTx(
      LEFT JOIN app_user au ON au.id = o.delivery_user_id
      WHERE o.id = $1
      ${lock ? "FOR UPDATE OF o" : ""}`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
 
   const order = r.rows[0];
@@ -1949,7 +2159,7 @@ async function resolveCourierOrderForActionTx(
      WHERE u.id = $1
        AND ${DELIVERY_APPROVED_FILTER}
      LIMIT 1`,
-    [Number(courierUserId), Number(order.merchant_id)]
+    [Number(courierUserId), Number(order.merchant_id)],
   );
   const courier = courierCheck.rows[0];
   if (!courier) throw new AppError("COURIER_NOT_ALLOWED", { status: 403 });
@@ -1971,10 +2181,58 @@ export async function courierAcceptAssignment({
       lock: true,
     });
 
-    if (!["preparing", "ready_for_delivery"].includes(String(order.status))) {
+    const normalizedStatus = String(order.status || "")
+      .trim()
+      .toLowerCase();
+    const assignedToCourier =
+      Number(order.delivery_user_id || 0) === Number(courierUserId);
+    const deliveryAssignmentStatus = normalizeDeliveryAssignmentStatus(
+      order.delivery_assignment_status,
+    );
+    if (
+      assignedToCourier &&
+      deliveryAssignmentStatus === DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED &&
+      [
+        "approved",
+        "preparing",
+        "ready_for_delivery",
+        "on_the_way",
+        "arrived",
+      ].includes(normalizedStatus)
+    ) {
+      const activeAssignment = await client.query(
+        `UPDATE courier_assignment
+         SET status = CASE WHEN status = 'pending' THEN 'accepted' ELSE status END,
+             responded_at = COALESCE(responded_at, NOW()),
+             response_note = COALESCE($3, response_note)
+         WHERE order_id = $1
+           AND courier_user_id = $2
+           AND ended_at IS NULL
+           AND status IN ('pending', 'assigned', 'accepted')
+         RETURNING *`,
+        [Number(orderId), Number(courierUserId), note || null],
+      );
+      await client.query("COMMIT");
+      return {
+        order,
+        courier,
+        isMerchantCourier: order.is_merchant_delivery === true,
+        alreadyAssigned: true,
+        assignment: activeAssignment.rows[0] || null,
+      };
+    }
+
+    if (
+      !["approved", "preparing", "ready_for_delivery"].includes(
+        String(order.status),
+      )
+    ) {
       throw new AppError("ORDER_NOT_ACCEPTABLE", { status: 409 });
     }
-    if (order.delivery_user_id && Number(order.delivery_user_id) !== Number(courierUserId)) {
+    if (
+      order.delivery_user_id &&
+      Number(order.delivery_user_id) !== Number(courierUserId)
+    ) {
       throw new AppError("ORDER_ALREADY_ASSIGNED", { status: 409 });
     }
 
@@ -1987,15 +2245,19 @@ export async function courierAcceptAssignment({
        ORDER BY requested_at DESC
        LIMIT 1
        FOR UPDATE`,
-      [Number(orderId), Number(courierUserId)]
+      [Number(orderId), Number(courierUserId)],
     );
 
     const hasPendingAssignment = !!assignment.rows[0];
     const canClaimByBlock =
       !hasPendingAssignment &&
       !order.delivery_user_id &&
-      String(order.customer_block || "").trim().toUpperCase() ===
-        String(courier.block || "").trim().toUpperCase();
+      String(order.customer_block || "")
+        .trim()
+        .toUpperCase() ===
+        String(courier.block || "")
+          .trim()
+          .toUpperCase();
 
     if (!hasPendingAssignment && !canClaimByBlock) {
       throw new AppError("ASSIGNMENT_NOT_AVAILABLE", { status: 409 });
@@ -2010,11 +2272,12 @@ export async function courierAcceptAssignment({
              responded_at = NOW(),
              response_note = COALESCE($2, response_note)
          WHERE id = $1`,
-        [Number(assignment.rows[0].id), note || null]
+        [Number(assignment.rows[0].id), note || null],
       );
-      acceptedAssignmentId = Number(
-        accepted.rows?.[0]?.id || assignment.rows[0]?.id || 0
-      ) || Number(assignment.rows[0]?.id || 0) || null;
+      acceptedAssignmentId =
+        Number(accepted.rows?.[0]?.id || assignment.rows[0]?.id || 0) ||
+        Number(assignment.rows[0]?.id || 0) ||
+        null;
     } else {
       await createAssignmentsTx(client, {
         orderId: Number(orderId),
@@ -2031,7 +2294,7 @@ export async function courierAcceptAssignment({
            AND courier_user_id = $3
            AND status = 'pending'
          RETURNING id`,
-        [Number(orderId), note || null, Number(courierUserId)]
+        [Number(orderId), note || null, Number(courierUserId)],
       );
       acceptedAssignmentId = Number(accepted.rows?.[0]?.id || 0) || null;
     }
@@ -2049,7 +2312,7 @@ export async function courierAcceptAssignment({
        WHERE order_id = $1
          AND status = 'pending'
          AND ($2::bigint IS NULL OR id <> $2::bigint)`,
-      [Number(orderId), acceptedAssignmentId]
+      [Number(orderId), acceptedAssignmentId],
     );
 
     const courierDriverType = normalizeCourierDriverType(courier.driver_type);
@@ -2077,7 +2340,7 @@ export async function courierAcceptAssignment({
            is_merchant_delivery = $2,
            updated_at = NOW()
        WHERE id = $3`,
-      [Number(courierUserId), isMerchantCourier, Number(orderId)]
+      [Number(courierUserId), isMerchantCourier, Number(orderId)],
     );
 
     await insertStatusHistoryTx(client, {
@@ -2122,7 +2385,7 @@ export async function courierRejectAssignment({
          AND courier_user_id = $2
          AND status = 'pending'
        RETURNING *`,
-      [Number(orderId), Number(courierUserId), note || null]
+      [Number(orderId), Number(courierUserId), note || null],
     );
     if (!assignment.rows[0]) {
       throw new AppError("ASSIGNMENT_NOT_AVAILABLE", { status: 404 });
@@ -2133,7 +2396,7 @@ export async function courierRejectAssignment({
        FROM customer_order o
        JOIN merchant m ON m.id = o.merchant_id
        WHERE o.id = $1`,
-      [Number(orderId)]
+      [Number(orderId)],
     );
 
     const pendingLeft = await client.query(
@@ -2141,7 +2404,7 @@ export async function courierRejectAssignment({
        FROM courier_assignment
        WHERE order_id = $1
          AND status = 'pending'`,
-      [Number(orderId)]
+      [Number(orderId)],
     );
 
     await client.query("COMMIT");
@@ -2169,7 +2432,9 @@ function toIsoOrNull(value) {
 }
 
 function parseWindow({ period = "day", from = null, to = null } = {}) {
-  const normalizedPeriod = String(period || "day").trim().toLowerCase();
+  const normalizedPeriod = String(period || "day")
+    .trim()
+    .toLowerCase();
   const validPeriod = [
     "all",
     "day",
@@ -2186,22 +2451,22 @@ function parseWindow({ period = "day", from = null, to = null } = {}) {
     validPeriod === "custom"
       ? toIsoOrNull(from)
       : validPeriod === "all"
-      ? toIsoOrNull(new Date("1970-01-01T00:00:00.000Z"))
-      : validPeriod === "year"
-      ? toIsoOrNull(new Date(now - 365 * 24 * 60 * 60 * 1000))
-      : validPeriod === "yesterday"
-      ? toIsoOrNull(new Date(now - 2 * 24 * 60 * 60 * 1000))
-      : validPeriod === "week"
-      ? toIsoOrNull(new Date(now - 7 * 24 * 60 * 60 * 1000))
-      : validPeriod === "month"
-      ? toIsoOrNull(new Date(now - 30 * 24 * 60 * 60 * 1000))
-      : toIsoOrNull(new Date(now - 24 * 60 * 60 * 1000));
+        ? toIsoOrNull(new Date("1970-01-01T00:00:00.000Z"))
+        : validPeriod === "year"
+          ? toIsoOrNull(new Date(now - 365 * 24 * 60 * 60 * 1000))
+          : validPeriod === "yesterday"
+            ? toIsoOrNull(new Date(now - 2 * 24 * 60 * 60 * 1000))
+            : validPeriod === "week"
+              ? toIsoOrNull(new Date(now - 7 * 24 * 60 * 60 * 1000))
+              : validPeriod === "month"
+                ? toIsoOrNull(new Date(now - 30 * 24 * 60 * 60 * 1000))
+                : toIsoOrNull(new Date(now - 24 * 60 * 60 * 1000));
   const end =
     validPeriod === "custom"
       ? toIsoOrNull(to)
       : validPeriod === "yesterday"
-      ? toIsoOrNull(new Date(now - 24 * 60 * 60 * 1000))
-      : nowIsoDate();
+        ? toIsoOrNull(new Date(now - 24 * 60 * 60 * 1000))
+        : nowIsoDate();
   return { period: validPeriod, start, end };
 }
 
@@ -2228,7 +2493,7 @@ async function getMerchantByOwnerTx(client, ownerUserId) {
      FROM merchant
      WHERE owner_user_id = $1
      LIMIT 1`,
-    [Number(ownerUserId)]
+    [Number(ownerUserId)],
   );
   return r.rows[0] || null;
 }
@@ -2238,7 +2503,7 @@ async function getBackofficeUserIdsTx(client) {
     `SELECT id
      FROM app_user
      WHERE role IN ('admin','deputy_admin')
-        OR is_super_admin = TRUE`
+        OR is_super_admin = TRUE`,
   );
   return r.rows.map((row) => Number(row.id));
 }
@@ -2257,7 +2522,7 @@ async function getMerchantLedgerBalanceTx(client, merchantId) {
      )::numeric AS balance
      FROM merchant_receivables_ledger
      WHERE merchant_id = $1`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
   return toNumber(r.rows[0]?.balance, 0);
 }
@@ -2273,13 +2538,17 @@ async function appendMerchantLedgerEntryTx(
     referenceType = null,
     referenceId = null,
     note = null,
-  }
+  },
 ) {
   const absoluteAmount = round2(Math.abs(toNumber(amount, 0)));
   if (absoluteAmount <= 0) return null;
   const safeDirection = direction === "credit" ? "credit" : "debit";
-  const currentBalance = await getMerchantLedgerBalanceTx(client, Number(merchantId));
-  const signedDelta = safeDirection === "debit" ? absoluteAmount : -absoluteAmount;
+  const currentBalance = await getMerchantLedgerBalanceTx(
+    client,
+    Number(merchantId),
+  );
+  const signedDelta =
+    safeDirection === "debit" ? absoluteAmount : -absoluteAmount;
   const nextBalance = round2(currentBalance + signedDelta);
   const inserted = await client.query(
     `INSERT INTO merchant_receivables_ledger
@@ -2306,7 +2575,7 @@ async function appendMerchantLedgerEntryTx(
       referenceType,
       referenceId == null ? null : Number(referenceId),
       note,
-    ]
+    ],
   );
   return inserted.rows[0] || null;
 }
@@ -2325,7 +2594,7 @@ async function getMerchantAppPayablesBalanceTx(client, merchantId) {
      )::numeric AS balance
      FROM merchant_app_payables_ledger
      WHERE merchant_id = $1`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
   return toNumber(r.rows[0]?.balance, 0);
 }
@@ -2341,13 +2610,17 @@ async function appendMerchantAppPayablesLedgerEntryTx(
     referenceType = null,
     referenceId = null,
     note = null,
-  }
+  },
 ) {
   const absoluteAmount = round2(Math.abs(toNumber(amount, 0)));
   if (absoluteAmount <= 0) return null;
   const safeDirection = direction === "credit" ? "credit" : "debit";
-  const currentBalance = await getMerchantAppPayablesBalanceTx(client, Number(merchantId));
-  const signedDelta = safeDirection === "debit" ? absoluteAmount : -absoluteAmount;
+  const currentBalance = await getMerchantAppPayablesBalanceTx(
+    client,
+    Number(merchantId),
+  );
+  const signedDelta =
+    safeDirection === "debit" ? absoluteAmount : -absoluteAmount;
   const nextBalance = round2(currentBalance + signedDelta);
   const isAutoOrderAccrual =
     String(referenceType || "") === "order_auto_accrual" &&
@@ -2387,7 +2660,7 @@ async function appendMerchantAppPayablesLedgerEntryTx(
           referenceType,
           referenceId == null ? null : Number(referenceId),
           note,
-        ]
+        ],
       );
     } catch (error) {
       if (error?.code !== "42P10") throw error;
@@ -2417,12 +2690,12 @@ async function appendMerchantAppPayablesLedgerEntryTx(
           referenceType,
           referenceId == null ? null : Number(referenceId),
           note,
-        ]
+        ],
       );
     }
   } else {
     inserted = await client.query(
-        `INSERT INTO merchant_app_payables_ledger
+      `INSERT INTO merchant_app_payables_ledger
           (
             merchant_id,
             order_id,
@@ -2436,18 +2709,18 @@ async function appendMerchantAppPayablesLedgerEntryTx(
           )
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          RETURNING *`,
-        [
-          Number(merchantId),
-          orderId == null ? null : Number(orderId),
-          String(entryType || "adjustment"),
-          absoluteAmount,
-          safeDirection,
-          nextBalance,
-          referenceType,
-          referenceId == null ? null : Number(referenceId),
-          note,
-        ]
-      );
+      [
+        Number(merchantId),
+        orderId == null ? null : Number(orderId),
+        String(entryType || "adjustment"),
+        absoluteAmount,
+        safeDirection,
+        nextBalance,
+        referenceType,
+        referenceId == null ? null : Number(referenceId),
+        note,
+      ],
+    );
   }
   if (inserted.rows[0]) return inserted.rows[0];
 
@@ -2462,7 +2735,7 @@ async function appendMerchantAppPayablesLedgerEntryTx(
          AND direction = 'debit'
        ORDER BY id DESC
        LIMIT 1`,
-      [Number(merchantId), Number(referenceId)]
+      [Number(merchantId), Number(referenceId)],
     );
     return existing.rows[0] || null;
   }
@@ -2480,7 +2753,7 @@ async function insertPaymentRequestStatusHistoryTx(
     changedByRole = null,
     note = null,
     metadata = null,
-  }
+  },
 ) {
   await client.query(
     `INSERT INTO merchant_payment_request_status_history
@@ -2502,7 +2775,7 @@ async function insertPaymentRequestStatusHistoryTx(
       changedByRole || null,
       note || null,
       JSON.stringify(metadata && typeof metadata === "object" ? metadata : {}),
-    ]
+    ],
   );
 }
 
@@ -2518,23 +2791,28 @@ async function updatePaymentRequestStatusTx(
     metadata = null,
     patch = {},
     lockRequest = false,
-  }
+  },
 ) {
   const requestResult = await client.query(
     `SELECT *
      FROM merchant_payment_request
      WHERE id = $1
      FOR UPDATE`,
-    [Number(paymentRequestId)]
+    [Number(paymentRequestId)],
   );
   const row = requestResult.rows[0];
   if (!row) throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
-  if (row.is_locked === true || LOCKED_REQUEST_STATUSES.has(String(row.status || "").toLowerCase())) {
+  if (
+    row.is_locked === true ||
+    LOCKED_REQUEST_STATUSES.has(String(row.status || "").toLowerCase())
+  ) {
     throw new AppError("PAYMENT_REQUEST_LOCKED", { status: 409 });
   }
 
   const oldStatus = normalizeRequestStatus(row.status);
-  const allowed = (fromStatuses || []).map((s) => String(s || "").toLowerCase());
+  const allowed = (fromStatuses || []).map((s) =>
+    String(s || "").toLowerCase(),
+  );
   if (allowed.length && !allowed.includes(oldStatus)) {
     throw new AppError("PAYMENT_REQUEST_INVALID_STATUS_TRANSITION", {
       status: 409,
@@ -2573,7 +2851,7 @@ async function updatePaymentRequestStatusTx(
      SET ${fields.join(",\n         ")}
      WHERE id = $${i}
      RETURNING *`,
-    values
+    values,
   );
   const next = updated.rows[0];
 
@@ -2599,7 +2877,9 @@ function calculateCommission(order, profile) {
 }
 
 function calculateDeliveryDue(order, profile) {
-  return round2(buildOrderFinancialSnapshot(order, profile).appDeliveryFeeAmount);
+  return round2(
+    buildOrderFinancialSnapshot(order, profile).appDeliveryFeeAmount,
+  );
 }
 
 function calculateAppPayableDue(order, profile) {
@@ -2616,14 +2896,18 @@ async function resolveMerchantBillingProfileTx(client, merchantId) {
      FROM merchant_billing_profile
      WHERE merchant_id = $1
      LIMIT 1`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
   return normalizeMerchantBillingProfile(
-    result.rows[0] || { merchant_id: Number(merchantId) }
+    result.rows[0] || { merchant_id: Number(merchantId) },
   );
 }
 
-async function ensureOrderFinancialSnapshotTx(client, orderRow, profile = null) {
+async function ensureOrderFinancialSnapshotTx(
+  client,
+  orderRow,
+  profile = null,
+) {
   if (!orderRow?.id || !orderRow?.merchant_id) {
     return computeOrderFinancialSnapshot(orderRow || {}, profile || {});
   }
@@ -2634,13 +2918,21 @@ async function ensureOrderFinancialSnapshotTx(client, orderRow, profile = null) 
       ? orderRow.financial_config_snapshot_json
       : null;
   if (existingSnapshot?.appReceivableAmount != null) {
-    const recomputed = computeOrderFinancialSnapshot(orderRow, existingSnapshot);
+    const recomputed = computeOrderFinancialSnapshot(
+      orderRow,
+      existingSnapshot,
+    );
     const snapshotChanged =
-      String(existingSnapshot.courierSource || "") !== String(recomputed.courierSource || "") ||
-      Number(existingSnapshot.appDeliveryFeeAmount || 0) !== Number(recomputed.appDeliveryFeeAmount || 0) ||
-      Number(existingSnapshot.storeDeliveryFeeAmount || 0) !== Number(recomputed.storeDeliveryFeeAmount || 0) ||
-      Number(existingSnapshot.appReceivableAmount || 0) !== Number(recomputed.appReceivableAmount || 0) ||
-      Number(existingSnapshot.storeNetAmount || 0) !== Number(recomputed.storeNetAmount || 0);
+      String(existingSnapshot.courierSource || "") !==
+        String(recomputed.courierSource || "") ||
+      Number(existingSnapshot.appDeliveryFeeAmount || 0) !==
+        Number(recomputed.appDeliveryFeeAmount || 0) ||
+      Number(existingSnapshot.storeDeliveryFeeAmount || 0) !==
+        Number(recomputed.storeDeliveryFeeAmount || 0) ||
+      Number(existingSnapshot.appReceivableAmount || 0) !==
+        Number(recomputed.appReceivableAmount || 0) ||
+      Number(existingSnapshot.storeNetAmount || 0) !==
+        Number(recomputed.storeNetAmount || 0);
     const needsBackfill =
       orderRow.store_net_received_amount == null ||
       orderRow.app_due_from_delivery == null ||
@@ -2681,14 +2973,18 @@ async function ensureOrderFinancialSnapshotTx(client, orderRow, profile = null) 
         recomputed.differenceReason || null,
         recomputed.settlementStatus || "pending_store_confirmation",
         JSON.stringify(recomputed),
-      ]
+      ],
     );
     const next = refreshed.rows[0] || orderRow;
     return computeOrderFinancialSnapshot(next, recomputed);
   }
 
   const resolvedProfile =
-    profile || (await resolveMerchantBillingProfileTx(client, Number(orderRow.merchant_id)));
+    profile ||
+    (await resolveMerchantBillingProfileTx(
+      client,
+      Number(orderRow.merchant_id),
+    ));
   const snapshot = computeOrderFinancialSnapshot(orderRow, resolvedProfile);
 
   const updated = await client.query(
@@ -2724,18 +3020,21 @@ async function ensureOrderFinancialSnapshotTx(client, orderRow, profile = null) 
       snapshot.settlementStatus || "pending_store_confirmation",
       snapshot.profileVersion,
       JSON.stringify(snapshot),
-    ]
+    ],
   );
   const next = updated.rows[0] || orderRow;
   return computeOrderFinancialSnapshot(next, snapshot);
 }
 
-async function getMerchantReceivableInvoicePaidAmountTx(client, receivableInvoiceId) {
+async function getMerchantReceivableInvoicePaidAmountTx(
+  client,
+  receivableInvoiceId,
+) {
   const result = await client.query(
     `SELECT COALESCE(SUM(allocated_amount), 0)::numeric AS total_paid
      FROM merchant_payment_invoice_allocation
      WHERE receivable_invoice_id = $1`,
-    [Number(receivableInvoiceId)]
+    [Number(receivableInvoiceId)],
   );
   return round2(toNumber(result.rows[0]?.total_paid, 0));
 }
@@ -2746,22 +3045,24 @@ async function syncReceivableInvoiceStatusTx(client, receivableInvoiceId) {
      FROM merchant_receivable_invoice
      WHERE id = $1
      LIMIT 1`,
-    [Number(receivableInvoiceId)]
+    [Number(receivableInvoiceId)],
   );
   const row = current.rows[0];
   if (!row) return null;
   const paidAmount = await getMerchantReceivableInvoicePaidAmountTx(
     client,
-    Number(receivableInvoiceId)
+    Number(receivableInvoiceId),
   );
   const appReceivableAmount = round2(toNumber(row.app_receivable_amount, 0));
-  const outstandingAmount = round2(Math.max(appReceivableAmount - paidAmount, 0));
+  const outstandingAmount = round2(
+    Math.max(appReceivableAmount - paidAmount, 0),
+  );
   const invoiceStatus =
     outstandingAmount <= 0.009
       ? "paid"
       : paidAmount > 0
-      ? "partially_paid"
-      : "unpaid";
+        ? "partially_paid"
+        : "unpaid";
   const updated = await client.query(
     `UPDATE merchant_receivable_invoice
      SET paid_amount = $2,
@@ -2770,72 +3071,26 @@ async function syncReceivableInvoiceStatusTx(client, receivableInvoiceId) {
          updated_at = NOW()
      WHERE id = $1
      RETURNING *`,
-    [
-      Number(receivableInvoiceId),
-      paidAmount,
-      outstandingAmount,
-      invoiceStatus,
-    ]
+    [Number(receivableInvoiceId), paidAmount, outstandingAmount, invoiceStatus],
   );
   return updated.rows[0] || null;
 }
 
-async function upsertMerchantReceivableInvoiceTx(client, orderRow, profile = null) {
+async function upsertMerchantReceivableInvoiceTx(
+  client,
+  orderRow,
+  profile = null,
+) {
   if (!orderRow?.merchant_id || !orderRow?.id) return null;
   const status = String(orderRow.status || "").toLowerCase();
   if (!["delivered", "completed"].includes(status)) return null;
-  const snapshot = await ensureOrderFinancialSnapshotTx(client, orderRow, profile);
-  const current = await client.query(
-    `SELECT id
-     FROM merchant_receivable_invoice
-     WHERE order_id = $1
-     LIMIT 1`,
-    [Number(orderRow.id)]
+  const snapshot = await ensureOrderFinancialSnapshotTx(
+    client,
+    orderRow,
+    profile,
   );
   const invoiceNumber = `INV-${Number(orderRow.id)}`;
-  if (current.rows[0]) {
-    const updated = await client.query(
-      `UPDATE merchant_receivable_invoice
-       SET merchant_id = $2,
-           invoice_number = $3,
-           issued_at = $4::timestamptz,
-           order_status = $5,
-           subtotal = $6,
-           commission_amount = $7,
-           service_fee_amount = $8,
-           app_delivery_fee_amount = $9,
-           store_delivery_fee_amount = $10,
-           app_receivable_amount = $11,
-           store_net_amount = $12,
-           store_net_received_amount = $13,
-           app_due_from_delivery = $14,
-           difference_amount = $15,
-           difference_reason = $16,
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [
-        Number(current.rows[0].id),
-        Number(orderRow.merchant_id),
-        invoiceNumber,
-        snapshot.issuedAt,
-        status,
-        snapshot.subtotal,
-        snapshot.commissionAmount,
-        snapshot.serviceFeeAmount,
-        snapshot.appDeliveryFeeAmount,
-        snapshot.storeDeliveryFeeAmount,
-        snapshot.appReceivableAmount,
-        snapshot.storeNetAmount,
-        snapshot.storeNetReceivedAmount,
-        snapshot.appDueFromDelivery,
-        snapshot.differenceAmount ?? 0,
-        snapshot.differenceReason ?? null,
-      ]
-    );
-    return syncReceivableInvoiceStatusTx(client, Number(updated.rows[0].id));
-  }
-  const inserted = await client.query(
+  const upserted = await client.query(
     `INSERT INTO merchant_receivable_invoice
       (
         merchant_id,
@@ -2861,6 +3116,23 @@ async function upsertMerchantReceivableInvoiceTx(client, orderRow, profile = nul
         updated_at
       )
      VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,0,$11,'unpaid',NOW(),NOW())
+     ON CONFLICT (order_id) DO UPDATE
+     SET merchant_id = EXCLUDED.merchant_id,
+         invoice_number = EXCLUDED.invoice_number,
+         issued_at = EXCLUDED.issued_at,
+         order_status = EXCLUDED.order_status,
+         subtotal = EXCLUDED.subtotal,
+         commission_amount = EXCLUDED.commission_amount,
+         service_fee_amount = EXCLUDED.service_fee_amount,
+         app_delivery_fee_amount = EXCLUDED.app_delivery_fee_amount,
+         store_delivery_fee_amount = EXCLUDED.store_delivery_fee_amount,
+         app_receivable_amount = EXCLUDED.app_receivable_amount,
+         store_net_amount = EXCLUDED.store_net_amount,
+         store_net_received_amount = EXCLUDED.store_net_received_amount,
+         app_due_from_delivery = EXCLUDED.app_due_from_delivery,
+         difference_amount = EXCLUDED.difference_amount,
+         difference_reason = EXCLUDED.difference_reason,
+         updated_at = NOW()
      RETURNING *`,
     [
       Number(orderRow.merchant_id),
@@ -2879,9 +3151,11 @@ async function upsertMerchantReceivableInvoiceTx(client, orderRow, profile = nul
       snapshot.appDueFromDelivery,
       snapshot.differenceAmount ?? 0,
       snapshot.differenceReason ?? null,
-    ]
+    ],
   );
-  return inserted.rows[0] || null;
+  const invoice = upserted.rows[0] || null;
+  if (!invoice) return null;
+  return syncReceivableInvoiceStatusTx(client, Number(invoice.id));
 }
 
 async function listMerchantReceivableInvoicesTx(
@@ -2893,7 +3167,7 @@ async function listMerchantReceivableInvoicesTx(
     limit = 500,
     offset = 0,
     window = null,
-  } = {}
+  } = {},
 ) {
   const params = [Number(merchantId)];
   const where = [`merchant_id = $1`];
@@ -2922,7 +3196,7 @@ async function listMerchantReceivableInvoicesTx(
      WHERE ${where.join(" AND ")}
      ORDER BY issued_at ASC, id ASC
      LIMIT $${limitParam} OFFSET $${offsetParam}`,
-    params
+    params,
   );
   return result.rows.map((row) => ({
     ...row,
@@ -2930,14 +3204,16 @@ async function listMerchantReceivableInvoicesTx(
     commission_amount: round2(toNumber(row.commission_amount, 0)),
     service_fee_amount: round2(toNumber(row.service_fee_amount, 0)),
     app_delivery_fee_amount: round2(toNumber(row.app_delivery_fee_amount, 0)),
-    store_delivery_fee_amount: round2(toNumber(row.store_delivery_fee_amount, 0)),
+    store_delivery_fee_amount: round2(
+      toNumber(row.store_delivery_fee_amount, 0),
+    ),
     app_receivable_amount: round2(toNumber(row.app_receivable_amount, 0)),
     store_net_amount: round2(toNumber(row.store_net_amount, 0)),
     store_net_received_amount: round2(
-      toNumber(row.store_net_received_amount, row.store_net_amount || 0)
+      toNumber(row.store_net_received_amount, row.store_net_amount || 0),
     ),
     app_due_from_delivery: round2(
-      toNumber(row.app_due_from_delivery, row.app_receivable_amount || 0)
+      toNumber(row.app_due_from_delivery, row.app_receivable_amount || 0),
     ),
     difference_amount: round2(toNumber(row.difference_amount, 0)),
     difference_reason: row.difference_reason || null,
@@ -2967,18 +3243,18 @@ function summarizeInvoiceRows(invoiceRows = []) {
     summary.commissionAmount += round2(toNumber(row.commission_amount, 0));
     summary.serviceFeeAmount += round2(toNumber(row.service_fee_amount, 0));
     summary.appDeliveryFeeAmount += round2(
-      toNumber(row.app_delivery_fee_amount, 0)
+      toNumber(row.app_delivery_fee_amount, 0),
     );
     summary.storeDeliveryFeeAmount += round2(
-      toNumber(row.store_delivery_fee_amount, 0)
+      toNumber(row.store_delivery_fee_amount, 0),
     );
     summary.appReceivableAmount += round2(toNumber(row.outstanding_amount, 0));
     summary.storeNetAmount += round2(toNumber(row.store_net_amount, 0));
     summary.storeNetReceivedAmount += round2(
-      toNumber(row.store_net_received_amount, row.store_net_amount || 0)
+      toNumber(row.store_net_received_amount, row.store_net_amount || 0),
     );
     summary.appDueFromDelivery += round2(
-      toNumber(row.app_due_from_delivery, row.app_receivable_amount || 0)
+      toNumber(row.app_due_from_delivery, row.app_receivable_amount || 0),
     );
     summary.differenceAmount += round2(toNumber(row.difference_amount, 0));
   }
@@ -3011,12 +3287,12 @@ function formatInvoiceSelectionPreviewMessage({
   }
   if (nearestHigherAmount > 0 && nearestLowerAmount > 0) {
     return `Requested ${round2(targetAmount)} does not exactly match open invoices. Choose ${round2(
-      nearestLowerAmount
+      nearestLowerAmount,
     )} or ${round2(nearestHigherAmount)}.`;
   }
   if (nearestHigherAmount > 0) {
     return `Requested ${round2(targetAmount)} was adjusted to ${round2(
-      finalizedAmount || nearestHigherAmount
+      finalizedAmount || nearestHigherAmount,
     )} to match the oldest eligible invoices.`;
   }
   if (nearestLowerAmount > 0) {
@@ -3034,14 +3310,18 @@ async function buildMerchantPaymentSelectionPreviewTx(
     targetAmount = null,
     confirmedAdjustedAmount = null,
     window = null,
-  }
+  },
 ) {
   const normalizedSelectionMode = normalizeSelectionMode(selectionMode);
-  const openInvoices = await listMerchantReceivableInvoicesTx(client, merchantId, {
-    onlyOpen: true,
-    limit: 3000,
-    window,
-  });
+  const openInvoices = await listMerchantReceivableInvoicesTx(
+    client,
+    merchantId,
+    {
+      onlyOpen: true,
+      limit: 3000,
+      window,
+    },
+  );
   if (openInvoices.length === 0) {
     throw new AppError("NO_OPEN_RECEIVABLE_INVOICES", { status: 400 });
   }
@@ -3049,7 +3329,8 @@ async function buildMerchantPaymentSelectionPreviewTx(
   let selected = [];
   let exactMatch = false;
   let requiresAmountConfirmation = false;
-  let requestedAmount = targetAmount == null ? null : round2(toNumber(targetAmount, 0));
+  let requestedAmount =
+    targetAmount == null ? null : round2(toNumber(targetAmount, 0));
   let finalizedAmount = 0;
   let nearestLowerAmount = 0;
   let nearestHigherAmount = 0;
@@ -3060,13 +3341,13 @@ async function buildMerchantPaymentSelectionPreviewTx(
     finalizedAmount = round2(
       selected.reduce(
         (sum, row) => sum + toNumber(row.outstanding_amount, 0),
-        0
-      )
+        0,
+      ),
     );
     exactMatch = true;
   } else if (normalizedSelectionMode === SELECTION_MODE_MANUAL) {
     const idSet = new Set(
-      (selectedInvoiceIds || []).map((id) => Number(id)).filter((id) => id > 0)
+      (selectedInvoiceIds || []).map((id) => Number(id)).filter((id) => id > 0),
     );
     selected = openInvoices.filter((row) => idSet.has(Number(row.id)));
     if (selected.length !== idSet.size || selected.length === 0) {
@@ -3081,8 +3362,8 @@ async function buildMerchantPaymentSelectionPreviewTx(
     finalizedAmount = round2(
       selected.reduce(
         (sum, row) => sum + toNumber(row.outstanding_amount, 0),
-        0
-      )
+        0,
+      ),
     );
     exactMatch = true;
   } else {
@@ -3092,7 +3373,9 @@ async function buildMerchantPaymentSelectionPreviewTx(
     const prefixSelection = [];
     let running = 0;
     for (const invoice of openInvoices) {
-      const invoiceOutstanding = round2(toNumber(invoice.outstanding_amount, 0));
+      const invoiceOutstanding = round2(
+        toNumber(invoice.outstanding_amount, 0),
+      );
       const lowerRows = [...prefixSelection];
       const lowerAmount = round2(running);
       prefixSelection.push(invoice);
@@ -3157,7 +3440,9 @@ async function buildMerchantPaymentSelectionPreviewTx(
     exactMatch,
     requiresAmountConfirmation,
     confirmedAdjustedAmount:
-        confirmedAdjustedAmount == null ? null : round2(toNumber(confirmedAdjustedAmount, 0)),
+      confirmedAdjustedAmount == null
+        ? null
+        : round2(toNumber(confirmedAdjustedAmount, 0)),
     finalizedAmount: round2(finalizedAmount),
     nearestLowerAmount: round2(nearestLowerAmount),
     nearestHigherAmount: round2(nearestHigherAmount),
@@ -3183,15 +3468,15 @@ async function insertMerchantPaymentInvoiceAllocationsTx(
     invoices,
     allowPartialLastInvoice = false,
     requestedAmount = null,
-  }
+  },
 ) {
   let remaining = round2(
     requestedAmount == null
       ? invoices.reduce(
           (sum, row) => sum + toNumber(row.outstanding_amount, 0),
-          0
+          0,
         )
-      : toNumber(requestedAmount, 0)
+      : toNumber(requestedAmount, 0),
   );
   const allocations = [];
   let order = 1;
@@ -3231,7 +3516,7 @@ async function insertMerchantPaymentInvoiceAllocationsTx(
         allocateAmount + 0.009 >= invoiceOutstanding
           ? "full"
           : "partial_existing_balance",
-      ]
+      ],
     );
     allocations.push(inserted.rows[0]);
     remaining = round2(remaining - allocateAmount);
@@ -3250,7 +3535,7 @@ async function insertMerchantPaymentInvoiceAllocationsTx(
   }
 
   const touchedInvoiceIds = new Set(
-    allocations.map((row) => Number(row.receivable_invoice_id))
+    allocations.map((row) => Number(row.receivable_invoice_id)),
   );
   for (const invoiceId of touchedInvoiceIds) {
     await syncReceivableInvoiceStatusTx(client, invoiceId);
@@ -3258,7 +3543,10 @@ async function insertMerchantPaymentInvoiceAllocationsTx(
   return allocations;
 }
 
-async function fetchPaymentRequestInvoiceAllocationsTx(client, paymentRequestId) {
+async function fetchPaymentRequestInvoiceAllocationsTx(
+  client,
+  paymentRequestId,
+) {
   const result = await client.query(
     `SELECT
        pia.*,
@@ -3280,7 +3568,7 @@ async function fetchPaymentRequestInvoiceAllocationsTx(client, paymentRequestId)
      JOIN merchant_receivable_invoice inv ON inv.id = pia.receivable_invoice_id
      WHERE pia.payment_request_id = $1
      ORDER BY pia.allocation_order ASC, pia.id ASC`,
-    [Number(paymentRequestId)]
+    [Number(paymentRequestId)],
   );
   return result.rows.map((row) => ({
     ...row,
@@ -3289,7 +3577,9 @@ async function fetchPaymentRequestInvoiceAllocationsTx(client, paymentRequestId)
     commission_amount: round2(toNumber(row.commission_amount, 0)),
     service_fee_amount: round2(toNumber(row.service_fee_amount, 0)),
     app_delivery_fee_amount: round2(toNumber(row.app_delivery_fee_amount, 0)),
-    store_delivery_fee_amount: round2(toNumber(row.store_delivery_fee_amount, 0)),
+    store_delivery_fee_amount: round2(
+      toNumber(row.store_delivery_fee_amount, 0),
+    ),
     app_receivable_amount: round2(toNumber(row.app_receivable_amount, 0)),
     store_net_amount: round2(toNumber(row.store_net_amount, 0)),
     paid_amount: round2(toNumber(row.paid_amount, 0)),
@@ -3299,7 +3589,7 @@ async function fetchPaymentRequestInvoiceAllocationsTx(client, paymentRequestId)
 
 async function reconcileHistoricalMerchantPaymentAllocationsTx(
   client,
-  merchantId
+  merchantId,
 ) {
   const requests = await client.query(
     `SELECT *
@@ -3313,16 +3603,23 @@ async function reconcileHistoricalMerchantPaymentAllocationsTx(
          WHERE pia.payment_request_id = merchant_payment_request.id
        )
      ORDER BY COALESCE(final_confirmed_at, reviewed_at, submitted_at) ASC, id ASC`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
   for (const request of requests.rows) {
-    const openInvoices = await listMerchantReceivableInvoicesTx(client, merchantId, {
-      onlyOpen: true,
-      limit: 3000,
-    });
+    const openInvoices = await listMerchantReceivableInvoicesTx(
+      client,
+      merchantId,
+      {
+        onlyOpen: true,
+        limit: 3000,
+      },
+    );
     if (openInvoices.length === 0) break;
     const paidAmount = round2(
-      toNumber(request.paid_amount, toNumber(request.requested_amount, request.amount))
+      toNumber(
+        request.paid_amount,
+        toNumber(request.requested_amount, request.amount),
+      ),
     );
     if (paidAmount <= 0.009) continue;
     await insertMerchantPaymentInvoiceAllocationsTx(client, {
@@ -3335,12 +3632,19 @@ async function reconcileHistoricalMerchantPaymentAllocationsTx(
   }
 }
 
-async function syncMerchantReceivableBookTx(client, merchantId, { maxOrders = 3000 } = {}) {
+async function syncMerchantReceivableBookTx(
+  client,
+  merchantId,
+  { maxOrders = 3000 } = {},
+) {
   await backfillMissingOrderReceivablesTx(client, {
     merchantId: Number(merchantId),
     maxOrders,
   });
-  await reconcileHistoricalMerchantPaymentAllocationsTx(client, Number(merchantId));
+  await reconcileHistoricalMerchantPaymentAllocationsTx(
+    client,
+    Number(merchantId),
+  );
 }
 
 async function ensureOrderAppPayablesSeededTx(client, orderRow) {
@@ -3358,7 +3662,7 @@ async function ensureOrderAppPayablesSeededTx(client, orderRow) {
        AND entry_type = 'order_share'
        AND direction = 'debit'
      LIMIT 1`,
-    [Number(orderRow.merchant_id), Number(orderRow.id)]
+    [Number(orderRow.merchant_id), Number(orderRow.id)],
   );
   if (existing.rows[0]) return { seeded: false, entry: existing.rows[0] };
 
@@ -3378,7 +3682,7 @@ async function ensureOrderAppPayablesSeededTx(client, orderRow) {
   return { seeded: Boolean(entry), entry };
 }
 
-async function ensureOrderReceivablesSeededTx(client, orderRow) {
+export async function ensureOrderReceivablesSeededTx(client, orderRow) {
   if (!orderRow) return { seeded: false, entries: [] };
   const status = String(orderRow.status || "").toLowerCase();
   if (!["delivered", "completed"].includes(status)) {
@@ -3390,7 +3694,7 @@ async function ensureOrderReceivablesSeededTx(client, orderRow) {
      WHERE merchant_id = $1
        AND reference_type = 'order_receivable'
        AND reference_id = $2`,
-    [Number(orderRow.merchant_id), Number(orderRow.id)]
+    [Number(orderRow.merchant_id), Number(orderRow.id)],
   );
   const receivableAlreadySeeded = Number(existing.rows[0]?.count || 0) > 0;
   if (receivableAlreadySeeded) {
@@ -3404,8 +3708,15 @@ async function ensureOrderReceivablesSeededTx(client, orderRow) {
     };
   }
 
-  const profile = await resolveMerchantBillingProfileTx(client, Number(orderRow.merchant_id));
-  const snapshot = await ensureOrderFinancialSnapshotTx(client, orderRow, profile);
+  const profile = await resolveMerchantBillingProfileTx(
+    client,
+    Number(orderRow.merchant_id),
+  );
+  const snapshot = await ensureOrderFinancialSnapshotTx(
+    client,
+    orderRow,
+    profile,
+  );
   const commission = round2(snapshot.commissionAmount);
   const serviceFee = round2(snapshot.serviceFeeAmount);
   const deliveryDue = round2(snapshot.appDeliveryFeeAmount);
@@ -3449,10 +3760,15 @@ async function ensureOrderReceivablesSeededTx(client, orderRow) {
     });
     if (inserted) entries.push(inserted);
   }
-  const invoice = await upsertMerchantReceivableInvoiceTx(client, orderRow, profile);
+  const invoice = await upsertMerchantReceivableInvoiceTx(
+    client,
+    orderRow,
+    profile,
+  );
   const payableSeed = await ensureOrderAppPayablesSeededTx(client, orderRow);
   return {
-    seeded: entries.length > 0 || payableSeed.seeded === true || invoice != null,
+    seeded:
+      entries.length > 0 || payableSeed.seeded === true || invoice != null,
     entries,
     invoice: invoice || null,
     appPayableEntry: payableSeed.entry || null,
@@ -3461,7 +3777,7 @@ async function ensureOrderReceivablesSeededTx(client, orderRow) {
 
 async function listReceivableSeedCandidatesTx(
   client,
-  { merchantId = null, maxOrders = 1000 } = {}
+  { merchantId = null, maxOrders = 1000 } = {},
 ) {
   const where = [
     "o.merchant_id IS NOT NULL",
@@ -3498,13 +3814,13 @@ async function listReceivableSeedCandidatesTx(
      WHERE ${where.join("\n       AND ")}
      ORDER BY COALESCE(o.completed_at, o.delivered_at, o.updated_at, o.created_at) ASC, o.id ASC
      LIMIT $${limitParam}`,
-    params
+    params,
   );
 }
 
 async function backfillMissingOrderReceivablesTx(
   client,
-  { merchantId = null, maxOrders = 1000 } = {}
+  { merchantId = null, maxOrders = 1000 } = {},
 ) {
   const candidates = await listReceivableSeedCandidatesTx(client, {
     merchantId,
@@ -3527,7 +3843,7 @@ async function backfillMissingOrderReceivablesTx(
 
 async function updateCourierCompetitionProgressTx(
   client,
-  { courierUserId, orderRow }
+  { courierUserId, orderRow },
 ) {
   if (!orderRow || !courierUserId) return [];
   const activeCompetitions = await client.query(
@@ -3536,7 +3852,7 @@ async function updateCourierCompetitionProgressTx(
      WHERE is_active = TRUE
        AND start_at <= NOW()
        AND end_at >= NOW()
-     ORDER BY id DESC`
+     ORDER BY id DESC`,
   );
   if ((activeCompetitions.rowCount || 0) === 0) return [];
 
@@ -3596,7 +3912,7 @@ async function updateCourierCompetitionProgressTx(
         target > 0 ? increment >= target : false,
         target > 0 && increment >= target ? new Date() : null,
         target,
-      ]
+      ],
     );
     applied.push({
       competitionId: Number(competition.id),
@@ -3610,6 +3926,10 @@ export async function courierMarkPickedUp({
   courierUserId,
   orderId,
   note = null,
+  merchantPaidActual,
+  receiptUrl = null,
+  withoutReceipt = false,
+  merchantPaymentNote = null,
 }) {
   const client = await pool.connect();
   try {
@@ -3622,18 +3942,73 @@ export async function courierMarkPickedUp({
     if (Number(order.delivery_user_id || 0) !== Number(courierUserId)) {
       throw new AppError("ORDER_NOT_ASSIGNED_TO_COURIER", { status: 409 });
     }
-    if (!["ready_for_delivery", "preparing", "approved"].includes(String(order.status))) {
+    if (
+      !["ready_for_delivery", "preparing", "approved"].includes(
+        String(order.status),
+      )
+    ) {
       throw new AppError("ORDER_PICKUP_NOT_ALLOWED", { status: 409 });
     }
+
+    const paid = Number(merchantPaidActual);
+    if (!Number.isFinite(paid) || paid < 0) {
+      throw new AppError("MERCHANT_PAYMENT_REQUIRED", { status: 400 });
+    }
+    if (!receiptUrl && withoutReceipt !== true) {
+      throw new AppError("MERCHANT_PAYMENT_EVIDENCE_REQUIRED", { status: 400 });
+    }
+
+    const reconciliation = calculateCourierOrderReconciliation({
+      totalAmount: order.total_amount,
+      productSubtotal: order.subtotal,
+      couponDiscountTotal: order.coupon_discount_total,
+      serviceFee: order.service_fee,
+      deliveryFee: order.delivery_fee,
+      merchantPaidActual: paid,
+      customerReceivedActual: order.total_amount,
+    });
+    const reviewStatus = withoutReceipt ? 'needs_review' : 'pending';
 
     await client.query(
       `UPDATE customer_order
        SET status = 'on_the_way'::order_status,
            picked_up_at = COALESCE(picked_up_at, NOW()),
            on_the_way_at = COALESCE(on_the_way_at, NOW()),
+           merchant_paid_actual = $2,
+           merchant_payment_receipt_url = $3,
+           merchant_payment_without_receipt = $4,
+           merchant_payment_note = $5,
+           merchant_payment_recorded_at = NOW(),
+           merchant_payment_recorded_by_user_id = $6,
+           purchase_difference_amount = $7,
+           collection_difference_amount = 0,
+           app_due_from_delivery = $8,
+           courier_due_from_app = $9,
+           reconciliation_review_status = $10,
+           difference_amount = $7,
+           difference_reason = CASE
+             WHEN $4::boolean THEN 'courier_reported_without_receipt'
+             WHEN $7::numeric <> 0 THEN 'merchant_payment_difference'
+             ELSE NULL
+           END,
+           settlement_status = CASE
+             WHEN $4::boolean OR $7::numeric <> 0 THEN 'difference_review'
+             ELSE 'received'
+           END,
            updated_at = NOW()
        WHERE id = $1`,
-      [Number(orderId)]
+      [
+        Number(orderId),
+        reconciliation.merchantPaidActual,
+        receiptUrl,
+        withoutReceipt === true,
+        merchantPaymentNote,
+        Number(courierUserId),
+        reconciliation.purchaseDifference,
+        reconciliation.appDueFromDelivery,
+        reconciliation.courierDueFromApp,
+        reviewStatus,
+      ],
     );
 
     await insertStatusHistoryTx(client, {
@@ -3651,11 +4026,15 @@ export async function courierMarkPickedUp({
       `SELECT *
        FROM customer_order
        WHERE id = $1`,
-      [Number(orderId)]
+      [Number(orderId)],
     );
 
     await client.query("COMMIT");
-    return { order: orderRefreshed.rows[0], courier, ownerUserId: Number(order.owner_user_id) };
+    return {
+      order: orderRefreshed.rows[0],
+      courier,
+      ownerUserId: Number(order.owner_user_id),
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -3690,7 +4069,7 @@ export async function courierMarkArrived({
            arrived_at = COALESCE(arrived_at, NOW()),
            updated_at = NOW()
        WHERE id = $1`,
-      [Number(orderId)]
+      [Number(orderId)],
     );
 
     await insertStatusHistoryTx(client, {
@@ -3708,11 +4087,15 @@ export async function courierMarkArrived({
       `SELECT *
        FROM customer_order
        WHERE id = $1`,
-      [Number(orderId)]
+      [Number(orderId)],
     );
 
     await client.query("COMMIT");
-    return { order: orderRefreshed.rows[0], courier, ownerUserId: Number(order.owner_user_id) };
+    return {
+      order: orderRefreshed.rows[0],
+      courier,
+      ownerUserId: Number(order.owner_user_id),
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -3725,6 +4108,7 @@ export async function courierMarkDelivered({
   courierUserId,
   orderId,
   note = null,
+  customerReceivedActual,
 }) {
   const client = await pool.connect();
   try {
@@ -3741,13 +4125,55 @@ export async function courierMarkDelivered({
       throw new AppError("ORDER_DELIVERY_NOT_ALLOWED", { status: 409 });
     }
 
+    if (order.merchant_paid_actual == null) {
+      throw new AppError("MERCHANT_PAYMENT_REQUIRED", { status: 409 });
+    }
+    const reconciliation = calculateCourierOrderReconciliation({
+      totalAmount: order.total_amount,
+      productSubtotal: order.subtotal,
+      couponDiscountTotal: order.coupon_discount_total,
+      serviceFee: order.service_fee,
+      deliveryFee: order.delivery_fee,
+      merchantPaidActual: order.merchant_paid_actual,
+      customerReceivedActual,
+    });
+
     await client.query(
       `UPDATE customer_order
        SET status = 'delivered'::order_status,
            delivered_at = COALESCE(delivered_at, NOW()),
+           completed_at = COALESCE(completed_at, NOW()),
+           customer_cash_received_actual = $2,
+           amount_received_actual = $2,
+           customer_cash_recorded_at = NOW(),
+           purchase_difference_amount = $3,
+           collection_difference_amount = $4,
+           app_due_from_delivery = $5,
+           courier_due_from_app = $6,
+           difference_amount = $3,
+           reconciliation_review_status = CASE
+             WHEN merchant_payment_without_receipt = TRUE OR $4::numeric < 0
+               THEN 'needs_review'
+             ELSE 'pending'
+           END,
+           reconciliation_review_note = NULL,
+           reconciliation_reviewed_at = NULL,
+           reconciliation_reviewed_by_user_id = NULL,
+           settlement_status = CASE
+             WHEN merchant_payment_without_receipt = TRUE OR $3::numeric <> 0 OR $4::numeric <> 0
+               THEN 'difference_review'
+             ELSE 'received'
+           END,
            updated_at = NOW()
        WHERE id = $1`,
-      [Number(orderId)]
+      [
+        Number(orderId),
+        reconciliation.customerReceivedActual,
+        reconciliation.purchaseDifference,
+        reconciliation.collectionDifference,
+        reconciliation.appDueFromDelivery,
+        reconciliation.courierDueFromApp,
+      ],
     );
 
     // The delivery is over: free the courier in the SAME transaction so the very
@@ -3775,11 +4201,30 @@ export async function courierMarkDelivered({
       `SELECT *
        FROM customer_order
        WHERE id = $1`,
-      [Number(orderId)]
+      [Number(orderId)],
+    );
+
+    const finalOrder = orderRefreshed.rows[0];
+    await ensureOrderReceivablesSeededTx(client, finalOrder);
+    const competitionUpdates = await onOrderFinallyCompletedTx(client, {
+      orderRow: finalOrder,
+    });
+    await client.query(
+      `UPDATE courier_profile
+       SET total_completed_orders = total_completed_orders + 1,
+           updated_at = NOW()
+       WHERE user_id = $1`,
+      [Number(courierUserId)],
     );
 
     await client.query("COMMIT");
-    return { order: orderRefreshed.rows[0], courier, ownerUserId: Number(order.owner_user_id) };
+    return {
+      order: finalOrder,
+      courier,
+      ownerUserId: Number(order.owner_user_id),
+      courierUserId: Number(courierUserId),
+      competitionUpdates,
+    };
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -3788,11 +4233,7 @@ export async function courierMarkDelivered({
   }
 }
 
-export async function customerConfirmOrderReceived({
-  customerUserId,
-  orderId,
-  note = null,
-}) {
+export async function customerConfirmOrderReceived({ customerUserId, orderId }) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -3804,76 +4245,24 @@ export async function customerConfirmOrderReceived({
        WHERE o.id = $1
          AND o.customer_user_id = $2
        FOR UPDATE`,
-      [Number(orderId), Number(customerUserId)]
+      [Number(orderId), Number(customerUserId)],
     );
     const order = orderResult.rows[0];
     if (!order) throw new AppError("ORDER_NOT_FOUND", { status: 404 });
     if (!["delivered", "completed"].includes(String(order.status))) {
       throw new AppError("ORDER_NOT_DELIVERED_YET", { status: 409 });
     }
-    const transitionedToCompleted = String(order.status) !== "completed";
-
-    await client.query(
-      `UPDATE customer_order
-       SET customer_confirmed_at = COALESCE(customer_confirmed_at, NOW()),
-           completed_at = COALESCE(completed_at, NOW()),
-           status = CASE
-             WHEN status = 'completed'::order_status THEN status
-             ELSE 'completed'::order_status
-           END,
-           updated_at = NOW()
-       WHERE id = $1`,
-      [Number(orderId)]
-    );
-
-    // Defensive: the courier is normally released at `delivered`, but a customer
-    // confirmation is also a terminal point — never leave the driver occupied.
-    await releaseOrderCourierTx(client, {
-      orderId: Number(orderId),
-      outcome: "COMPLETED",
-    });
-
-    await insertStatusHistoryTx(client, {
-      orderId: Number(orderId),
-      oldStatus: String(order.status),
-      newStatus: "completed",
-      lifecycleOld: lifecycleFromStatus(order.status),
-      lifecycleNew: "COMPLETED",
-      changedByUserId: Number(customerUserId),
-      changedByRole: "customer",
-      note,
-    });
-
-    const refreshed = await client.query(
-      `SELECT *
-       FROM customer_order
-       WHERE id = $1`,
-      [Number(orderId)]
-    );
-    const finalOrder = refreshed.rows[0];
-
-    await ensureOrderReceivablesSeededTx(client, finalOrder);
-    let competitionUpdates = null;
-    if (finalOrder.delivery_user_id && transitionedToCompleted) {
-      competitionUpdates = await onOrderFinallyCompletedTx(client, {
-        orderRow: finalOrder,
-      });
-
-      await client.query(
-        `UPDATE courier_profile
-         SET total_completed_orders = total_completed_orders + 1,
-             updated_at = NOW()
-         WHERE user_id = $1`,
-        [Number(finalOrder.delivery_user_id)]
-      );
-    }
+    // Legacy endpoint kept read-only; delivery status is already final.
 
     await client.query("COMMIT");
     return {
-      order: finalOrder,
+      order,
       ownerUserId: Number(order.owner_user_id),
-      courierUserId: finalOrder.delivery_user_id ? Number(finalOrder.delivery_user_id) : null,
-      competitionUpdates: competitionUpdates || {
+      courierUserId: order.delivery_user_id
+        ? Number(order.delivery_user_id)
+        : null,
+      completed: true,
+      competitionUpdates: {
         applied: [],
         courierEvents: [],
         adminEvents: [],
@@ -3889,12 +4278,15 @@ export async function customerConfirmOrderReceived({
 }
 
 function isBackofficeRole(role) {
-  const normalized = String(role || "").trim().toLowerCase();
+  const normalized = String(role || "")
+    .trim()
+    .toLowerCase();
   return normalized === "admin" || normalized === "deputy_admin";
 }
 
 function isTerminalStatus(status) {
   return [
+    "delivered",
     "completed",
     "cancelled",
     "cancelled_by_store",
@@ -3902,7 +4294,11 @@ function isTerminalStatus(status) {
     "cancelled_by_customer",
     "failed_delivery",
     "returned_if_needed",
-  ].includes(String(status || "").trim().toLowerCase());
+  ].includes(
+    String(status || "")
+      .trim()
+      .toLowerCase(),
+  );
 }
 
 async function getOrderParticipantsTx(client, orderId, { lock = false } = {}) {
@@ -3914,7 +4310,7 @@ async function getOrderParticipantsTx(client, orderId, { lock = false } = {}) {
      JOIN merchant m ON m.id = o.merchant_id
      WHERE o.id = $1
      ${lock ? "FOR UPDATE" : ""}`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
   return r.rows[0] || null;
 }
@@ -3926,13 +4322,28 @@ function resolveOrderChatAccess(order, { userId, userRole }) {
     return { allowed: true, canWrite: true, role: "admin", isBackoffice: true };
   }
   if (uid === Number(order.customer_user_id)) {
-    return { allowed: true, canWrite: true, role: "customer", isBackoffice: false };
+    return {
+      allowed: true,
+      canWrite: true,
+      role: "customer",
+      isBackoffice: false,
+    };
   }
   if (uid === Number(order.delivery_user_id || 0)) {
-    return { allowed: true, canWrite: true, role: "delivery", isBackoffice: false };
+    return {
+      allowed: true,
+      canWrite: true,
+      role: "delivery",
+      isBackoffice: false,
+    };
   }
   if (uid === Number(order.owner_user_id || 0)) {
-    return { allowed: true, canWrite: false, role: "owner", isBackoffice: false };
+    return {
+      allowed: true,
+      canWrite: false,
+      role: "owner",
+      isBackoffice: false,
+    };
   }
   return { allowed: false };
 }
@@ -3950,7 +4361,8 @@ export async function listOrderChatMessages({
     if (!order) throw new AppError("ORDER_NOT_FOUND", { status: 404 });
 
     const access = resolveOrderChatAccess(order, { userId, userRole });
-    if (!access.allowed) throw new AppError("ORDER_CHAT_FORBIDDEN", { status: 403 });
+    if (!access.allowed)
+      throw new AppError("ORDER_CHAT_FORBIDDEN", { status: 403 });
 
     const isClosedForParticipants =
       !access.isBackoffice && isTerminalStatus(order.status);
@@ -3987,7 +4399,7 @@ export async function listOrderChatMessages({
          ${whereBefore}
        ORDER BY id DESC
        LIMIT $${limitIdx}`,
-      params
+      params,
     );
 
     return {
@@ -4031,7 +4443,7 @@ export async function createOrderChatMessage({
         (order_id, sender_user_id, sender_role, message_text)
        VALUES ($1,$2,$3,$4)
        RETURNING id, order_id, sender_user_id, sender_role, message_text, created_at`,
-      [Number(orderId), Number(userId), String(access.role), text]
+      [Number(orderId), Number(userId), String(access.role), text],
     );
 
     await client.query("COMMIT");
@@ -4087,11 +4499,17 @@ export async function createCourierCancelRequest({
     if (Number(order.delivery_user_id || 0) !== Number(courierUserId)) {
       throw new AppError("ORDER_NOT_ASSIGNED_TO_COURIER", { status: 409 });
     }
-    if (!["ready_for_delivery", "on_the_way", "arrived"].includes(String(order.status))) {
+    if (
+      !["ready_for_delivery", "on_the_way", "arrived"].includes(
+        String(order.status),
+      )
+    ) {
       throw new AppError("ORDER_CANCEL_REQUEST_NOT_ALLOWED", { status: 409 });
     }
 
-    const normalizedCode = String(reasonCode || "").trim().toLowerCase();
+    const normalizedCode = String(reasonCode || "")
+      .trim()
+      .toLowerCase();
     const normalizedText =
       reasonText == null ? null : String(reasonText).trim() || null;
     const legacyReason =
@@ -4105,7 +4523,7 @@ export async function createCourierCancelRequest({
        ORDER BY id DESC
        LIMIT 1
        FOR UPDATE`,
-      [Number(orderId)]
+      [Number(orderId)],
     );
 
     let requestRow;
@@ -4122,7 +4540,12 @@ export async function createCourierCancelRequest({
              updated_at = NOW()
          WHERE id = $1
          RETURNING *`,
-        [Number(existing.rows[0].id), legacyReason, normalizedCode, normalizedText]
+        [
+          Number(existing.rows[0].id),
+          legacyReason,
+          normalizedCode,
+          normalizedText,
+        ],
       );
       requestRow = updated.rows[0];
     } else {
@@ -4137,7 +4560,7 @@ export async function createCourierCancelRequest({
           legacyReason,
           normalizedCode,
           normalizedText,
-        ]
+        ],
       );
       requestRow = inserted.rows[0];
     }
@@ -4152,7 +4575,7 @@ export async function createCourierCancelRequest({
         normalizedCode,
         normalizedText,
         JSON.stringify({ stage: "request" }),
-      ]
+      ],
     );
 
     await insertStatusHistoryTx(client, {
@@ -4170,7 +4593,7 @@ export async function createCourierCancelRequest({
       `SELECT id
        FROM app_user
        WHERE role IN ('admin','deputy_admin')
-         AND is_account_disabled = FALSE`
+         AND is_account_disabled = FALSE`,
     );
 
     await client.query("COMMIT");
@@ -4190,13 +4613,7 @@ export async function createCourierCancelRequest({
 
 async function reviewCourierCancelRequestTx(
   client,
-  {
-    orderId,
-    approved,
-    reviewedByUserId,
-    reviewedByRole,
-    reviewNote,
-  }
+  { orderId, approved, reviewedByUserId, reviewedByRole, reviewNote },
 ) {
   const order = await getOrderParticipantsTx(client, Number(orderId), {
     lock: true,
@@ -4211,15 +4628,21 @@ async function reviewCourierCancelRequestTx(
      ORDER BY id DESC
      LIMIT 1
      FOR UPDATE`,
-    [Number(orderId)]
+    [Number(orderId)],
   );
   const request = requestResult.rows[0];
   if (!request) throw new AppError("CANCEL_REQUEST_NOT_FOUND", { status: 404 });
-  const requestReasonCode = String(request.reason_code || "").trim().toLowerCase();
+  const requestReasonCode = String(request.reason_code || "")
+    .trim()
+    .toLowerCase();
   const requestReasonText =
-    request.reason_text == null ? null : String(request.reason_text).trim() || null;
+    request.reason_text == null
+      ? null
+      : String(request.reason_text).trim() || null;
   const requestLegacyReason =
-    String(request.reason || "").trim() || requestReasonCode || "courier_cancel_request";
+    String(request.reason || "").trim() ||
+    requestReasonCode ||
+    "courier_cancel_request";
   const effectiveReasonText = requestReasonText || requestLegacyReason;
 
   const nextStatus = approved ? "approved" : "rejected";
@@ -4237,7 +4660,7 @@ async function reviewCourierCancelRequestTx(
       nextStatus,
       Number(reviewedByUserId),
       reviewNote || null,
-    ]
+    ],
   );
   const updatedRequest = reviewed.rows[0];
 
@@ -4263,7 +4686,7 @@ async function reviewCourierCancelRequestTx(
         reviewedByRole === "admin" ? "admin" : "store",
         requestReasonCode || null,
         requestReasonText,
-      ]
+      ],
     );
     finalOrder = { ...order, ...cancelled.rows[0] };
     await syncOrderIncentiveConsumptionForStatusTx(client, {
@@ -4293,7 +4716,7 @@ async function reviewCourierCancelRequestTx(
           requestId: Number(request.id),
           approved: true,
         }),
-      ]
+      ],
     );
     await insertStatusHistoryTx(client, {
       orderId: Number(orderId),
@@ -4301,7 +4724,9 @@ async function reviewCourierCancelRequestTx(
       newStatus: "cancelled",
       lifecycleOld: lifecycleFromStatus(order.status),
       lifecycleNew:
-        reviewedByRole === "admin" ? "CANCELLED_BY_ADMIN" : "CANCELLED_BY_STORE",
+        reviewedByRole === "admin"
+          ? "CANCELLED_BY_ADMIN"
+          : "CANCELLED_BY_STORE",
       changedByUserId: Number(reviewedByUserId),
       changedByRole: reviewedByRole,
       note: `courier_cancel_request_approved:${requestReasonCode || requestLegacyReason}`,
@@ -4322,7 +4747,7 @@ async function reviewCourierCancelRequestTx(
           requestId: Number(request.id),
           approved: false,
         }),
-      ]
+      ],
     );
     await insertStatusHistoryTx(client, {
       orderId: Number(orderId),
@@ -4351,9 +4776,14 @@ export async function reviewCourierCancelRequestByOwner({
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const order = await getOwnerOrderWithMerchant(ownerUserId, orderId, client, {
-      forUpdate: true,
-    });
+    const order = await getOwnerOrderWithMerchant(
+      ownerUserId,
+      orderId,
+      client,
+      {
+        forUpdate: true,
+      },
+    );
     if (!order) throw new AppError("ORDER_NOT_FOUND", { status: 404 });
 
     const out = await reviewCourierCancelRequestTx(client, {
@@ -4400,34 +4830,75 @@ export async function reviewCourierCancelRequestByAdmin({
   }
 }
 
-export async function listCourierDashboard(courierUserId, { period, from, to } = {}) {
+export async function listCourierDashboard(
+  courierUserId,
+  { period, from, to } = {},
+) {
   const window = parseWindow({ period, from, to });
   const start = window.start;
   const end = window.end;
 
-  const [totals, earnings, byMerchant] = await Promise.all([
+  const [totals, earnings, byMerchant, reconciliation] = await Promise.all([
     q(
       `SELECT
          COUNT(*)::int AS total_orders,
          COUNT(*) FILTER (WHERE status IN ('completed','delivered','delivered_by_courier','received_by_customer'))::int AS completed_orders,
          COUNT(*) FILTER (WHERE status IN ('cancelled','cancelled_by_store','cancelled_by_admin','cancelled_by_customer'))::int AS cancelled_orders,
-         COUNT(*) FILTER (WHERE status IN ('approved','preparing','ready_for_delivery','on_the_way','arrived'))::int AS active_orders,
+         (
+           SELECT COUNT(*)::int
+           FROM customer_order active_order
+           WHERE active_order.delivery_user_id = $1
+             AND active_order.status IN (
+               'approved',
+               'accepted_by_store',
+               'preparing',
+               'courier_requested',
+               'courier_assigned',
+               'ready_for_delivery',
+               'on_the_way',
+               'picked_up',
+               'arrived'
+             )
+         ) AS active_orders,
          AVG(EXTRACT(EPOCH FROM (COALESCE(delivered_at, NOW()) - COALESCE(picked_up_at, created_at))) / 60.0)::numeric(10,2) AS avg_delivery_minutes
        FROM customer_order
        WHERE delivery_user_id = $1
          AND created_at >= $2::timestamptz
          AND created_at <= $3::timestamptz`,
-      [Number(courierUserId), start, end]
+      [Number(courierUserId), start, end],
     ),
     q(
       `SELECT
-         COALESCE(SUM(amount),0)::numeric AS total_earnings,
-         COALESCE(SUM(amount) FILTER (WHERE created_at >= DATE_TRUNC('day', NOW())),0)::numeric AS today_earnings
-       FROM courier_earning
-       WHERE courier_user_id = $1
-         AND created_at >= $2::timestamptz
-         AND created_at <= $3::timestamptz`,
-      [Number(courierUserId), start, end]
+         COALESCE(SUM(delivery_fee) FILTER (
+           WHERE status IN ('delivered','delivered_by_courier','received_by_customer','completed')
+             AND delivered_at >= $2::timestamptz
+             AND delivered_at <= $3::timestamptz
+         ), 0)::numeric AS total_earnings,
+         COALESCE(
+           SUM(delivery_fee) FILTER (
+             WHERE status IN ('delivered','delivered_by_courier','received_by_customer','completed')
+               AND delivered_at >= (
+               DATE_TRUNC('day', NOW() AT TIME ZONE 'Asia/Baghdad')
+               AT TIME ZONE 'Asia/Baghdad'
+               )
+               AND COALESCE(archived_by_delivery, FALSE) = FALSE
+           ),
+           0
+         )::numeric AS today_earnings,
+         COALESCE(
+           SUM(delivery_fee) FILTER (
+             WHERE status IN ('delivered','delivered_by_courier','received_by_customer','completed')
+               AND delivered_at >= (
+                 DATE_TRUNC('month', NOW() AT TIME ZONE 'Asia/Baghdad')
+                 AT TIME ZONE 'Asia/Baghdad'
+               )
+           ),
+           0
+         )::numeric AS month_earnings
+       FROM customer_order
+       WHERE delivery_user_id = $1
+      `,
+      [Number(courierUserId), start, end],
     ),
     q(
       `SELECT
@@ -4443,12 +4914,45 @@ export async function listCourierDashboard(courierUserId, { period, from, to } =
        GROUP BY o.merchant_id, m.name
        ORDER BY orders_count DESC, m.name ASC
        LIMIT 20`,
-      [Number(courierUserId), start, end]
+      [Number(courierUserId), start, end],
+    ),
+    q(
+      `SELECT
+         COUNT(*)::int AS all_orders,
+         COUNT(*) FILTER (WHERE status IN ('completed','delivered','delivered_by_courier','received_by_customer'))::int AS all_completed_orders,
+         COUNT(*) FILTER (WHERE status IN ('cancelled','cancelled_by_store','cancelled_by_admin','cancelled_by_customer','failed_delivery','returned_if_needed'))::int AS all_cancelled_orders,
+         GREATEST(
+           COALESCE(SUM(app_due_from_delivery - courier_due_from_app), 0),
+           0
+         )::numeric AS app_due_total,
+         GREATEST(
+           -COALESCE(SUM(app_due_from_delivery - courier_due_from_app), 0),
+           0
+         )::numeric AS courier_due_total,
+         COALESCE(
+           SUM(service_fee) FILTER (
+             WHERE status IN (
+               'completed',
+               'delivered',
+               'delivered_by_courier',
+               'received_by_customer'
+             )
+           ),
+           0
+         )::numeric AS service_fee_total,
+         COUNT(*) FILTER (
+           WHERE merchant_paid_actual IS NOT NULL
+             AND reconciliation_review_status IN ('pending', 'needs_review')
+         )::int AS open_settlements
+       FROM customer_order
+       WHERE delivery_user_id = $1`,
+      [Number(courierUserId)],
     ),
   ]);
 
   const t = totals.rows[0] || {};
   const e = earnings.rows[0] || {};
+  const balance = reconciliation.rows[0] || {};
   return {
     window,
     kpis: {
@@ -4459,18 +4963,179 @@ export async function listCourierDashboard(courierUserId, { period, from, to } =
       avgDeliveryMinutes: toNumber(t.avg_delivery_minutes, 0),
       acceptanceRate:
         Number(t.total_orders || 0) > 0
-          ? round2((Number(t.completed_orders || 0) / Number(t.total_orders || 1)) * 100)
+          ? round2(
+              (Number(t.completed_orders || 0) / Number(t.total_orders || 1)) *
+                100,
+            )
           : 0,
       totalEarnings: toNumber(e.total_earnings, 0),
       todayEarnings: toNumber(e.today_earnings, 0),
+      monthEarnings: toNumber(e.month_earnings, 0),
+      appDueTotal: toNumber(balance.app_due_total, 0),
+      courierDueTotal: toNumber(balance.courier_due_total, 0),
+      serviceFeeTotal: toNumber(balance.service_fee_total, 0),
+      openSettlements: Number(balance.open_settlements || 0),
+      allOrders: Number(balance.all_orders || 0),
+      allCompletedOrders: Number(balance.all_completed_orders || 0),
+      allCancelledOrders: Number(balance.all_cancelled_orders || 0),
     },
     byMerchant: byMerchant.rows,
   };
 }
 
+export async function listCourierReconciliation({
+  courierUserId = null,
+  reviewStatus = null,
+  limit = 100,
+  offset = 0,
+} = {}) {
+  const params = [];
+  const where = ['o.merchant_paid_actual IS NOT NULL'];
+  if (courierUserId != null && Number(courierUserId) > 0) {
+    params.push(Number(courierUserId));
+    where.push(`o.delivery_user_id = $${params.length}`);
+  }
+  const normalizedReviewStatus = String(reviewStatus || '').trim().toLowerCase();
+  if (['pending', 'needs_review', 'approved', 'rejected'].includes(normalizedReviewStatus)) {
+    params.push(normalizedReviewStatus);
+    where.push(`o.reconciliation_review_status = $${params.length}`);
+  }
+  params.push(Math.max(1, Math.min(300, Number(limit) || 100)));
+  const limitIndex = params.length;
+  params.push(Math.max(0, Number(offset) || 0));
+  const offsetIndex = params.length;
+
+  const baseWhere = where.join(' AND ');
+  const [summary, rows] = await Promise.all([
+    q(
+      `SELECT
+         COUNT(*)::int AS orders_count,
+         COALESCE(SUM(o.total_amount), 0)::numeric AS invoice_total,
+         COALESCE(SUM(o.service_fee), 0)::numeric AS service_fee_total,
+         COALESCE(SUM(o.coupon_discount_total), 0)::numeric AS coupon_discount_total,
+         COALESCE(SUM(o.delivery_fee), 0)::numeric AS delivery_fee_total,
+         COALESCE(SUM(o.merchant_paid_actual), 0)::numeric AS merchant_paid_total,
+         COALESCE(SUM(o.customer_cash_received_actual), 0)::numeric AS customer_received_total,
+         COALESCE(SUM(o.purchase_difference_amount), 0)::numeric AS purchase_difference_total,
+         COALESCE(SUM(o.collection_difference_amount), 0)::numeric AS collection_difference_total,
+         GREATEST(
+           COALESCE(SUM(o.app_due_from_delivery - o.courier_due_from_app), 0),
+           0
+         )::numeric AS app_due_total,
+         GREATEST(
+           -COALESCE(SUM(o.app_due_from_delivery - o.courier_due_from_app), 0),
+           0
+         )::numeric AS courier_due_total,
+         COUNT(*) FILTER (WHERE o.merchant_payment_without_receipt = TRUE)::int AS without_receipt_count,
+         COUNT(*) FILTER (WHERE o.reconciliation_review_status IN ('pending','needs_review'))::int AS open_review_count
+       FROM customer_order o
+       WHERE ${baseWhere}`,
+      params.slice(0, params.length - 2),
+    ),
+    q(
+      `SELECT
+         o.id AS order_id,
+         o.delivery_user_id AS courier_user_id,
+         courier.full_name AS courier_name,
+         customer.full_name AS customer_name,
+         m.id AS merchant_id,
+         m.name AS merchant_name,
+         o.status,
+         o.total_amount AS invoice_total,
+         GREATEST(o.subtotal, 0) AS expected_store_amount,
+         o.coupon_discount_total,
+         o.service_fee,
+         o.delivery_fee,
+         o.merchant_paid_actual,
+         o.customer_cash_received_actual,
+         o.purchase_difference_amount,
+         o.collection_difference_amount,
+         o.app_due_from_delivery,
+         o.courier_due_from_app,
+         o.merchant_payment_receipt_url,
+         o.merchant_payment_without_receipt,
+         o.merchant_payment_note,
+         o.reconciliation_review_status,
+         o.reconciliation_review_note,
+         o.merchant_payment_recorded_at,
+         o.delivered_at,
+         o.created_at
+       FROM customer_order o
+       JOIN merchant m ON m.id = o.merchant_id
+       LEFT JOIN app_user courier ON courier.id = o.delivery_user_id
+       LEFT JOIN app_user customer ON customer.id = o.customer_user_id
+       WHERE ${baseWhere}
+       ORDER BY COALESCE(o.delivered_at, o.merchant_payment_recorded_at, o.updated_at) DESC, o.id DESC
+       LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+      params,
+    ),
+  ]);
+
+  return {
+    summary: summary.rows[0] || {},
+    rows: rows.rows,
+    limit: params[limitIndex - 1],
+    offset: params[offsetIndex - 1],
+  };
+}
+
+export async function reviewCourierReconciliation({
+  adminUserId,
+  orderId,
+  approved,
+  reviewNote = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const current = (
+      await client.query(
+        `SELECT *
+         FROM customer_order
+         WHERE id = $1
+           AND merchant_paid_actual IS NOT NULL
+         FOR UPDATE`,
+        [Number(orderId)],
+      )
+    ).rows[0];
+    if (!current) {
+      throw new AppError('COURIER_RECONCILIATION_NOT_FOUND', { status: 404 });
+    }
+    // Store payment is captured at pickup, but the reconciliation is not final
+    // until the courier records what was actually collected from the customer.
+    // Blocking early review prevents an approved snapshot from becoming stale
+    // when the final cash amount changes at delivery time.
+    if (current.customer_cash_received_actual == null) {
+      throw new AppError('COURIER_RECONCILIATION_NOT_COMPLETE', { status: 409 });
+    }
+
+    const nextStatus = approved === true ? 'approved' : 'rejected';
+    const updated = (
+      await client.query(
+        `UPDATE customer_order
+         SET reconciliation_review_status = $2,
+             reconciliation_review_note = $3,
+             reconciliation_reviewed_at = NOW(),
+             reconciliation_reviewed_by_user_id = $4,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [Number(orderId), nextStatus, reviewNote, Number(adminUserId)],
+      )
+    ).rows[0];
+    await client.query('COMMIT');
+    return updated;
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listCourierRequests(
   courierUserId,
-  { limit = 40, offset = 0 } = {}
+  { limit = 40, offset = 0 } = {},
 ) {
   const l = Math.max(1, Math.min(200, Number(limit) || 40));
   const o = Math.max(0, Number(offset) || 0);
@@ -4490,19 +5155,25 @@ export async function listCourierRequests(
        o.customer_block,
        o.customer_building_number,
        o.customer_apartment,
+       addr.latitude AS customer_latitude,
+       addr.longitude AS customer_longitude,
        o.note AS customer_note,
        o.created_at AS order_created_at,
        m.id AS merchant_id,
        m.name AS merchant_name,
-       m.type AS merchant_type
-     FROM customer_order o
-     JOIN merchant m ON m.id = o.merchant_id
+       m.type AS merchant_type,
+       m.latitude AS merchant_latitude,
+       m.longitude AS merchant_longitude
+      FROM customer_order o
+      JOIN merchant m ON m.id = o.merchant_id
+      LEFT JOIN customer_address addr ON addr.id = o.address_id
+        AND addr.customer_user_id = o.customer_user_id
      WHERE o.delivery_user_id = $1
        AND o.delivery_assignment_status = 'ASSIGNED'
        AND o.status IN ('approved','preparing','ready_for_delivery','on_the_way','arrived')
      ORDER BY COALESCE(o.courier_assigned_at, o.updated_at, o.created_at) DESC, o.id DESC
      LIMIT $2 OFFSET $3`,
-    [Number(courierUserId), l, o]
+    [Number(courierUserId), l, o],
   );
 
   return { requests: r.rows, limit: l, offset: o };
@@ -4510,7 +5181,7 @@ export async function listCourierRequests(
 
 export async function listCourierOrders(
   courierUserId,
-  { status = null, merchantId = null, limit = 60, offset = 0 } = {}
+  { status = null, merchantId = null, limit = 60, offset = 0 } = {},
 ) {
   const where = [`o.delivery_user_id = $1`];
   const params = [Number(courierUserId)];
@@ -4531,20 +5202,26 @@ export async function listCourierOrders(
     `SELECT
        o.*,
        m.name AS merchant_name,
-       m.type AS merchant_type
+       m.type AS merchant_type,
+       m.latitude AS merchant_latitude,
+       m.longitude AS merchant_longitude,
+       addr.latitude AS customer_latitude,
+       addr.longitude AS customer_longitude
      FROM customer_order o
      JOIN merchant m ON m.id = o.merchant_id
+     LEFT JOIN customer_address addr ON addr.id = o.address_id
+       AND addr.customer_user_id = o.customer_user_id
      WHERE ${where.join(" AND ")}
      ORDER BY o.updated_at DESC, o.id DESC
      LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
-    params
+    params,
   );
   return { orders: r.rows };
 }
 
 export async function listCourierOrdersGroupedByMerchant(
   courierUserId,
-  { period, from, to, status = null } = {}
+  { period, from, to, status = null } = {},
 ) {
   const window = parseWindow({ period, from, to });
   const params = [Number(courierUserId), window.start, window.end];
@@ -4568,14 +5245,25 @@ export async function listCourierOrdersGroupedByMerchant(
        ${statusClause}
      GROUP BY o.merchant_id, m.name
      ORDER BY orders_count DESC, m.name ASC`,
-    params
+    params,
   );
   return { window, groups: r.rows };
 }
 
-export async function listCourierReports(courierUserId, { period, from, to } = {}) {
-  const dashboard = await listCourierDashboard(courierUserId, { period, from, to });
-  const grouped = await listCourierOrdersGroupedByMerchant(courierUserId, { period, from, to });
+export async function listCourierReports(
+  courierUserId,
+  { period, from, to } = {},
+) {
+  const dashboard = await listCourierDashboard(courierUserId, {
+    period,
+    from,
+    to,
+  });
+  const grouped = await listCourierOrdersGroupedByMerchant(courierUserId, {
+    period,
+    from,
+    to,
+  });
   return {
     ...dashboard,
     groupedByMerchant: grouped.groups,
@@ -4584,7 +5272,7 @@ export async function listCourierReports(courierUserId, { period, from, to } = {
 
 export async function listCourierEarnings(
   courierUserId,
-  { period, from, to, limit = 100, offset = 0 } = {}
+  { period, from, to, limit = 100, offset = 0 } = {},
 ) {
   const window = parseWindow({ period, from, to });
   const r = await q(
@@ -4604,7 +5292,7 @@ export async function listCourierEarnings(
       window.end,
       Math.max(1, Math.min(300, Number(limit) || 100)),
       Math.max(0, Number(offset) || 0),
-    ]
+    ],
   );
   return { window, earnings: r.rows };
 }
@@ -4625,7 +5313,9 @@ async function runCompetitionFinalizerPass() {
 }
 
 function parseCompetitionScope(scopeRaw) {
-  const scope = String(scopeRaw || "active").trim().toLowerCase();
+  const scope = String(scopeRaw || "active")
+    .trim()
+    .toLowerCase();
   if (scope === "history" || scope === "ended" || scope === "archived") {
     return "history";
   }
@@ -4667,7 +5357,10 @@ function deriveFallbackTier(competition) {
       id: null,
       sortOrder: 1,
       title: "Rank 1",
-      requiredCompletedOrders: Math.max(1, Math.floor(toNumber(competition?.target_value, 1))),
+      requiredCompletedOrders: Math.max(
+        1,
+        Math.floor(toNumber(competition?.target_value, 1)),
+      ),
       rewardAmount: toNumber(competition?.reward_amount, 0),
       rewardLabel: null,
     },
@@ -4697,8 +5390,8 @@ function enrichCompetitionRow(row, tiers) {
       nextRank?.requiredCompletedOrders ??
         highestRank?.requiredCompletedOrders ??
         tiers[tiers.length - 1]?.requiredCompletedOrders ??
-        1
-    )
+        1,
+    ),
   );
   const ratio = Math.max(0, Math.min(100, (currentValue / denominator) * 100));
 
@@ -4707,7 +5400,8 @@ function enrichCompetitionRow(row, tiers) {
     tiers,
     current_value: currentValue,
     currentValue: currentValue,
-    highest_rank_sort_order: highestRank?.sortOrder ?? row.highest_rank_sort_order ?? null,
+    highest_rank_sort_order:
+      highestRank?.sortOrder ?? row.highest_rank_sort_order ?? null,
     highest_rank_title: highestRank?.title ?? row.highest_rank_title ?? null,
     current_rank_sort_order:
       row.current_rank_sort_order ?? highestRank?.sortOrder ?? null,
@@ -4719,26 +5413,39 @@ function enrichCompetitionRow(row, tiers) {
     remaining_to_next_rank:
       nextRank == null
         ? 0
-        : Math.max(0, Number(nextRank.requiredCompletedOrders) - Math.floor(currentValue)),
+        : Math.max(
+            0,
+            Number(nextRank.requiredCompletedOrders) - Math.floor(currentValue),
+          ),
     remainingToNextRank:
       nextRank == null
         ? 0
-        : Math.max(0, Number(nextRank.requiredCompletedOrders) - Math.floor(currentValue)),
+        : Math.max(
+            0,
+            Number(nextRank.requiredCompletedOrders) - Math.floor(currentValue),
+          ),
   };
 }
 
-async function listCompetitionRowsForCourier(courierUserId, { scope = "active" } = {}) {
+async function listCompetitionRowsForCourier(
+  courierUserId,
+  { scope = "active" } = {},
+) {
   const normalizedScope = parseCompetitionScope(scope);
   const whereParts = [];
   if (normalizedScope === "active") {
     whereParts.push(
-      "(cc.is_active = TRUE AND cc.start_at <= NOW() AND cc.end_at >= NOW() AND cc.status IN ('active','draft'))"
+      "(cc.is_active = TRUE AND cc.start_at <= NOW() AND cc.end_at >= NOW() AND cc.status IN ('active','draft'))",
     );
   } else if (normalizedScope === "history") {
-    whereParts.push("(cc.end_at < NOW() OR cc.status IN ('ended','cancelled'))");
+    whereParts.push(
+      "(cc.end_at < NOW() OR cc.status IN ('ended','cancelled'))",
+    );
   }
 
-  const whereClause = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const whereClause = whereParts.length
+    ? `WHERE ${whereParts.join(" AND ")}`
+    : "";
   const rows = await q(
     `SELECT
        cc.*,
@@ -4757,18 +5464,20 @@ async function listCompetitionRowsForCourier(courierUserId, { scope = "active" }
       AND ccp.courier_user_id = $1
      ${whereClause}
      ORDER BY cc.start_at DESC, cc.id DESC`,
-    [Number(courierUserId)]
+    [Number(courierUserId)],
   );
 
   if ((rows.rowCount || 0) === 0) return [];
 
-  const competitionIds = rows.rows.map((row) => Number(row.id)).filter((id) => id > 0);
+  const competitionIds = rows.rows
+    .map((row) => Number(row.id))
+    .filter((id) => id > 0);
   const tiersRows = await q(
     `SELECT *
      FROM courier_competition_tier
      WHERE competition_id = ANY($1::bigint[])
      ORDER BY competition_id ASC, required_completed_orders DESC, sort_order ASC`,
-    [competitionIds]
+    [competitionIds],
   );
   const tiersMap = mapCompetitionTiers(tiersRows.rows);
 
@@ -4778,19 +5487,30 @@ async function listCompetitionRowsForCourier(courierUserId, { scope = "active" }
   });
 }
 
-export async function listCourierCompetitions(courierUserId, { scope = "active" } = {}) {
+export async function listCourierCompetitions(
+  courierUserId,
+  { scope = "active" } = {},
+) {
   await runCompetitionFinalizerPass();
-  const competitions = await listCompetitionRowsForCourier(courierUserId, { scope });
+  const competitions = await listCompetitionRowsForCourier(courierUserId, {
+    scope,
+  });
   return { competitions, scope: parseCompetitionScope(scope) };
 }
 
-export async function getCourierCompetitionDetails(courierUserId, competitionId) {
+export async function getCourierCompetitionDetails(
+  courierUserId,
+  competitionId,
+) {
   await runCompetitionFinalizerPass();
-  const competitionRows = await listCompetitionRowsForCourier(courierUserId, { scope: "all" });
+  const competitionRows = await listCompetitionRowsForCourier(courierUserId, {
+    scope: "all",
+  });
   const competition = competitionRows.find(
-    (row) => Number(row.id || 0) === Number(competitionId || 0)
+    (row) => Number(row.id || 0) === Number(competitionId || 0),
   );
-  if (!competition) throw new AppError("COMPETITION_NOT_FOUND", { status: 404 });
+  if (!competition)
+    throw new AppError("COMPETITION_NOT_FOUND", { status: 404 });
 
   const leaderboard = await q(
     `SELECT
@@ -4807,7 +5527,7 @@ export async function getCourierCompetitionDetails(courierUserId, competitionId)
      WHERE ccp.competition_id = $1
      ORDER BY ccp.current_value DESC, ccp.updated_at ASC
      LIMIT 200`,
-    [Number(competitionId)]
+    [Number(competitionId)],
   );
 
   return {
@@ -4818,7 +5538,9 @@ export async function getCourierCompetitionDetails(courierUserId, competitionId)
 
 export async function listCourierCompetitionProgress(courierUserId) {
   await runCompetitionFinalizerPass();
-  const items = await listCompetitionRowsForCourier(courierUserId, { scope: "all" });
+  const items = await listCompetitionRowsForCourier(courierUserId, {
+    scope: "all",
+  });
   return { progress: items, items };
 }
 
@@ -4834,7 +5556,7 @@ export async function getCourierCompetitionAchievementsSummary(courierUserId) {
        COALESCE(SUM(final_completed_orders),0)::int AS counted_completed_orders
      FROM courier_competition_result
      WHERE courier_user_id = $1`,
-    [Number(courierUserId)]
+    [Number(courierUserId)],
   );
   return { summary: r.rows[0] || {} };
 }
@@ -4845,7 +5567,7 @@ export async function listMerchantCouriers(ownerUserId) {
      FROM merchant
      WHERE owner_user_id = $1
      LIMIT 1`,
-    [Number(ownerUserId)]
+    [Number(ownerUserId)],
   );
   const merchantId = merchant.rows[0]?.id;
   if (!merchantId) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
@@ -4867,7 +5589,7 @@ export async function listMerchantCouriers(ownerUserId) {
      LEFT JOIN courier_profile cp ON cp.user_id = u.id
      WHERE mda.merchant_id = $1
      ORDER BY mda.is_active DESC, u.full_name ASC`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
   return { merchantId: Number(merchantId), couriers: r.rows };
 }
@@ -4889,13 +5611,16 @@ export async function createMerchantCourier({
        FROM app_user
        WHERE id = $1
        LIMIT 1`,
-      [Number(deliveryUserId)]
+      [Number(deliveryUserId)],
     );
     const user = userCheck.rows[0];
     if (!user || String(user.role) !== "delivery") {
       throw new AppError("DELIVERY_USER_NOT_FOUND", { status: 404 });
     }
-    if (user.is_account_disabled === true || user.delivery_account_approved !== true) {
+    if (
+      user.is_account_disabled === true ||
+      user.delivery_account_approved !== true
+    ) {
       throw new AppError("DELIVERY_USER_NOT_ELIGIBLE", { status: 409 });
     }
 
@@ -4949,9 +5674,10 @@ export async function updateMerchantCourier({
        WHERE merchant_id = $1
          AND delivery_user_id = $2
        RETURNING *`,
-      [Number(merchant.id), Number(deliveryUserId), isActive]
+      [Number(merchant.id), Number(deliveryUserId), isActive],
     );
-    if (!update.rows[0]) throw new AppError("MERCHANT_COURIER_NOT_FOUND", { status: 404 });
+    if (!update.rows[0])
+      throw new AppError("MERCHANT_COURIER_NOT_FOUND", { status: 404 });
 
     await ensureCourierProfileTx(client, {
       userId: Number(deliveryUserId),
@@ -4972,7 +5698,7 @@ export async function updateMerchantCourier({
           availabilityStatus ? String(availabilityStatus).slice(0, 20) : null,
           vehicleType ? String(vehicleType).slice(0, 60) : null,
           typeof isActive === "boolean" ? isActive : null,
-        ]
+        ],
       );
     }
 
@@ -4986,17 +5712,21 @@ export async function updateMerchantCourier({
   }
 }
 
-export async function getMerchantDashboard(ownerUserId, { period, from, to } = {}) {
+export async function getMerchantDashboard(
+  ownerUserId,
+  { period, from, to } = {},
+) {
   const merchantResult = await q(
     `SELECT id, name
      FROM merchant
      WHERE owner_user_id = $1
      LIMIT 1`,
-    [Number(ownerUserId)]
+    [Number(ownerUserId)],
   );
   const merchant = merchantResult.rows[0];
   if (!merchant) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
   const window = parseWindow({ period, from, to });
+  const billingProfile = await getMerchantBillingProfile(Number(merchant.id));
 
   const [totals, courierSplit] = await Promise.all([
     q(
@@ -5005,14 +5735,23 @@ export async function getMerchantDashboard(ownerUserId, { period, from, to } = {
          COUNT(*) FILTER (WHERE status IN ('completed','delivered','delivered_by_courier','received_by_customer'))::int AS completed_orders,
          COUNT(*) FILTER (WHERE status IN ('cancelled','cancelled_by_store','cancelled_by_admin','cancelled_by_customer'))::int AS cancelled_orders,
          COUNT(*) FILTER (WHERE status IN ('approved','preparing','ready_for_delivery','on_the_way','arrived'))::int AS active_orders,
-         COALESCE(SUM(total_amount),0)::numeric AS gross_sales,
-         COALESCE(SUM(subtotal),0)::numeric AS subtotal_sales,
-         COALESCE(AVG(total_amount),0)::numeric AS avg_order_value
-       FROM customer_order
-       WHERE merchant_id = $1
-         AND created_at >= $2::timestamptz
-         AND created_at <= $3::timestamptz`,
-      [Number(merchant.id), window.start, window.end]
+         COALESCE(SUM(o.subtotal) FILTER (WHERE o.status IN ('completed','delivered','delivered_by_courier','received_by_customer')),0)::numeric AS product_sales,
+         COALESCE(SUM(CASE WHEN o.status IN ('completed','delivered','delivered_by_courier','received_by_customer') THEN COALESCE(inv.commission_amount, CASE WHEN $4::text = 'monthly_subscription' THEN 0 WHEN $5::text = 'percentage' THEN (o.subtotal * $6::numeric / 100) ELSE $7::numeric END) ELSE 0 END),0)::numeric AS app_commission,
+         COALESCE(AVG(o.subtotal) FILTER (WHERE o.status IN ('completed','delivered','delivered_by_courier','received_by_customer')),0)::numeric AS avg_order_value
+       FROM customer_order o
+       LEFT JOIN merchant_receivable_invoice inv ON inv.order_id = o.id
+       WHERE o.merchant_id = $1
+         AND o.created_at >= $2::timestamptz
+         AND o.created_at <= $3::timestamptz`,
+      [
+        Number(merchant.id),
+        window.start,
+        window.end,
+        billingProfile.commissionModel,
+        billingProfile.commissionType,
+        billingProfile.commissionValue,
+        billingProfile.commissionValue,
+      ],
     ),
     q(
       `SELECT
@@ -5022,12 +5761,14 @@ export async function getMerchantDashboard(ownerUserId, { period, from, to } = {
        WHERE merchant_id = $1
          AND created_at >= $2::timestamptz
          AND created_at <= $3::timestamptz`,
-      [Number(merchant.id), window.start, window.end]
+      [Number(merchant.id), window.start, window.end],
     ),
   ]);
 
   const t = totals.rows[0] || {};
   const split = courierSplit.rows[0] || {};
+  const productSales = toNumber(t.product_sales, 0);
+  const appCommission = toNumber(t.app_commission, 0);
   return {
     merchant: {
       id: Number(merchant.id),
@@ -5039,8 +5780,17 @@ export async function getMerchantDashboard(ownerUserId, { period, from, to } = {
       completedOrders: Number(t.completed_orders || 0),
       cancelledOrders: Number(t.cancelled_orders || 0),
       activeOrders: Number(t.active_orders || 0),
-      grossSales: toNumber(t.gross_sales, 0),
-      subtotalSales: toNumber(t.subtotal_sales, 0),
+      grossSales: productSales,
+      productSales,
+      subtotalSales: productSales,
+      appCommission,
+      netProfit: Math.max(0, productSales - appCommission),
+      commissionModel: billingProfile.commissionModel,
+      commissionType: billingProfile.commissionType,
+      commissionValue:
+        billingProfile.commissionModel === "monthly_subscription"
+          ? 0
+          : billingProfile.commissionValue,
       avgOrderValue: toNumber(t.avg_order_value, 0),
       appCourierOrders: Number(split.app_courier_orders || 0),
       merchantCourierOrders: Number(split.merchant_courier_orders || 0),
@@ -5049,7 +5799,11 @@ export async function getMerchantDashboard(ownerUserId, { period, from, to } = {
 }
 
 export async function getMerchantKpis(ownerUserId, { period, from, to } = {}) {
-  const dashboard = await getMerchantDashboard(ownerUserId, { period, from, to });
+  const dashboard = await getMerchantDashboard(ownerUserId, {
+    period,
+    from,
+    to,
+  });
   const merchantId = Number(dashboard.merchant.id);
   const window = dashboard.window;
 
@@ -5065,10 +5819,11 @@ export async function getMerchantKpis(ownerUserId, { period, from, to } = {}) {
        WHERE o.merchant_id = $1
          AND o.created_at >= $2::timestamptz
          AND o.created_at <= $3::timestamptz
+         AND o.status IN ('completed','delivered','delivered_by_courier','received_by_customer')
        GROUP BY oi.product_id, oi.product_name
        ORDER BY qty_sold DESC, gross_amount DESC
        LIMIT 15`,
-      [merchantId, window.start, window.end]
+      [merchantId, window.start, window.end],
     ),
     q(
       `SELECT
@@ -5083,10 +5838,11 @@ export async function getMerchantKpis(ownerUserId, { period, from, to } = {}) {
        WHERE o.merchant_id = $1
          AND o.created_at >= $2::timestamptz
          AND o.created_at <= $3::timestamptz
+         AND o.status IN ('completed','delivered','delivered_by_courier','received_by_customer')
        GROUP BY mc.id, mc.name
        ORDER BY gross_amount DESC
        LIMIT 12`,
-      [merchantId, window.start, window.end]
+      [merchantId, window.start, window.end],
     ),
   ]);
 
@@ -5099,24 +5855,32 @@ export async function getMerchantKpis(ownerUserId, { period, from, to } = {}) {
 
 export async function getMerchantTopProducts(ownerUserId, options = {}) {
   const kpis = await getMerchantKpis(ownerUserId, options);
-  return { merchant: kpis.merchant, window: kpis.window, rows: kpis.topProducts };
+  return {
+    merchant: kpis.merchant,
+    window: kpis.window,
+    rows: kpis.topProducts,
+  };
 }
 
 export async function getMerchantTopCategories(ownerUserId, options = {}) {
   const kpis = await getMerchantKpis(ownerUserId, options);
-  return { merchant: kpis.merchant, window: kpis.window, rows: kpis.topCategories };
+  return {
+    merchant: kpis.merchant,
+    window: kpis.window,
+    rows: kpis.topCategories,
+  };
 }
 
 export async function getMerchantOrdersReports(
   ownerUserId,
-  { period, from, to, status = null, limit = 120, offset = 0 } = {}
+  { period, from, to, status = null, limit = 120, offset = 0 } = {},
 ) {
   const merchant = await q(
     `SELECT id, name
      FROM merchant
      WHERE owner_user_id = $1
      LIMIT 1`,
-    [Number(ownerUserId)]
+    [Number(ownerUserId)],
   );
   const m = merchant.rows[0];
   if (!m) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
@@ -5146,7 +5910,7 @@ export async function getMerchantOrdersReports(
        ${statusClause}
      ORDER BY o.created_at DESC, o.id DESC
      LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
-    params
+    params,
   );
 
   return {
@@ -5158,14 +5922,14 @@ export async function getMerchantOrdersReports(
 
 export async function getMerchantVerifiedReviews(
   ownerUserId,
-  { limit = 40, offset = 0 } = {}
+  { limit = 40, offset = 0 } = {},
 ) {
   const merchant = await q(
     `SELECT id, name
      FROM merchant
      WHERE owner_user_id = $1
      LIMIT 1`,
-    [Number(ownerUserId)]
+    [Number(ownerUserId)],
   );
   const m = merchant.rows[0];
   if (!m) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
@@ -5191,7 +5955,7 @@ export async function getMerchantVerifiedReviews(
      WHERE r.merchant_id = $1
      ORDER BY r.created_at DESC, r.id DESC
      LIMIT $2 OFFSET $3`,
-    [Number(m.id), safeLimit, safeOffset]
+    [Number(m.id), safeLimit, safeOffset],
   );
 
   const rows = reviewsResult.rows;
@@ -5208,7 +5972,7 @@ export async function getMerchantVerifiedReviews(
            AND customer_user_id = $2
          ORDER BY created_at DESC, id DESC
          LIMIT 5`,
-        [Number(m.id), Number(row.customer_user_id)]
+        [Number(m.id), Number(row.customer_user_id)],
       );
 
       return {
@@ -5235,7 +5999,7 @@ export async function getMerchantVerifiedReviews(
           })),
         },
       };
-    })
+    }),
   );
 
   return {
@@ -5257,7 +6021,7 @@ export async function getDeliveryDispatchPolicy() {
        FROM delivery_dispatch_policy
        WHERE policy_key = 'default'
        ORDER BY updated_at DESC
-       LIMIT 1`
+       LIMIT 1`,
     );
     row = result.rows[0] || null;
   } catch (error) {
@@ -5267,7 +6031,9 @@ export async function getDeliveryDispatchPolicy() {
     policyKey: "default",
     config: normalizeDeliveryDispatchPolicyConfig(row?.config_json || {}),
     isActive: row?.is_active ?? true,
-    updatedByUserId: row?.updated_by_user_id ? Number(row.updated_by_user_id) : null,
+    updatedByUserId: row?.updated_by_user_id
+      ? Number(row.updated_by_user_id)
+      : null,
     updatedAt: row?.updated_at || null,
     createdAt: row?.created_at || null,
   };
@@ -5306,7 +6072,7 @@ export async function updateDeliveryDispatchPolicy(actorUserId, patch = {}) {
          is_active = EXCLUDED.is_active,
          updated_by_user_id = EXCLUDED.updated_by_user_id,
          updated_at = NOW()`,
-      [JSON.stringify(merged), Number(actorUserId)]
+      [JSON.stringify(merged), Number(actorUserId)],
     );
   } catch (error) {
     if (String(error?.code || "") === "42P01") {
@@ -5356,13 +6122,13 @@ function normalizeReliabilityPolicyConfig(input = {}) {
     sourceThresholds.trustedMin,
     DEFAULT_RELIABILITY_POLICY_CONFIG.thresholds.trustedMin,
     0,
-    100
+    100,
   );
   const needsAttentionMax = clampNumber(
     sourceThresholds.needsAttentionMax,
     DEFAULT_RELIABILITY_POLICY_CONFIG.thresholds.needsAttentionMax,
     0,
-    trustedMin
+    trustedMin,
   );
 
   return {
@@ -5371,45 +6137,45 @@ function normalizeReliabilityPolicyConfig(input = {}) {
         source.windowDays,
         DEFAULT_RELIABILITY_POLICY_CONFIG.windowDays,
         1,
-        3650
-      )
+        3650,
+      ),
     ),
     baseScore: clampNumber(
       source.baseScore,
       DEFAULT_RELIABILITY_POLICY_CONFIG.baseScore,
       0,
-      100
+      100,
     ),
     weights: {
       completed: clampNumber(
         sourceWeights.completed,
         DEFAULT_RELIABILITY_POLICY_CONFIG.weights.completed,
         -50,
-        50
+        50,
       ),
       cancelledByCustomer: clampNumber(
         sourceWeights.cancelledByCustomer,
         DEFAULT_RELIABILITY_POLICY_CONFIG.weights.cancelledByCustomer,
         -50,
-        50
+        50,
       ),
       failedDelivery: clampNumber(
         sourceWeights.failedDelivery,
         DEFAULT_RELIABILITY_POLICY_CONFIG.weights.failedDelivery,
         -50,
-        50
+        50,
       ),
       noAnswer: clampNumber(
         sourceWeights.noAnswer,
         DEFAULT_RELIABILITY_POLICY_CONFIG.weights.noAnswer,
         -50,
-        50
+        50,
       ),
       complaints: clampNumber(
         sourceWeights.complaints,
         DEFAULT_RELIABILITY_POLICY_CONFIG.weights.complaints,
         -50,
-        50
+        50,
       ),
     },
     thresholds: {
@@ -5420,7 +6186,7 @@ function normalizeReliabilityPolicyConfig(input = {}) {
       source.warningThreshold,
       DEFAULT_RELIABILITY_POLICY_CONFIG.warningThreshold,
       0,
-      100
+      100,
     ),
   };
 }
@@ -5431,7 +6197,7 @@ async function loadDefaultReliabilityPolicyRow() {
      FROM customer_reliability_policy
      WHERE policy_key = 'default'
      ORDER BY updated_at DESC
-     LIMIT 1`
+     LIMIT 1`,
   );
   return result.rows[0] || null;
 }
@@ -5443,7 +6209,9 @@ export async function getCustomerReliabilityPolicy() {
     policyKey: "default",
     config,
     isActive: row?.is_active ?? true,
-    updatedByUserId: row?.updated_by_user_id ? Number(row.updated_by_user_id) : null,
+    updatedByUserId: row?.updated_by_user_id
+      ? Number(row.updated_by_user_id)
+      : null,
     updatedAt: row?.updated_at || null,
     createdAt: row?.created_at || null,
   };
@@ -5453,7 +6221,9 @@ export async function updateCustomerReliabilityPolicy(actorUserId, patch = {}) {
   const existing = await getCustomerReliabilityPolicy();
   const patchObject =
     patch && typeof patch === "object"
-      ? (patch.config && typeof patch.config === "object" ? patch.config : patch)
+      ? patch.config && typeof patch.config === "object"
+        ? patch.config
+        : patch
       : {};
   const merged = normalizeReliabilityPolicyConfig({
     ...existing.config,
@@ -5479,19 +6249,22 @@ export async function updateCustomerReliabilityPolicy(actorUserId, patch = {}) {
        is_active = EXCLUDED.is_active,
        updated_by_user_id = EXCLUDED.updated_by_user_id,
        updated_at = NOW()`,
-    [JSON.stringify(merged), Number(actorUserId)]
+    [JSON.stringify(merged), Number(actorUserId)],
   );
 
   return getCustomerReliabilityPolicy();
 }
 
-export async function getMerchantCustomerReliability(ownerUserId, customerUserId) {
+export async function getMerchantCustomerReliability(
+  ownerUserId,
+  customerUserId,
+) {
   const merchant = await q(
     `SELECT id, name
      FROM merchant
      WHERE owner_user_id = $1
      LIMIT 1`,
-    [Number(ownerUserId)]
+    [Number(ownerUserId)],
   );
   const m = merchant.rows[0];
   if (!m) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
@@ -5502,7 +6275,7 @@ export async function getMerchantCustomerReliability(ownerUserId, customerUserId
      WHERE merchant_id = $1
        AND customer_user_id = $2
      LIMIT 1`,
-    [Number(m.id), Number(customerUserId)]
+    [Number(m.id), Number(customerUserId)],
   );
   if (!relation.rows[0]) {
     throw new AppError("CUSTOMER_NOT_FOUND_FOR_MERCHANT", { status: 404 });
@@ -5527,7 +6300,7 @@ export async function getMerchantCustomerReliability(ownerUserId, customerUserId
      FROM customer_order
      WHERE customer_user_id = $1
        AND created_at >= NOW() - ($2::text || ' days')::interval`,
-    [Number(customerUserId), Math.max(1, windowDays)]
+    [Number(customerUserId), Math.max(1, windowDays)],
   );
   const stats = statsResult.rows[0] || {};
   const completed = Number(stats.completed_count || 0);
@@ -5543,7 +6316,11 @@ export async function getMerchantCustomerReliability(ownerUserId, customerUserId
     cancelledByStore * Number(weights?.complaints ?? -3);
   const score = Math.max(0, Math.min(100, scoreRaw));
   const reliabilityTier =
-    score >= trustedMin ? "trusted" : score <= needsAttentionMax ? "needs_attention" : "medium";
+    score >= trustedMin
+      ? "trusted"
+      : score <= needsAttentionMax
+        ? "needs_attention"
+        : "medium";
   const warningRequired = score <= warningThreshold;
 
   await q(
@@ -5596,7 +6373,7 @@ export async function getMerchantCustomerReliability(ownerUserId, customerUserId
         needsAttentionMax,
         warningThreshold,
       }),
-    ]
+    ],
   );
 
   return {
@@ -5618,7 +6395,7 @@ export async function getMerchantCustomerReliability(ownerUserId, customerUserId
 async function merchantReceivableBreakdownByType(
   client,
   merchantId,
-  { includePendingPayments = true } = {}
+  { includePendingPayments = true } = {},
 ) {
   const ledgerByType = await client.query(
     `SELECT
@@ -5628,7 +6405,7 @@ async function merchantReceivableBreakdownByType(
      FROM merchant_receivables_ledger
      WHERE merchant_id = $1
      GROUP BY entry_type`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
 
   const acc = {
@@ -5666,7 +6443,7 @@ async function merchantReceivableBreakdownByType(
          FROM merchant_payment_request
          WHERE merchant_id = $1
            AND status = 'pending'`,
-        [Number(merchantId)]
+        [Number(merchantId)],
       )
     : { rows: [{ pending_amount: 0 }] };
 
@@ -5698,7 +6475,7 @@ async function merchantReceivableBreakdownByType(
 async function merchantAppPayablesBreakdownByType(
   client,
   merchantId,
-  { includePendingOutgoing = true } = {}
+  { includePendingOutgoing = true } = {},
 ) {
   const ledgerByType = await client.query(
     `SELECT
@@ -5708,7 +6485,7 @@ async function merchantAppPayablesBreakdownByType(
      FROM merchant_app_payables_ledger
      WHERE merchant_id = $1
      GROUP BY entry_type`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
 
   const acc = {
@@ -5747,7 +6524,7 @@ async function merchantAppPayablesBreakdownByType(
          WHERE merchant_id = $1
            AND request_type = $2
            AND status IN ('approved_by_admin', 'assigned_for_payment', 'awaiting_store_confirmation')`,
-        [Number(merchantId), REQUEST_TYPE_APP_PAYS_STORE]
+        [Number(merchantId), REQUEST_TYPE_APP_PAYS_STORE],
       )
     : { rows: [{ pending_amount: 0 }] };
 
@@ -5791,15 +6568,15 @@ export async function getMerchantReceivablesSummary(ownerUserId) {
        FROM merchant_billing_profile
        WHERE merchant_id = $1
        LIMIT 1`,
-      [Number(merchant.id)]
+      [Number(merchant.id)],
     );
     const breakdown = await merchantReceivableBreakdownByType(
       client,
-      Number(merchant.id)
+      Number(merchant.id),
     );
     const appPayablesBreakdown = await merchantAppPayablesBreakdownByType(
       client,
-      Number(merchant.id)
+      Number(merchant.id),
     );
     const latestPayment = await client.query(
       `SELECT *
@@ -5808,7 +6585,7 @@ export async function getMerchantReceivablesSummary(ownerUserId) {
          AND request_type = $2
        ORDER BY submitted_at DESC, id DESC
        LIMIT 1`,
-      [Number(merchant.id), REQUEST_TYPE_STORE_PAYS_APP]
+      [Number(merchant.id), REQUEST_TYPE_STORE_PAYS_APP],
     );
     const pendingList = await client.query(
       `SELECT *
@@ -5818,7 +6595,7 @@ export async function getMerchantReceivablesSummary(ownerUserId) {
          AND status IN ('pending_admin_confirmation','returned_for_revision','pending_admin_review','issue_reported_by_store')
        ORDER BY submitted_at DESC, id DESC
        LIMIT 20`,
-      [Number(merchant.id), REQUEST_TYPE_STORE_PAYS_APP]
+      [Number(merchant.id), REQUEST_TYPE_STORE_PAYS_APP],
     );
     const pendingIncoming = await client.query(
       `SELECT *
@@ -5828,17 +6605,17 @@ export async function getMerchantReceivablesSummary(ownerUserId) {
          AND status IN ('pending_admin_review','approved_by_admin','assigned_for_payment','awaiting_store_confirmation','issue_reported_by_store')
        ORDER BY submitted_at DESC, id DESC
        LIMIT 20`,
-      [Number(merchant.id), REQUEST_TYPE_APP_PAYS_STORE]
+      [Number(merchant.id), REQUEST_TYPE_APP_PAYS_STORE],
     );
     const openInvoices = await listMerchantReceivableInvoicesTx(
       client,
       Number(merchant.id),
-      { onlyOpen: true, limit: 500 }
+      { onlyOpen: true, limit: 500 },
     );
     const allInvoices = await listMerchantReceivableInvoicesTx(
       client,
       Number(merchant.id),
-      { onlyOpen: false, limit: 500 }
+      { onlyOpen: false, limit: 500 },
     );
 
     return {
@@ -5875,7 +6652,7 @@ export async function getMerchantReceivablesSummary(ownerUserId) {
 
 export async function listMerchantReceivablesLedger(
   ownerUserId,
-  { limit = 100, offset = 0, ledgerType = "all" } = {}
+  { limit = 100, offset = 0, ledgerType = "all" } = {},
 ) {
   const client = await pool.connect();
   try {
@@ -5888,7 +6665,9 @@ export async function listMerchantReceivablesLedger(
 
     const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
     const safeOffset = Math.max(0, Number(offset) || 0);
-    const normalizedType = String(ledgerType || "all").trim().toLowerCase();
+    const normalizedType = String(ledgerType || "all")
+      .trim()
+      .toLowerCase();
 
     const outgoingRows = await client.query(
       `SELECT *
@@ -5896,11 +6675,7 @@ export async function listMerchantReceivablesLedger(
        WHERE merchant_id = $1
        ORDER BY created_at DESC, id DESC
        LIMIT $2 OFFSET $3`,
-      [
-        Number(merchant.id),
-        safeLimit,
-        safeOffset,
-      ]
+      [Number(merchant.id), safeLimit, safeOffset],
     );
     const incomingRows = await client.query(
       `SELECT *
@@ -5908,11 +6683,7 @@ export async function listMerchantReceivablesLedger(
        WHERE merchant_id = $1
        ORDER BY created_at DESC, id DESC
        LIMIT $2 OFFSET $3`,
-      [
-        Number(merchant.id),
-        safeLimit,
-        safeOffset,
-      ]
+      [Number(merchant.id), safeLimit, safeOffset],
     );
     const mappedOutgoing = outgoingRows.rows.map((row) => ({
       ...row,
@@ -6026,9 +6797,12 @@ export async function createMerchantPaymentRequest({
         Number(merchant.id),
         {
           includePendingOutgoing: false,
-        }
+        },
       );
-      const scopeOutstanding = toNumber(appPayablesBreakdown?.totals?.outstanding, 0);
+      const scopeOutstanding = toNumber(
+        appPayablesBreakdown?.totals?.outstanding,
+        0,
+      );
       if (!(scopeOutstanding > 0)) {
         throw new AppError("NO_OUTSTANDING_RECEIVABLES", { status: 400 });
       }
@@ -6091,7 +6865,9 @@ export async function createMerchantPaymentRequest({
         note || null,
         normalizedPaymentMethod,
         normalizedPaymentMethod === "other"
-          ? String(paymentMethodOther || "").trim().slice(0, 120) || null
+          ? String(paymentMethodOther || "")
+              .trim()
+              .slice(0, 120) || null
           : null,
         normalizedPaymentDate || null,
         referenceCode || null,
@@ -6099,7 +6875,7 @@ export async function createMerchantPaymentRequest({
         resolvedSelectionMode,
         JSON.stringify(resolvedSelectionMeta || {}),
         Number(ownerUserId),
-      ]
+      ],
     );
 
     await insertPaymentRequestStatusHistoryTx(client, {
@@ -6142,7 +6918,10 @@ export async function listAdminMerchantsReceivables({
   const client = await pool.connect();
   try {
     let statusClause = "";
-    if (status && ["clear", "due", "overdue"].includes(String(status).toLowerCase())) {
+    if (
+      status &&
+      ["clear", "due", "overdue"].includes(String(status).toLowerCase())
+    ) {
       statusClause = String(status).toLowerCase();
     }
 
@@ -6206,7 +6985,7 @@ export async function listAdminMerchantsReceivables({
       [
         Math.max(1, Math.min(500, Number(limit) || 120)),
         Math.max(0, Number(offset) || 0),
-      ]
+      ],
     );
 
     const mapped = rows.rows.map((row) => {
@@ -6243,7 +7022,7 @@ export async function getAdminMerchantReceivables(merchantId) {
        LEFT JOIN merchant_billing_profile mbp ON mbp.merchant_id = m.id
        WHERE m.id = $1
        LIMIT 1`,
-      [Number(merchantId)]
+      [Number(merchantId)],
     );
     const merchant = merchantResult.rows[0];
     if (!merchant) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
@@ -6254,11 +7033,11 @@ export async function getAdminMerchantReceivables(merchantId) {
 
     const breakdown = await merchantReceivableBreakdownByType(
       client,
-      Number(merchantId)
+      Number(merchantId),
     );
     const appPayablesBreakdown = await merchantAppPayablesBreakdownByType(
       client,
-      Number(merchantId)
+      Number(merchantId),
     );
     const paymentRequests = await client.query(
       `SELECT *
@@ -6266,7 +7045,7 @@ export async function getAdminMerchantReceivables(merchantId) {
        WHERE merchant_id = $1
        ORDER BY submitted_at DESC, id DESC
        LIMIT 100`,
-      [Number(merchantId)]
+      [Number(merchantId)],
     );
     const ledger = await client.query(
       `SELECT *
@@ -6274,7 +7053,7 @@ export async function getAdminMerchantReceivables(merchantId) {
        WHERE merchant_id = $1
        ORDER BY created_at DESC, id DESC
        LIMIT 200`,
-      [Number(merchantId)]
+      [Number(merchantId)],
     );
     const appPayablesLedger = await client.query(
       `SELECT *
@@ -6282,14 +7061,14 @@ export async function getAdminMerchantReceivables(merchantId) {
        WHERE merchant_id = $1
        ORDER BY created_at DESC, id DESC
        LIMIT 200`,
-      [Number(merchantId)]
+      [Number(merchantId)],
     );
     const invoices = await listMerchantReceivableInvoicesTx(
       client,
       Number(merchantId),
       {
         limit: 400,
-      }
+      },
     );
     const paymentRequestIds = paymentRequests.rows.map((row) => Number(row.id));
     const paymentRequestInvoices = [];
@@ -6321,21 +7100,21 @@ function mapPaymentRequestRow(row) {
   const status = normalizeRequestStatus(row.status);
   const requestType = normalizePaymentRequestType(row.request_type);
   const selectionMeta = parseJsonOrEmpty(row.selection_meta_json);
-  const merchantEditableStatuses = requestType === REQUEST_TYPE_STORE_PAYS_APP
-    ? [
-        REQUEST_STATUS.pendingAdminConfirmation,
-        REQUEST_STATUS.returnedForRevision,
-        REQUEST_STATUS.rejectedByAdmin,
-      ]
-    : [
-        REQUEST_STATUS.pendingAdminReview,
-        REQUEST_STATUS.returnedForRevision,
-        REQUEST_STATUS.issueReportedByStore,
-        REQUEST_STATUS.rejectedByAdmin,
-      ];
+  const merchantEditableStatuses =
+    requestType === REQUEST_TYPE_STORE_PAYS_APP
+      ? [
+          REQUEST_STATUS.pendingAdminConfirmation,
+          REQUEST_STATUS.returnedForRevision,
+          REQUEST_STATUS.rejectedByAdmin,
+        ]
+      : [
+          REQUEST_STATUS.pendingAdminReview,
+          REQUEST_STATUS.returnedForRevision,
+          REQUEST_STATUS.issueReportedByStore,
+          REQUEST_STATUS.rejectedByAdmin,
+        ];
   const canEditByMerchant =
-    row.is_locked !== true &&
-    merchantEditableStatuses.includes(status);
+    row.is_locked !== true && merchantEditableStatuses.includes(status);
   const canConfirmByMerchant =
     row.is_locked !== true &&
     requestType === REQUEST_TYPE_APP_PAYS_STORE &&
@@ -6347,7 +7126,8 @@ function mapPaymentRequestRow(row) {
     amount: toNumber(row.amount, 0),
     requested_amount: toNumber(row.requested_amount, toNumber(row.amount, 0)),
     paid_amount: toNumber(row.paid_amount, 0),
-    payment_method: normalizePaymentMethod(row.payment_method) || row.payment_method,
+    payment_method:
+      normalizePaymentMethod(row.payment_method) || row.payment_method,
     payment_method_other: row.payment_method_other || null,
     payment_date: row.payment_date ? toIsoOrNull(row.payment_date) : null,
     selection_mode: row.selection_mode || null,
@@ -6367,14 +7147,14 @@ async function fetchPaymentRequestHistoryTx(client, paymentRequestId) {
      LEFT JOIN app_user u ON u.id = h.changed_by_user_id
      WHERE h.payment_request_id = $1
      ORDER BY h.created_at ASC, h.id ASC`,
-    [Number(paymentRequestId)]
+    [Number(paymentRequestId)],
   );
   return r.rows;
 }
 
 export async function listMerchantPaymentRequests(
   ownerUserId,
-  { requestType = null, status = null, limit = 100, offset = 0 } = {}
+  { requestType = null, status = null, limit = 100, offset = 0 } = {},
 ) {
   const client = await pool.connect();
   try {
@@ -6405,7 +7185,7 @@ export async function listMerchantPaymentRequests(
        WHERE ${where.join(" AND ")}
        ORDER BY submitted_at DESC, id DESC
        LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
-      params
+      params,
     );
     return {
       merchant: { id: Number(merchant.id), name: merchant.name },
@@ -6416,7 +7196,10 @@ export async function listMerchantPaymentRequests(
   }
 }
 
-export async function getMerchantPaymentRequestDetails(ownerUserId, paymentRequestId) {
+export async function getMerchantPaymentRequestDetails(
+  ownerUserId,
+  paymentRequestId,
+) {
   const client = await pool.connect();
   try {
     const merchant = await getMerchantByOwnerTx(client, Number(ownerUserId));
@@ -6431,14 +7214,18 @@ export async function getMerchantPaymentRequestDetails(ownerUserId, paymentReque
        WHERE id = $1
          AND merchant_id = $2
        LIMIT 1`,
-      [Number(paymentRequestId), Number(merchant.id)]
+      [Number(paymentRequestId), Number(merchant.id)],
     );
     const request = row.rows[0];
-    if (!request) throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
-    const history = await fetchPaymentRequestHistoryTx(client, Number(paymentRequestId));
+    if (!request)
+      throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
+    const history = await fetchPaymentRequestHistoryTx(
+      client,
+      Number(paymentRequestId),
+    );
     const invoices = await fetchPaymentRequestInvoiceAllocationsTx(
       client,
-      Number(paymentRequestId)
+      Number(paymentRequestId),
     );
     return {
       merchant: { id: Number(merchant.id), name: merchant.name },
@@ -6453,7 +7240,14 @@ export async function getMerchantPaymentRequestDetails(ownerUserId, paymentReque
 
 export async function listMerchantOpenReceivableInvoices(
   ownerUserId,
-  { limit = 500, offset = 0, onlyOpen = true, period = "all", from = null, to = null } = {}
+  {
+    limit = 500,
+    offset = 0,
+    onlyOpen = true,
+    period = "all",
+    from = null,
+    to = null,
+  } = {},
 ) {
   const client = await pool.connect();
   try {
@@ -6463,12 +7257,16 @@ export async function listMerchantOpenReceivableInvoices(
       maxOrders: 3000,
     });
     const window = parseWindow({ period, from, to });
-    const invoices = await listMerchantReceivableInvoicesTx(client, Number(merchant.id), {
-      onlyOpen,
-      limit,
-      offset,
-      window,
-    });
+    const invoices = await listMerchantReceivableInvoicesTx(
+      client,
+      Number(merchant.id),
+      {
+        onlyOpen,
+        limit,
+        offset,
+        window,
+      },
+    );
     return {
       merchant: {
         id: Number(merchant.id),
@@ -6525,7 +7323,10 @@ export async function previewMerchantPaymentSelection({
   }
 }
 
-export async function getMerchantPaymentRequestInvoices(ownerUserId, paymentRequestId) {
+export async function getMerchantPaymentRequestInvoices(
+  ownerUserId,
+  paymentRequestId,
+) {
   const client = await pool.connect();
   try {
     const merchant = await getMerchantByOwnerTx(client, Number(ownerUserId));
@@ -6536,14 +7337,14 @@ export async function getMerchantPaymentRequestInvoices(ownerUserId, paymentRequ
        WHERE id = $1
          AND merchant_id = $2
        LIMIT 1`,
-      [Number(paymentRequestId), Number(merchant.id)]
+      [Number(paymentRequestId), Number(merchant.id)],
     );
     if (!current.rows[0]) {
       throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
     }
     const invoices = await fetchPaymentRequestInvoiceAllocationsTx(
       client,
-      Number(paymentRequestId)
+      Number(paymentRequestId),
     );
     return {
       merchant: {
@@ -6561,10 +7362,13 @@ export async function getMerchantPaymentRequestInvoices(ownerUserId, paymentRequ
 export async function getAdminPaymentRequestInvoices(paymentRequestId) {
   const client = await pool.connect();
   try {
-    const current = await getPaymentRequestWithMerchantTx(client, Number(paymentRequestId));
+    const current = await getPaymentRequestWithMerchantTx(
+      client,
+      Number(paymentRequestId),
+    );
     const invoices = await fetchPaymentRequestInvoiceAllocationsTx(
       client,
-      Number(paymentRequestId)
+      Number(paymentRequestId),
     );
     return {
       merchant: {
@@ -6611,10 +7415,11 @@ export async function updateMerchantPaymentRequest({
        WHERE id = $1
          AND merchant_id = $2
        FOR UPDATE`,
-      [Number(paymentRequestId), Number(merchant.id)]
+      [Number(paymentRequestId), Number(merchant.id)],
     );
     const current = currentResult.rows[0];
-    if (!current) throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
+    if (!current)
+      throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
     if (current.is_locked === true) {
       throw new AppError("PAYMENT_REQUEST_LOCKED", { status: 409 });
     }
@@ -6624,14 +7429,19 @@ export async function updateMerchantPaymentRequest({
       maxOrders: 3000,
     });
 
-    const editableStatuses = requestType === REQUEST_TYPE_STORE_PAYS_APP
-      ? [REQUEST_STATUS.pendingAdminConfirmation, REQUEST_STATUS.returnedForRevision, REQUEST_STATUS.rejectedByAdmin]
-      : [
-          REQUEST_STATUS.pendingAdminReview,
-          REQUEST_STATUS.returnedForRevision,
-          REQUEST_STATUS.issueReportedByStore,
-          REQUEST_STATUS.rejectedByAdmin,
-        ];
+    const editableStatuses =
+      requestType === REQUEST_TYPE_STORE_PAYS_APP
+        ? [
+            REQUEST_STATUS.pendingAdminConfirmation,
+            REQUEST_STATUS.returnedForRevision,
+            REQUEST_STATUS.rejectedByAdmin,
+          ]
+        : [
+            REQUEST_STATUS.pendingAdminReview,
+            REQUEST_STATUS.returnedForRevision,
+            REQUEST_STATUS.issueReportedByStore,
+            REQUEST_STATUS.rejectedByAdmin,
+          ];
     if (!editableStatuses.includes(currentStatus)) {
       throw new AppError("PAYMENT_REQUEST_NOT_EDITABLE", { status: 409 });
     }
@@ -6640,15 +7450,16 @@ export async function updateMerchantPaymentRequest({
       requestType === REQUEST_TYPE_STORE_PAYS_APP
         ? "all"
         : paymentScope
-        ? normalizePaymentScope(paymentScope)
-        : normalizePaymentScope(current.payment_scope);
+          ? normalizePaymentScope(paymentScope)
+          : normalizePaymentScope(current.payment_scope);
     const normalizedPaymentMethod =
       paymentMethod == null
         ? normalizePaymentMethod(current.payment_method)
         : normalizePaymentMethod(paymentMethod);
-    const normalizedPaymentDate = paymentDate == null
-      ? toIsoOrNull(current.payment_date)
-      : toIsoOrNull(paymentDate);
+    const normalizedPaymentDate =
+      paymentDate == null
+        ? toIsoOrNull(current.payment_date)
+        : toIsoOrNull(paymentDate);
     let nextAmount =
       amount == null
         ? toNumber(current.requested_amount, toNumber(current.amount, 0))
@@ -6672,10 +7483,11 @@ export async function updateMerchantPaymentRequest({
             : resolvedSelectionMeta.selectedInvoiceIds || [],
         targetAmount:
           resolvedSelectionMode === SELECTION_MODE_AUTO
-            ? targetAmount ?? amount ?? resolvedSelectionMeta.requestedAmount
-            : amount ?? resolvedSelectionMeta.finalizedAmount,
+            ? (targetAmount ?? amount ?? resolvedSelectionMeta.requestedAmount)
+            : (amount ?? resolvedSelectionMeta.finalizedAmount),
         confirmedAdjustedAmount:
-          confirmedAdjustedAmount ?? resolvedSelectionMeta.confirmedAdjustedAmount,
+          confirmedAdjustedAmount ??
+          resolvedSelectionMeta.confirmedAdjustedAmount,
       });
       if (preview.requiresAmountConfirmation) {
         throw new AppError("PAYMENT_REQUEST_AMOUNT_CONFIRMATION_REQUIRED", {
@@ -6706,9 +7518,12 @@ export async function updateMerchantPaymentRequest({
         Number(merchant.id),
         {
           includePendingOutgoing: false,
-        }
+        },
       );
-      const scopeOutstanding = toNumber(appPayablesBreakdown?.totals?.outstanding, 0);
+      const scopeOutstanding = toNumber(
+        appPayablesBreakdown?.totals?.outstanding,
+        0,
+      );
       if (!(scopeOutstanding > 0)) {
         throw new AppError("NO_OUTSTANDING_RECEIVABLES", { status: 400 });
       }
@@ -6765,7 +7580,9 @@ export async function updateMerchantPaymentRequest({
         note,
         normalizedPaymentMethod,
         normalizedPaymentMethod == "other"
-          ? String(paymentMethodOther || "").trim().slice(0, 120) || null
+          ? String(paymentMethodOther || "")
+              .trim()
+              .slice(0, 120) || null
           : null,
         normalizedPaymentDate,
         referenceCode,
@@ -6775,10 +7592,11 @@ export async function updateMerchantPaymentRequest({
         JSON.stringify(resolvedSelectionMeta || {}),
         nextStatus,
         Number(ownerUserId),
-      ]
+      ],
     );
     const row = updated.rows[0];
-    if (!row) throw new AppError("PAYMENT_REQUEST_UPDATE_FAILED", { status: 500 });
+    if (!row)
+      throw new AppError("PAYMENT_REQUEST_UPDATE_FAILED", { status: 500 });
 
     if (currentStatus !== nextStatus) {
       await insertPaymentRequestStatusHistoryTx(client, {
@@ -6787,7 +7605,10 @@ export async function updateMerchantPaymentRequest({
         newStatus: nextStatus,
         changedByUserId: Number(ownerUserId),
         changedByRole: "owner",
-        note: resubmit === true ? "Merchant resubmitted request" : "Merchant updated request",
+        note:
+          resubmit === true
+            ? "Merchant resubmitted request"
+            : "Merchant updated request",
         metadata: {
           paymentScope: nextScope,
           amount: nextAmount,
@@ -6827,25 +7648,36 @@ export async function merchantConfirmPaymentRequestReceived({
        WHERE id = $1
          AND merchant_id = $2
        FOR UPDATE`,
-      [Number(paymentRequestId), Number(merchant.id)]
+      [Number(paymentRequestId), Number(merchant.id)],
     );
     const row = current.rows[0];
     if (!row) throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
-    if (normalizePaymentRequestType(row.request_type) !== REQUEST_TYPE_APP_PAYS_STORE) {
+    if (
+      normalizePaymentRequestType(row.request_type) !==
+      REQUEST_TYPE_APP_PAYS_STORE
+    ) {
       throw new AppError("PAYMENT_REQUEST_INVALID_TYPE", { status: 409 });
     }
-    if (normalizeRequestStatus(row.status) !== REQUEST_STATUS.awaitingStoreConfirmation) {
-      throw new AppError("PAYMENT_REQUEST_NOT_AWAITING_STORE_CONFIRMATION", { status: 409 });
+    if (
+      normalizeRequestStatus(row.status) !==
+      REQUEST_STATUS.awaitingStoreConfirmation
+    ) {
+      throw new AppError("PAYMENT_REQUEST_NOT_AWAITING_STORE_CONFIRMATION", {
+        status: 409,
+      });
     }
-    if (row.is_locked === true) throw new AppError("PAYMENT_REQUEST_LOCKED", { status: 409 });
+    if (row.is_locked === true)
+      throw new AppError("PAYMENT_REQUEST_LOCKED", { status: 409 });
 
     const paidAmount = round2(
       toNumber(row.paid_amount, 0) > 0
         ? toNumber(row.paid_amount, 0)
-        : toNumber(row.amount, 0)
+        : toNumber(row.amount, 0),
     );
     if (!(paidAmount > 0)) {
-      throw new AppError("PAYMENT_REQUEST_INVALID_PAID_AMOUNT", { status: 409 });
+      throw new AppError("PAYMENT_REQUEST_INVALID_PAID_AMOUNT", {
+        status: 409,
+      });
     }
 
     await appendMerchantAppPayablesLedgerEntryTx(client, {
@@ -6903,11 +7735,14 @@ export async function merchantReportPaymentRequestIssue({
        WHERE id = $1
          AND merchant_id = $2
        FOR UPDATE`,
-      [Number(paymentRequestId), Number(merchant.id)]
+      [Number(paymentRequestId), Number(merchant.id)],
     );
     const row = current.rows[0];
     if (!row) throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
-    if (normalizePaymentRequestType(row.request_type) !== REQUEST_TYPE_APP_PAYS_STORE) {
+    if (
+      normalizePaymentRequestType(row.request_type) !==
+      REQUEST_TYPE_APP_PAYS_STORE
+    ) {
       throw new AppError("PAYMENT_REQUEST_INVALID_TYPE", { status: 409 });
     }
 
@@ -6974,15 +7809,17 @@ export async function updateMerchantBillingProfile({
        WHERE merchant_id = $1
        LIMIT 1
        FOR UPDATE`,
-      [Number(merchantId)]
+      [Number(merchantId)],
     );
     const previousProfile = normalizeMerchantBillingProfile(
-      currentResult.rows[0] || { merchant_id: Number(merchantId) }
+      currentResult.rows[0] || { merchant_id: Number(merchantId) },
     );
     const nextProfile = {
       ...previousProfile,
       commissionType:
-        commissionType == null ? previousProfile.commissionType : String(commissionType),
+        commissionType == null
+          ? previousProfile.commissionType
+          : String(commissionType),
       commissionModel:
         commissionModel == null
           ? previousProfile.commissionModel
@@ -6991,7 +7828,9 @@ export async function updateMerchantBillingProfile({
         commissionValue == null
           ? commissionRate == null
             ? previousProfile.commissionValue
-            : round2(toNumber(commissionRate, previousProfile.commissionRate) * 100)
+            : round2(
+                toNumber(commissionRate, previousProfile.commissionRate) * 100,
+              )
           : round2(toNumber(commissionValue, previousProfile.commissionValue)),
       monthlySubscriptionAmount:
         monthlySubscriptionAmount == null
@@ -6999,8 +7838,8 @@ export async function updateMerchantBillingProfile({
           : round2(
               toNumber(
                 monthlySubscriptionAmount,
-                previousProfile.monthlySubscriptionAmount
-              )
+                previousProfile.monthlySubscriptionAmount,
+              ),
             ),
       serviceFeeType:
         serviceFeeType == null
@@ -7013,17 +7852,31 @@ export async function updateMerchantBillingProfile({
           ? previousProfile.serviceFeeValue
           : round2(toNumber(serviceFeeValue, previousProfile.serviceFeeValue)),
       deliveryFeeMode:
-        deliveryFeeMode == null ? previousProfile.deliveryFeeMode : String(deliveryFeeMode),
+        deliveryFeeMode == null
+          ? previousProfile.deliveryFeeMode
+          : String(deliveryFeeMode),
       appDeliveryFeeValue:
         appDeliveryFeeValue == null
           ? deliveryFeeValue == null
             ? previousProfile.appDeliveryFeeValue
-            : round2(toNumber(deliveryFeeValue, previousProfile.appDeliveryFeeValue))
-          : round2(toNumber(appDeliveryFeeValue, previousProfile.appDeliveryFeeValue)),
+            : round2(
+                toNumber(deliveryFeeValue, previousProfile.appDeliveryFeeValue),
+              )
+          : round2(
+              toNumber(
+                appDeliveryFeeValue,
+                previousProfile.appDeliveryFeeValue,
+              ),
+            ),
       storeDeliveryFeeValue:
         storeDeliveryFeeValue == null
           ? previousProfile.storeDeliveryFeeValue
-          : round2(toNumber(storeDeliveryFeeValue, previousProfile.storeDeliveryFeeValue)),
+          : round2(
+              toNumber(
+                storeDeliveryFeeValue,
+                previousProfile.storeDeliveryFeeValue,
+              ),
+            ),
       appDeliveryEnabled:
         typeof appDeliveryEnabled === "boolean"
           ? appDeliveryEnabled
@@ -7033,19 +7886,28 @@ export async function updateMerchantBillingProfile({
           ? merchantDeliveryEnabled
           : previousProfile.merchantDeliveryEnabled,
       settlementCycle: settlementCycle ?? previousProfile.settlementCycle,
-      distributionPolicy: distributionPolicy ?? previousProfile.distributionPolicy,
+      distributionPolicy:
+        distributionPolicy ?? previousProfile.distributionPolicy,
       gracePeriodDays:
         gracePeriodDays == null
           ? previousProfile.gracePeriodDays
           : Math.max(0, Number(gracePeriodDays) || 0),
       effectiveFrom: effectiveFrom || new Date().toISOString(),
-      profileVersion: Math.max(1, Number(previousProfile.profileVersion || 0) + 1),
+      profileVersion: Math.max(
+        1,
+        Number(previousProfile.profileVersion || 0) + 1,
+      ),
     };
-    nextProfile.commissionType = normalizeMerchantBillingProfile(nextProfile).commissionType;
-    nextProfile.commissionModel = normalizeMerchantBillingProfile(nextProfile).commissionModel;
-    nextProfile.serviceFeeType = normalizeMerchantBillingProfile(nextProfile).serviceFeeType;
-    nextProfile.deliveryFeeMode = normalizeMerchantBillingProfile(nextProfile).deliveryFeeMode;
-    nextProfile.monthlySubscriptionAmount = normalizeMerchantBillingProfile(nextProfile).monthlySubscriptionAmount;
+    nextProfile.commissionType =
+      normalizeMerchantBillingProfile(nextProfile).commissionType;
+    nextProfile.commissionModel =
+      normalizeMerchantBillingProfile(nextProfile).commissionModel;
+    nextProfile.serviceFeeType =
+      normalizeMerchantBillingProfile(nextProfile).serviceFeeType;
+    nextProfile.deliveryFeeMode =
+      normalizeMerchantBillingProfile(nextProfile).deliveryFeeMode;
+    nextProfile.monthlySubscriptionAmount =
+      normalizeMerchantBillingProfile(nextProfile).monthlySubscriptionAmount;
 
     const upserted = await client.query(
       `INSERT INTO merchant_billing_profile
@@ -7125,7 +7987,7 @@ export async function updateMerchantBillingProfile({
         nextProfile.effectiveFrom,
         nextProfile.profileVersion,
         Number(adminUserId),
-      ]
+      ],
     );
 
     await client.query(
@@ -7147,8 +8009,10 @@ export async function updateMerchantBillingProfile({
         nextProfile.effectiveFrom,
         Number(adminUserId) || null,
         JSON.stringify(previousProfile),
-        JSON.stringify(normalizeMerchantBillingProfile(upserted.rows[0] || nextProfile)),
-      ]
+        JSON.stringify(
+          normalizeMerchantBillingProfile(upserted.rows[0] || nextProfile),
+        ),
+      ],
     );
 
     if (ownsTransaction) {
@@ -7157,7 +8021,7 @@ export async function updateMerchantBillingProfile({
     return {
       billingProfile: upserted.rows[0] || null,
       billingProfileNormalized: normalizeMerchantBillingProfile(
-        upserted.rows[0] || nextProfile
+        upserted.rows[0] || nextProfile,
       ),
     };
   } catch (error) {
@@ -7172,7 +8036,11 @@ export async function updateMerchantBillingProfile({
   }
 }
 
-async function getMerchantApprovalContextTx(client, merchantId, { forUpdate = false } = {}) {
+async function getMerchantApprovalContextTx(
+  client,
+  merchantId,
+  { forUpdate = false } = {},
+) {
   const result = await client.query(
     `SELECT
        m.*,
@@ -7183,7 +8051,7 @@ async function getMerchantApprovalContextTx(client, merchantId, { forUpdate = fa
      WHERE m.id = $1
      ${forUpdate ? "FOR UPDATE OF m" : ""}
      LIMIT 1`,
-    [Number(merchantId)]
+    [Number(merchantId)],
   );
   const row = result.rows[0];
   if (!row) {
@@ -7212,14 +8080,14 @@ export async function submitMerchantFinancialTermsForApproval({
       client,
       adminUserId,
       merchantId,
-    commissionType: patch.commissionType ?? null,
-    commissionValue: patch.commissionValue ?? null,
-    commissionRate: patch.commissionRate ?? null,
-    commissionModel: patch.commissionModel ?? null,
-    monthlySubscriptionAmount: patch.monthlySubscriptionAmount ?? null,
-    serviceFeeType: patch.serviceFeeType ?? null,
-    serviceFeeMode: patch.serviceFeeMode ?? null,
-    serviceFeeValue: patch.serviceFeeValue ?? null,
+      commissionType: patch.commissionType ?? null,
+      commissionValue: patch.commissionValue ?? null,
+      commissionRate: patch.commissionRate ?? null,
+      commissionModel: patch.commissionModel ?? null,
+      monthlySubscriptionAmount: patch.monthlySubscriptionAmount ?? null,
+      serviceFeeType: patch.serviceFeeType ?? null,
+      serviceFeeMode: patch.serviceFeeMode ?? null,
+      serviceFeeValue: patch.serviceFeeValue ?? null,
       deliveryFeeMode: patch.deliveryFeeMode ?? null,
       appDeliveryFeeValue: patch.appDeliveryFeeValue ?? null,
       storeDeliveryFeeValue: patch.storeDeliveryFeeValue ?? null,
@@ -7244,11 +8112,7 @@ export async function submitMerchantFinancialTermsForApproval({
            financial_terms_rejection_note = NULL
        WHERE id = $1
        RETURNING *`,
-      [
-        Number(merchantId),
-        Number(adminUserId),
-        JSON.stringify(termsSnapshot),
-      ]
+      [Number(merchantId), Number(adminUserId), JSON.stringify(termsSnapshot)],
     );
 
     await client.query("COMMIT");
@@ -7273,14 +8137,20 @@ export async function acceptMerchantFinancialTermsByOwner({ ownerUserId }) {
     if (!merchant) {
       throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
     }
-    const details = await getMerchantApprovalContextTx(client, Number(merchant.id), {
-      forUpdate: true,
-    });
+    const details = await getMerchantApprovalContextTx(
+      client,
+      Number(merchant.id),
+      {
+        forUpdate: true,
+      },
+    );
     if (
       normalizeApprovalStatus(details.approval_status) !==
       "awaiting_store_financial_acceptance"
     ) {
-      throw new AppError("MERCHANT_FINANCIAL_TERMS_NOT_PENDING", { status: 409 });
+      throw new AppError("MERCHANT_FINANCIAL_TERMS_NOT_PENDING", {
+        status: 409,
+      });
     }
 
     const updated = await client.query(
@@ -7292,14 +8162,14 @@ export async function acceptMerchantFinancialTermsByOwner({ ownerUserId }) {
            financial_terms_accepted_at = NOW()
        WHERE id = $1
        RETURNING *`,
-      [Number(details.id)]
+      [Number(details.id)],
     );
 
     await client.query(
       `UPDATE merchant_billing_profile
        SET last_accepted_at = NOW()
        WHERE merchant_id = $1`,
-      [Number(details.id)]
+      [Number(details.id)],
     );
 
     await client.query("COMMIT");
@@ -7330,14 +8200,20 @@ export async function rejectMerchantFinancialTermsByOwner({
     if (!merchant) {
       throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
     }
-    const details = await getMerchantApprovalContextTx(client, Number(merchant.id), {
-      forUpdate: true,
-    });
+    const details = await getMerchantApprovalContextTx(
+      client,
+      Number(merchant.id),
+      {
+        forUpdate: true,
+      },
+    );
     if (
       normalizeApprovalStatus(details.approval_status) !==
       "awaiting_store_financial_acceptance"
     ) {
-      throw new AppError("MERCHANT_FINANCIAL_TERMS_NOT_PENDING", { status: 409 });
+      throw new AppError("MERCHANT_FINANCIAL_TERMS_NOT_PENDING", {
+        status: 409,
+      });
     }
 
     const updated = await client.query(
@@ -7348,7 +8224,7 @@ export async function rejectMerchantFinancialTermsByOwner({
            financial_terms_rejection_note = $2
        WHERE id = $1
        RETURNING *`,
-      [Number(details.id), note == null ? null : String(note).slice(0, 1200)]
+      [Number(details.id), note == null ? null : String(note).slice(0, 1200)],
     );
 
     await client.query("COMMIT");
@@ -7376,7 +8252,11 @@ function allocationPriorityFor(scope) {
   return ["commission", "service_fee", "delivery_fee"];
 }
 
-async function getPaymentRequestWithMerchantTx(client, paymentRequestId, { forUpdate = false } = {}) {
+async function getPaymentRequestWithMerchantTx(
+  client,
+  paymentRequestId,
+  { forUpdate = false } = {},
+) {
   const result = await client.query(
     `SELECT
        pr.*,
@@ -7388,7 +8268,7 @@ async function getPaymentRequestWithMerchantTx(client, paymentRequestId, { forUp
      WHERE pr.id = $1
      ${forUpdate ? "FOR UPDATE" : ""}
      LIMIT 1`,
-    [Number(paymentRequestId)]
+    [Number(paymentRequestId)],
   );
   const row = result.rows[0];
   if (!row) throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
@@ -7411,11 +8291,15 @@ function resolveOutstandingByScope(breakdown, scope) {
 
 async function allocateStorePaymentIntoReceivablesTx(
   client,
-  { paymentRequestId, merchantId, paymentScope, amount }
+  { paymentRequestId, merchantId, paymentScope, amount },
 ) {
-  const breakdown = await merchantReceivableBreakdownByType(client, Number(merchantId), {
-    includePendingPayments: false,
-  });
+  const breakdown = await merchantReceivableBreakdownByType(
+    client,
+    Number(merchantId),
+    {
+      includePendingPayments: false,
+    },
+  );
   const targets = allocationPriorityFor(paymentScope);
   let remaining = round2(toNumber(amount, 0));
   if (!(remaining > 0)) {
@@ -7448,7 +8332,7 @@ async function allocateStorePaymentIntoReceivablesTx(
         (payment_request_id, allocated_to_type, amount)
        VALUES ($1,$2,$3)
        RETURNING *`,
-      [Number(paymentRequestId), target, allocate]
+      [Number(paymentRequestId), target, allocate],
     );
     allocations.push(allocationRow.rows[0]);
     remaining = round2(remaining - allocate);
@@ -7470,7 +8354,7 @@ async function allocateStorePaymentIntoReceivablesTx(
         (payment_request_id, allocated_to_type, amount)
        VALUES ($1,$2,$3)
        RETURNING *`,
-      [Number(paymentRequestId), "adjustment", remaining]
+      [Number(paymentRequestId), "adjustment", remaining],
     );
     allocations.push(allocationRow.rows[0]);
   }
@@ -7486,13 +8370,17 @@ export async function adminApprovePaymentRequest({
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const current = await getPaymentRequestWithMerchantTx(client, paymentRequestId, {
-      forUpdate: true,
-    });
+    const current = await getPaymentRequestWithMerchantTx(
+      client,
+      paymentRequestId,
+      {
+        forUpdate: true,
+      },
+    );
     const requestType = normalizePaymentRequestType(current.request_type);
     const status = normalizeRequestStatus(current.status);
     const amount = round2(
-      toNumber(current.requested_amount, toNumber(current.amount, 0))
+      toNumber(current.requested_amount, toNumber(current.amount, 0)),
     );
     const merchantId = Number(current.merchant_id);
     if (!(amount > 0)) {
@@ -7550,7 +8438,7 @@ export async function adminApprovePaymentRequest({
         await merchantReceivableBreakdownByType(client, merchantId, {
           includePendingPayments: false,
         }),
-        current.payment_scope
+        current.payment_scope,
       );
       if (!(scopeOutstanding > 0)) {
         throw new AppError("NO_OUTSTANDING_RECEIVABLES", { status: 409 });
@@ -7559,15 +8447,18 @@ export async function adminApprovePaymentRequest({
       await client.query(
         `DELETE FROM merchant_payment_invoice_allocation
          WHERE payment_request_id = $1`,
-        [Number(current.id)]
+        [Number(current.id)],
       );
-      invoiceAllocations = await insertMerchantPaymentInvoiceAllocationsTx(client, {
-        paymentRequestId: Number(current.id),
-        merchantId,
-        invoices: preview.invoices,
-        requestedAmount: amount,
-        allowPartialLastInvoice: false,
-      });
+      invoiceAllocations = await insertMerchantPaymentInvoiceAllocationsTx(
+        client,
+        {
+          paymentRequestId: Number(current.id),
+          merchantId,
+          invoices: preview.invoices,
+          requestedAmount: amount,
+          allowPartialLastInvoice: false,
+        },
+      );
       allocations = await allocateStorePaymentIntoReceivablesTx(client, {
         paymentRequestId: Number(current.id),
         merchantId,
@@ -7667,9 +8558,13 @@ export async function adminAssignPaymentRequest({
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const current = await getPaymentRequestWithMerchantTx(client, paymentRequestId, {
-      forUpdate: true,
-    });
+    const current = await getPaymentRequestWithMerchantTx(
+      client,
+      paymentRequestId,
+      {
+        forUpdate: true,
+      },
+    );
     const requestType = normalizePaymentRequestType(current.request_type);
     if (requestType !== REQUEST_TYPE_APP_PAYS_STORE) {
       throw new AppError("PAYMENT_REQUEST_INVALID_TYPE", { status: 409 });
@@ -7731,29 +8626,37 @@ export async function adminMarkPaymentRequestPaid({
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const current = await getPaymentRequestWithMerchantTx(client, paymentRequestId, {
-      forUpdate: true,
-    });
+    const current = await getPaymentRequestWithMerchantTx(
+      client,
+      paymentRequestId,
+      {
+        forUpdate: true,
+      },
+    );
     const requestType = normalizePaymentRequestType(current.request_type);
     if (requestType !== REQUEST_TYPE_APP_PAYS_STORE) {
       throw new AppError("PAYMENT_REQUEST_INVALID_TYPE", { status: 409 });
     }
     const baseAmount = round2(
-      toNumber(current.requested_amount, toNumber(current.amount, 0))
+      toNumber(current.requested_amount, toNumber(current.amount, 0)),
     );
     const effectivePaidAmount = round2(
-      paidAmount == null ? baseAmount : toNumber(paidAmount, 0)
+      paidAmount == null ? baseAmount : toNumber(paidAmount, 0),
     );
     if (!(effectivePaidAmount > 0)) {
       throw new AppError("INVALID_PAYMENT_AMOUNT", { status: 400 });
     }
     const appOutstanding = toNumber(
       (
-        await merchantAppPayablesBreakdownByType(client, Number(current.merchant_id), {
-          includePendingOutgoing: false,
-        })
+        await merchantAppPayablesBreakdownByType(
+          client,
+          Number(current.merchant_id),
+          {
+            includePendingOutgoing: false,
+          },
+        )
       )?.totals?.outstanding,
-      0
+      0,
     );
     if (effectivePaidAmount - appOutstanding > 0.01) {
       throw new AppError("PAYMENT_AMOUNT_EXCEEDS_OUTSTANDING", {
@@ -7787,7 +8690,9 @@ export async function adminMarkPaymentRequestPaid({
         paid_amount: effectivePaidAmount,
         admin_payment_method: paymentMethod || null,
         admin_reference_code: referenceCode || null,
-        admin_payment_date: paymentDate ? new Date(paymentDate).toISOString() : "NOW()",
+        admin_payment_date: paymentDate
+          ? new Date(paymentDate).toISOString()
+          : "NOW()",
         admin_payment_actor_name: paymentActorName || null,
         assigned_to_user_id: assignedToUserId ? Number(assignedToUserId) : null,
         assigned_to_name: assignedToName || null,
@@ -7822,9 +8727,13 @@ export async function adminReturnPaymentRequestForRevision({
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const current = await getPaymentRequestWithMerchantTx(client, paymentRequestId, {
-      forUpdate: true,
-    });
+    const current = await getPaymentRequestWithMerchantTx(
+      client,
+      paymentRequestId,
+      {
+        forUpdate: true,
+      },
+    );
     const requestType = normalizePaymentRequestType(current.request_type);
     const fromStatuses =
       requestType === REQUEST_TYPE_STORE_PAYS_APP
@@ -7882,7 +8791,7 @@ export async function markPaymentRequestReceived({
      FROM merchant_payment_request
      WHERE id = $1
      LIMIT 1`,
-    [Number(paymentRequestId)]
+    [Number(paymentRequestId)],
   );
   const row = current.rows[0];
   if (!row) throw new AppError("PAYMENT_REQUEST_NOT_FOUND", { status: 404 });
@@ -7911,9 +8820,13 @@ export async function rejectPaymentRequest({
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const current = await getPaymentRequestWithMerchantTx(client, paymentRequestId, {
-      forUpdate: true,
-    });
+    const current = await getPaymentRequestWithMerchantTx(
+      client,
+      paymentRequestId,
+      {
+        forUpdate: true,
+      },
+    );
     const requestType = normalizePaymentRequestType(current.request_type);
     const fromStatuses =
       requestType === REQUEST_TYPE_STORE_PAYS_APP
@@ -7982,7 +8895,7 @@ export async function adminCreateMerchantAppPayablesAdjustment({
        FROM merchant
        WHERE id = $1
        LIMIT 1`,
-      [Number(merchantId)]
+      [Number(merchantId)],
     );
     const merchant = merchantResult.rows[0];
     if (!merchant) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
@@ -7990,17 +8903,24 @@ export async function adminCreateMerchantAppPayablesAdjustment({
     if (!(absoluteAmount > 0)) {
       throw new AppError("INVALID_ADJUSTMENT_AMOUNT", { status: 400 });
     }
-    const safeDirection = String(direction || "").trim().toLowerCase();
+    const safeDirection = String(direction || "")
+      .trim()
+      .toLowerCase();
     if (!["debit", "credit"].includes(safeDirection)) {
       throw new AppError("INVALID_ADJUSTMENT_DIRECTION", { status: 400 });
     }
     const ledgerEntry = await appendMerchantAppPayablesLedgerEntryTx(client, {
       merchantId: Number(merchant.id),
       orderId: orderId == null ? null : Number(orderId),
-      entryType: String(entryType || "adjustment").trim().toLowerCase() || "adjustment",
+      entryType:
+        String(entryType || "adjustment")
+          .trim()
+          .toLowerCase() || "adjustment",
       amount: absoluteAmount,
       direction: safeDirection,
-      referenceType: referenceCode ? "admin_adjustment_ref" : "admin_adjustment",
+      referenceType: referenceCode
+        ? "admin_adjustment_ref"
+        : "admin_adjustment",
       referenceId: null,
       note:
         note ||
@@ -8020,10 +8940,19 @@ export async function adminCreateMerchantAppPayablesAdjustment({
   }
 }
 
-function parseCompetitionStatusFilter({ status = null, activeOnly = false } = {}) {
+function parseCompetitionStatusFilter({
+  status = null,
+  activeOnly = false,
+} = {}) {
   if (activeOnly === true) return "active";
-  const normalized = String(status || "").trim().toLowerCase();
-  if (["active", "ended", "draft", "cancelled", "history", "all"].includes(normalized)) {
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
+  if (
+    ["active", "ended", "draft", "cancelled", "history", "all"].includes(
+      normalized,
+    )
+  ) {
     return normalized;
   }
   return "all";
@@ -8039,7 +8968,7 @@ async function loadCompetitionTiersByIds(competitionIds) {
      FROM courier_competition_tier
      WHERE competition_id = ANY($1::bigint[])
      ORDER BY competition_id ASC, required_completed_orders DESC, sort_order ASC`,
-    [ids]
+    [ids],
   );
   return mapCompetitionTiers(tiers.rows);
 }
@@ -8055,12 +8984,19 @@ async function buildAdminCompetitionEnvelope(competitionRows = []) {
   }));
 }
 
-export async function listAdminCompetitions({ status = null, activeOnly = false } = {}) {
+export async function listAdminCompetitions({
+  status = null,
+  activeOnly = false,
+} = {}) {
   await runCompetitionFinalizerPass();
   const normalizedStatus = parseCompetitionStatusFilter({ status, activeOnly });
   const whereParts = [];
   if (normalizedStatus === "active") {
-    whereParts.push("cc.is_active = TRUE", "cc.status IN ('active','draft')", "cc.end_at >= NOW()");
+    whereParts.push(
+      "cc.is_active = TRUE",
+      "cc.status IN ('active','draft')",
+      "cc.end_at >= NOW()",
+    );
   } else if (normalizedStatus === "history" || normalizedStatus === "ended") {
     whereParts.push("(cc.status = 'ended' OR cc.end_at < NOW())");
   } else if (normalizedStatus === "draft") {
@@ -8068,7 +9004,9 @@ export async function listAdminCompetitions({ status = null, activeOnly = false 
   } else if (normalizedStatus === "cancelled") {
     whereParts.push("cc.status = 'cancelled'");
   }
-  const whereClause = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+  const whereClause = whereParts.length
+    ? `WHERE ${whereParts.join(" AND ")}`
+    : "";
 
   const rows = await q(
     `SELECT
@@ -8086,7 +9024,7 @@ export async function listAdminCompetitions({ status = null, activeOnly = false 
        ) AS winners_count
      FROM courier_competition cc
      ${whereClause}
-     ORDER BY cc.start_at DESC, cc.id DESC`
+     ORDER BY cc.start_at DESC, cc.id DESC`,
   );
   const competitions = await buildAdminCompetitionEnvelope(rows.rows);
   return { competitions, status: normalizedStatus };
@@ -8111,10 +9049,11 @@ export async function getAdminCompetitionDetails(competitionId) {
      FROM courier_competition cc
      WHERE cc.id = $1
      LIMIT 1`,
-    [Number(competitionId)]
+    [Number(competitionId)],
   );
   const competition = main.rows[0];
-  if (!competition) throw new AppError("COMPETITION_NOT_FOUND", { status: 404 });
+  if (!competition)
+    throw new AppError("COMPETITION_NOT_FOUND", { status: 404 });
 
   const competitions = await buildAdminCompetitionEnvelope([competition]);
   const envelope = competitions[0];
@@ -8135,7 +9074,7 @@ export async function getAdminCompetitionDetails(competitionId) {
        WHERE ccp.competition_id = $1
        ORDER BY ccp.current_value DESC, ccp.updated_at ASC
        LIMIT 300`,
-      [Number(competitionId)]
+      [Number(competitionId)],
     ),
     q(
       `SELECT
@@ -8145,7 +9084,7 @@ export async function getAdminCompetitionDetails(competitionId) {
        JOIN app_user u ON u.id = ccr.courier_user_id
        WHERE ccr.competition_id = $1
        ORDER BY ccr.won DESC, ccr.final_rank_sort_order ASC NULLS LAST, ccr.final_completed_orders DESC`,
-      [Number(competitionId)]
+      [Number(competitionId)],
     ),
   ]);
 
@@ -8166,7 +9105,7 @@ export async function listAdminCompetitionWinners(competitionId) {
      WHERE ccr.competition_id = $1
        AND ccr.won = TRUE
      ORDER BY ccr.final_rank_sort_order ASC NULLS LAST, ccr.final_completed_orders DESC, ccr.id ASC`,
-    [Number(competitionId)]
+    [Number(competitionId)],
   );
   return { winners: winners.rows };
 }
@@ -8195,17 +9134,21 @@ export async function createAdminCompetition({
           {
             title: "Rank 1",
             sortOrder: 1,
-            requiredCompletedOrders: Math.max(1, Math.floor(toNumber(targetValue, 1))),
+            requiredCompletedOrders: Math.max(
+              1,
+              Math.floor(toNumber(targetValue, 1)),
+            ),
             rewardAmount: toNumber(rewardAmount, 0),
           },
         ]);
     const highestTier = normalizedTiers[0];
     const effectiveStatus =
-      status && ["draft", "active", "ended", "cancelled"].includes(String(status))
+      status &&
+      ["draft", "active", "ended", "cancelled"].includes(String(status))
         ? String(status)
         : isActive === false
-        ? "draft"
-        : "active";
+          ? "draft"
+          : "active";
     const inserted = await client.query(
       `INSERT INTO courier_competition
         (
@@ -8234,12 +9177,14 @@ export async function createAdminCompetition({
         round2(toNumber(highestTier.rewardAmount, toNumber(rewardAmount, 0))),
         String(rewardType || "cash").trim(),
         startAt ? new Date(startAt) : new Date(),
-        endAt ? new Date(endAt) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        endAt
+          ? new Date(endAt)
+          : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         effectiveStatus === "active",
         effectiveStatus,
         JSON.stringify(filtersJson || {}),
         Number(adminUserId),
-      ]
+      ],
     );
     const competition = inserted.rows[0];
 
@@ -8264,7 +9209,7 @@ export async function createAdminCompetition({
           Number(tier.requiredCompletedOrders),
           round2(toNumber(tier.rewardAmount, 0)),
           tier.rewardLabel || null,
-        ]
+        ],
       );
     }
 
@@ -8301,17 +9246,22 @@ export async function updateAdminCompetition({
        FROM courier_competition
        WHERE id = $1
        FOR UPDATE`,
-      [Number(competitionId)]
+      [Number(competitionId)],
     );
     const competition = current.rows[0];
-    if (!competition) throw new AppError("COMPETITION_NOT_FOUND", { status: 404 });
-    const currentStatus = String(competition.status || "").trim().toLowerCase();
+    if (!competition)
+      throw new AppError("COMPETITION_NOT_FOUND", { status: 404 });
+    const currentStatus = String(competition.status || "")
+      .trim()
+      .toLowerCase();
     const currentIsActive = competition.is_active === true;
     if (currentStatus !== "active" || !currentIsActive) {
       throw new AppError("COMPETITION_ONLY_ACTIVE_CAN_EDIT", { status: 409 });
     }
     if (String(competition.status) === "ended" && Array.isArray(tiers)) {
-      throw new AppError("COMPETITION_ENDED_CANNOT_EDIT_TIERS", { status: 409 });
+      throw new AppError("COMPETITION_ENDED_CANNOT_EDIT_TIERS", {
+        status: 409,
+      });
     }
 
     let normalizedTiers = null;
@@ -8321,18 +9271,21 @@ export async function updateAdminCompetition({
     const effectiveTarget = normalizedTiers?.[0]?.requiredCompletedOrders;
     const effectiveReward = normalizedTiers?.[0]?.rewardAmount;
     const effectiveStatus =
-      status && ["draft", "active", "ended", "cancelled"].includes(String(status))
+      status &&
+      ["draft", "active", "ended", "cancelled"].includes(String(status))
         ? String(status)
         : null;
     if (effectiveStatus && effectiveStatus !== "active") {
-      throw new AppError("COMPETITION_PATCH_STATUS_NOT_ALLOWED", { status: 400 });
+      throw new AppError("COMPETITION_PATCH_STATUS_NOT_ALLOWED", {
+        status: 400,
+      });
     }
     const resolvedIsActive =
       typeof isActive === "boolean"
         ? isActive
         : effectiveStatus == null
-        ? null
-        : effectiveStatus === "active";
+          ? null
+          : effectiveStatus === "active";
 
     const updated = await client.query(
       `UPDATE courier_competition
@@ -8369,14 +9322,14 @@ export async function updateAdminCompetition({
         resolvedIsActive,
         effectiveStatus,
         filtersJson == null ? null : JSON.stringify(filtersJson),
-      ]
+      ],
     );
 
     if (normalizedTiers) {
       await client.query(
         `DELETE FROM courier_competition_tier
          WHERE competition_id = $1`,
-        [Number(competitionId)]
+        [Number(competitionId)],
       );
       for (const tier of normalizedTiers) {
         await client.query(
@@ -8399,7 +9352,7 @@ export async function updateAdminCompetition({
             Number(tier.requiredCompletedOrders),
             round2(toNumber(tier.rewardAmount, 0)),
             tier.rewardLabel || null,
-          ]
+          ],
         );
       }
     }
@@ -8424,9 +9377,10 @@ export async function endAdminCompetitionNow({ competitionId }) {
        FROM courier_competition
        WHERE id = $1
        FOR UPDATE`,
-      [Number(competitionId)]
+      [Number(competitionId)],
     );
-    if (!current.rows[0]) throw new AppError("COMPETITION_NOT_FOUND", { status: 404 });
+    if (!current.rows[0])
+      throw new AppError("COMPETITION_NOT_FOUND", { status: 404 });
 
     const now = new Date();
     await client.query(
@@ -8437,7 +9391,7 @@ export async function endAdminCompetitionNow({ competitionId }) {
            ended_at = COALESCE(ended_at, $2::timestamptz),
            updated_at = NOW()
        WHERE id = $1`,
-      [Number(competitionId), now]
+      [Number(competitionId), now],
     );
 
     await finalizeExpiredCompetitionsTx(client, { now });
@@ -8454,7 +9408,7 @@ export async function endAdminCompetitionNow({ competitionId }) {
 
 async function computeFinancialKpisTx(
   client,
-  { window, merchantId = null } = {}
+  { window, merchantId = null } = {},
 ) {
   const salesParams = [window.start, window.end];
   let salesWhereMerchant = "";
@@ -8477,7 +9431,7 @@ async function computeFinancialKpisTx(
      WHERE inv.issued_at >= $1::timestamptz
        AND inv.issued_at <= $2::timestamptz
        ${salesWhereMerchant}`,
-    salesParams
+    salesParams,
   );
 
   const collectedParams = [window.start, window.end];
@@ -8500,7 +9454,7 @@ async function computeFinancialKpisTx(
        AND COALESCE(pr.final_confirmed_at, pr.reviewed_at, pr.submitted_at) >= $1::timestamptz
        AND COALESCE(pr.final_confirmed_at, pr.reviewed_at, pr.submitted_at) <= $2::timestamptz
        ${collectedWhereMerchant}`,
-    collectedParams
+    collectedParams,
   );
 
   const totalSales = toNumber(sales.rows[0]?.total_sales, 0);
@@ -8508,17 +9462,14 @@ async function computeFinancialKpisTx(
   const totalServiceFees = toNumber(sales.rows[0]?.total_service_fees, 0);
   const totalAppDeliveryFees = toNumber(
     sales.rows[0]?.total_app_delivery_fees,
-    0
+    0,
   );
   const totalStoreDeliveryFees = toNumber(
     sales.rows[0]?.total_store_delivery_fees,
-    0
+    0,
   );
   const totalAppDue = toNumber(sales.rows[0]?.total_app_due, 0);
-  const totalStoreNetSales = toNumber(
-    sales.rows[0]?.total_store_net_sales,
-    0
-  );
+  const totalStoreNetSales = toNumber(sales.rows[0]?.total_store_net_sales, 0);
   const totalCollected = toNumber(collected.rows[0]?.total_collected, 0);
   const netReceivables = round2(totalCollected - totalAppDue);
   const outstandingToCollect = round2(totalAppDue - totalCollected);
@@ -8536,7 +9487,7 @@ async function computeFinancialKpisTx(
     outstandingToCollect,
     totalSalesOrders: Number(sales.rows[0]?.total_sales_orders || 0),
     totalCollectionOperations: Number(
-      collected.rows[0]?.total_collection_operations || 0
+      collected.rows[0]?.total_collection_operations || 0,
     ),
   };
 }
@@ -8595,6 +9546,7 @@ export async function getAdminSalesReport({
          m.name AS merchant_name,
          COALESCE(COUNT(inv.id), 0)::int AS orders_count,
          COALESCE(SUM(inv.subtotal), 0)::numeric AS total_sales,
+         COALESCE(SUM(inv.commission_amount), 0)::numeric AS total_commission,
          MIN(inv.issued_at) AS first_order_at,
          MAX(inv.issued_at) AS last_order_at
        FROM merchant m
@@ -8606,7 +9558,7 @@ export async function getAdminSalesReport({
        GROUP BY m.id, m.name
        ORDER BY total_sales DESC, orders_count DESC, m.id DESC
        LIMIT $${limitParam} OFFSET $${offsetParam}`,
-      params
+      params,
     );
 
     const summaryTotals = await computeFinancialKpisTx(client, { window });
@@ -8614,7 +9566,7 @@ export async function getAdminSalesReport({
       `SELECT COUNT(*)::int AS total
        FROM merchant m
        ${whereSearch}`,
-      params.slice(0, whereSearch ? 1 : 0)
+      params.slice(0, whereSearch ? 1 : 0),
     );
 
     return {
@@ -8622,6 +9574,7 @@ export async function getAdminSalesReport({
       currency: "IQD",
       summary: {
         totalSales: summaryTotals.totalSales,
+        totalCommission: summaryTotals.totalCommission,
         totalOrders: summaryTotals.totalSalesOrders,
         merchantsCount: Number(totalRows.rows[0]?.total || 0),
       },
@@ -8630,6 +9583,7 @@ export async function getAdminSalesReport({
         merchant_name: row.merchant_name,
         orders_count: Number(row.orders_count || 0),
         total_sales: toNumber(row.total_sales, 0),
+        total_commission: toNumber(row.total_commission, 0),
         first_order_at: row.first_order_at,
         last_order_at: row.last_order_at,
       })),
@@ -8663,9 +9617,10 @@ export async function getAdminSalesMerchantDetails({
        FROM merchant
        WHERE id = $1
        LIMIT 1`,
-      [numericMerchantId]
+      [numericMerchantId],
     );
-    if (!merchant.rows[0]) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
+    if (!merchant.rows[0])
+      throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
 
     const window = parseWindow({ period, from, to });
     const cappedLimit = sanitizeLimit(limit, 120, 500);
@@ -8683,31 +9638,40 @@ export async function getAdminSalesMerchantDetails({
          COALESCE(inv.store_delivery_fee_amount, 0)::numeric AS store_delivery_fee_amount,
          COALESCE(inv.app_receivable_amount, 0)::numeric AS app_receivable_amount,
          COALESCE(inv.store_net_amount, 0)::numeric AS store_net_amount,
+         COALESCE(o.product_discount_total, 0)::numeric AS product_discount_total,
+         COALESCE(o.coupon_discount_total, 0)::numeric AS coupon_discount_total,
+         o.coupon_code,
+         c.discount_type AS coupon_discount_type,
          o.delivery_fee,
          o.courier_source,
          o.note,
          u.full_name AS customer_name,
-         u.phone AS customer_phone
+         u.phone AS customer_phone,
+         d.full_name AS delivery_full_name,
+         d.phone AS delivery_phone
        FROM merchant_receivable_invoice inv
        JOIN customer_order o ON o.id = inv.order_id
        LEFT JOIN app_user u ON u.id = o.customer_user_id
+       LEFT JOIN app_user d ON d.id = o.delivery_user_id
+       LEFT JOIN coupon c ON c.id = o.coupon_id
        WHERE inv.merchant_id = $1
          AND inv.issued_at >= $2::timestamptz
          AND inv.issued_at <= $3::timestamptz
        ORDER BY inv.issued_at DESC, inv.id DESC
        LIMIT $4 OFFSET $5`,
-      [numericMerchantId, window.start, window.end, cappedLimit, safeOffset]
+      [numericMerchantId, window.start, window.end, cappedLimit, safeOffset],
     );
 
     const counts = await client.query(
       `SELECT
          COUNT(*)::int AS total_orders,
-         COALESCE(SUM(inv.subtotal), 0)::numeric AS total_sales
+         COALESCE(SUM(inv.subtotal), 0)::numeric AS total_sales,
+         COALESCE(SUM(inv.commission_amount), 0)::numeric AS total_commission
        FROM merchant_receivable_invoice inv
        WHERE inv.merchant_id = $1
          AND inv.issued_at >= $2::timestamptz
          AND inv.issued_at <= $3::timestamptz`,
-      [numericMerchantId, window.start, window.end]
+      [numericMerchantId, window.start, window.end],
     );
 
     return {
@@ -8720,6 +9684,7 @@ export async function getAdminSalesMerchantDetails({
       summary: {
         totalOrders: Number(counts.rows[0]?.total_orders || 0),
         totalSales: toNumber(counts.rows[0]?.total_sales, 0),
+        totalCommission: toNumber(counts.rows[0]?.total_commission, 0),
       },
       items: rows.rows.map((row) => ({
         order_id: Number(row.order_id),
@@ -8733,10 +9698,16 @@ export async function getAdminSalesMerchantDetails({
         store_delivery_fee_amount: toNumber(row.store_delivery_fee_amount, 0),
         app_receivable_amount: toNumber(row.app_receivable_amount, 0),
         store_net_amount: toNumber(row.store_net_amount, 0),
+        product_discount_total: toNumber(row.product_discount_total, 0),
+        coupon_discount_total: toNumber(row.coupon_discount_total, 0),
+        coupon_code: row.coupon_code,
+        coupon_discount_type: row.coupon_discount_type,
         delivery_fee: toNumber(row.delivery_fee, 0),
         courier_source: row.courier_source,
         customer_name: row.customer_name,
         customer_phone: row.customer_phone,
+        delivery_full_name: row.delivery_full_name,
+        delivery_phone: row.delivery_phone,
         note: row.note,
       })),
       pagination: {
@@ -8791,7 +9762,7 @@ export async function getAdminCollectionsReport({
        GROUP BY m.id, m.name
        ORDER BY total_collected DESC, operations_count DESC, m.id DESC
        LIMIT $${limitParam} OFFSET $${offsetParam}`,
-      params
+      params,
     );
 
     const totals = await computeFinancialKpisTx(client, { window });
@@ -8799,7 +9770,7 @@ export async function getAdminCollectionsReport({
       `SELECT COUNT(*)::int AS total
        FROM merchant m
        ${whereSearch}`,
-      params.slice(0, whereSearch ? 1 : 0)
+      params.slice(0, whereSearch ? 1 : 0),
     );
 
     return {
@@ -8848,9 +9819,10 @@ export async function getAdminCollectionsMerchantDetails({
        FROM merchant
        WHERE id = $1
        LIMIT 1`,
-      [numericMerchantId]
+      [numericMerchantId],
     );
-    if (!merchant.rows[0]) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
+    if (!merchant.rows[0])
+      throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
 
     const window = parseWindow({ period, from, to });
     const cappedLimit = sanitizeLimit(limit, 120, 500);
@@ -8881,7 +9853,7 @@ export async function getAdminCollectionsMerchantDetails({
          AND COALESCE(pr.final_confirmed_at, pr.reviewed_at, pr.submitted_at) <= $3::timestamptz
        ORDER BY event_at DESC, pr.id DESC
        LIMIT $4 OFFSET $5`,
-      [numericMerchantId, window.start, window.end, cappedLimit, safeOffset]
+      [numericMerchantId, window.start, window.end, cappedLimit, safeOffset],
     );
 
     const counts = await client.query(
@@ -8894,7 +9866,7 @@ export async function getAdminCollectionsMerchantDetails({
          AND pr.status = 'confirmed_by_admin'
          AND COALESCE(pr.final_confirmed_at, pr.reviewed_at, pr.submitted_at) >= $2::timestamptz
          AND COALESCE(pr.final_confirmed_at, pr.reviewed_at, pr.submitted_at) <= $3::timestamptz`,
-      [numericMerchantId, window.start, window.end]
+      [numericMerchantId, window.start, window.end],
     );
 
     return {
@@ -8998,7 +9970,7 @@ export async function getAdminReceivablesReport({
        ${searchClause}
        ORDER BY outstanding_to_collect DESC, m.id DESC
        LIMIT $${limitParam} OFFSET $${offsetParam}`,
-      params
+      params,
     );
 
     const totals = await computeFinancialKpisTx(client, { window });
@@ -9007,7 +9979,7 @@ export async function getAdminReceivablesReport({
       `SELECT COUNT(*)::int AS total
        FROM merchant m
        ${countSearchClause}`,
-      safeSearch ? [`%${safeSearch}%`] : []
+      safeSearch ? [`%${safeSearch}%`] : [],
     );
 
     return {
@@ -9025,7 +9997,7 @@ export async function getAdminReceivablesReport({
         merchant_name: row.merchant_name,
         orders_count: Number(row.orders_count || 0),
         collection_operations_count: Number(
-          row.collection_operations_count || 0
+          row.collection_operations_count || 0,
         ),
         total_sales: toNumber(row.total_sales, 0),
         total_collected: toNumber(row.total_collected, 0),
@@ -9062,9 +10034,10 @@ export async function getAdminReceivablesMerchantStatement({
        FROM merchant
        WHERE id = $1
        LIMIT 1`,
-      [numericMerchantId]
+      [numericMerchantId],
     );
-    if (!merchant.rows[0]) throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
+    if (!merchant.rows[0])
+      throw new AppError("MERCHANT_NOT_FOUND", { status: 404 });
 
     const window = parseWindow({ period, from, to });
     const cappedLimit = sanitizeLimit(limit, 120, 500);
@@ -9087,7 +10060,7 @@ export async function getAdminReceivablesMerchantStatement({
        )
        SELECT
          (SELECT amount FROM collections_before) - (SELECT amount FROM receivables_before) AS opening_balance`,
-      [numericMerchantId, window.start]
+      [numericMerchantId, window.start],
     );
 
     const statementRows = await client.query(
@@ -9133,7 +10106,7 @@ export async function getAdminReceivablesMerchantStatement({
        FROM ranked
        ORDER BY event_at DESC, source_id DESC
        LIMIT $4 OFFSET $5`,
-      [numericMerchantId, window.start, window.end, cappedLimit, safeOffset]
+      [numericMerchantId, window.start, window.end, cappedLimit, safeOffset],
     );
 
     const countRows = await client.query(
@@ -9154,14 +10127,17 @@ export async function getAdminReceivablesMerchantStatement({
        )
        SELECT COUNT(*)::int AS total
        FROM events`,
-      [numericMerchantId, window.start, window.end]
+      [numericMerchantId, window.start, window.end],
     );
 
     const totals = await computeFinancialKpisTx(client, {
       window,
       merchantId: numericMerchantId,
     });
-    const openingBalance = toNumber(openingBeforeWindow.rows[0]?.opening_balance, 0);
+    const openingBalance = toNumber(
+      openingBeforeWindow.rows[0]?.opening_balance,
+      0,
+    );
 
     return {
       window,
@@ -9209,11 +10185,11 @@ export async function getAdminPlatformKpis({ period, from, to } = {}) {
          COUNT(*)::int AS total_orders,
          COUNT(*) FILTER (WHERE status IN ('completed','delivered','delivered_by_courier','received_by_customer'))::int AS completed_orders,
          COUNT(*) FILTER (WHERE status IN ('cancelled','cancelled_by_store','cancelled_by_admin','cancelled_by_customer'))::int AS cancelled_orders,
-         COALESCE(SUM(total_amount),0)::numeric AS gross_sales
+         COALESCE(SUM(total_amount) FILTER (WHERE status IN ('completed','delivered','delivered_by_courier','received_by_customer')),0)::numeric AS gross_sales
        FROM customer_order
        WHERE created_at >= $1::timestamptz
          AND created_at <= $2::timestamptz`,
-      [window.start, window.end]
+      [window.start, window.end],
     );
 
     const receivables = await client.query(
@@ -9223,7 +10199,7 @@ export async function getAdminPlatformKpis({ period, from, to } = {}) {
        FROM merchant_receivables_ledger
        WHERE created_at >= $1::timestamptz
          AND created_at <= $2::timestamptz`,
-      [window.start, window.end]
+      [window.start, window.end],
     );
 
     const competitions = await client.query(
@@ -9249,7 +10225,7 @@ export async function getAdminPlatformKpis({ period, from, to } = {}) {
            ORDER BY COUNT(*) DESC, SUM(ccr.reward_amount) DESC, ccr.courier_user_id ASC
            LIMIT 1
          ) AS top_courier_user_id
-       FROM courier_competition`
+       FROM courier_competition`,
     );
 
     const o = orders.rows[0] || {};
@@ -9265,14 +10241,16 @@ export async function getAdminPlatformKpis({ period, from, to } = {}) {
         receivableDebits: toNumber(r.total_debit, 0),
         receivableCredits: toNumber(r.total_credit, 0),
         outstandingReceivables: round2(
-          toNumber(r.total_debit, 0) - toNumber(r.total_credit, 0)
+          toNumber(r.total_debit, 0) - toNumber(r.total_credit, 0),
         ),
         totalCompetitions: Number(c.total_competitions || 0),
         activeCompetitions: Number(c.active_competitions || 0),
         endedCompetitions: Number(c.ended_competitions || 0),
         competitionWinners: Number(c.total_winners || 0),
         competitionRewards: toNumber(c.total_rewards, 0),
-        topCourierUserId: c.top_courier_user_id ? Number(c.top_courier_user_id) : null,
+        topCourierUserId: c.top_courier_user_id
+          ? Number(c.top_courier_user_id)
+          : null,
       },
       financial: {
         totalSales: financial.totalSales,
@@ -9297,7 +10275,9 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
 
   const safeLimit = Math.max(1, Math.min(120, Number(query?.limit) || 40));
   const safeOffset = Math.max(0, Number(query?.offset) || 0);
-  const sort = String(query?.sort || "best_offers").trim().toLowerCase();
+  const sort = String(query?.sort || "best_offers")
+    .trim()
+    .toLowerCase();
   const merchantType = query?.merchantType
     ? String(query.merchantType).trim().toLowerCase()
     : null;
@@ -9316,6 +10296,7 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
     CASE
       WHEN COALESCE(s.inventory_enabled, FALSE) = TRUE THEN
         CASE
+          WHEN si.product_id IS NULL THEN p.is_available
           WHEN COALESCE(si.manual_disabled, FALSE) = TRUE THEN FALSE
           WHEN COALESCE(si.auto_disabled, FALSE) = TRUE THEN FALSE
           WHEN COALESCE(si.stock_status, 'in_stock') = 'manual_disabled' THEN FALSE
@@ -9327,19 +10308,32 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
   `;
 
   const userResult = await q(
-    `SELECT city, block
-     FROM app_user
-     WHERE id = $1
+    `SELECT
+       a.city,
+       COALESCE(a.block, u.block) AS block
+     FROM app_user u
+     LEFT JOIN LATERAL (
+       SELECT city, block
+       FROM customer_address
+       WHERE customer_user_id = u.id
+         AND is_active = TRUE
+       ORDER BY is_default DESC, id DESC
+       LIMIT 1
+     ) a ON TRUE
+     WHERE u.id = $1
      LIMIT 1`,
-    [Number(customerUserId)]
+    [Number(customerUserId)],
   );
   const userCity = String(query?.city || userResult.rows[0]?.city || "").trim();
-  const userBlock = String(query?.block || userResult.rows[0]?.block || "").trim();
+  const userBlock = String(
+    query?.block || userResult.rows[0]?.block || "",
+  ).trim();
 
   const params = [`%${qText}%`, qText, safeLimit + 1, safeOffset];
   const where = [
     "m.is_approved = TRUE",
     "m.is_disabled = FALSE",
+    "p.deleted_at IS NULL",
     "(p.name ILIKE $1 OR COALESCE(p.description,'') ILIKE $1 OR to_tsvector('simple', COALESCE(p.name,'') || ' ' || COALESCE(p.description,'')) @@ plainto_tsquery('simple', $2))",
   ];
 
@@ -9349,7 +10343,9 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
   }
   if (onlyAvailable) where.push(`(${orderableSql}) = TRUE`);
   if (onlyDiscounted) {
-    where.push("(p.discounted_price IS NOT NULL AND p.discounted_price < p.price)");
+    where.push(
+      "(p.discounted_price IS NOT NULL AND p.discounted_price < p.price)",
+    );
   }
   if (minPrice != null) {
     params.push(minPrice);
@@ -9373,13 +10369,16 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
       orderBy = "orders_count DESC, final_price ASC, product_id DESC";
       break;
     case "rating_desc":
-      orderBy = "merchant_rating DESC NULLS LAST, orders_count DESC, product_id DESC";
+      orderBy =
+        "merchant_rating DESC NULLS LAST, orders_count DESC, product_id DESC";
       break;
     case "nearest":
-      orderBy = "proximity_rank ASC, merchant_rating DESC NULLS LAST, product_id DESC";
+      orderBy =
+        "proximity_rank ASC, merchant_rating DESC NULLS LAST, product_id DESC";
       break;
     case "fastest_delivery":
-      orderBy = "eta_minutes ASC NULLS LAST, proximity_rank ASC, product_id DESC";
+      orderBy =
+        "eta_minutes ASC NULLS LAST, proximity_rank ASC, product_id DESC";
       break;
     case "best_offers":
     default:
@@ -9485,13 +10484,13 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
      WHERE ${where.join(" AND ")}
      ORDER BY ${orderBy}
      LIMIT $3 OFFSET $4`,
-    params
+    params,
   );
 
   const hasMore = result.rows.length > safeLimit;
   const rows = hasMore ? result.rows.slice(0, safeLimit) : result.rows;
   const richCatalogMap = await loadProductRichCatalogByIds(
-    rows.map((row) => Number(row.product_id))
+    rows.map((row) => Number(row.product_id)),
   );
 
   return {
@@ -9520,7 +10519,7 @@ export async function searchProductsGlobal(customerUserId, query = {}) {
 }
 
 export function mapSearchProductResultRow(row, rich = null) {
-  return {
+  return applyFreeDeliveryCampaignToProduct({
     productId: Number(row.product_id),
     categoryId:
       row.product_category_id == null ? null : Number(row.product_category_id),
@@ -9564,6 +10563,5 @@ export function mapSearchProductResultRow(row, rich = null) {
       etaMinutes: row.eta_minutes == null ? null : Number(row.eta_minutes),
       proximityRank: Number(row.proximity_rank || 2),
     },
-  };
+  });
 }
-

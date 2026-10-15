@@ -1,3 +1,5 @@
+import { isKnownBlock, isValidBuildingNumber } from './real-estate.buildings.js';
+
 function toTrimmedString(value, max = 2000) {
   if (value === undefined || value === null) return null;
   const text = String(value).trim();
@@ -320,6 +322,9 @@ function parseListingPayload(body = {}, { partial = false } = {}) {
   }
   if (body.detailsJson !== undefined && detailsJson === null) {
     errors.push("detailsJson");
+  }
+  if (block && buildingNumber && isKnownBlock(block) && !isValidBuildingNumber(block, buildingNumber)) {
+    errors.push("buildingNumber");
   }
 
   return {

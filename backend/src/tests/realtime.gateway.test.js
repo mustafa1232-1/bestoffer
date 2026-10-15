@@ -10,6 +10,14 @@ test.beforeEach(() => {
   __realtimeGatewayTestApi.reset();
 });
 
+test('durable game publisher retains work when broadcast and fallback both fail', async () => {
+  __realtimeGatewayTestApi.setModeResolver(() => 'dual');
+  __realtimeGatewayTestApi.setSseEmitter(() => {});
+  __realtimeGatewayTestApi.setPublisher(async () => { throw new Error('offline'); });
+  __realtimeGatewayTestApi.setOutboxEnqueuer(async () => null);
+  await assert.rejects(emitRealtimeToUser(9,'knowledge_round_result',{ matchId: 1 },{ requireDurable: true }), /REALTIME_DELIVERY_NOT_DURABLE/);
+});
+
 test("gateway keeps SSE path working in sse_only mode", async () => {
   const sseCalls = [];
   const publishCalls = [];

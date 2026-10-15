@@ -463,9 +463,26 @@ export function validateTaxiCaptainCashPaymentApprove(body) {
     body?.cycleDays === undefined || body?.cycleDays === null
       ? 30
       : Number(body.cycleDays);
+  const packageCount =
+    body?.packageCount === undefined || body?.packageCount === null
+      ? 1
+      : Number(body.packageCount);
+  const ridesToAdd =
+    body?.ridesToAdd === undefined || body?.ridesToAdd === null
+      ? null
+      : Number(body.ridesToAdd);
 
   if (!Number.isInteger(cycleDays) || cycleDays < 1 || cycleDays > 365) {
     errors.push("cycleDays");
+  }
+  if (!Number.isInteger(packageCount) || packageCount < 1 || packageCount > 100) {
+    errors.push("packageCount");
+  }
+  if (
+    ridesToAdd !== null &&
+    (!Number.isInteger(ridesToAdd) || ridesToAdd < 1 || ridesToAdd > 10000)
+  ) {
+    errors.push("ridesToAdd");
   }
 
   return {
@@ -473,6 +490,8 @@ export function validateTaxiCaptainCashPaymentApprove(body) {
     errors,
     value: {
       cycleDays,
+      packageCount,
+      ridesToAdd,
     },
   };
 }

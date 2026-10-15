@@ -7,13 +7,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/files/local_image_file.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/network/session_invalidation.dart';
-import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/orders_api.dart';
 import '../models/order_model.dart';
 import 'cart_controller.dart';
 import 'delivery_address_controller.dart';
+import 'order_refresh_bus.dart';
 
 final ordersApiProvider = Provider<OrdersApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
@@ -69,11 +69,15 @@ class OrdersController extends StateNotifier<OrdersState> {
   bool _liveFetchInFlight = false;
   bool _disposed = false;
   bool _recoveryResyncInFlight = false;
+  bool _externalRefreshInFlight = false;
   late final VoidCallback _sessionRecoveryListener;
+  late final VoidCallback _orderRefreshListener;
 
   OrdersController(this.ref) : super(const OrdersState()) {
     _sessionRecoveryListener = _handleSessionRecovery;
+    _orderRefreshListener = _handleExternalOrderRefresh;
     SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
+    OrderRefreshBus.instance.addListener(_orderRefreshListener);
   }
 
   void _setStateSafely(OrdersState nextState) {
@@ -117,6 +121,17 @@ class OrdersController extends StateNotifier<OrdersState> {
       loadMyOrders(
         silent: true,
       ).whenComplete(() => _recoveryResyncInFlight = false),
+    );
+  }
+
+  void _handleExternalOrderRefresh() {
+    if (_disposed || _externalRefreshInFlight) return;
+    if (!_canRunCustomerPolling()) return;
+    _externalRefreshInFlight = true;
+    unawaited(
+      loadMyOrders(
+        silent: true,
+      ).whenComplete(() => _externalRefreshInFlight = false),
     );
   }
 
@@ -184,26 +199,37 @@ class OrdersController extends StateNotifier<OrdersState> {
       stopLiveOrders();
       return;
     }
-    _liveOrdersTimer?.cancel();
+    if (_liveOrdersTimer?.isActive == true) return;
     _liveOrdersTimer = Timer.periodic(interval, (_) async {
-      if (_disposed) return;
-      if (_liveFetchInFlight) return;
-      if (!_canRunCustomerPolling()) {
-        stopLiveOrders();
-        return;
-      }
-      _liveFetchInFlight = true;
-      try {
-        await loadMyOrders(silent: true);
-      } finally {
-        _liveFetchInFlight = false;
-      }
+      await refreshLiveOrdersNow();
     });
+  }
+
+  Future<void> refreshLiveOrdersNow() async {
+    if (_disposed || _liveFetchInFlight) return;
+    if (!_canRunCustomerPolling()) {
+      stopLiveOrders();
+      return;
+    }
+    _liveFetchInFlight = true;
+    try {
+      await loadMyOrders(silent: true);
+    } finally {
+      _liveFetchInFlight = false;
+    }
   }
 
   void stopLiveOrders() {
     _liveOrdersTimer?.cancel();
     _liveOrdersTimer = null;
+  }
+
+  void resetForCustomerSession() {
+    stopLiveOrders();
+    _liveFetchInFlight = false;
+    _setStateSafely(
+      state.copyWith(orders: const <OrderModel>[], loading: false, error: null),
+    );
   }
 
   /// ينفذ checkout الكامل اعتماداً على السلة والعنوان المختار الحاليين.
@@ -314,24 +340,6 @@ class OrdersController extends StateNotifier<OrdersState> {
       _setStateSafely(
         state.copyWith(placingOrder: false, error: 'فشل إرسال الطلب'),
       );
-      return false;
-    }
-  }
-
-  Future<bool> confirmDelivered(int orderId) async {
-    _setStateSafely(state.copyWith(error: null));
-    try {
-      await ref.read(ordersApiProvider).confirmDelivered(orderId);
-      await ref
-          .read(localNotificationsProvider)
-          .cancelCustomerConfirmationReminder(orderId);
-      await loadMyOrders();
-      return true;
-    } on DioException catch (e) {
-      _setStateSafely(state.copyWith(error: _mapError(e)));
-      return false;
-    } catch (_) {
-      _setStateSafely(state.copyWith(error: 'فشل تأكيد الاستلام'));
       return false;
     }
   }
@@ -489,6 +497,7 @@ class OrdersController extends StateNotifier<OrdersState> {
   void dispose() {
     _disposed = true;
     SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
+    OrderRefreshBus.instance.removeListener(_orderRefreshListener);
     stopLiveOrders();
     super.dispose();
   }

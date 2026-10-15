@@ -11,6 +11,7 @@ import '../../orders/models/order_model.dart';
 import '../state/delivery_controller.dart';
 import 'delivery_order_detail_screen.dart';
 import 'delivery_dashboard_screen.dart';
+import 'delivery_reconciliation_sheets.dart';
 
 class CourierDashboardPage extends StatelessWidget {
   const CourierDashboardPage({super.key});
@@ -65,6 +66,14 @@ class CourierOrdersCancelledPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) =>
       const _CourierOrdersPage(mode: _OrdersMode.cancelled);
+}
+
+class CourierOrdersAllPage extends StatelessWidget {
+  const CourierOrdersAllPage({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      const _CourierOrdersPage(mode: _OrdersMode.all);
 }
 
 class CourierOrderDetailsPage extends StatelessWidget {
@@ -296,6 +305,7 @@ class _CourierCompetitionsPageState
 }
 
 enum _OrdersMode {
+  all,
   newOffers,
   current,
   waitingPickup,
@@ -329,7 +339,7 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
     _deliveryController = ref.read(deliveryControllerProvider.notifier);
     Future.microtask(() async {
       if (!mounted) return;
-      await _deliveryController.bootstrap();
+      await _deliveryController.bootstrap(includeExtended: false);
       if (!mounted) return;
       if (_live) _deliveryController.startLiveOrders();
       setState(() => _bootstrapped = true);
@@ -346,13 +356,15 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
     if (_live) {
       await _deliveryController.refreshCurrentOrders();
     } else {
-      await _deliveryController.bootstrap();
+      await _deliveryController.bootstrap(includeExtended: false);
     }
   }
 
   List<OrderModel> _orders(DeliveryState state) {
     final all = [...state.currentOrders, ...state.historyOrders];
     switch (widget.mode) {
+      case _OrdersMode.all:
+        return all;
       case _OrdersMode.current:
         return all
             .where(
@@ -434,11 +446,10 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
   String _title(BuildContext context) {
     final l10n = context.l10n;
     switch (widget.mode) {
+      case _OrdersMode.all:
+        return context.lt(ar: 'إجمالي الطلبات', en: 'All orders');
       case _OrdersMode.newOffers:
-        return context.lt(
-          ar: 'الطلبات المعيّنة',
-          en: 'Assigned deliveries',
-        );
+        return context.lt(ar: 'الطلبات المعيّنة', en: 'Assigned deliveries');
       case _OrdersMode.current:
         return l10n.deliveryCourierCurrentOrdersTitle;
       case _OrdersMode.waitingPickup:
@@ -450,6 +461,37 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
       case _OrdersMode.cancelled:
         return l10n.deliveryCourierCancelledOrdersTitle;
     }
+  }
+
+  Future<void> _confirmPickup(OrderModel order) async {
+    final input = await showCourierPickupSettlementSheet(
+      context,
+      expectedStoreAmount: order.subtotal.clamp(0, double.infinity),
+    );
+    if (input == null || !mounted) return;
+    await ref
+        .read(deliveryControllerProvider.notifier)
+        .pickedUpOrder(
+          order.id,
+          merchantPaidActual: input.merchantPaidActual,
+          receiptFile: input.receiptFile,
+          withoutReceipt: input.withoutReceipt,
+          merchantPaymentNote: input.note,
+        );
+  }
+
+  Future<void> _confirmDelivery(OrderModel order) async {
+    final input = await showCourierDeliveryCashSheet(
+      context,
+      invoiceTotal: order.totalAmount,
+    );
+    if (input == null || !mounted) return;
+    await ref
+        .read(deliveryControllerProvider.notifier)
+        .deliveredOrder(
+          order.id,
+          customerReceivedActual: input.customerReceivedActual,
+        );
   }
 
   @override
@@ -488,9 +530,9 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
                           CourierOrderDetailsPage(orderId: order.id),
                     ),
                   ),
-                  onPickedUp: () => controller.pickedUpOrder(order.id),
+                  onPickedUp: () => _confirmPickup(order),
                   onArrived: () => controller.arrivedOrder(order.id),
-                  onDelivered: () => controller.deliveredOrder(order.id),
+                  onDelivered: () => _confirmDelivery(order),
                   showActions:
                       widget.mode == _OrdersMode.current ||
                       widget.mode == _OrdersMode.waitingPickup ||

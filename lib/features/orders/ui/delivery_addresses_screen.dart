@@ -2,11 +2,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 
 import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
 import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../auth/presentation/widgets/basmaya_address_selector.dart';
 import '../models/delivery_address_model.dart';
 import '../state/delivery_address_controller.dart';
@@ -63,90 +65,88 @@ class _DeliveryAddressesScreenState
         child: state.loading
             ? const Center(child: CircularProgressIndicator())
             : state.addresses.isEmpty
-                ? ListView(
-                    children: [
-                      const SizedBox(height: 180),
-                      Center(child: Text(l10n.deliveryAddressesEmpty)),
-                    ],
-                  )
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
-                    itemCount: state.addresses.length,
-                    itemBuilder: (context, index) {
-                      final address = state.addresses[index];
-                      final selected = state.selectedAddressId == address.id;
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: ListTile(
-                          onTap: () {
-                            ref
-                                .read(deliveryAddressControllerProvider.notifier)
-                                .selectAddress(address.id);
-                            if (widget.selectOnTap) {
-                              Navigator.of(context).pop(true);
-                            }
-                          },
-                          title: Text(address.label),
-                          subtitle: Text(address.shortText),
-                          leading: Radio<int>(
-                            value: address.id,
-                            groupValue: state.selectedAddressId,
-                            onChanged: (value) {
-                              if (value == null) return;
-                              ref
-                                  .read(
-                                    deliveryAddressControllerProvider.notifier,
-                                  )
-                                  .selectAddress(value);
-                              if (widget.selectOnTap) {
-                                Navigator.of(context).pop(true);
-                              }
-                            },
+            ? ListView(
+                children: [
+                  const SizedBox(height: 180),
+                  Center(child: Text(l10n.deliveryAddressesEmpty)),
+                ],
+              )
+            : ListView.builder(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
+                itemCount: state.addresses.length,
+                itemBuilder: (context, index) {
+                  final address = state.addresses[index];
+                  final selected = state.selectedAddressId == address.id;
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      onTap: () {
+                        ref
+                            .read(deliveryAddressControllerProvider.notifier)
+                            .selectAddress(address.id);
+                        if (widget.selectOnTap) {
+                          Navigator.of(context).pop(true);
+                        }
+                      },
+                      title: Text(address.label),
+                      subtitle: Text(address.shortText),
+                      leading: Radio<int>(
+                        value: address.id,
+                        groupValue: state.selectedAddressId,
+                        onChanged: (value) {
+                          if (value == null) return;
+                          ref
+                              .read(deliveryAddressControllerProvider.notifier)
+                              .selectAddress(value);
+                          if (widget.selectOnTap) {
+                            Navigator.of(context).pop(true);
+                          }
+                        },
+                      ),
+                      trailing: Wrap(
+                        spacing: 2,
+                        children: [
+                          if (!address.isDefault)
+                            IconButton(
+                              tooltip: l10n.deliveryAddressesSetDefault,
+                              onPressed: state.saving
+                                  ? null
+                                  : () => ref
+                                        .read(
+                                          deliveryAddressControllerProvider
+                                              .notifier,
+                                        )
+                                        .setDefaultAddress(address.id),
+                              icon: const Icon(Icons.star_outline_rounded),
+                            ),
+                          IconButton(
+                            tooltip: l10n.commonEdit,
+                            onPressed: state.saving
+                                ? null
+                                : () => _openAddressForm(address: address),
+                            icon: const Icon(Icons.edit_outlined),
                           ),
-                          trailing: Wrap(
-                            spacing: 2,
-                            children: [
-                              if (!address.isDefault)
-                                IconButton(
-                                  tooltip: l10n.deliveryAddressesSetDefault,
-                                  onPressed: state.saving
-                                      ? null
-                                      : () => ref
-                                            .read(
-                                              deliveryAddressControllerProvider
-                                                  .notifier,
-                                            )
-                                            .setDefaultAddress(address.id),
-                                  icon: const Icon(Icons.star_outline_rounded),
-                                ),
-                              IconButton(
-                                tooltip: l10n.commonEdit,
-                                onPressed: state.saving
-                                    ? null
-                                    : () => _openAddressForm(address: address),
-                                icon: const Icon(Icons.edit_outlined),
-                              ),
-                              IconButton(
-                                tooltip: l10n.commonDelete,
-                                onPressed: state.saving
-                                    ? null
-                                    : () => _confirmDelete(address.id),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                              if (selected)
-                                const Padding(
-                                  padding: EdgeInsetsDirectional.only(start: 4),
-                                  child: Icon(
-                                    Icons.check_circle,
-                                    color: Colors.green,
-                                  ),
-                                ),
-                            ],
+                          IconButton(
+                            tooltip: l10n.commonDelete,
+                            onPressed: state.saving
+                                ? null
+                                : () => _confirmDelete(address.id),
+                            icon: const Icon(Icons.delete_outline),
                           ),
-                        ),
-                      );
-                    },
-                  ),
+                          if (selected)
+                            const Padding(
+                              padding: EdgeInsetsDirectional.only(start: 4),
+                              child: Icon(
+                                Icons.check_circle,
+                                color: Colors.green,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
       ),
     );
   }
@@ -204,7 +204,10 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
   String? selectedBlock;
   String? selectedBuilding;
   String? selectedApartment;
+  double? _latitude;
+  double? _longitude;
   late bool isDefault;
+  bool _locating = false;
   bool _defaultsApplied = false;
 
   @override
@@ -216,6 +219,8 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
     selectedBlock = address?.block;
     selectedBuilding = address?.buildingNumber;
     selectedApartment = address?.apartment;
+    _latitude = address?.latitude;
+    _longitude = address?.longitude;
     isDefault = address?.isDefault ?? false;
   }
 
@@ -264,7 +269,9 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
     }
     setState(() {
       _fieldErrors.remove(field);
-      if (field == 'block' || field == 'buildingNumber' || field == 'apartment') {
+      if (field == 'block' ||
+          field == 'buildingNumber' ||
+          field == 'apartment') {
         _addressError = null;
       }
       _formError = null;
@@ -315,7 +322,8 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
       );
     }
 
-    final nextAddressError = next.containsKey('block') ||
+    final nextAddressError =
+        next.containsKey('block') ||
             next.containsKey('buildingNumber') ||
             next.containsKey('apartment')
         ? null
@@ -382,6 +390,61 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
     });
     await _focusFirstError();
     return true;
+  }
+
+  Future<void> _useCurrentLocation() async {
+    if (_locating) return;
+    setState(() {
+      _locating = true;
+      _formError = null;
+    });
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        setState(() {
+          _formError = context.lt(
+            ar: 'تعذر تحديد الموقع. شغل خدمة الموقع ثم حاول مرة أخرى.',
+            en: 'Unable to detect location. Enable location services and try again.',
+          );
+        });
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        setState(() {
+          _formError = context.lt(
+            ar: 'صلاحية الموقع مطلوبة لحفظ موقع العنوان.',
+            en: 'Location permission is required to save this address location.',
+          );
+        });
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 12),
+      );
+      if (!mounted) return;
+      setState(() {
+        _latitude = position.latitude;
+        _longitude = position.longitude;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _formError = context.lt(
+          ar: 'تعذر تحديد الموقع. حاول مرة أخرى.',
+          en: 'Unable to detect location. Try again.',
+        );
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _locating = false);
+      }
+    }
   }
 
   @override
@@ -461,9 +524,8 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
                 onBlockChanged: (value) {
                   setState(() {
                     selectedBlock = value;
-                    final buildings = BasmayaAddressCatalog.buildingOptionsForBlock(
-                      value,
-                    );
+                    final buildings =
+                        BasmayaAddressCatalog.buildingOptionsForBlock(value);
                     if (!buildings.contains(selectedBuilding)) {
                       selectedBuilding = null;
                     }
@@ -493,6 +555,28 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
                     _formError = null;
                   });
                 },
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: saving || _locating ? null : _useCurrentLocation,
+              icon: _locating
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.my_location_outlined),
+              label: Text(
+                _latitude == null || _longitude == null
+                    ? context.lt(
+                        ar: 'استخدام موقعي الحالي',
+                        en: 'Use current location',
+                      )
+                    : context.lt(
+                        ar: 'تم حفظ موقع هذا العنوان',
+                        en: 'Location saved for this address',
+                      ),
               ),
             ),
             const SizedBox(height: 8),
@@ -540,6 +624,8 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
         block: selectedBlock!,
         buildingNumber: selectedBuilding!,
         apartment: selectedApartment!,
+        latitude: _latitude,
+        longitude: _longitude,
         isDefault: isDefault,
       );
     } else {
@@ -550,6 +636,8 @@ class _AddressFormSheetState extends ConsumerState<_AddressFormSheet> {
         block: selectedBlock!,
         buildingNumber: selectedBuilding!,
         apartment: selectedApartment!,
+        latitude: _latitude,
+        longitude: _longitude,
         isDefault: isDefault,
       );
     }

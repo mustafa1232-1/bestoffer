@@ -68,7 +68,8 @@ export async function getCommunityMonitoringCounters() {
              AND st.status = ANY($2)
          )
        )::int AS open_tickets
-     FROM app_user u`,
+     FROM app_user u
+     WHERE COALESCE(u.account_deleted, FALSE) = FALSE`,
     [INTERNAL_COMMUNITY_ROLES, SUPPORT_OPEN_STATUSES]
   );
   const row = r.rows[0] || {};
@@ -93,7 +94,10 @@ export async function listCommunityUsersForMonitoring({
   offset = 0,
 } = {}) {
   const page = safeLimitOffset({ limit, offset });
-  const conds = [`u.role::text <> ALL($1)`];
+  const conds = [
+    `u.role::text <> ALL($1)`,
+    `COALESCE(u.account_deleted, FALSE) = FALSE`,
+  ];
   const params = [INTERNAL_COMMUNITY_ROLES];
 
   if (status === "reported") {
@@ -217,6 +221,7 @@ export async function getCommunityUserMonitoringDetail(userId) {
      LEFT JOIN social_post_comment pc ON pc.user_id = u.id AND pc.is_deleted = FALSE
      WHERE u.id = $1
        AND u.role::text <> ALL($2)
+       AND COALESCE(u.account_deleted, FALSE) = FALSE
      GROUP BY u.id
      LIMIT 1`,
     [id, INTERNAL_COMMUNITY_ROLES]

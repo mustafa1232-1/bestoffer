@@ -14,13 +14,13 @@ function toInt(value) {
   return Math.floor(parsed);
 }
 
-function toListingRow(row) {
+function toListingRow(row, { exposeContact = false } = {}) {
   if (!row) return null;
   return {
     id: Number(row.id),
     ownerId: Number(row.owner_user_id),
     ownerFullName: row.owner_full_name || null,
-    ownerPhone: row.owner_phone || null,
+    ownerPhone: exposeContact ? row.owner_phone || null : null,
     purpose: String(row.purpose || ""),
     status: String(row.status || ""),
     title: String(row.title || ""),
@@ -30,7 +30,7 @@ function toListingRow(row) {
     bankSettlementMode: String(row.bank_settlement_mode || "none"),
     furnished: row.furnished === true,
     furnishingDescription: row.furnishing_description || null,
-    phone: row.phone || null,
+    phone: exposeContact ? row.phone || null : null,
     price: Number(row.price || 0),
     city: row.city || null,
     block: row.block || null,
@@ -128,6 +128,10 @@ async function hydrateListings(client, rows, { viewerUserId = null } = {}) {
       ...row,
       is_saved: savedIds.has(Number(row.id)),
       media: mediaMap.get(Number(row.id)) || [],
+    }, {
+      exposeContact:
+        viewerUserId != null &&
+        Number(viewerUserId) === Number(row.owner_user_id),
     })
   );
 }

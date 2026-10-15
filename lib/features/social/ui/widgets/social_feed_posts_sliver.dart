@@ -30,7 +30,7 @@ class SocialFeedPostsSliver extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 80),
       sliver: SliverList(
         delegate: SliverChildBuilderDelegate((context, index) {
           if (index >= posts.length) {

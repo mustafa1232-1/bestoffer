@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/widgets/appbar_quick_actions.dart';
 import '../../auth/ui/merchants_list_screen.dart';
+import '../state/customer_ad_board_controller.dart';
+import 'widgets/customer_marketplace_ad_surface.dart';
 
 /// Dedicated phones section. Phones span three real store activities
 /// (`phones_technology`, `phone_maintenance`, `electronics_mobile`), and the
@@ -67,6 +69,13 @@ class CustomerPhonesHubScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
         children: [
+          const CustomerMarketplaceAdSurface(
+            request: MarketplaceAdRequest(
+              placement: 'MARKETPLACE_CATEGORY',
+              categoryKey: 'phones',
+            ),
+            showEmptyState: true,
+          ),
           _HeaderCard(
             title: context.lt(
               ar: 'كل ما يخص الهواتف في مكان واحد',

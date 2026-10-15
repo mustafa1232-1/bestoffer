@@ -6,9 +6,14 @@ import 'package:intl/intl.dart';
 
 import 'core/errors/app_runtime_error_presentation.dart';
 import 'core/i18n/app_localizations_context.dart';
+import 'core/i18n/locale_text.dart';
 import 'core/platform/edge_to_edge_system_ui.dart';
 import 'core/platform/app_flavor.dart';
 import 'core/media/media_cache_service.dart';
+import 'core/notifications/local_notification_service.dart';
+import 'core/notifications/notification_navigation.dart';
+import 'core/notifications/push_notification_service.dart';
+import 'core/realtime/maslaki_realtime_service.dart';
 import 'core/settings/app_settings_controller.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/desktop_dashboard_frame.dart';
@@ -23,11 +28,15 @@ import 'features/company/ui/company_branches_screen.dart';
 import 'features/company/ui/company_dashboard_screen.dart';
 import 'features/company/ui/company_inventory_screen.dart';
 import 'features/company/ui/company_login_screen.dart';
+import 'features/company/ui/company_orders_screen.dart';
 import 'features/company/ui/company_promotions_screen.dart';
 import 'features/company/ui/company_reports_screen.dart';
 import 'features/company/ui/company_settings_screen.dart';
 import 'features/company/ui/company_users_screen.dart';
 import 'features/hr/ui/hr_dashboard_screen.dart';
+import 'features/notifications/state/notifications_controller.dart';
+import 'features/notifications/ui/notifications_bell.dart';
+import 'features/notifications/ui/notifications_screen.dart';
 import 'l10n/app_localizations.dart';
 
 /// نقطة الإقلاع الخاصة ببوابة الشركات.
@@ -60,14 +69,22 @@ class CompanyPortalApp extends ConsumerStatefulWidget {
   ConsumerState<CompanyPortalApp> createState() => _CompanyPortalAppState();
 }
 
-class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
+class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp>
+    with WidgetsBindingObserver {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   ProviderSubscription<AuthState>? _authStateSub;
+  StreamSubscription<NotificationTapPayload>? _notificationTapSub;
+  StreamSubscription<NotificationTapPayload>? _pushTapSub;
+  NotificationTapPayload? _pendingTapPayload;
   bool _bootstrapped = false;
   bool _logoutInFlight = false;
+  bool _pushSyncInFlight = false;
+  int? _pushSyncedUserId;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _authStateSub = ref.listenManual<AuthState>(authControllerProvider, (
       previous,
       next,
@@ -78,18 +95,46 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
     Future.microtask(() async {
       await ref.read(authControllerProvider.notifier).bootstrap();
       if (!mounted) return;
+      final localNotifications = ref.read(localNotificationsProvider);
+      await localNotifications.initialize();
+      await localNotifications.requestPermissionsIfNeeded();
+      _notificationTapSub = localNotifications.tapStream.listen(
+        _handleNotificationTap,
+      );
+      if (!mounted) return;
       await _bootstrapCompanySessionIfNeeded(ref.read(authControllerProvider));
+      if (!mounted) return;
+      final auth = ref.read(authControllerProvider);
+      if (_hasVerifiedSession(auth) && _isCompanySurfaceAuth(auth)) {
+        unawaited(_ensurePushReadyAndSync(auth));
+      }
       if (!mounted) return;
       setState(() {
         _bootstrapped = true;
       });
+      _consumePendingTapIfAny();
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _authStateSub?.close();
+    _notificationTapSub?.cancel();
+    _pushTapSub?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) {
+      unawaited(ref.read(maslakiRealtimeServiceProvider).setAppActive(false));
+      return;
+    }
+    unawaited(ref.read(maslakiRealtimeServiceProvider).setAppActive(true));
+    final auth = ref.read(authControllerProvider);
+    if (!_hasVerifiedSession(auth) || !_isCompanySurfaceAuth(auth)) return;
+    unawaited(_ensurePushReadyAndSync(auth));
   }
 
   bool _hasVerifiedSession(AuthState auth) =>
@@ -106,13 +151,25 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
   void _handleAuthStateChanged(AuthState? previous, AuthState next) {
     final wasAuthed = previous == null ? false : _hasVerifiedSession(previous);
     final isAuthed = _hasVerifiedSession(next);
+    final previousUserId = previous?.user?.id;
+    final nextUserId = next.user?.id;
 
     if (wasAuthed && !isAuthed) {
+      _pushSyncedUserId = null;
+      unawaited(ref.read(pushNotificationsProvider).unregisterCurrentToken());
+      unawaited(ref.read(maslakiRealtimeServiceProvider).clearSession());
       return;
     }
 
     if (isAuthed && _isCompanySurfaceAuth(next)) {
       unawaited(_bootstrapCompanySessionIfNeeded(next));
+      unawaited(
+        ref.read(maslakiRealtimeServiceProvider).bindAuthenticatedSession(),
+      );
+      if (nextUserId != null && previousUserId != nextUserId) {
+        unawaited(_ensurePushReadyAndSync(next));
+      }
+      _consumePendingTapIfAny();
     }
   }
 
@@ -134,6 +191,119 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
         _logoutInFlight = false;
       }
     }
+  }
+
+  Future<void> _ensurePushReadyAndSync(AuthState auth) async {
+    if (!mounted ||
+        !_hasVerifiedSession(auth) ||
+        !_isCompanySurfaceAuth(auth) ||
+        auth.user == null) {
+      return;
+    }
+
+    ref.read(notificationsControllerProvider.notifier).startRealtime();
+    try {
+      await ref.read(maslakiRealtimeServiceProvider).bindAuthenticatedSession();
+    } catch (_) {
+      // Best effort: notification SSE fallback can still keep the inbox fresh.
+    }
+
+    final push = ref.read(pushNotificationsProvider);
+    try {
+      await push.initialize();
+      await push.requestPermissionIfNeeded();
+    } catch (_) {
+      return;
+    }
+    if (!mounted) return;
+
+    _pushTapSub ??= push.tapStream.listen(_handleNotificationTap);
+
+    final userId = auth.user!.id;
+    if (_pushSyncInFlight || _pushSyncedUserId == userId) return;
+    _pushSyncInFlight = true;
+    try {
+      final synced = await push.syncToken(userId: userId);
+      if (synced) _pushSyncedUserId = userId;
+    } catch (_) {
+      // Lifecycle resume and the notification screen both retry token sync.
+    } finally {
+      _pushSyncInFlight = false;
+    }
+  }
+
+  void _consumePendingTapIfAny() {
+    final payload = _pendingTapPayload;
+    if (payload == null) return;
+    _pendingTapPayload = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _handleNotificationTap(payload);
+    });
+  }
+
+  void _handleNotificationTap(NotificationTapPayload payload) {
+    final auth = ref.read(authControllerProvider);
+    if (!_hasVerifiedSession(auth) || !_isCompanySurfaceAuth(auth)) {
+      _pendingTapPayload = payload;
+      return;
+    }
+
+    final nav = _navigatorKey.currentState;
+    if (nav == null) {
+      _pendingTapPayload = payload;
+      return;
+    }
+    if (auth.isCompanyPortal && _openCompanyPortalNotification(nav, payload)) {
+      return;
+    }
+    unawaited(
+      NotificationNavigation.open(navigator: nav, auth: auth, payload: payload),
+    );
+  }
+
+  bool _openCompanyPortalNotification(
+    NavigatorState navigator,
+    NotificationTapPayload payload,
+  ) {
+    final session = ref.read(companySessionControllerProvider);
+    final companyId = session.activeCompanyId;
+    final target = NotificationNavigation.resolveTarget(
+      rawTarget: payload.target,
+      type: payload.type,
+      orderId: payload.orderId,
+    );
+    final normalizedTarget = target.trim().toLowerCase();
+    final isOrderTarget =
+        payload.orderId != null ||
+        normalizedTarget == 'merchant_order_details' ||
+        normalizedTarget == 'owner_order_details' ||
+        normalizedTarget == 'merchant_orders_current' ||
+        normalizedTarget == 'owner_orders' ||
+        normalizedTarget == 'order_tracking' ||
+        normalizedTarget == 'company_orders';
+
+    if (isOrderTarget && companyId != null) {
+      unawaited(
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => CompanyOrdersScreen(
+              api: ref.read(companyApiProvider),
+              companyId: companyId,
+              initialOrderId: payload.orderId,
+            ),
+          ),
+        ),
+      );
+      return true;
+    }
+
+    unawaited(
+      navigator.push(
+        MaterialPageRoute<void>(builder: (_) => const NotificationsScreen()),
+      ),
+    );
+    return true;
   }
 
   Widget _homeForAuth(AuthState auth, CompanySessionState session) {
@@ -178,13 +348,14 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
       _logoutInFlight = false;
     }
 
-    final home = !_bootstrapped || auth.loading
+    final home = !_bootstrapped || auth.isSessionRecoveryInProgress
         ? const Scaffold(body: Center(child: CircularProgressIndicator()))
         : (_hasVerifiedSession(auth)
               ? _homeForAuth(auth, session)
               : const CompanyLoginScreen());
 
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       onGenerateTitle: (context) => context.l10n.companyPortalWindowTitle,
       locale: settings.locale,
@@ -207,6 +378,7 @@ class _CompanyPortalAppState extends ConsumerState<CompanyPortalApp> {
 enum _CompanySection {
   dashboard,
   branches,
+  orders,
   reports,
   promotions,
   inventory,
@@ -280,6 +452,7 @@ class _CompanyShellScreenState extends ConsumerState<CompanyShellScreen> {
         title: membership.companyName,
         subtitle: companyRoleLabel(context, membership.role),
         actions: [
+          const NotificationsBellButton(),
           PopupMenuButton<int>(
             tooltip: l10n.companySwitchCompany,
             onSelected: (value) => ref
@@ -319,6 +492,11 @@ class _CompanyShellScreenState extends ConsumerState<CompanyShellScreen> {
             icon: Icons.store_mall_directory_outlined,
             activeIcon: Icons.store_mall_directory_rounded,
             label: l10n.companyNavBranches,
+          ),
+          MaslakiBottomNavItem(
+            icon: Icons.receipt_long_outlined,
+            activeIcon: Icons.receipt_long_rounded,
+            label: context.lt(ar: 'الطلبات', en: 'Orders'),
           ),
           MaslakiBottomNavItem(
             icon: Icons.bar_chart_outlined,
@@ -375,6 +553,8 @@ class _CompanyShellScreenState extends ConsumerState<CompanyShellScreen> {
         );
       case _CompanySection.branches:
         return CompanyBranchesScreen(key: key, api: api, companyId: companyId);
+      case _CompanySection.orders:
+        return CompanyOrdersScreen(key: key, api: api, companyId: companyId);
       case _CompanySection.reports:
         return CompanyReportsScreen(key: key, api: api, companyId: companyId);
       case _CompanySection.promotions:
@@ -423,11 +603,18 @@ class _CompanySidebar extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            l10n.companyPortalTitle,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.companyPortalTitle,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const NotificationsBellButton(),
+            ],
           ),
           const SizedBox(height: 8),
           Text(
@@ -467,6 +654,12 @@ class _CompanySidebar extends StatelessWidget {
                   label: l10n.companyNavBranches,
                   selected: selected == _CompanySection.branches,
                   onTap: () => onSelect(_CompanySection.branches),
+                ),
+                _SidebarItem(
+                  icon: Icons.receipt_long_rounded,
+                  label: context.lt(ar: 'الطلبات', en: 'Orders'),
+                  selected: selected == _CompanySection.orders,
+                  onTap: () => onSelect(_CompanySection.orders),
                 ),
                 _SidebarItem(
                   icon: Icons.bar_chart_rounded,

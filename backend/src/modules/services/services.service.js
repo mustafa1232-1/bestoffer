@@ -1,5 +1,6 @@
 ﻿import { AppError } from "../../shared/utils/errors.js";
 import { hashPin, verifyPinDetailed } from "../../shared/utils/hash.js";
+import { isDatabaseUniqueViolation } from "../../shared/utils/errors.js";
 import { createUser, findUserByPhone } from "../auth/auth.repo.js";
 import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
 import {
@@ -12,6 +13,10 @@ import {
   SERVICE_PRICING_MODELS,
 } from "./services.constants.js";
 import * as repo from "./services.repo.js";
+import {
+  getCentralServiceCatalogItem,
+  listCentralServiceCatalog,
+} from "./services.catalog.js";
 import {
   buildWorkspacePermissionPayload,
   hasPermission,
@@ -40,6 +45,10 @@ function normalizePhone(value) {
 
 function normalizePin(value) {
   return normalizeDigits(value).replace(/[^\d]/g, "");
+}
+
+export function listCentralCatalog() {
+  return listCentralServiceCatalog();
 }
 
 function normalizeRole(value) {
@@ -233,7 +242,26 @@ function pricingCta(pricingModel) {
   const key = String(pricingModel || "")
     .trim()
     .toLowerCase();
-  return PRICING_MODE_TO_CTA[key] || "Ø§Ø·Ù„Ø¨ Ø§Ù„Ø®Ø¯Ù…Ø©";
+  return PRICING_MODE_TO_CTA[key] || "اطلب الخدمة";
+}
+
+function serviceRequestStatusLabel(status) {
+  return {
+    pending: "بانتظار المراجعة",
+    awaiting_provider: "بانتظار قبول مقدم الخدمة",
+    accepted: "تم قبول الطلب",
+    scheduled: "تم تحديد الموعد",
+    confirmed: "تم تأكيد الحجز",
+    in_progress: "الخدمة قيد التنفيذ",
+    provider_completed: "أكمل مقدم الخدمة التنفيذ",
+    completed: "اكتملت الخدمة",
+    rejected: "تم رفض الطلب",
+    cancelled: "تم إلغاء الطلب",
+    cancelled_by_customer: "ألغى الزبون الطلب",
+    cancelled_by_provider: "ألغى مقدم الخدمة الطلب",
+    cancelled_by_admin: "ألغت الإدارة الطلب",
+    expired: "انتهت مهلة الطلب",
+  }[status] || status;
 }
 
 function attachPricingDisplay(item) {
@@ -244,8 +272,8 @@ function attachPricingDisplay(item) {
   if (!lead) {
     return {
       ...item,
-      displayPriceText: "Ø¨Ø¹Ø¯ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©",
-      bookingCta: "Ø§Ø·Ù„Ø¨ ØªØ³Ø¹ÙŠØ±",
+      displayPriceText: "بعد المعاينة",
+      bookingCta: "اطلب تسعيراً",
       leadPricing: null,
     };
   }
@@ -254,16 +282,20 @@ function attachPricingDisplay(item) {
     .trim()
     .toLowerCase();
   const amount = lead.amount == null ? null : Number(lead.amount);
-  let displayPriceText = "Ø¨Ø¹Ø¯ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©";
+  const customPriceLabel = String(lead.label || "").trim();
+  const customPriceSuffix = customPriceLabel ? ` ${customPriceLabel}` : "";
+  let displayPriceText = "بعد المعاينة";
   if (model === "starting_from" && amount != null) {
-    displayPriceText = `ÙŠØ¨Ø¯Ø£ Ù…Ù† ${amount}`;
+    displayPriceText = `يبدأ من ${amount}${customPriceSuffix}`;
   } else if (["inspection_required", "custom_quote"].includes(model)) {
     displayPriceText =
       model === "inspection_required"
-        ? "Ø­Ø³Ø¨ Ø§Ù„Ù…Ø¹Ø§ÙŠÙ†Ø©"
-        : "ØªØ³Ø¹ÙŠØ± Ù…Ø®ØµØµ";
+        ? "حسب المعاينة"
+        : "تسعير مخصص";
   } else if (amount != null) {
-    displayPriceText = `${amount} / ${lead.pricingUnit || "Ø®Ø¯Ù…Ø©"}`;
+    displayPriceText = customPriceLabel
+      ? `${amount}${customPriceSuffix}`
+      : `${amount} / ${lead.pricingUnit || "خدمة"}`;
   }
 
   return {
@@ -795,11 +827,27 @@ export async function createOffering({
   mediaUrls = [],
 }) {
   await ensureProviderPermission({ userId, userRole }, "create_services");
-  const offering = await repo.createOfferingForProvider({
-    userId,
-    dto,
-    mediaUrls,
-  });
+  let offering;
+  try {
+    offering = await repo.createOfferingForProvider({
+      userId,
+      dto,
+      mediaUrls,
+    });
+  } catch (error) {
+    if (
+      isDatabaseUniqueViolation(
+        error,
+        "uq_service_offerings_provider_name_per_sub",
+      )
+    ) {
+      throw new AppError("SERVICE_OFFERING_NAME_EXISTS", {
+        status: 409,
+        details: { fields: ["name"] },
+      });
+    }
+    throw error;
+  }
   if (!offering) {
     throw new AppError("SERVICE_PROVIDER_PROFILE_NOT_FOUND", { status: 404 });
   }
@@ -814,12 +862,28 @@ export async function updateOffering({
   mediaUrls = [],
 }) {
   await ensureProviderPermission({ userId, userRole }, "edit_services");
-  const offering = await repo.updateOfferingForProvider({
-    userId,
-    offeringId,
-    dto,
-    mediaUrls,
-  });
+  let offering;
+  try {
+    offering = await repo.updateOfferingForProvider({
+      userId,
+      offeringId,
+      dto,
+      mediaUrls,
+    });
+  } catch (error) {
+    if (
+      isDatabaseUniqueViolation(
+        error,
+        "uq_service_offerings_provider_name_per_sub",
+      )
+    ) {
+      throw new AppError("SERVICE_OFFERING_NAME_EXISTS", {
+        status: 409,
+        details: { fields: ["name"] },
+      });
+    }
+    throw error;
+  }
   if (!offering) {
     throw new AppError("SERVICE_OFFERING_NOT_FOUND", { status: 404 });
   }
@@ -928,8 +992,8 @@ export async function createQuote({ userId, userRole, requestId, dto }) {
     await createNotification({
       userId: Number(request.customerUserId),
       type: "services.request.quote_received",
-      title: "ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø¹Ø±Ø¶ Ø³Ø¹Ø± Ù„Ø·Ù„Ø¨Ùƒ",
-      body: "Ø±Ø§Ø¬Ø¹ Ø§Ù„Ø¹Ø±Ø¶ Ø§Ù„Ø¬Ø¯ÙŠØ¯ ÙˆÙ‚Ø±Ø± Ø§Ù„Ù‚Ø¨ÙˆÙ„ Ø£Ùˆ Ø§Ù„Ø±ÙØ¶.",
+      title: "تم إرسال عرض سعر لطلبك",
+      body: "راجع العرض الجديد وقرر القبول أو الرفض.",
       payload: {
         target: "service_request_details",
         targetModule: "customer",
@@ -957,7 +1021,16 @@ export async function updateRequestStatusByProvider({
       "reject_service_requests",
     );
   } else if (
-    ["accepted", "scheduled", "in_progress", "completed"].includes(
+    [
+      "accepted",
+      "scheduled",
+      "confirmed",
+      "in_progress",
+      "provider_completed",
+      "completed",
+      "cancelled_by_provider",
+      "cancelled_by_admin",
+    ].includes(
       normalizedStatus,
     )
   ) {
@@ -991,8 +1064,8 @@ export async function updateRequestStatusByProvider({
     await createNotification({
       userId: Number(updated.customerUserId),
       type: `services.request.status.${notificationStatus}`,
-      title: "ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø·Ù„Ø¨ Ø§Ù„Ø®Ø¯Ù…Ø©",
-      body: `Ø­Ø§Ù„Ø© Ø·Ù„Ø¨Ùƒ Ø§Ù„Ø¢Ù†: ${notificationStatus}`,
+      title: "تم تحديث حالة طلب الخدمة",
+      body: `طلبك ${updated.requestCode || `#${updated.id}`} أصبح: ${serviceRequestStatusLabel(notificationStatus)}.`,
       payload: {
         target: "service_request_details",
         targetModule: "customer",
@@ -1001,6 +1074,224 @@ export async function updateRequestStatusByProvider({
       },
     }).catch(() => {});
   }
+  return updated;
+}
+
+export async function adjustServiceRequestPrice({
+  userId,
+  userRole,
+  requestId,
+  dto,
+}) {
+  await ensureProviderPermission(
+    { userId, userRole },
+    "accept_service_requests",
+  );
+  const updated = await repo.adjustServiceRequestPriceByProvider({
+    userId,
+    requestId,
+    totalIqd: dto.totalIqd,
+    discountIqd: dto.discountIqd,
+    note: dto.note,
+  });
+  if (!updated) {
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
+  }
+  await createNotification({
+    userId: Number(updated.customerUserId),
+    type: "services.request.invoice.updated",
+    title: "تم تحديث فاتورة الخدمة",
+    body: `أصبحت فاتورة ${updated.offeringName || updated.serviceTitle || "الخدمة"} ${Number(updated.invoiceTotalIqd || 0).toLocaleString("en-US")} د.ع${dto.discountIqd > 0 ? " بعد الخصم" : ""}.`,
+    payload: {
+      target: "service_request_details",
+      targetModule: "customer",
+      requestId: updated.id,
+      requiresAction: true,
+    },
+  }).catch(() => {});
+  return updated;
+}
+
+export async function applyServiceRequestCoupon({ userId, requestId, code }) {
+  const updated = await repo.applyCouponToServiceRequest({
+    userId,
+    requestId,
+    code,
+  });
+  if (!updated) {
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
+  }
+  return updated;
+}
+
+export async function submitServiceRequestPayment({ userId, requestId, dto }) {
+  const updated = await repo.submitServiceRequestPayment({
+    userId,
+    requestId,
+    paymentMethod: dto.paymentMethod,
+    note: dto.note,
+  });
+  if (!updated) {
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
+  }
+  const provider = await repo.getPublicProviderById(updated.providerId).catch(() => null);
+  if (provider?.userId) {
+    await createNotification({
+      userId: Number(provider.userId),
+      type: "services.request.payment.submitted",
+      title: "العميل أكد دفع فاتورة الخدمة",
+      body: `طلب ${updated.requestCode}: أكد العميل دفع ${Number(updated.invoiceTotalIqd || 0).toLocaleString("en-US")} د.ع. راجع التحصيل ثم أكد الاستلام.`,
+      payload: {
+        target: "service_request_details",
+        targetModule: "service_provider",
+        requestId: updated.id,
+        requiresAction: true,
+        urgent: true,
+      },
+    }).catch(() => {});
+  }
+  return updated;
+}
+
+export async function confirmServiceRequestPayment({
+  userId,
+  userRole,
+  requestId,
+  dto,
+}) {
+  await ensureProviderPermission(
+    { userId, userRole },
+    "accept_service_requests",
+  );
+  const updated = await repo.confirmServiceRequestPaymentByProvider({
+    userId,
+    requestId,
+    note: dto.note,
+  });
+  if (!updated) {
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
+  }
+  await createNotification({
+    userId: Number(updated.customerUserId),
+    type: "services.request.payment.confirmed",
+    title: "اكتملت الخدمة وتم تأكيد الدفع",
+    body: `اكتمل طلب ${updated.requestCode} وتم تأكيد فاتورة بقيمة ${Number(updated.invoiceTotalIqd || 0).toLocaleString("en-US")} د.ع.`,
+    payload: {
+      target: "service_request_details",
+      targetModule: "customer",
+      requestId: updated.id,
+      requiresAction: false,
+    },
+  }).catch(() => {});
+  return updated;
+}
+
+export async function listServiceRequestMessages({ userId, requestId }) {
+  const items = await repo.listServiceRequestMessages({ userId, requestId });
+  if (!items) {
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
+  }
+  return items;
+}
+
+export async function sendServiceRequestMessage({ userId, requestId, message }) {
+  const item = await repo.appendServiceRequestMessage({
+    userId,
+    requestId,
+    message,
+  });
+  if (!item) {
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
+  }
+  if (item.recipientUserId) {
+    await createNotification({
+      userId: Number(item.recipientUserId),
+      type: "services.request.message",
+      title: "رسالة جديدة بخصوص طلب خدمة",
+      body: message,
+      payload: {
+        target: "service_request_details",
+        requestId: Number(requestId),
+        requiresAction: true,
+      },
+    }).catch(() => {});
+  }
+  return item;
+}
+
+export async function routeCentralServiceRequest({
+  userId,
+  userRole,
+  requestId,
+  dto,
+}) {
+  await ensureProviderPermission(
+    { userId, userRole },
+    dto.routingStatus === "cancelled"
+      ? "reject_service_requests"
+      : "accept_service_requests",
+  );
+  const updated = await repo.routeCentralServiceRequestByOperator({
+    userId,
+    requestId,
+    dto,
+  });
+  if (!updated) {
+    throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
+  }
+
+  const statusCopy = {
+    triaged: {
+      title: "تمت مراجعة طلب الخدمة",
+      body: `راجع فريق مسلكي طلبك ${updated.requestCode || ""} ويجري اختيار المختص المناسب.`,
+      action: false,
+    },
+    assigned: {
+      title: "تم تعيين مختص لطلبك",
+      body: `${dto.professionalName || updated.assignedProfessionalName || "مختص من فريق مسلكي"} سيتولى ${updated.serviceTitle || "طلب الخدمة"}.`,
+      action: true,
+    },
+    contacted: {
+      title: "تم التواصل بخصوص طلبك",
+      body: `تم التواصل مع ${dto.professionalName || updated.assignedProfessionalName || "الجهة المختصة"} بخصوص ${updated.serviceTitle || "طلبك"}.`,
+      action: true,
+    },
+    en_route: {
+      title: "المختص في الطريق إليك",
+      body: `${dto.professionalName || updated.assignedProfessionalName || "المختص"} تحرك نحو موقعك لتنفيذ ${updated.serviceTitle || "الخدمة"}.`,
+      action: true,
+    },
+    resolved: {
+      title: "تم إنجاز طلب الخدمة",
+      body: `اكتمل ${updated.serviceTitle || "طلب الخدمة"} رقم ${updated.requestCode || updated.id}.`,
+      action: false,
+    },
+    cancelled: {
+      title: "تم إلغاء طلب الخدمة",
+      body: dto.note
+        ? `أُلغي الطلب بسبب: ${dto.note}`
+        : `أُلغي طلب ${updated.serviceTitle || "الخدمة"}. افتح الطلب للتفاصيل.`,
+      action: true,
+    },
+  };
+  const copy = statusCopy[dto.routingStatus] || statusCopy.triaged;
+  await createNotification({
+    userId: Number(updated.customerUserId),
+    type: `services.central.routing.${dto.routingStatus}`,
+    title: copy.title,
+    body: copy.body,
+    payload: {
+      target: updated.urgency === "emergency"
+        ? "customer_emergency_request"
+        : "service_request_details",
+      targetModule: "customer",
+      requestId: updated.id,
+      serviceKey: updated.serviceKey,
+      routingStatus: dto.routingStatus,
+      requiresAction: copy.action,
+      urgent: updated.urgency === "emergency",
+    },
+  }).catch(() => {});
   return updated;
 }
 
@@ -1243,11 +1534,11 @@ export async function createServiceRequest({ userId, dto, attachments = [] }) {
     await createNotification({
       userId: Number(provider.userId),
       type: "services.request.created",
-      title: "Ø·Ù„Ø¨ Ø®Ø¯Ù…Ø© Ø¬Ø¯ÙŠØ¯",
-      body: `Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯ Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ø®ØµÙˆØµ ${created.offeringName || "Ø®Ø¯Ù…Ø©"}.`,
+      title: "طلب خدمة جديد",
+      body: `طلب جديد من العميل بخصوص ${created.offeringName || "خدمة"}.`,
       payload: {
         target: "service_request_details",
-        targetModule: "customer",
+        targetModule: "service_provider",
         requestId: created.id,
         requiresAction: true,
       },
@@ -1269,17 +1560,136 @@ export async function createServiceRequest({ userId, dto, attachments = [] }) {
       providerEmployees.map((employee) => ({
         userId: Number(employee.userId),
         type: "services.request.created",
-        title: "Ø·Ù„Ø¨ Ø®Ø¯Ù…Ø© Ø¬Ø¯ÙŠØ¯",
-        body: `Ø·Ù„Ø¨ Ø¬Ø¯ÙŠØ¯ Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ø®ØµÙˆØµ ${created.offeringName || "Ø®Ø¯Ù…Ø©"}.`,
+        title: "طلب خدمة جديد",
+        body: `طلب جديد من العميل بخصوص ${created.offeringName || "خدمة"}.`,
         payload: {
           target: "service_request_details",
-          targetModule: "customer",
+          targetModule: "service_provider",
           requestId: created.id,
           requiresAction: true,
         },
       })),
     ).catch(() => {});
   }
+
+  return created;
+}
+
+export async function createCentralServiceRequest({
+  userId,
+  dto,
+  attachments = [],
+}) {
+  const catalogItem = getCentralServiceCatalogItem(dto.serviceKey);
+  if (!catalogItem) {
+    throw new AppError("SERVICE_CATEGORY_NOT_FOUND", { status: 404 });
+  }
+  const created = await repo.createCentralServiceRequestByCustomer({
+    customerUserId: userId,
+    dto,
+    attachments,
+  });
+  if (!created) {
+    throw new AppError("MASLAKI_SERVICES_OPERATOR_UNAVAILABLE", {
+      status: 503,
+    });
+  }
+
+  const isEmergency = created.urgency === "emergency";
+  const provider = await repo
+    .getPublicProviderById(created.providerId)
+    .catch(() => null);
+  const recipients = new Map();
+  if (provider?.userId) {
+    recipients.set(Number(provider.userId), Number(provider.userId));
+  }
+  const employees = await repo
+    .listActiveProviderNotificationRecipients({
+      providerId: created.providerId,
+      requiredPermissions: [
+        "view_service_requests",
+        "accept_service_requests",
+        "reject_service_requests",
+      ],
+    })
+    .catch(() => []);
+  for (const employee of employees) {
+    if (employee?.userId) {
+      recipients.set(Number(employee.userId), Number(employee.userId));
+    }
+  }
+
+  if (recipients.size > 0) {
+    const locationText = [created.area, created.addressLine]
+      .filter(Boolean)
+      .join(" - ");
+    await createManyNotifications(
+      [...recipients.values()].map((recipientId) => ({
+        userId: recipientId,
+        type: isEmergency
+          ? "services.central.sos.created"
+          : "services.central.request.created",
+        title: isEmergency
+          ? "نداء SOS جديد - تدخل فوري"
+          : "طلب جديد لخدمات مسلكي",
+        body: isEmergency
+          ? `${catalogItem.title}: ${dto.quickIssue || dto.description}${locationText ? `، الموقع: ${locationText}` : ""}.`
+          : `${catalogItem.title}: ${dto.quickIssue || dto.description}. افتح الطلب لمراجعته وتأكيد الحجز أو إرسال عرض سعر.`,
+        payload: {
+          target: "service_request_details",
+          targetModule: "customer",
+          requestId: created.id,
+          serviceKey: created.serviceKey,
+          urgency: created.urgency,
+          requiresAction: true,
+          persistent: isEmergency,
+          urgent: isEmergency,
+        },
+      })),
+    ).catch(() => {});
+  }
+
+  if (isEmergency) {
+    const superAdminIds = await repo.listSuperAdminUserIds().catch(() => []);
+    if (superAdminIds.length > 0) {
+      await createManyNotifications(
+        superAdminIds.map((recipientId) => ({
+          userId: recipientId,
+          type: "services.central.sos.created",
+          title: "طلب طوارئ جديد - يلزم التدخل",
+          body: `${catalogItem.title}: ${dto.quickIssue || dto.description}. الموقع الحي والمحادثة جاهزان للمتابعة.`,
+          payload: {
+            target: "admin_emergency_request",
+            requestId: created.id,
+            entityId: created.id,
+            emergencyTarget: created.emergencyTarget,
+            requiresAction: true,
+            persistent: true,
+            urgent: true,
+          },
+        })),
+      ).catch(() => {});
+    }
+  }
+
+  await createNotification({
+    userId: Number(userId),
+    type: "services.central.request.received",
+    title: isEmergency ? "استلمنا نداء المساعدة" : "استلمنا طلب خدمتك",
+    body: isEmergency
+      ? `طلب ${created.requestCode} وصل إلى فريق مسلكي ويحتاج إبقاء هاتفك متاحاً للتواصل.`
+      : `طلب ${catalogItem.title} رقم ${created.requestCode} وصل إلى إدارة خدمات مسلكي. سنبلغك عند تأكيد الحجز أو إرسال عرض سعر.`,
+    payload: {
+      target: isEmergency
+        ? "customer_emergency_request"
+        : "service_request_details",
+      targetModule: "customer",
+      requestId: created.id,
+      serviceKey: created.serviceKey,
+      requiresAction: isEmergency,
+      urgent: isEmergency,
+    },
+  }).catch(() => {});
 
   return created;
 }
@@ -1304,6 +1714,76 @@ export async function getMyRequest({ userId, requestId }) {
   if (!item) {
     throw new AppError("SERVICE_REQUEST_NOT_FOUND", { status: 404 });
   }
+  return item;
+}
+
+export async function updateEmergencyLocation({ userId, requestId, dto }) {
+  const location = await repo.appendEmergencyLocation({
+    userId,
+    requestId,
+    dto,
+  });
+  if (!location) {
+    throw new AppError("EMERGENCY_REQUEST_NOT_FOUND", { status: 404 });
+  }
+  return location;
+}
+
+export async function getEmergencyThread({ userId, requestId, admin = false }) {
+  const thread = await repo.getEmergencyThread({
+    userId,
+    requestId,
+    admin,
+  });
+  if (!thread) {
+    throw new AppError("EMERGENCY_REQUEST_NOT_FOUND", { status: 404 });
+  }
+  return thread;
+}
+
+export async function sendEmergencyMessage({
+  userId,
+  requestId,
+  message,
+  admin = false,
+}) {
+  const item = await repo.appendEmergencyMessage({
+    userId,
+    requestId,
+    message,
+    admin,
+  });
+  if (!item) {
+    throw new AppError("EMERGENCY_REQUEST_NOT_FOUND", { status: 404 });
+  }
+
+  const thread = await repo.getEmergencyThread({
+    userId,
+    requestId,
+    admin: true,
+  });
+  const request = thread?.request;
+  const recipients = admin
+    ? [Number(request?.customerUserId || 0)]
+    : await repo.listSuperAdminUserIds().catch(() => []);
+  await createManyNotifications(
+    recipients
+      .filter((id) => Number.isInteger(id) && id > 0 && id !== Number(userId))
+      .map((recipientId) => ({
+        userId: recipientId,
+        type: "services.central.sos.message",
+        title: admin ? "رسالة من فريق طوارئ مسلكي" : "رسالة جديدة في طلب طوارئ",
+        body: message,
+        payload: {
+          target: admin ? "customer_emergency_request" : "admin_emergency_request",
+          requestId: Number(requestId),
+          entityId: Number(requestId),
+          requiresAction: true,
+          persistent: true,
+          urgent: true,
+        },
+      })),
+  ).catch(() => {});
   return item;
 }
 
@@ -1418,8 +1898,8 @@ export async function adminUpdateProviderStatus({
     await createNotification({
       userId: Number(provider.userId),
       type: `services.provider.status.${dto.status}`,
-      title: "ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ù…Ø²ÙˆØ¯ Ø§Ù„Ø®Ø¯Ù…Ø©",
-      body: `ØªÙ… ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø­Ø³Ø§Ø¨Ùƒ Ø¥Ù„Ù‰: ${dto.status}`,
+      title: "تحديث حالة مزود الخدمة",
+      body: `تم تحديث حالة حسابك إلى: ${dto.status}`,
       payload: {
         target: "services_provider_workspace",
         targetModule: "customer",
@@ -1437,6 +1917,26 @@ export async function listOfferingsForAdmin({ query }) {
     limit: query.limit,
     offset: query.offset,
   });
+}
+
+export async function listCategoriesForAdmin() {
+  return repo.listCategoriesForAdmin();
+}
+
+export async function adminUpdateOfferingDetails({
+  offeringId,
+  dto,
+  adminUserId,
+}) {
+  const offering = await repo.adminUpdateOfferingDetails({
+    offeringId,
+    dto,
+    adminUserId,
+  });
+  if (!offering) {
+    throw new AppError("SERVICE_OFFERING_NOT_FOUND", { status: 404 });
+  }
+  return offering;
 }
 
 export async function adminUpdateOfferingStatus({
@@ -1513,6 +2013,13 @@ export async function adminReviewReport({ reportId, dto, adminUserId }) {
 export async function listRequestsForAdmin({ query }) {
   return repo.listServiceRequestsForAdmin({
     status: query.requestStatus || null,
+    limit: query.limit || 60,
+    offset: query.offset || 0,
+  });
+}
+
+export async function listEmergencyRequestsForAdmin({ query }) {
+  return repo.listEmergencyRequestsForAdmin({
     limit: query.limit || 60,
     offset: query.offset || 0,
   });

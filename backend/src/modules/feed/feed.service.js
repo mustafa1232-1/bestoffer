@@ -1,4 +1,6 @@
 import { AppError } from "../../shared/utils/errors.js";
+import { issueSocialCallVoiceToken, socialCallVoiceConfigured, processSocialCallVoiceCleanup } from "./feed.call-voice.js";
+import { q } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import { getStoryAudienceScopeFeatureState } from "./feed.capabilities.js";
 import { emitRealtimeToUser as emitToUser } from "../../shared/realtime/realtime-gateway.js";
@@ -27,6 +29,7 @@ import * as discoveryService from "./feed.discovery.service.js";
 import * as insightsService from "./feed.insights.service.js";
 import * as mediaService from "./feed.media.service.js";
 import { mapSocialPostProductRow } from "./feed.product.mappers.js";
+import { assertPostInteractionAllowed } from "./feed.post-settings.js";
 import * as recommendationsService from "./feed.recommendations.service.js";
 import * as reelsService from "./feed.reels.service.js";
 import * as repo from "./feed.repo.js";
@@ -175,6 +178,7 @@ function mapPostRow(row) {
   const mapped = mapSocialPostProductRow(row);
   return {
     ...mapped,
+    commentPreview: (row.comment_preview || []).map(mapCommentRow),
     author: {
       ...mapped.author,
       phone: "",
@@ -207,7 +211,7 @@ function mapPostMediaItemRow(row) {
   };
 }
 
-async function attachPostMediaRows(rows) {
+async function attachPostMediaRows(rows, viewerUserId = undefined) {
   if (!Array.isArray(rows) || rows.length <= 0) return rows;
   const postIds = [
     ...new Set(
@@ -217,7 +221,22 @@ async function attachPostMediaRows(rows) {
     ),
   ];
   if (postIds.length <= 0) return rows;
-  const mediaRows = await repo.listPostMediaItemsByPostIds(postIds);
+  const previewIds = rows.filter((row) =>
+    row.story_style?.postSettings?.commentsEnabled !== false
+  ).map((row) => Number(row.id));
+  const [mediaRows, commentRows] = await Promise.all([
+    repo.listPostMediaItemsByPostIds(postIds),
+    viewerUserId === undefined ? [] : repo.listPostCommentPreviews({
+      postIds: previewIds, viewerUserId,
+    }),
+  ]);
+  const commentsByPostId = new Map();
+  for (const comment of commentRows) {
+    const id = Number(comment.post_id);
+    const comments = commentsByPostId.get(id) || [];
+    comments.push(comment);
+    commentsByPostId.set(id, comments);
+  }
   const mediaByPostId = new Map();
   for (const row of mediaRows) {
     const postId = Number(row.post_id);
@@ -230,12 +249,13 @@ async function attachPostMediaRows(rows) {
   return rows.map((row) => ({
     ...row,
     media_gallery: mediaByPostId.get(Number(row.id)) || [],
+    comment_preview: commentsByPostId.get(Number(row.id)) || [],
   }));
 }
 
-async function attachPostMediaRow(row) {
+async function attachPostMediaRow(row, viewerUserId = undefined) {
   if (!row) return row;
-  const enriched = await attachPostMediaRows([row]);
+  const enriched = await attachPostMediaRows([row], viewerUserId);
   return enriched[0] || row;
 }
 
@@ -752,6 +772,8 @@ function normalizeContentLinkPayload(dto = {}) {
   const targetType = String(
     dto.targetType ??
       dto.target_type ??
+      dto.linkTargetType ??
+      dto.link_target_type ??
       dto.contentLinkTargetType ??
       dto.content_link_target_type ??
       ""
@@ -764,19 +786,42 @@ function normalizeContentLinkPayload(dto = {}) {
     throw new AppError("INVALID_SOCIAL_CONTENT_LINK_TARGET", { status: 400 });
   }
   const merchantId =
-    dto.merchantId == null && dto.merchant_id == null
+    dto.linkMerchantId == null &&
+    dto.link_merchant_id == null &&
+    dto.merchantId == null &&
+    dto.merchant_id == null
       ? null
-      : Number(dto.merchantId ?? dto.merchant_id);
+      : Number(
+          dto.linkMerchantId ??
+            dto.link_merchant_id ??
+            dto.merchantId ??
+            dto.merchant_id
+        );
   const productId =
-    dto.productId == null && dto.product_id == null
+    dto.linkProductId == null &&
+    dto.link_product_id == null &&
+    dto.productId == null &&
+    dto.product_id == null
       ? null
-      : Number(dto.productId ?? dto.product_id);
+      : Number(
+          dto.linkProductId ?? dto.link_product_id ?? dto.productId ?? dto.product_id
+        );
   const offerId =
-    dto.offerId == null && dto.offer_id == null ? null : Number(dto.offerId ?? dto.offer_id);
-  const couponId =
-    dto.couponId == null && dto.coupon_id == null
+    dto.linkOfferId == null &&
+    dto.link_offer_id == null &&
+    dto.offerId == null &&
+    dto.offer_id == null
       ? null
-      : Number(dto.couponId ?? dto.coupon_id);
+      : Number(dto.linkOfferId ?? dto.link_offer_id ?? dto.offerId ?? dto.offer_id);
+  const couponId =
+    dto.linkCouponId == null &&
+    dto.link_coupon_id == null &&
+    dto.couponId == null &&
+    dto.coupon_id == null
+      ? null
+      : Number(
+          dto.linkCouponId ?? dto.link_coupon_id ?? dto.couponId ?? dto.coupon_id
+        );
   return {
     targetType,
     merchantId: Number.isInteger(merchantId) && merchantId > 0 ? merchantId : null,
@@ -826,13 +871,16 @@ async function listRankedVisiblePosts({
   mentionedUserId = null,
   search = "",
   includeCommunityScoped = true,
+  feed = "for_you",
 }) {
   const rows = await discoveryRepo.listVisiblePostCandidates({
     viewerUserId,
     viewerBlockCode: viewerScopeCodes.blockCode,
     viewerCompoundCode: viewerScopeCodes.compoundCode,
     viewerBuildingCode: viewerScopeCodes.buildingCode,
-    limit: Math.max((Number(query.limit) || 20) * 4, 48),
+    limit: feed === "for_you"
+      ? Math.max((Number(query.limit) || 20) * 4, 48)
+      : Number(query.limit) || 20,
     beforeId: query.beforeId,
     authorUserId,
     postKinds: kinds,
@@ -840,11 +888,15 @@ async function listRankedVisiblePosts({
     hashtagId,
     mentionedUserId,
     includeCommunityScoped,
+    followingOnly: feed === "following",
   });
-  const enriched = await attachPostDerivedState(rows, viewerUserId);
-  const preferenceRows = await analyticsRepo.listViewerContentPreferenceSignals({
-    viewerUserId,
-  });
+  const [enriched, preferenceRows] = await Promise.all([
+    attachPostDerivedState(rows, viewerUserId),
+    feed === "for_you"
+      ? analyticsRepo.listViewerContentPreferenceSignals({ viewerUserId })
+      : Promise.resolve([]),
+  ]);
+  if (feed !== "for_you") return enriched;
   const ranked = rankFeedRows(enriched, {
     viewerScopeCodes,
     preferenceWeights: buildPreferenceWeightMap(preferenceRows),
@@ -859,8 +911,10 @@ async function recordImpressionsForRows({
 }) {
   const items = Array.isArray(rows) ? rows : [];
   if (items.length <= 0) return;
-  void Promise.allSettled(
-    items
+  void analyticsRepo.recordContentImpressions({
+    viewerUserId,
+    context,
+    items: items
       .map((row) => ({
         contentType:
           String(row.post_kind || row.postKind || "").trim().toLowerCase() === "reel"
@@ -868,16 +922,8 @@ async function recordImpressionsForRows({
             : "post",
         contentId: Number(row.id),
       }))
-      .filter((item) => item.contentId > 0)
-      .map((item) =>
-        analyticsRepo.recordContentImpression({
-          contentType: item.contentType,
-          contentId: item.contentId,
-          viewerUserId,
-          context,
-        })
-      )
-  );
+      .filter((item) => item.contentId > 0),
+  }).catch((error) => console.warn("[social] impression batch failed", error.code || error.name));
 }
 
 function normalizeResidenceChangePayload(dto = {}) {
@@ -1165,6 +1211,10 @@ function mapThreadRow(row, viewerUserId) {
   const muted =
     mutedUntil != null && new Date(mutedUntil).getTime() > Date.now();
   const contextType = normalizeThreadContextType(row.context_type);
+  // Real-estate conversations are intentionally in-app only. Never expose
+  // either participant's phone number through a business thread payload.
+  const privateContactContext =
+    contextType === "real_estate_listing" || contextType === "car_listing";
   const contextSnapshot = parseJsonObject(row.context_snapshot_json);
   const presence = buildThreadPresence(row);
   const group =
@@ -1191,7 +1241,10 @@ function mapThreadRow(row, viewerUserId) {
     contextSnapshot,
     context: row.context || null,
     group,
-    peerPhone: threadKind === "group" ? "" : row.peer_phone || "",
+    peerPhone:
+      threadKind === "group" || privateContactContext
+        ? ""
+        : row.peer_phone || "",
     peer: {
       id: peerId,
       username: threadKind === "group" ? null : row.peer_username || null,
@@ -1199,7 +1252,10 @@ function mapThreadRow(row, viewerUserId) {
         threadKind === "group"
           ? group?.title || row.peer_full_name || ""
           : row.peer_full_name || "",
-      phone: threadKind === "group" ? "" : row.peer_phone || "",
+      phone:
+        threadKind === "group" || privateContactContext
+          ? ""
+          : row.peer_phone || "",
       imageUrl:
         threadKind === "group"
           ? group?.imageUrl || null
@@ -1534,6 +1590,7 @@ function mapCallSession(session, viewerUserId) {
     callerUserId: Number(session.callerUserId),
     calleeUserId: Number(session.calleeUserId),
     status: session.status || "ringing",
+    voiceTransport: session.voiceTransport || "webrtc",
     startedAt: session.startedAt || null,
     answeredAt: session.answeredAt || null,
     endedAt: session.endedAt || null,
@@ -1666,6 +1723,7 @@ async function processSocialCallLifecycle() {
   socialCallLifecycleRunning = true;
   try {
     await processSocialRingingCallTimeoutsAndEmit();
+    await processSocialCallVoiceCleanup();
   } catch (error) {
     console.warn(
       "[social] call lifecycle processing failed",
@@ -2779,6 +2837,85 @@ async function resolveBusinessThreadSeed({ userId, otherUserId, context }) {
   };
 }
 
+export async function contactMarketplaceListing({
+  userId,
+  listingType,
+  listingId,
+}) {
+  const normalizedType = normalizeThreadContextType(listingType);
+  const id = Number(listingId);
+  if (!["car_listing", "real_estate_listing"].includes(normalizedType) ||
+      !Number.isInteger(id) || id <= 0) {
+    throw new AppError("LISTING_NOT_AVAILABLE", { status: 404 });
+  }
+
+  const table = normalizedType === "car_listing" ? "car_listing" : "real_estate_listing";
+  const r = await q(
+    `SELECT l.id,
+            l.title,
+            l.owner_user_id,
+            COALESCE(NULLIF(TRIM(l.phone), ''), u.phone) AS contact_phone,
+            u.full_name AS owner_name
+       FROM ${table} l
+       JOIN app_user u ON u.id = l.owner_user_id
+      WHERE l.id = $1
+        AND l.status = 'active'
+      LIMIT 1`,
+    [id]
+  );
+  const listing = r.rows[0] || null;
+  if (!listing || !String(listing.contact_phone || "").trim()) {
+    throw new AppError("LISTING_CONTACT_UNAVAILABLE", { status: 404 });
+  }
+  if (Number(listing.owner_user_id) === Number(userId)) {
+    throw new AppError("LISTING_OWNER_CONTACT_NOT_ALLOWED", { status: 403 });
+  }
+
+  const caller = await q(
+    `SELECT full_name FROM app_user WHERE id = $1 LIMIT 1`,
+    [Number(userId)]
+  );
+  const callerName = caller.rows[0]?.full_name || "مستخدم";
+  const activityLabel = normalizedType === "car_listing" ? "السيارة" : "العقار";
+  const admins = await q(
+    `SELECT id
+       FROM app_user
+      WHERE role IN ('admin', 'deputy_admin', 'call_center')
+        AND COALESCE(is_account_disabled, FALSE) = FALSE`
+  );
+  await createManyNotifications(
+    admins.rows.map((admin) => ({
+      userId: Number(admin.id),
+      type: "marketplace.contact.requested",
+      title: "طلب اتصال جديد للمراقبة",
+      body: `${callerName} ضغط زر الاتصال على ${activityLabel} «${listing.title || "بدون عنوان"}».`,
+      payload: {
+        target: "admin_marketplace_contacts",
+        targetModule: "admin",
+        target_module: "admin",
+        roleScope: "admin",
+        role_scope: "admin",
+        targetEntity: normalizedType,
+        target_entity: normalizedType,
+        entityId: id,
+        entity_id: id,
+        listingType: normalizedType,
+        listingId: id,
+        callerUserId: Number(userId),
+        ownerUserId: Number(listing.owner_user_id),
+        requiresAction: false,
+      },
+    }))
+  );
+
+  return {
+    ok: true,
+    listingType: normalizedType,
+    listingId: id,
+    phone: String(listing.contact_phone).trim(),
+  };
+}
+
 async function hydrateBusinessThreadContext(row) {
   const threadKind = normalizeThreadKind(row?.thread_kind);
   if (threadKind !== "business") {
@@ -3125,35 +3262,37 @@ export async function updateMyProfile(userId, dto) {
     assertContentAllowed(dto.bio);
   }
 
-  const identityFieldsTouched = [
-    dto.fullName,
-    dto.username,
-  ].some((value) => value !== undefined);
+  if (dto.fullName !== undefined) {
+    await repo.cancelPendingProfileCoreChangeRequestsByUser({
+      userId,
+      note: "Cancelled because user profile names now update immediately.",
+    });
+  }
+
+  const identityFieldsTouched = false;
   let coreChangeRequest = null;
   if (identityFieldsTouched) {
     const current = await repo.findUserSocialProfile(userId);
     if (!current) {
       throw new AppError("USER_NOT_FOUND", { status: 404 });
     }
+    const effectiveUsername =
+      dto.username !== undefined
+        ? String(dto.username || "").trim().toLowerCase() || null
+        : String(current.username || "").trim().toLowerCase() || null;
     const currentSnapshot = {
       fullName: String(current.full_name || "").trim() || null,
-      username: String(current.username || "")
-        .trim()
-        .toLowerCase() || null,
+      username: effectiveUsername,
     };
     const requestedSnapshot = {
       fullName:
         dto.fullName !== undefined
           ? String(dto.fullName || "").trim() || null
           : currentSnapshot.fullName,
-      username:
-        dto.username !== undefined
-          ? String(dto.username || "").trim().toLowerCase() || null
-          : currentSnapshot.username,
+      username: effectiveUsername,
     };
     const hasCoreDiff =
-      requestedSnapshot.fullName !== currentSnapshot.fullName ||
-      requestedSnapshot.username !== currentSnapshot.username;
+      requestedSnapshot.fullName !== currentSnapshot.fullName;
     if (hasCoreDiff) {
       const pending = await repo.findPendingProfileCoreChangeRequestByUser(userId);
       coreChangeRequest = pending
@@ -3189,9 +3328,9 @@ export async function updateMyProfile(userId, dto) {
       }
     }
 
-    // Core identity fields now follow admin approval flow.
+    // Full-name changes still follow admin approval. Usernames are applied
+    // immediately so the social handle updates as soon as the user saves.
     dto.fullName = undefined;
-    dto.username = undefined;
   }
 
   const updated = await repo.updateUserSocialProfile({
@@ -3213,7 +3352,8 @@ export async function updateMyProfile(userId, dto) {
     readReceiptsEnabled: dto.readReceiptsEnabled,
     typingIndicatorsEnabled: dto.typingIndicatorsEnabled,
     preferredLocale: dto.preferredLocale,
-    touchCoreProfileUpdateAt: false,
+    touchCoreProfileUpdateAt:
+      dto.fullName !== undefined || dto.username !== undefined,
   });
   if (!updated) {
     throw new AppError("USER_NOT_FOUND", { status: 404 });
@@ -3373,13 +3513,14 @@ export async function listPosts(viewerUserId, query) {
     viewerScopeCodes,
     kinds: normalizedKind ? [normalizedKind] : null,
     includeCommunityScoped: false,
+    feed: query.feed || "for_you",
   });
   await recordImpressionsForRows({
     viewerUserId,
     rows,
     context: "home_feed",
   });
-  const enrichedRows = await attachPostMediaRows(rows);
+  const enrichedRows = await attachPostMediaRows(rows, viewerUserId);
   return {
     posts: enrichedRows.map(mapPostRow),
     nextCursor:
@@ -3787,7 +3928,7 @@ export async function getPostById(viewerUserId, postId) {
       context: "post_detail",
     });
   }
-  return { post: mapPostRow(await attachPostMediaRow(row)) };
+  return { post: mapPostRow(await attachPostMediaRow(row, viewerUserId)) };
 }
 
 export async function getReelById(viewerUserId, reelId) {
@@ -3959,7 +4100,7 @@ export async function createPost(userId, dto, media) {
   const primaryMedia = preparedMediaItems[0] || null;
   const mediaKind = primaryMedia?.mediaKind || null;
   const mediaUrl = primaryMedia?.mediaUrl || null;
-  const contentLink = normalizeContentLinkPayload(dto);
+  let contentLink = normalizeContentLinkPayload(dto);
 
   let postKind = dto.postKind;
   if (requestedIsReel) {
@@ -3989,16 +4130,30 @@ export async function createPost(userId, dto, media) {
   }
 
   if (postKind === "merchant_review") {
-    if (dto.merchantId == null || dto.reviewRating == null) {
+    if (dto.merchantId == null || dto.reviewRating == null || dto.orderId == null) {
       throw new AppError("MERCHANT_REVIEW_INCOMPLETE", { status: 400 });
     }
+    const reviewProductId =
+      dto.productId == null || dto.productId === "" ? null : Number(dto.productId);
     const eligibility = await repo.getMerchantReviewEligibility({
       customerUserId: userId,
       merchantId: dto.merchantId,
+      orderId: dto.orderId,
+      productId: reviewProductId,
     });
     if (eligibility?.can_review !== true) {
       throw new AppError("MERCHANT_REVIEW_ORDER_REQUIRED", { status: 403 });
     }
+    if (reviewProductId != null) {
+      contentLink = {
+        targetType: "product",
+        merchantId: Number(dto.merchantId),
+        productId: reviewProductId,
+        offerId: null,
+        couponId: null,
+      };
+    }
+    dto.verifiedPurchaseOrderId = Number(eligibility.eligible_order_id);
   }
 
   const inserted = await repo.insertPost({
@@ -4011,6 +4166,8 @@ export async function createPost(userId, dto, media) {
     mediaAssetId: primaryMedia?.mediaAssetId,
     merchantId: dto.merchantId,
     reviewRating: dto.reviewRating,
+    verifiedPurchase: postKind === "merchant_review",
+    verifiedPurchaseOrderId: dto.verifiedPurchaseOrderId,
     sharedEntity: normalizedSharedEntity,
     audienceScopeType: audienceScope.scopeType,
     audienceScopeCode: audienceScope.scopeCode,
@@ -4178,6 +4335,15 @@ export async function createStory(userId, dto, media) {
   assertStoryAudienceScopeAllowed(dto);
   await assertSocialWriteAllowed(userId, "story_create");
   assertContentAllowed(dto.caption || "");
+  // Story attachments are another sharing entry point, including legacy clients.
+  const sharedIds = new Set([
+    dto.storyStyle?.sharedPostId,
+    dto.storyStyle?.attachment?.postId,
+    dto.storyStyle?.attachment?.reelId,
+  ].map(Number).filter((id) => Number.isInteger(id) && id > 0));
+  for (const id of sharedIds) {
+    await resolveSharedEntityForSender({ senderUserId: userId, sharedEntity: { type: "post", id } });
+  }
 
   const mediaAssetId =
     dto?.mediaAssetId == null || dto.mediaAssetId === ""
@@ -4401,6 +4567,7 @@ export async function resolveSharedEntityForSender({
       if (!post?.post) {
         throw new AppError("POST_NOT_FOUND", { status: 404 });
       }
+      assertPostInteractionAllowed(post.post.storyStyle, "share");
       const normalizedKind = String(post.post.postKind || "")
         .trim()
         .toLowerCase();
@@ -4835,6 +5002,7 @@ export async function addComment({ postId, userId, body, parentCommentId = null 
     viewerUserId: userId,
     ownerUserId: post.user_id,
   });
+  assertPostInteractionAllowed(post.story_style, "comment");
 
   if (parentCommentId != null) {
     const parent = await repo.findPostCommentById({
@@ -5985,8 +6153,10 @@ export async function listAdminMonitoredThreadMessages({
 }
 
 export async function listMessages({ userId, threadId, query }) {
-  await repo.touchUserPresence(userId);
-  let thread = await repo.getThreadForUser({ threadId, userId });
+  let [thread] = await Promise.all([
+    repo.getThreadForUser({ threadId, userId }),
+    repo.touchUserPresence(userId),
+  ]);
   if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
   const threadKind = normalizeThreadKind(thread.thread_kind);
   if (threadKind === "private") {
@@ -6015,18 +6185,16 @@ export async function listMessages({ userId, threadId, query }) {
     }
   }
 
-  thread = await hydrateBusinessThreadContext(thread);
-  const presence = buildThreadPresence(thread);
-
-  const rows = await repo.listMessagesForThread({
-    threadId,
-    limit: query.limit,
-    beforeId: query.beforeId,
-  });
-  const pinnedRows =
+  // Membership/block checks above remain authoritative before reading messages.
+  const [hydratedThread, rows, pinnedRows] = await Promise.all([
+    hydrateBusinessThreadContext(thread),
+    repo.listMessagesForThread({ threadId, limit: query.limit, beforeId: query.beforeId }),
     query.beforeId == null
-      ? await repo.listPinnedMessagesForThread({ threadId, limit: 3 })
-      : [];
+      ? repo.listPinnedMessagesForThread({ threadId, limit: 3 })
+      : Promise.resolve([]),
+  ]);
+  thread = hydratedThread;
+  const presence = buildThreadPresence(thread);
   const messageIds = rows
     .map((row) => Number(row.id))
     .concat(pinnedRows.map((row) => Number(row.id)))
@@ -6253,10 +6421,10 @@ export async function translateThreadMessage({
 }
 
 async function resolveThreadSendAccess({ userId, threadId, touchPresence = true }) {
-  if (touchPresence) {
-    await repo.touchUserPresence(userId);
-  }
-  const thread = await repo.getThreadForUser({ threadId, userId });
+  const [thread] = await Promise.all([
+    repo.getThreadForUser({ threadId, userId }),
+    touchPresence ? repo.touchUserPresence(userId) : Promise.resolve(),
+  ]);
   if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
   const threadKind = normalizeThreadKind(thread.thread_kind);
   let messaging = null;
@@ -6419,10 +6587,6 @@ async function insertAndDispatchThreadMessage({
     clientMessageId,
   });
   const wasInserted = inserted?._inserted !== false;
-  if (wasInserted) {
-    await repo.touchThreadLastMessage(threadId);
-  }
-
   const [sender, insertedDetails] = await Promise.all([
     repo.findUserPublicProfile(userId),
     inserted?.id
@@ -6431,6 +6595,7 @@ async function insertAndDispatchThreadMessage({
           messageId: Number(inserted.id),
         })
       : Promise.resolve(null),
+    wasInserted ? repo.touchThreadLastMessage(threadId) : Promise.resolve(),
   ]);
 
   const mapped = mapMessageRow(
@@ -6559,8 +6724,9 @@ export async function sendMessage({
   attachment = null,
   sharedEntity = null,
 }) {
-  await repo.touchUserPresence(userId);
-  const thread = await repo.getThreadForUser({ threadId, userId });
+  const [thread] = await Promise.all([
+    repo.getThreadForUser({ threadId, userId }), repo.touchUserPresence(userId),
+  ]);
   if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
   const threadKind = normalizeThreadKind(thread.thread_kind);
   let messaging = null;
@@ -6642,10 +6808,6 @@ export async function sendMessage({
     clientMessageId,
   });
   const wasInserted = inserted?._inserted !== false;
-  if (wasInserted) {
-    await repo.touchThreadLastMessage(threadId);
-  }
-
   const [sender, insertedDetails] = await Promise.all([
     repo.findUserPublicProfile(userId),
     inserted?.id
@@ -6654,6 +6816,7 @@ export async function sendMessage({
           messageId: Number(inserted.id),
         })
       : Promise.resolve(null),
+    wasInserted ? repo.touchThreadLastMessage(threadId) : Promise.resolve(),
   ]);
 
   const mapped = mapMessageRow(
@@ -7967,6 +8130,15 @@ export async function getThreadCallState({ userId, threadId, signalLimit }) {
   };
 }
 
+export async function getThreadCallVoiceToken({ userId, threadId, sessionId }) {
+  await resolveThreadSendAccess({ userId, threadId, touchPresence: false });
+  const session = await repo.getThreadCallSessionById(sessionId);
+  if (!session || Number(session.threadId) !== Number(threadId)) {
+    throw new AppError("SOCIAL_CALL_SESSION_NOT_FOUND", { status: 404 });
+  }
+  return issueSocialCallVoiceToken({ session, userId });
+}
+
 export async function listCallHistory({ userId, limit }) {
   const calls = await repo.listUserCallHistory(userId, { limit });
   return { calls };
@@ -7979,9 +8151,12 @@ export async function clearThread({ userId, threadId }) {
   return { ok: true };
 }
 
-export async function startThreadCall({ userId, threadId }) {
+export async function startThreadCall({ userId, threadId, preferLiveKit = false }) {
   const thread = await repo.getThreadForUser({ threadId, userId });
   if (!thread) throw new AppError("THREAD_NOT_FOUND", { status: 404 });
+
+  // Calls must obey the same block/request rules as private messages.
+  await resolveThreadSendAccess({ userId, threadId, touchPresence: false });
 
   const peerUserId = Number(thread.peer_user_id);
   if (!Number.isFinite(peerUserId) || peerUserId <= 0 || peerUserId === Number(userId)) {
@@ -7992,6 +8167,7 @@ export async function startThreadCall({ userId, threadId }) {
     threadId,
     callerUserId: userId,
     calleeUserId: peerUserId,
+    voiceTransport: preferLiveKit && socialCallVoiceConfigured() ? "auto" : "webrtc",
   });
   const signal = await repo.insertThreadCallSignal({
     sessionId: session.id,
@@ -8074,6 +8250,13 @@ export async function sendThreadCallSignal({ userId, threadId, dto }) {
     throw new AppError("SOCIAL_CALL_FORBIDDEN", { status: 403 });
   }
 
+  if (!["ringing", "active"].includes(session.status)) {
+    throw new AppError("SOCIAL_CALL_NOT_ACTIVE", { status: 409 });
+  }
+  if (["accept", "answer"].includes(dto.signalType) && Number(session.calleeUserId) !== Number(userId)) {
+    throw new AppError("SOCIAL_CALL_FORBIDDEN", { status: 403 });
+  }
+
   const signal = await repo.insertThreadCallSignal({
     sessionId: session.id,
     threadId,
@@ -8083,7 +8266,11 @@ export async function sendThreadCallSignal({ userId, threadId, dto }) {
   });
 
   if (dto.signalType === "accept" || dto.signalType === "answer") {
-    const answered = await repo.markThreadCallAnswered({ sessionId: session.id });
+    const answered = await repo.markThreadCallAnswered({
+      sessionId: session.id,
+      transport: dto.signalType === "accept" && dto.signalPayload?.transport === "livekit" && socialCallVoiceConfigured()
+        ? "livekit" : "webrtc",
+    });
     if (answered) session = answered;
   } else if (dto.signalType === "decline") {
     const ended = await repo.endThreadCallSession({
@@ -8572,6 +8759,7 @@ export async function listCommunityChat({
         scopeCode: scope.scopeCode,
         limit: query.limit,
         beforeId: query.beforeId,
+        afterId: query.afterId,
       }),
       permissions.canManageChat
         ? repo.listScopeChatBans({
@@ -8631,11 +8819,16 @@ export async function listCommunityChat({
         my_reaction: reactionsByMessage[Number(row.id)]?.myReaction || null,
       }))
       .map((row) => mapScopeChatMessageRow(row, userId))
-      .reverse(),
+      .slice()
+      .sort((left, right) => Number(left.id) - Number(right.id)),
     nextCursor:
       visibleRows.length > 0
         ? Number(visibleRows[visibleRows.length - 1].id)
         : null,
+    latestCursor:
+      rows.length > 0
+        ? Math.max(...rows.map((row) => Number(row.id) || 0))
+        : query.afterId || null,
     bans: bans.map(mapScopeBanRow),
   };
 }

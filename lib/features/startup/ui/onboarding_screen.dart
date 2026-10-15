@@ -53,41 +53,41 @@ class _MaslakiOnboardingScreenState
     _OnboardingServiceTileData(
       title: context.l10n.onboardingRestaurantsTitle,
       icon: Icons.restaurant_menu_rounded,
-      accent: const Color(0xFFFFA23B),
+      accent: const Color(0xFFB88A2D),
       kind: _OnboardingSlideKind.restaurants,
     ),
     _OnboardingServiceTileData(
       title: context.l10n.customerHomeShoppingHubTitle,
       icon: Icons.shopping_bag_rounded,
-      accent: const Color(0xFF4AB8FF),
+      accent: const Color(0xFF2F5D46),
       kind: _OnboardingSlideKind.shopping,
     ),
     _OnboardingServiceTileData(
       title: context.l10n.customerDiscoveryHubPharmacyTitle,
       icon: Icons.local_pharmacy_rounded,
-      accent: const Color(0xFF78D6B4),
+      accent: const Color(0xFF3E7156),
     ),
     _OnboardingServiceTileData(
       title: context.l10n.deliveryAppTitle,
       icon: Icons.local_shipping_rounded,
-      accent: const Color(0xFFE6C98A),
+      accent: const Color(0xFFB88A2D),
     ),
     _OnboardingServiceTileData(
       title: context.l10n.onboardingTaxiTitle,
       icon: Icons.local_taxi_rounded,
-      accent: const Color(0xFFFFD23B),
+      accent: const Color(0xFFC69B3C),
       kind: _OnboardingSlideKind.taxi,
     ),
     _OnboardingServiceTileData(
       title: context.l10n.jobsHubPlatformTitle,
       icon: Icons.work_outline_rounded,
-      accent: const Color(0xFF71DF89),
+      accent: const Color(0xFF2F7D4E),
       kind: _OnboardingSlideKind.jobs,
     ),
     _OnboardingServiceTileData(
       title: context.l10n.socialExploreHeroTitle,
       icon: Icons.groups_rounded,
-      accent: const Color(0xFFC88BFF),
+      accent: const Color(0xFF17324A),
       kind: _OnboardingSlideKind.community,
     ),
   ];
@@ -97,7 +97,7 @@ class _MaslakiOnboardingScreenState
       kind: _OnboardingSlideKind.restaurants,
       title: context.l10n.onboardingRestaurantsTitle,
       description: context.l10n.onboardingRestaurantsDescription,
-      accent: const Color(0xFFFFA23B),
+      accent: const Color(0xFFB88A2D),
       icon: Icons.restaurant_menu_rounded,
       visual: const _FoodVisual(),
     ),
@@ -105,7 +105,7 @@ class _MaslakiOnboardingScreenState
       kind: _OnboardingSlideKind.shopping,
       title: context.l10n.onboardingShoppingTitle,
       description: context.l10n.onboardingShoppingDescription,
-      accent: const Color(0xFF4AB8FF),
+      accent: const Color(0xFF2F5D46),
       icon: Icons.shopping_bag_rounded,
       visual: const _ShoppingVisual(),
     ),
@@ -113,7 +113,7 @@ class _MaslakiOnboardingScreenState
       kind: _OnboardingSlideKind.taxi,
       title: context.l10n.onboardingTaxiTitle,
       description: context.l10n.onboardingTaxiDescription,
-      accent: const Color(0xFFFFD23B),
+      accent: const Color(0xFFC69B3C),
       icon: Icons.local_taxi_rounded,
       visual: const _YellowTaxiVisual(),
     ),
@@ -121,7 +121,7 @@ class _MaslakiOnboardingScreenState
       kind: _OnboardingSlideKind.jobs,
       title: context.l10n.onboardingJobsTitle,
       description: context.l10n.onboardingJobsDescription,
-      accent: const Color(0xFF71DF89),
+      accent: const Color(0xFF2F7D4E),
       icon: Icons.work_outline_rounded,
       visual: const _JobsVisual(),
     ),
@@ -129,7 +129,7 @@ class _MaslakiOnboardingScreenState
       kind: _OnboardingSlideKind.community,
       title: context.l10n.onboardingCommunityTitle,
       description: context.l10n.onboardingCommunityDescription,
-      accent: const Color(0xFFC88BFF),
+      accent: const Color(0xFF17324A),
       icon: Icons.groups_rounded,
       visual: const _CommunityVisual(),
     ),
@@ -137,7 +137,7 @@ class _MaslakiOnboardingScreenState
       kind: _OnboardingSlideKind.permissions,
       title: context.l10n.onboardingPermissionsTitle,
       description: context.l10n.onboardingPermissionsDescription,
-      accent: const Color(0xFF43D6FF),
+      accent: const Color(0xFF2F5D46),
       icon: Icons.verified_user_rounded,
       visual: const _PermissionsVisual(),
       permissionsStep: true,
@@ -263,13 +263,15 @@ class _MaslakiOnboardingScreenState
             child: DecoratedBox(
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                border: Border.all(
+                  color: tokens.borderSubtle.withValues(alpha: 0.52),
+                ),
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [
-                    Colors.white.withValues(alpha: 0.08),
-                    Colors.white.withValues(alpha: 0.02),
+                    tokens.surfacePrimary.withValues(alpha: 0.78),
+                    tokens.cardElevated.withValues(alpha: 0.46),
                   ],
                 ),
               ),
@@ -343,7 +345,7 @@ class _MaslakiOnboardingScreenState
       radius: 30,
       padding: const EdgeInsets.all(18),
       backgroundColor: tokens.cardPrimary.withValues(alpha: 0.74),
-      borderColor: Colors.white.withValues(alpha: 0.10),
+      borderColor: tokens.borderSubtle.withValues(alpha: 0.72),
       gradient: LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
@@ -465,7 +467,7 @@ class _MaslakiOnboardingScreenState
                     radius: 24,
                     padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                     backgroundColor: tokens.cardPrimary.withValues(alpha: 0.68),
-                    borderColor: Colors.white.withValues(alpha: 0.08),
+                    borderColor: tokens.borderSubtle.withValues(alpha: 0.68),
                     child: Column(
                       children: [
                         Row(
@@ -481,7 +483,9 @@ class _MaslakiOnboardingScreenState
                                 borderRadius: BorderRadius.circular(999),
                                 color: _pageIndex == index
                                     ? current.accent
-                                    : Colors.white.withValues(alpha: 0.22),
+                                    : tokens.borderSubtle.withValues(
+                                        alpha: 0.72,
+                                      ),
                               ),
                             ),
                           ),
@@ -500,8 +504,8 @@ class _MaslakiOnboardingScreenState
                                   style: OutlinedButton.styleFrom(
                                     foregroundColor: tokens.textPrimary,
                                     side: BorderSide(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.16,
+                                      color: tokens.borderSubtle.withValues(
+                                        alpha: 0.86,
                                       ),
                                     ),
                                     padding: const EdgeInsets.symmetric(
@@ -520,7 +524,7 @@ class _MaslakiOnboardingScreenState
                               child: FilledButton.icon(
                                 style: FilledButton.styleFrom(
                                   backgroundColor: current.accent,
-                                  foregroundColor: const Color(0xFF08132D),
+                                  foregroundColor: Colors.white,
                                   padding: const EdgeInsets.symmetric(
                                     vertical: 16,
                                   ),
@@ -937,14 +941,15 @@ class _PermissionInfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     final accentColor = granted
-        ? const Color(0xFF71DF89)
-        : (warning ? const Color(0xFFFFA23B) : const Color(0xFF43D6FF));
+        ? tokens.success
+        : (warning ? tokens.warning : tokens.primaryAccent);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: tokens.surfacePrimary.withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        border: Border.all(color: accentColor.withValues(alpha: 0.24)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -970,8 +975,8 @@ class _PermissionInfoTile extends StatelessWidget {
                       Expanded(
                         child: Text(
                           title,
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: tokens.textPrimary,
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
                           ),
@@ -989,7 +994,7 @@ class _PermissionInfoTile extends StatelessWidget {
                   Text(
                     description,
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.82),
+                      color: tokens.textSecondary,
                       height: 1.4,
                       fontSize: 13.5,
                     ),
@@ -1027,14 +1032,15 @@ class _PermissionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     final accentColor = granted
-        ? const Color(0xFF71DF89)
-        : (warning ? const Color(0xFFFFA23B) : const Color(0xFF43D6FF));
+        ? tokens.success
+        : (warning ? tokens.warning : tokens.primaryAccent);
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: tokens.surfacePrimary.withValues(alpha: 0.78),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        border: Border.all(color: accentColor.withValues(alpha: 0.24)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1056,8 +1062,8 @@ class _PermissionTile extends StatelessWidget {
                 Expanded(
                   child: Text(
                     title,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: tokens.textPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
                     ),
@@ -1075,7 +1081,7 @@ class _PermissionTile extends StatelessWidget {
             Text(
               description,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.82),
+                color: tokens.textSecondary,
                 height: 1.4,
                 fontSize: 13.5,
               ),
@@ -1086,7 +1092,7 @@ class _PermissionTile extends StatelessWidget {
               child: OutlinedButton(
                 onPressed: loading ? null : () => onTap(),
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
+                  foregroundColor: accentColor,
                   side: BorderSide(color: accentColor.withValues(alpha: 0.82)),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),

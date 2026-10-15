@@ -20,6 +20,8 @@ import 'package:maslaki/features/customer/ui/customer_home_selector_screen.dart'
 import 'package:maslaki/features/customer/ui/maslaki_user_shell.dart';
 import 'package:maslaki/features/startup/ui/app_first_launch_screen.dart';
 import 'package:maslaki/features/notifications/data/notifications_api.dart';
+import 'package:maslaki/features/services/ui/maslaki_services_operations_screen.dart';
+import 'package:maslaki/features/services/ui/service_provider_workspace_screen.dart';
 import 'package:maslaki/features/startup/state/app_startup_controller.dart';
 
 class _FakeAuthController extends AuthController {
@@ -122,7 +124,7 @@ class _FakePushNotificationService extends PushNotificationService {
   Future<void> initialize() async {}
 
   @override
-  Future<void> syncToken({required int userId}) async {}
+  Future<bool> syncToken({required int userId}) async => true;
 
   @override
   Future<void> unregisterCurrentToken() async {}
@@ -165,7 +167,7 @@ UserModel _superAdminUser() {
   return UserModel(
     id: 78,
     fullName: 'Super Admin',
-    phone: '07746515247',
+    phone: '07700000001',
     role: 'admin',
     block: 'A1',
     buildingNumber: '1',
@@ -182,7 +184,7 @@ UserModel _backofficeUserWithoutExplicitSuperFlag() {
   return UserModel(
     id: 79,
     fullName: 'Backoffice Admin',
-    phone: '07746515247',
+    phone: '07700000001',
     role: 'admin',
     block: 'A1',
     buildingNumber: '1',
@@ -204,6 +206,41 @@ UserModel _serviceProviderUser() {
     block: 'A1',
     buildingNumber: '2',
     apartment: '8',
+    imageUrl: null,
+    workTitle: null,
+    workCompany: null,
+    preferredLocale: 'ar',
+    isSuperAdmin: false,
+  );
+}
+
+UserModel _maslakiServicesOperatorUser() {
+  return UserModel(
+    id: 82,
+    fullName: 'Maslaki Services Operations',
+    phone: '07800000002',
+    role: 'service_provider',
+    block: 'A1',
+    buildingNumber: '1',
+    apartment: '1',
+    imageUrl: null,
+    workTitle: null,
+    workCompany: null,
+    preferredLocale: 'ar',
+    isSuperAdmin: false,
+    isServicesOperator: true,
+  );
+}
+
+UserModel _staffUser() {
+  return UserModel(
+    id: 81,
+    fullName: 'Ads Manager',
+    phone: '07790000000',
+    role: 'staff',
+    block: 'A1',
+    buildingNumber: '3',
+    apartment: '9',
     imageUrl: null,
     workTitle: null,
     workCompany: null,
@@ -444,6 +481,57 @@ void main() {
   );
 
   testWidgets(
+    'authenticated staff user opens the admin dashboard from the user app',
+    (tester) async {
+      late _FakeAuthController authController;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith((ref) {
+              authController = _FakeAuthController(
+                ref,
+                AuthState(user: _staffUser(), token: 'staff-token'),
+              );
+              return authController;
+            }),
+            dioClientProvider.overrideWithValue(
+              DioClient(_MemorySecureStore()),
+            ),
+            appStartupControllerProvider.overrideWith(
+              (ref) => _FakeStartupController(),
+            ),
+            appSettingsControllerProvider.overrideWith(
+              (ref) => _FakeSettingsController(),
+            ),
+            sectionAvailabilityControllerProvider.overrideWith(
+              (ref) => _FakeSectionAvailabilityController(ref),
+            ),
+            maslakiRealtimeServiceProvider.overrideWithValue(
+              _FakeMaslakiRealtimeService(),
+            ),
+            localNotificationsProvider.overrideWithValue(
+              _FakeLocalNotificationService(),
+            ),
+            pushNotificationsProvider.overrideWithValue(
+              _FakePushNotificationService(),
+            ),
+          ],
+          child: const MaslakiApp(),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.byType(AdminDashboardScreen), findsOneWidget);
+      expect(find.byType(MaslakiUserShell), findsNothing);
+      expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
+      expect(authController.logoutCalls, 0);
+    },
+  );
+
+  testWidgets(
     'authenticated service provider stays signed in and reaches the user shell',
     (tester) async {
       late _FakeAuthController authController;
@@ -497,6 +585,73 @@ void main() {
       // Unmount so the home ad-carousel's periodic timer is cancelled in its
       // dispose() before the test ends (Flutter 3.47's test binding flags a
       // still-pending timer otherwise).
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'Maslaki services operator is isolated to the operations screen',
+    (tester) async {
+      late _FakeAuthController authController;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authControllerProvider.overrideWith((ref) {
+              authController = _FakeAuthController(
+                ref,
+                AuthState(
+                  user: _maslakiServicesOperatorUser(),
+                  token: 'services-operator-token',
+                ),
+              );
+              return authController;
+            }),
+            dioClientProvider.overrideWithValue(
+              DioClient(_MemorySecureStore()),
+            ),
+            appStartupControllerProvider.overrideWith(
+              (ref) => _FakeStartupController(),
+            ),
+            appSettingsControllerProvider.overrideWith(
+              (ref) => _FakeSettingsController(),
+            ),
+            sectionAvailabilityControllerProvider.overrideWith(
+              (ref) => _FakeSectionAvailabilityController(ref),
+            ),
+            maslakiRealtimeServiceProvider.overrideWithValue(
+              _FakeMaslakiRealtimeService(),
+            ),
+            localNotificationsProvider.overrideWithValue(
+              _FakeLocalNotificationService(),
+            ),
+            pushNotificationsProvider.overrideWithValue(
+              _FakePushNotificationService(),
+            ),
+          ],
+          child: const MaslakiApp(),
+        ),
+      );
+
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.byType(MaslakiServicesOperationsScreen), findsOneWidget);
+      expect(find.byType(MaslakiUserShell), findsNothing);
+      expect(find.byType(CustomerHomeSelectorScreen), findsNothing);
+      expect(find.byType(AdminDashboardScreen), findsNothing);
+      expect(find.text('استقبال الطلبات'), findsOneWidget);
+      expect(find.text('نشر وإدارة الخدمات'), findsOneWidget);
+
+      await tester.tap(find.text('نشر وإدارة الخدمات'));
+      await tester.pump();
+
+      expect(find.byType(ServiceProviderWorkspaceScreen), findsOneWidget);
+      expect(find.text('خدمة جديدة'), findsOneWidget);
+      expect(find.byType(MaslakiUserShell), findsNothing);
+      expect(find.byType(AdminDashboardScreen), findsNothing);
+      expect(authController.logoutCalls, 0);
+
       await tester.pumpWidget(const SizedBox());
     },
   );

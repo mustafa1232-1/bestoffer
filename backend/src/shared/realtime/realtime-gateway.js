@@ -259,6 +259,16 @@ async function ensureTopicMembership(topic) {
       if (result?.ok === true) {
         return { ready: true, retryable: false, reason: "ok" };
       }
+      if (
+        result?.skipped === true &&
+        result?.reason === "invalid_membership_input"
+      ) {
+        return {
+          ready: false,
+          retryable: false,
+          reason: result.reason,
+        };
+      }
       dependencies.logger.warn?.("[realtime-gateway] membership unavailable", {
         event: "realtime_membership_unavailable",
         topic: safeTopic,
@@ -358,7 +368,12 @@ export async function emitRealtimeToUser(
     options,
   });
 
-  await publishSupabaseWithFallback(primaryTopic, normalizedEvent, baseEnvelope);
+  const primaryResult = await publishSupabaseWithFallback(primaryTopic, normalizedEvent, baseEnvelope);
+  // Durable producers retain their own journal entry until delivery or the
+  // shared outbox acknowledges ownership. Legacy best-effort callers are unchanged.
+  if (options.requireDurable && !primaryResult.ok && !primaryResult.queued) {
+    throw new Error('REALTIME_DELIVERY_NOT_DURABLE');
+  }
 
   const sharedTopics = collectSharedTopics(normalizedEvent, data, options).filter(
     (value) => value && value !== primaryTopic

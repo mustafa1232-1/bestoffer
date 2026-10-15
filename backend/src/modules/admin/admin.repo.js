@@ -428,6 +428,7 @@ export async function listSocialUsersForModeration({
        u.updated_at
      FROM app_user u
      WHERE ($1::bigint IS NULL OR u.id < $1::bigint)
+       AND COALESCE(u.account_deleted, FALSE) = FALSE
        AND (
          $2::text = ''
          OR LOWER(COALESCE(u.username, '')) LIKE $3::text
@@ -1724,37 +1725,12 @@ export async function approveProfileCoreChangeRequest({
       requested.fullName == null
         ? null
         : String(requested.fullName || "").trim() || null;
-    const nextUsername =
-      requested.username == null
-        ? null
-        : String(requested.username || "").trim().toLowerCase() || null;
-
-    if (nextUsername != null) {
-      const taken = await client.query(
-        `SELECT 1
-         FROM app_user
-         WHERE LOWER(username) = $1
-           AND id <> $2
-         LIMIT 1`,
-        [nextUsername, Number(request.user_id)]
-      );
-      if (taken.rowCount > 0) {
-        const err = new Error("USERNAME_TAKEN");
-        err.code = "USERNAME_TAKEN";
-        err.status = 409;
-        throw err;
-      }
-    }
 
     const sets = [];
     const params = [Number(request.user_id)];
     if (nextFullName != null) {
       params.push(nextFullName);
       sets.push(`full_name = $${params.length}`);
-    }
-    if (nextUsername != null) {
-      params.push(nextUsername);
-      sets.push(`username = $${params.length}`);
     }
     if (sets.length > 0) {
       await client.query(

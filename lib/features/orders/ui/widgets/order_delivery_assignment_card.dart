@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/i18n/locale_text.dart';
 import '../../../../core/media/cached_app_image.dart';
+import '../../../../core/theme/app_theme.dart';
 import '../../../orders/models/delivery_assignment_model.dart';
 
 class OrderDeliveryAssignmentCard extends StatelessWidget {
@@ -28,6 +29,7 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     final driver = assignment?.driver;
     final status = (assignment?.assignmentStatus ?? '').trim().toUpperCase();
     final isAssigned = assignment?.isAssigned == true;
@@ -48,8 +50,8 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
         padding: EdgeInsets.all(compact ? 10 : 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
-          color: Colors.white.withValues(alpha: 0.05),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+          color: tokens.surfaceSecondary.withValues(alpha: 0.82),
+          border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.9)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -92,8 +94,8 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
       padding: EdgeInsets.all(compact ? 10 : 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: Colors.white.withValues(alpha: 0.05),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        color: tokens.surfaceSecondary.withValues(alpha: 0.82),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.9)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -128,7 +130,8 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
                     Text(
                       driver.name ?? '—',
                       textDirection: TextDirection.rtl,
-                      style: const TextStyle(
+                      style: TextStyle(
+                        color: tokens.textPrimary,
                         fontWeight: FontWeight.w800,
                         fontSize: 15,
                       ),
@@ -139,7 +142,8 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
                         driver.phone!,
                         textDirection: TextDirection.rtl,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.78),
+                          color: tokens.textSecondary,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
@@ -152,7 +156,8 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.76),
+                        color: tokens.textSecondary,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
@@ -170,7 +175,10 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
                     ),
                     Text(
                       driver.rating!.toStringAsFixed(1),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ],
                 ),
@@ -183,8 +191,8 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
               'Assignment #${assignment!.assignmentId}',
               textDirection: TextDirection.rtl,
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.74),
-                fontWeight: FontWeight.w600,
+                color: tokens.textMuted,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -192,7 +200,10 @@ class OrderDeliveryAssignmentCard extends StatelessWidget {
           Text(
             helperText,
             textDirection: TextDirection.rtl,
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.72)),
+            style: TextStyle(
+              color: tokens.textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           if (onCall != null || onChat != null) ...[
             const SizedBox(height: 10),
@@ -283,11 +294,14 @@ class _DriverAvatarFallback extends StatelessWidget {
         .map((part) => part.substring(0, 1))
         .join();
     return Container(
-      color: Colors.white.withValues(alpha: 0.08),
+      color: context.maslakiTokens.primaryAccent.withValues(alpha: 0.12),
       alignment: Alignment.center,
       child: Text(
         initials.isNotEmpty ? initials : 'D',
-        style: const TextStyle(fontWeight: FontWeight.w800),
+        style: TextStyle(
+          color: context.maslakiTokens.primaryAccent,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }

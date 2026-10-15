@@ -6,19 +6,27 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/i18n/locale_text.dart';
+import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/utils/order_status.dart';
 import '../../orders/models/order_model.dart';
 import '../../orders/ui/order_chat_screen.dart';
 import '../../tracking/ui/delivery_live_tracking_screen.dart';
+import '../../../core/navigation/waze_navigation.dart';
 import '../state/delivery_controller.dart';
+import 'delivery_reconciliation_sheets.dart';
 import '../../orders/ui/widgets/order_item_widgets.dart';
 import '../../orders/ui/widgets/order_revision_widgets.dart';
 
 class DeliveryOrderDetailScreen extends ConsumerStatefulWidget {
-  const DeliveryOrderDetailScreen({super.key, required this.orderId});
+  const DeliveryOrderDetailScreen({
+    super.key,
+    required this.orderId,
+    this.autoRefreshInterval = const Duration(seconds: 4),
+  });
 
   final int orderId;
+  final Duration autoRefreshInterval;
 
   @override
   ConsumerState<DeliveryOrderDetailScreen> createState() =>
@@ -28,7 +36,9 @@ class DeliveryOrderDetailScreen extends ConsumerStatefulWidget {
 class _DeliveryOrderDetailScreenState
     extends ConsumerState<DeliveryOrderDetailScreen> {
   Map<String, dynamic>? _detail;
+  Timer? _autoRefreshTimer;
   bool _loading = true;
+  bool _loadInFlight = false;
   bool _actionInFlight = false;
   String? _error;
 
@@ -36,13 +46,30 @@ class _DeliveryOrderDetailScreenState
   void initState() {
     super.initState();
     unawaited(_load());
+    _startAutoRefresh();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
+  void _startAutoRefresh() {
+    if (widget.autoRefreshInterval == Duration.zero ||
+        widget.autoRefreshInterval.isNegative) {
+      return;
+    }
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = Timer.periodic(widget.autoRefreshInterval, (_) {
+      if (!mounted || _actionInFlight) return;
+      unawaited(_load(silent: true));
     });
+  }
+
+  Future<void> _load({bool silent = false}) async {
+    if (_loadInFlight) return;
+    _loadInFlight = true;
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final detail = await ref
           .read(deliveryApiProvider)
@@ -51,17 +78,25 @@ class _DeliveryOrderDetailScreenState
       setState(() {
         _detail = detail;
         _loading = false;
+        _error = null;
       });
     } on DioException catch (error) {
       if (!mounted) return;
+      if (silent) return;
       setState(() {
         _loading = false;
-        _error =
-            '${error.response?.data is Map ? (error.response?.data['message'] ?? '') : ''}'
-                .trim();
+        _error = mapDioError(
+          error,
+          fallback: context.lt(
+            ar: 'ØªØ¹Ø°Ø± ØªØ­Ù…ÙŠÙ„ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø·Ù„Ø¨.',
+            en: 'Failed to load order details.',
+          ),
+          appendRequestId: true,
+        );
       });
     } catch (_) {
       if (!mounted) return;
+      if (silent) return;
       setState(() {
         _loading = false;
         _error = context.lt(
@@ -69,7 +104,15 @@ class _DeliveryOrderDetailScreenState
           en: 'Failed to load order details.',
         );
       });
+    } finally {
+      _loadInFlight = false;
     }
+  }
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
   }
 
   Map<String, dynamic> get _orderMap {
@@ -146,6 +189,26 @@ class _DeliveryOrderDetailScreenState
     );
   }
 
+  double? _double(dynamic value) {
+    if (value == null) return null;
+    if (value is num) return value.toDouble();
+    final parsed = double.tryParse('$value');
+    return parsed?.isFinite == true ? parsed : null;
+  }
+
+  Future<void> _openMap({
+    required String label,
+    String? query,
+    double? latitude,
+    double? longitude,
+  }) async {
+    await openWazeNavigation(
+      latitude: latitude,
+      longitude: longitude,
+      query: query ?? label,
+    );
+  }
+
   Future<void> _runAction(String action) async {
     if (_actionInFlight) return;
     setState(() => _actionInFlight = true);
@@ -159,13 +222,34 @@ class _DeliveryOrderDetailScreenState
           await controller.rejectRequest(widget.orderId);
           break;
         case 'picked_up':
-          await controller.pickedUpOrder(widget.orderId);
+          final pickup = await showCourierPickupSettlementSheet(
+            context,
+            expectedStoreAmount: _money(
+              _invoice['subtotal'],
+            ).clamp(0, double.infinity),
+          );
+          if (pickup == null) break;
+          await controller.pickedUpOrder(
+            widget.orderId,
+            merchantPaidActual: pickup.merchantPaidActual,
+            receiptFile: pickup.receiptFile,
+            withoutReceipt: pickup.withoutReceipt,
+            merchantPaymentNote: pickup.note,
+          );
           break;
         case 'arrived':
           await controller.arrivedOrder(widget.orderId);
           break;
         case 'delivered':
-          await controller.deliveredOrder(widget.orderId);
+          final delivery = await showCourierDeliveryCashSheet(
+            context,
+            invoiceTotal: _money(_invoice['totalAmount']),
+          );
+          if (delivery == null) break;
+          await controller.deliveredOrder(
+            widget.orderId,
+            customerReceivedActual: delivery.customerReceivedActual,
+          );
           break;
         default:
           break;
@@ -386,6 +470,12 @@ class _DeliveryOrderDetailScreenState
         _string(_invoice['paymentMethodOther']) ??
         _string(_invoice['paymentMethod']);
     final isCashPayment = (paymentMethod ?? '').toLowerCase().contains('cash');
+    final customerAddressQuery = [
+      order?.customerCity,
+      order?.customerBlock,
+      order?.customerBuildingNumber,
+      order?.customerApartment,
+    ].whereType<String>().where((part) => part.trim().isNotEmpty).join(' ');
 
     return Scaffold(
       appBar: AppBar(
@@ -482,6 +572,59 @@ class _DeliveryOrderDetailScreenState
                           label: context.lt(ar: 'العنوان', en: 'Address'),
                           value:
                               '${order.customerCity} - ${order.customerBlock} - ${order.customerBuildingNumber} ${order.customerApartment}',
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: () => _openMap(
+                                label:
+                                    _string(_merchant['name']) ??
+                                    order.merchantName,
+                                query:
+                                    _string(_merchant['name']) ??
+                                    order.merchantName,
+                                latitude:
+                                    _double(_merchant['latitude']) ??
+                                    order.merchantLatitude,
+                                longitude:
+                                    _double(_merchant['longitude']) ??
+                                    order.merchantLongitude,
+                              ),
+                              icon: const Icon(
+                                Icons.store_mall_directory_outlined,
+                              ),
+                              label: Text(
+                                context.lt(
+                                  ar: 'موقع المتجر',
+                                  en: 'Store location',
+                                ),
+                              ),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () => _openMap(
+                                label:
+                                    _string(_customer['fullName']) ??
+                                    order.customerFullName,
+                                query: customerAddressQuery,
+                                latitude:
+                                    _double(_customer['latitude']) ??
+                                    order.customerLatitude,
+                                longitude:
+                                    _double(_customer['longitude']) ??
+                                    order.customerLongitude,
+                              ),
+                              icon: const Icon(Icons.location_on_outlined),
+                              label: Text(
+                                context.lt(
+                                  ar: 'موقع الزبون',
+                                  en: 'Customer location',
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                         if (order.hasExplicitDeliveryAssignment) ...[
                           _InfoRow(

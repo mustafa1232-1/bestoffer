@@ -134,10 +134,23 @@ class _CustomerCarListingDetailsScreenState
 
   Future<void> _callSeller() async {
     final listing = _listing;
-    if (listing == null || listing.phone.trim().isEmpty) return;
-    final uri = Uri(scheme: 'tel', path: listing.phone.trim());
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
+    final auth = ref.read(authControllerProvider);
+    if (listing == null || !auth.isAuthed) return;
+    var launched = false;
+    try {
+      final out = await _socialApi.contactMarketplaceListing(
+        listingType: 'car_listing',
+        listingId: listing.id,
+      );
+      final phone = '${out['phone'] ?? ''}'.trim();
+      if (phone.isEmpty) throw StateError('LISTING_CONTACT_UNAVAILABLE');
+      final ok = await launchUrl(
+        Uri(scheme: 'tel', path: phone),
+        mode: LaunchMode.externalApplication,
+      );
+      launched = ok;
+    } catch (_) {}
+    if (!launched && mounted) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(context.l10n.carsCallFailed)));
@@ -170,9 +183,10 @@ class _CustomerCarListingDetailsScreenState
                 : (thread.peer.username?.trim().isNotEmpty == true
                       ? '@${thread.peer.username!}'
                       : thread.peer.fullName),
-            peerPhone: thread.peerPhone,
+            peerPhone: '',
             peerUserId: listing.ownerId,
             peerImageUrl: thread.peer.imageUrl,
+            allowPeerProfile: false,
           ),
         ),
       );
@@ -358,10 +372,7 @@ class _CustomerCarListingDetailsScreenState
                                     ?.copyWith(fontWeight: FontWeight.w800),
                               ),
                               const SizedBox(height: 6),
-                              Text(
-                                listing.phone,
-                                textDirection: TextDirection.ltr,
-                              ),
+                              const Text('اضغط اتصال لإظهار الرقم'),
                               const SizedBox(height: 14),
                               Row(
                                 children: [

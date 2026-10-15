@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/sections/section_availability_controller.dart';
@@ -38,7 +38,9 @@ class _ServiceMyRequestsScreenState
       _error = null;
     });
     try {
-      final rows = await ref.read(servicesApiProvider).listMyRequests(
+      final rows = await ref
+          .read(servicesApiProvider)
+          .listMyRequests(
             status: (_status ?? '').trim().isEmpty ? null : _status,
             limit: 60,
           );
@@ -66,15 +68,19 @@ class _ServiceMyRequestsScreenState
     final servicesSection = ref
         .watch(sectionAvailabilityControllerProvider)
         .entryFor(AppSectionKeys.services, displayName: 'الخدمات');
-    if (servicesSection.isBlocked && !servicesSection.allowExistingActiveAccess) {
+    if (servicesSection.isBlocked &&
+        !servicesSection.allowExistingActiveAccess) {
       return SectionUnavailableScreen(entry: servicesSection);
     }
-    final visibleItems =
-        servicesSection.isBlocked
-            ? _items
-                .where((item) => !_isTerminalServiceRequestStatus(item.status))
-                .toList(growable: false)
-            : _items;
+    final visibleItems = servicesSection.isBlocked
+        ? _items
+              .where(
+                (item) => !_isTerminalServiceRequestStatus(
+                  _serviceRequestLifecycleStatus(item),
+                ),
+              )
+              .toList(growable: false)
+        : _items;
 
     return Scaffold(
       appBar: AppBar(
@@ -206,7 +212,11 @@ class _ServiceMyRequestsScreenState
                       return Card(
                         child: ListTile(
                           contentPadding: const EdgeInsets.all(14),
-                          title: Text(item.offeringName ?? 'طلب خدمة'),
+                          title: Text(
+                            item.serviceTitle ??
+                                item.offeringName ??
+                                'طلب خدمة',
+                          ),
                           subtitle: Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: Column(
@@ -218,8 +228,15 @@ class _ServiceMyRequestsScreenState
                                   Text(item.providerBusinessName!),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'الحالة: ${serviceRequestStatusLabel(item.status)}',
+                                  'الحالة: ${serviceRequestStatusLabel(_serviceRequestLifecycleStatus(item))}',
                                 ),
+                                if ((item.routingStatus ?? '').isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      'التوجيه: ${_centralRoutingStatusLabel(item.routingStatus!)}',
+                                    ),
+                                  ),
                                 if ((item.requestCode).trim().isNotEmpty)
                                   Padding(
                                     padding: const EdgeInsets.only(top: 4),
@@ -235,8 +252,9 @@ class _ServiceMyRequestsScreenState
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    ServiceRequestDetailsScreen(requestId: item.id),
+                                builder: (_) => ServiceRequestDetailsScreen(
+                                  requestId: item.id,
+                                ),
                               ),
                             );
                           },
@@ -254,19 +272,34 @@ class _ServiceMyRequestsScreenState
   }
 }
 
+String _centralRoutingStatusLabel(String value) => switch (value) {
+  'new' => 'وصل إلى فريق مسلكي',
+  'triaged' => 'تمت مراجعته',
+  'assigned' => 'تم تعيين المختص',
+  'contacted' => 'تم التواصل مع المختص',
+  'en_route' => 'المختص في الطريق',
+  'resolved' => 'تم الإنجاز',
+  'cancelled' => 'ملغي',
+  _ => value,
+};
+
+String _serviceRequestLifecycleStatus(ServiceRequestModel request) {
+  final bookingStatus = (request.bookingStatus ?? '').trim();
+  return bookingStatus.isNotEmpty ? bookingStatus : request.status.trim();
+}
+
 bool _isTerminalServiceRequestStatus(String? value) {
-  final normalized = (value ?? '').trim();
+  final normalized = (value ?? '').trim().toLowerCase();
   return <String>{
     'completed',
     'cancelled',
     'rejected',
-    'COMPLETED',
-    'REJECTED_BY_PROVIDER',
-    'CANCELLED_BY_CUSTOMER',
-    'CANCELLED_BY_PROVIDER',
-    'CANCELLED_BY_ADMIN',
-    'EXPIRED',
-    'DISPUTED',
+    'rejected_by_provider',
+    'cancelled_by_customer',
+    'cancelled_by_provider',
+    'cancelled_by_admin',
+    'expired',
+    'disputed',
   }.contains(normalized);
 }
 
@@ -295,35 +328,34 @@ class _StatusChip extends StatelessWidget {
 }
 
 String serviceRequestStatusLabel(String? value) {
-  switch ((value ?? '').trim()) {
+  switch ((value ?? '').trim().toLowerCase()) {
     case 'pending':
-    case 'PENDING_PROVIDER_CONFIRMATION':
-      return 'معلق';
+    case 'pending_provider_confirmation':
+      return 'بانتظار قبول مقدم الخدمة';
     case 'awaiting_provider':
-    case 'CONFIRMED':
-      return 'بانتظار مقدم الخدمة';
+      return 'بانتظار رد مقدم الخدمة';
     case 'accepted':
-    case 'IN_PROGRESS':
-      return 'مقبول';
+    case 'confirmed':
+      return 'تم قبول الطلب';
     case 'scheduled':
-    case 'PROVIDER_COMPLETED':
       return 'مجدول';
     case 'in_progress':
       return 'قيد التنفيذ';
+    case 'provider_completed':
+      return 'أنجز مقدم الخدمة - بانتظار تأكيدك';
     case 'completed':
-    case 'COMPLETED':
       return 'مكتمل';
     case 'cancelled':
-    case 'CANCELLED_BY_CUSTOMER':
-    case 'CANCELLED_BY_PROVIDER':
-    case 'CANCELLED_BY_ADMIN':
+    case 'cancelled_by_customer':
+    case 'cancelled_by_provider':
+    case 'cancelled_by_admin':
       return 'ملغي';
     case 'rejected':
-    case 'REJECTED_BY_PROVIDER':
+    case 'rejected_by_provider':
       return 'مرفوض';
-    case 'EXPIRED':
+    case 'expired':
       return 'منتهي الصلاحية';
-    case 'DISPUTED':
+    case 'disputed':
       return 'قيد النزاع';
     default:
       return value == null || value.trim().isEmpty ? 'غير محدد' : value;

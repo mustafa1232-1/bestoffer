@@ -6,10 +6,10 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
 import '../../auth/state/auth_controller.dart';
-import '../../social/data/social_api.dart';
 import '../../social/models/social_models.dart';
 import '../../social/state/social_controller.dart';
 import '../../social/ui/social_chat_thread_screen.dart';
+import '../../social/data/social_api.dart';
 import '../../social/ui/social_share_sheet.dart';
 import '../data/real_estate_api.dart';
 import '../models/real_estate_models.dart';
@@ -151,18 +151,6 @@ class _RealEstateListingDetailsScreenState
     );
   }
 
-  Future<void> _callOwner() async {
-    final listing = _listing;
-    if (listing == null || listing.phone.trim().isEmpty) return;
-    final uri = Uri(scheme: 'tel', path: listing.phone.trim());
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.realEstateCallFailed)),
-      );
-    }
-  }
-
   Future<void> _messageOwner() async {
     final listing = _listing;
     final auth = ref.read(authControllerProvider);
@@ -192,8 +180,44 @@ class _RealEstateListingDetailsScreenState
             peerPhone: thread.peerPhone,
             peerUserId: listing.ownerId,
             peerImageUrl: thread.peer.imageUrl,
+            allowPeerProfile: false,
           ),
         ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            mapAnyError(
+              error,
+              fallback: context.l10n.realEstateStartChatFailed,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _callOwner() async {
+    final listing = _listing;
+    final auth = ref.read(authControllerProvider);
+    if (listing == null || _busy || !auth.isAuthed) return;
+    setState(() => _busy = true);
+    try {
+      final out = await ref
+          .read(socialApiProvider)
+          .contactMarketplaceListing(
+            listingType: 'real_estate_listing',
+            listingId: listing.id,
+          );
+      final phone = '${out['phone'] ?? ''}'.trim();
+      if (phone.isEmpty) throw StateError('LISTING_CONTACT_UNAVAILABLE');
+      await launchUrl(
+        Uri(scheme: 'tel', path: phone),
+        mode: LaunchMode.externalApplication,
       );
     } catch (error) {
       if (!mounted) return;
@@ -402,7 +426,6 @@ class _RealEstateListingDetailsScreenState
                                 ),
                               ),
                               const SizedBox(height: 6),
-                              Text(listing.phone),
                               const SizedBox(height: 12),
                               Row(
                                 children: [
@@ -418,9 +441,9 @@ class _RealEstateListingDetailsScreenState
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: _callOwner,
+                                      onPressed: _busy ? null : _callOwner,
                                       icon: const Icon(Icons.call_outlined),
-                                      label: Text(l10n.realEstateCallOwner),
+                                      label: Text(l10n.commonCall),
                                     ),
                                   ),
                                 ],

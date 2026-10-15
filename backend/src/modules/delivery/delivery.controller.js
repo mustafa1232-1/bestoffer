@@ -3,6 +3,7 @@ import * as jobs from "./delivery-job.service.js";
 import { validateDeliveryRegister } from "./delivery.validators.js";
 import { buildUploadedFileUrl } from "../../shared/utils/upload.js";
 import { requestDeliveryAssignmentRecovery } from "../orders/delivery-assignment.worker.js";
+import { createManyNotifications } from "../notifications/notifications.repo.js";
 
 /**
  * Purpose:
@@ -116,7 +117,18 @@ export async function markArrived(req, res, next) {
  */
 export async function markDelivered(req, res, next) {
   try {
-    await service.markDelivered(req.userId, req.params.orderId);
+    const customerReceivedActual = Number(req.body?.customerReceivedActual);
+    if (!Number.isFinite(customerReceivedActual) || customerReceivedActual < 0) {
+      return res.status(400).json({
+        message: 'VALIDATION_ERROR',
+        fields: ['customerReceivedActual'],
+      });
+    }
+    await service.markDelivered(
+      req.userId,
+      req.params.orderId,
+      customerReceivedActual,
+    );
     res.status(204).send();
   } catch (e) {
     next(e);
@@ -261,11 +273,32 @@ export async function groupedStopArrived(req, res, next) {
 
 export async function groupedStopCollected(req, res, next) {
   try {
+    const merchantPaidActual = Number(req.body?.merchantPaidActual);
+    const withoutReceipt =
+      req.body?.withoutReceipt === true ||
+      String(req.body?.withoutReceipt || '').toLowerCase() === 'true';
+    const receiptUrl = buildUploadedFileUrl(req, req.file);
+    if (!Number.isFinite(merchantPaidActual) || merchantPaidActual < 0) {
+      return res.status(400).json({
+        message: 'VALIDATION_ERROR',
+        fields: ['merchantPaidActual'],
+      });
+    }
+    if (!receiptUrl && !withoutReceipt) {
+      return res.status(400).json({
+        message: 'VALIDATION_ERROR',
+        fields: ['receiptFile'],
+      });
+    }
     const out = await jobs.markStopCollected({
       courierUserId: req.userId,
       deliveryJobId: req.params.deliveryJobId,
       stopId: req.params.stopId,
       expectedVersion: expectedVersion(req),
+      merchantPaidActual,
+      receiptUrl,
+      withoutReceipt,
+      merchantPaymentNote: req.body?.merchantPaymentNote || null,
     });
     res.json(out);
   } catch (e) {
@@ -288,11 +321,57 @@ export async function groupedHeadingToCustomer(req, res, next) {
 
 export async function groupedDelivered(req, res, next) {
   try {
+    const customerReceivedActual = Number(req.body?.customerReceivedActual);
+    if (!Number.isFinite(customerReceivedActual) || customerReceivedActual < 0) {
+      return res.status(400).json({
+        message: 'VALIDATION_ERROR',
+        fields: ['customerReceivedActual'],
+      });
+    }
     const out = await jobs.markGroupedDelivered({
       courierUserId: req.userId,
       deliveryJobId: req.params.deliveryJobId,
       expectedVersion: expectedVersion(req),
+      customerReceivedActual,
     });
+    if (out.completedOrders?.length) {
+      const notifications = out.completedOrders.flatMap((order) => [
+        {
+          userId: Number(order.customer_user_id),
+          type: "order_status_update",
+          title: "اكتمل طلبك",
+          body: `تم تسليم الطلب #${order.id} واكتملت دورته.`,
+          orderId: Number(order.id),
+          merchantId: Number(order.merchant_id),
+          payload: {
+            target: "order_tracking",
+            orderId: Number(order.id),
+            status: "delivered",
+            requiresAction: false,
+          },
+        },
+        ...(order.owner_user_id
+          ? [
+              {
+                userId: Number(order.owner_user_id),
+                type: "owner_order_delivered",
+                title: "تم تسليم الطلب للزبون",
+                body: `تم تسليم الطلب #${order.id} واكتملت دورته.`,
+                orderId: Number(order.id),
+                merchantId: Number(order.merchant_id),
+                payload: {
+                  target: "owner_orders",
+                  orderId: Number(order.id),
+                  status: "delivered",
+                },
+              },
+            ]
+          : []),
+      ]);
+      void createManyNotifications(notifications).catch((error) => {
+        console.error("[delivery] grouped completion notifications failed", error);
+      });
+    }
     // The courier is free again — dispatch a waiting job to them right away.
     void requestDeliveryAssignmentRecovery({ limit: 25 }).catch(() => {});
     res.json(out);

@@ -279,29 +279,6 @@ class OrdersApi {
     return int.tryParse('$rawOrderId') == orderId;
   }
 
-  /// يحاول المسار الحديث لتأكيد الاستلام، ثم يعود إلى المسار القديم
-  /// للتوافق مع خوادم أقدم إذا أعادت 404.
-  Future<void> confirmDelivered(int orderId) async {
-    try {
-      await dio.post('/api/orders/$orderId/customer/confirm-received');
-    } on DioException catch (e) {
-      if (e.response?.statusCode != 404) rethrow;
-      await dio.post('/api/orders/$orderId/confirm-delivered');
-    }
-  }
-
-  /// نسخة endpoint الحديثة التي تعيد payload تفصيلياً بعد تأكيد الاستلام.
-  Future<Map<String, dynamic>> confirmReceivedV2(
-    int orderId, {
-    String? note,
-  }) async {
-    final response = await dio.post(
-      '/api/orders/$orderId/customer/confirm-received',
-      data: {'note': note},
-    );
-    return Map<String, dynamic>.from(response.data as Map);
-  }
-
   Future<void> rateDelivery({
     required int orderId,
     required int rating,
@@ -597,20 +574,11 @@ class OrdersApi {
       'limit': limit,
       'offset': offset,
     };
-    try {
-      final response = await dio.get(
-        '/api/search/products',
-        queryParameters: params,
-      );
-      return Map<String, dynamic>.from(response.data as Map);
-    } on DioException catch (error) {
-      if (error.response?.statusCode != 404) rethrow;
-      final fallback = await dio.get(
-        '/api/commerce/search/products',
-        queryParameters: params,
-      );
-      return Map<String, dynamic>.from(fallback.data as Map);
-    }
+    final response = await dio.get(
+      '/api/commerce/search/products',
+      queryParameters: params,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
   }
 
   Map<String, dynamic> _parseSsePayload(String raw) {

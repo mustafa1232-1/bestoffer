@@ -1,4 +1,5 @@
 import * as service from "./admin.service.js";
+import * as assistantAiService from "../assistant/assistant.ai.service.js";
 import {
   validateAdBoardCreate,
   validateAdBoardUpdate,
@@ -73,6 +74,29 @@ export async function createUser(req, res, next) {
   } catch (e) {
     next(e);
   }
+}
+
+export async function pinResetRequests(req, res, next) {
+  try { res.json(await service.getPinResetRequests()); } catch (e) { next(e); }
+}
+
+export async function approvePinReset(req, res, next) {
+  try {
+    res.json(await service.approvePinReset({
+      requestId: req.params.requestId,
+      actor: { id: req.userId, role: req.userRole },
+    }));
+  } catch (e) { next(e); }
+}
+
+export async function rejectPinReset(req, res, next) {
+  try {
+    res.json(await service.rejectPinReset({
+      requestId: req.params.requestId,
+      reason: req.body?.reason,
+      actor: { id: req.userId, role: req.userRole },
+    }));
+  } catch (e) { next(e); }
 }
 
 // إنشاء حساب متجر كامل من قبل الإدمن (اعتماد تلقائي + شروط مالية inline).
@@ -211,6 +235,52 @@ export async function approvalInbox(req, res, next) {
 export async function auditFeed(req, res, next) {
   try {
     const out = await service.listAdminAuditFeed(req.query || {});
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function aiChatReviewSessions(req, res, next) {
+  try {
+    const out = await assistantAiService.listAiChatSessionsForAdmin(
+      req.query || {},
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function aiChatReviewUsers(req, res, next) {
+  try {
+    const out = await assistantAiService.listAiChatUsersForAdmin(
+      req.query || {},
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function aiChatReviewUserSessions(req, res, next) {
+  try {
+    const out = await assistantAiService.listAiChatSessionsForUserForAdmin(
+      req.params.customerUserId,
+      req.query || {},
+    );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function aiChatReviewMessages(req, res, next) {
+  try {
+    const out = await assistantAiService.listAiChatMessagesForAdmin(
+      req.params.sessionId,
+      req.query || {},
+    );
     res.json(out);
   } catch (e) {
     next(e);
@@ -580,6 +650,8 @@ export async function confirmTaxiCaptainCashPayment(req, res, next) {
     const out = await service.confirmTaxiCaptainCashPayment({
       captainUserId: req.params.captainUserId,
       cycleDays: v.value.cycleDays,
+      packageCount: v.value.packageCount,
+      ridesToAdd: v.value.ridesToAdd,
       adminUserId: {
         userId: req.userId,
         userRole: req.userRole,

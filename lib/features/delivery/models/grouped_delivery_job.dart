@@ -50,6 +50,7 @@ class DeliveryPickupStop {
   final String pickupStatus;
   final DateTime? arrivedAt;
   final DateTime? collectedAt;
+  final double expectedStoreAmount;
 
   const DeliveryPickupStop({
     required this.stopId,
@@ -66,11 +67,13 @@ class DeliveryPickupStop {
     this.longitude,
     this.arrivedAt,
     this.collectedAt,
+    this.expectedStoreAmount = 0,
   });
 
   bool get isCollected => pickupStatus.toUpperCase() == 'COLLECTED';
   bool get isCancelled => pickupStatus.toUpperCase() == 'CANCELLED';
-  bool get hasArrived => pickupStatus.toUpperCase() == 'COURIER_ARRIVED' || isCollected;
+  bool get hasArrived =>
+      pickupStatus.toUpperCase() == 'COURIER_ARRIVED' || isCollected;
 
   static DateTime? _dt(Object? v) =>
       v == null ? null : DateTime.tryParse('$v')?.toLocal();
@@ -84,18 +87,30 @@ class DeliveryPickupStop {
       storePhoto: _pick(m, ['storePhoto', 'store_photo'])?.toString(),
       storePhone: _pick(m, ['storePhone', 'store_phone'])?.toString(),
       storeAddress: _pick(m, ['storeAddress', 'address_snapshot_json']),
-      latitude: _pick(m, ['latitude']) == null ? null : _asDouble(m['latitude']),
-      longitude: _pick(m, ['longitude']) == null ? null : _asDouble(m['longitude']),
+      latitude: _pick(m, ['latitude']) == null
+          ? null
+          : _asDouble(m['latitude']),
+      longitude: _pick(m, ['longitude']) == null
+          ? null
+          : _asDouble(m['longitude']),
       sequence: _asInt(_pick(m, ['sequence', 'sequence_number']) ?? 1),
-      preparationStatus:
-          _asString(_pick(m, ['preparationStatus', 'preparation_status'])),
+      preparationStatus: _asString(
+        _pick(m, ['preparationStatus', 'preparation_status']),
+      ),
       pickupStatus: _asString(_pick(m, ['pickupStatus', 'pickup_status'])),
       arrivedAt: _dt(_pick(m, ['arrivedAt', 'arrived_at'])),
       collectedAt: _dt(_pick(m, ['collectedAt', 'collected_at'])),
+      expectedStoreAmount: _asDouble(
+        _pick(m, ['expectedStoreAmount', 'expected_store_amount']) ?? 0,
+      ),
     );
   }
 
-  DeliveryPickupStop copyWith({String? pickupStatus, DateTime? arrivedAt, DateTime? collectedAt}) {
+  DeliveryPickupStop copyWith({
+    String? pickupStatus,
+    DateTime? arrivedAt,
+    DateTime? collectedAt,
+  }) {
     return DeliveryPickupStop(
       stopId: stopId,
       childOrderId: childOrderId,
@@ -111,6 +126,7 @@ class DeliveryPickupStop {
       pickupStatus: pickupStatus ?? this.pickupStatus,
       arrivedAt: arrivedAt ?? this.arrivedAt,
       collectedAt: collectedAt ?? this.collectedAt,
+      expectedStoreAmount: expectedStoreAmount,
     );
   }
 }
@@ -272,23 +288,33 @@ class GroupedDeliveryJob {
     final rawStops = _pick(m, ['pickupStops', 'pickup_stops']);
     final stops = (rawStops is List)
         ? rawStops
-            .map((e) => DeliveryPickupStop.fromMap(Map<String, dynamic>.from(e as Map)))
-            .toList()
+              .map(
+                (e) => DeliveryPickupStop.fromMap(
+                  Map<String, dynamic>.from(e as Map),
+                ),
+              )
+              .toList()
         : <DeliveryPickupStop>[];
     return GroupedDeliveryJob(
       deliveryJobId: _asInt(_pick(m, ['deliveryJobId', 'delivery_job_id'])),
       assignmentId: _asIntOrNull(_pick(m, ['assignmentId', 'assignment_id'])),
       orderGroupId: _asInt(_pick(m, ['orderGroupId', 'order_group_id'])),
-      orderGroupPublicId:
-          _pick(m, ['orderGroupPublicId', 'public_id'])?.toString(),
+      orderGroupPublicId: _pick(m, [
+        'orderGroupPublicId',
+        'public_id',
+      ])?.toString(),
       lifecycle: GroupedJobLifecycle.parse(
         _asString(_pick(m, ['lifecycleStatus', 'lifecycle_status'])),
       ),
-      assignmentStatus: _asString(_pick(m, ['assignmentStatus', 'assignment_status'])),
+      assignmentStatus: _asString(
+        _pick(m, ['assignmentStatus', 'assignment_status']),
+      ),
       paymentMethod: _pick(m, ['paymentMethod', 'payment_method'])?.toString(),
       courierEarning: _earning(m),
       totalAmount: _asDouble(_pick(m, ['totalAmount', 'total_amount']) ?? 0),
-      amountToCollect: _asDouble(_pick(m, ['amountToCollect', 'amount_to_collect']) ?? 0),
+      amountToCollect: _asDouble(
+        _pick(m, ['amountToCollect', 'amount_to_collect']) ?? 0,
+      ),
       deliveryFee: _asDouble(_pick(m, ['deliveryFee', 'delivery_fee']) ?? 0),
       version: _asInt(_pick(m, ['version']) ?? 0),
       pickupStops: stops,
@@ -357,7 +383,8 @@ class GroupedDeliveryAssignmentHistory {
     this.completedAt,
   });
 
-  GroupedJobLifecycle get lifecycle => GroupedJobLifecycle.parse(lifecycleStatus);
+  GroupedJobLifecycle get lifecycle =>
+      GroupedJobLifecycle.parse(lifecycleStatus);
 
   /// True when this row is a reassigned-away assignment (ended but the job was
   /// not delivered by this courier).
@@ -374,8 +401,12 @@ class GroupedDeliveryAssignmentHistory {
       assignmentId: _asInt(_pick(m, ['assignmentId', 'assignment_id'])),
       deliveryJobId: _asInt(_pick(m, ['deliveryJobId', 'delivery_job_id'])),
       orderGroupId: _asInt(_pick(m, ['orderGroupId', 'order_group_id'])),
-      assignmentStatus: _asString(_pick(m, ['assignmentStatus', 'assignment_status'])),
-      lifecycleStatus: _asString(_pick(m, ['lifecycleStatus', 'lifecycle_status'])),
+      assignmentStatus: _asString(
+        _pick(m, ['assignmentStatus', 'assignment_status']),
+      ),
+      lifecycleStatus: _asString(
+        _pick(m, ['lifecycleStatus', 'lifecycle_status']),
+      ),
       storeCount: _asInt(_pick(m, ['storeCount', 'store_count']) ?? 0),
       assignedAt: _dt(_pick(m, ['assignedAt', 'assigned_at'])),
       endedAt: _dt(_pick(m, ['endedAt', 'ended_at'])),

@@ -19,6 +19,7 @@ import {
   normalizeServiceBookingStatus,
   normalizeServicePromotionType,
 } from './services.booking.constants.js';
+import { getCentralServiceCatalogItem } from './services.catalog.js';
 
 const SERVICE_BOOKING_PRICING_TYPES = bookingPricingTypeVariants();
 const SERVICE_BOOKING_STATUSES = bookingStatusVariants();
@@ -538,7 +539,6 @@ export function validateOfferingBody(body = {}, { partial = false } = {}) {
 
   if (!partial && !name) errors.push('name');
   if (!partial && !mainCategoryId) errors.push('mainCategoryId');
-  if (!partial && !subcategoryId) errors.push('subcategoryId');
   if (body.executionMode != null && !executionMode) errors.push('executionMode');
 
   let hasDefault = false;
@@ -720,6 +720,13 @@ export function validateServiceRequestBody(body = {}) {
   const longitude = asNum(body.longitude, { min: -180, max: 180 });
   const requiresHomeService = asBool(body.requiresHomeService, false);
   const requiresQuote = asBool(body.requiresQuote, false);
+  const preferredContact = normalizeStatus(
+    body.preferredContact,
+    ['phone', 'whatsapp', 'in_app'],
+    'in_app'
+  );
+  const contactPhone = asString(body.contactPhone, 32);
+  const medicalInfo = parseJson(body.medicalInfo) || {};
   const expectedPriceVersion = asString(body.expectedPriceVersion, 120);
   const idempotencyKey = asString(body.idempotencyKey, 160);
   const hasClientBookingFlowKind =
@@ -731,6 +738,10 @@ export function validateServiceRequestBody(body = {}) {
   if (body.bookingPricingType != null && !pricingType) errors.push('bookingPricingType');
   if (body.durationMinutes != null && durationMinutes == null) errors.push('durationMinutes');
   if (hasClientBookingFlowKind) errors.push('booking_flow_kind');
+  if (body.preferredContact != null && !preferredContact) errors.push('preferredContact');
+  if (['phone', 'whatsapp'].includes(preferredContact || '') && !contactPhone) {
+    errors.push('contactPhone');
+  }
 
   return {
     ok: errors.length === 0,
@@ -754,9 +765,227 @@ export function validateServiceRequestBody(body = {}) {
       longitude,
       requiresHomeService,
       requiresQuote,
+      preferredContact: preferredContact || 'in_app',
+      contactPhone,
+      medicalInfo,
       expectedPriceVersion,
       idempotencyKey,
     },
+  };
+}
+
+export function validateServicePriceAdjustmentBody(body = {}) {
+  const errors = [];
+  const totalIqd = asNum(body.totalIqd ?? body.price, { min: 0 });
+  const discountIqd = asNum(body.discountIqd, { min: 0 }) ?? 0;
+  const note = asString(body.note, 1000);
+  if (totalIqd == null) errors.push('totalIqd');
+  if (totalIqd != null && discountIqd > totalIqd) errors.push('discountIqd');
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: { totalIqd, discountIqd, note },
+  };
+}
+
+export function validateServiceCouponBody(body = {}) {
+  const code = asString(body.code, 80)?.toUpperCase() || null;
+  return {
+    ok: code != null,
+    errors: code == null ? ['code'] : [],
+    value: { code },
+  };
+}
+
+export function validateServicePaymentBody(body = {}) {
+  const errors = [];
+  const paymentMethod = normalizeStatus(
+    body.paymentMethod,
+    ['cash', 'card', 'wallet', 'bank_transfer'],
+    'cash'
+  );
+  const note = asString(body.note, 1000);
+  if (!paymentMethod) errors.push('paymentMethod');
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: { paymentMethod: paymentMethod || 'cash', note },
+  };
+}
+
+export function validateServiceMessageBody(body = {}) {
+  const message = asString(body.message, 2000);
+  return {
+    ok: message != null,
+    errors: message == null ? ['message'] : [],
+    value: { message },
+  };
+}
+
+export function validateCentralServiceRequestBody(body = {}) {
+  const errors = [];
+  const serviceKey = asString(body.serviceKey, 64)?.toLowerCase() || null;
+  const catalogItem = getCentralServiceCatalogItem(serviceKey);
+  const quickIssue = asString(body.quickIssue ?? body.issueKey, 180);
+  const description = asString(body.description ?? body.notes, 2500);
+  const requestedMode = normalizeStatus(
+    body.requestedExecutionMode,
+    SERVICE_EXECUTION_MODES,
+  );
+  const requestedExecutionMode =
+    requestedMode || catalogItem?.executionModes?.[0] || null;
+  const requestedDate = asString(body.requestedDate, 20);
+  const requestedTime = asString(body.requestedTime, 20);
+  const city = asString(body.city, 120);
+  const area = asString(body.area, 120);
+  const addressLine = asString(body.addressLine, 300);
+  const latitude = asNum(body.latitude, { min: -90, max: 90 });
+  const longitude = asNum(body.longitude, { min: -180, max: 180 });
+  const urgency = catalogItem?.emergency
+    ? 'emergency'
+    : normalizeStatus(body.urgency, ['normal', 'urgent'], 'normal');
+  const preferredContact = normalizeStatus(
+    body.preferredContact,
+    ['phone', 'whatsapp', 'in_app'],
+    'in_app',
+  );
+  const contactPhone = asString(body.contactPhone, 32);
+  const emergencyTarget = normalizeStatus(body.emergencyTarget, [
+    'ambulance',
+    'fire',
+    'police',
+    'traffic_accident',
+    'family_protection',
+    'road_hazard',
+    'rescue',
+    'security_threat',
+    'community_police',
+    'drugs',
+    'organized_crime',
+    'national_security',
+    'intelligence',
+    'other',
+  ]);
+  const intakeAnswers = parseJson(body.intakeAnswers) || {};
+  const idempotencyKey = asString(body.idempotencyKey, 160);
+
+  if (!catalogItem) errors.push('serviceKey');
+  if (!description && !quickIssue) errors.push('description');
+  if (body.requestedExecutionMode != null && !requestedMode) {
+    errors.push('requestedExecutionMode');
+  }
+  if (
+    requestedMode &&
+    catalogItem &&
+    !catalogItem.executionModes.includes(requestedMode)
+  ) {
+    errors.push('requestedExecutionMode');
+  }
+  if (body.latitude != null && latitude == null) errors.push('latitude');
+  if (body.longitude != null && longitude == null) errors.push('longitude');
+  if (body.urgency != null && !urgency) errors.push('urgency');
+  if (body.preferredContact != null && !preferredContact) {
+    errors.push('preferredContact');
+  }
+  if (['phone', 'whatsapp'].includes(preferredContact || '') && !contactPhone) {
+    errors.push('contactPhone');
+  }
+  if (catalogItem?.emergency) {
+    if (!emergencyTarget) errors.push('emergencyTarget');
+    if (latitude == null || longitude == null) errors.push('location');
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors: [...new Set(errors)],
+    value: {
+      serviceKey,
+      quickIssue,
+      description,
+      requestedExecutionMode,
+      requestedDate,
+      requestedTime,
+      city,
+      area,
+      addressLine,
+      latitude,
+      longitude,
+      urgency: urgency || 'normal',
+      preferredContact: preferredContact || 'in_app',
+      contactPhone,
+      emergencyTarget,
+      intakeAnswers,
+      idempotencyKey,
+    },
+  };
+}
+
+export function validateEmergencyLocationBody(body = {}) {
+  const errors = [];
+  const latitude = asNum(body.latitude, { min: -90, max: 90 });
+  const longitude = asNum(body.longitude, { min: -180, max: 180 });
+  const accuracyMeters = asNum(body.accuracyMeters, { min: 0, max: 100000 });
+  const speedMps = asNum(body.speedMps, { min: 0, max: 500 });
+  const headingDegrees = asNum(body.headingDegrees, { min: 0, max: 360 });
+  const capturedAtRaw = asString(body.capturedAt, 64);
+  const capturedAtDate = capturedAtRaw ? new Date(capturedAtRaw) : null;
+  const capturedAt =
+    capturedAtDate && !Number.isNaN(capturedAtDate.getTime())
+      ? capturedAtDate.toISOString()
+      : null;
+  if (latitude == null) errors.push('latitude');
+  if (longitude == null) errors.push('longitude');
+  if (capturedAtRaw && !capturedAt) errors.push('capturedAt');
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      latitude,
+      longitude,
+      accuracyMeters,
+      speedMps,
+      headingDegrees,
+      capturedAt,
+    },
+  };
+}
+
+export function validateEmergencyMessageBody(body = {}) {
+  const message = asString(body.message, 1500);
+  return {
+    ok: message != null,
+    errors: message == null ? ['message'] : [],
+    value: { message },
+  };
+}
+
+export function validateCentralServiceRoutingBody(body = {}) {
+  const errors = [];
+  const routingStatus = normalizeStatus(body.routingStatus ?? body.status, [
+    'triaged',
+    'assigned',
+    'contacted',
+    'en_route',
+    'resolved',
+    'cancelled',
+  ]);
+  const professionalName = asString(body.professionalName, 180);
+  const professionalPhone = asString(body.professionalPhone, 32);
+  const note = asString(body.note, 1500);
+
+  if (!routingStatus) errors.push('routingStatus');
+  if (
+    routingStatus === 'assigned' &&
+    !professionalName &&
+    !professionalPhone
+  ) {
+    errors.push('professional');
+  }
+
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: { routingStatus, professionalName, professionalPhone, note },
   };
 }
 
@@ -1024,7 +1253,10 @@ export function validateIdParam(value, field = 'id') {
 
 export function validateModerationStatusQuery(query = {}) {
   const providerStatus = normalizeStatus(query.providerStatus, PROVIDER_APPROVAL_STATUSES);
-  const offeringStatus = normalizeStatus(query.offeringStatus, OFFERING_MODERATION_STATUSES);
+  const rawOfferingStatus = String(query.offeringStatus || '').trim().toLowerCase();
+  const offeringStatus = rawOfferingStatus === 'all'
+    ? 'all'
+    : normalizeStatus(query.offeringStatus, OFFERING_MODERATION_STATUSES);
   const categorySuggestionStatus = normalizeStatus(query.categorySuggestionStatus, CATEGORY_SUGGESTION_STATUSES);
   const requestStatus = normalizeStatus(query.requestStatus, SERVICE_REQUEST_STATUSES);
   const subscriptionRequestStatus = normalizeStatus(

@@ -60,6 +60,10 @@ class AuthState {
 
   bool get isAuthed => token != null && token!.isNotEmpty;
   bool get isGuest => guestMode && !isAuthed;
+  bool get isSessionRecoveryInProgress =>
+      loading ||
+      sessionRecoveryPending ||
+      sessionRestoreStatus == SessionRestoreStatus.pending;
 
   bool get isAdmin => _resolveRole() == 'admin';
 
@@ -89,6 +93,10 @@ class AuthState {
   bool get isCompanyPortal => _resolveRole() == 'company_portal';
 
   bool get isServiceProvider => _resolveRole() == 'service_provider';
+
+  bool get isMaslakiServicesOperator {
+    return user?.isServicesOperator == true;
+  }
 
   /// Employee accounts: a dedicated back-office role that lands on the
   /// permission-gated admin dashboard (seeing only what their job grants) and is
@@ -196,6 +204,10 @@ class AuthController extends StateNotifier<AuthState> {
 
   AuthController(this.ref) : super(const AuthState());
 
+  Future<void>? _bootstrapInFlight;
+  Timer? _sessionRetryTimer;
+  int _sessionRetryAttempt = 0;
+
   Future<String?> _readStoredTokenOrNull(SecureStore store) async {
     try {
       final token = await store.readToken().timeout(kAuthStorageReadTimeout);
@@ -217,7 +229,26 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
-  Future<void> bootstrap() async {
+  Future<void> bootstrap() {
+    final inFlight = _bootstrapInFlight;
+    if (inFlight != null) return inFlight;
+
+    _sessionRetryTimer?.cancel();
+    final future = _bootstrapOnce();
+    _bootstrapInFlight = future;
+    return future.whenComplete(() {
+      if (identical(_bootstrapInFlight, future)) {
+        _bootstrapInFlight = null;
+      }
+      if (state.sessionRecoveryPending) {
+        _scheduleSessionRetry();
+      } else {
+        _cancelSessionRetry();
+      }
+    });
+  }
+
+  Future<void> _bootstrapOnce() async {
     final store = ref.read(secureStoreProvider);
     state = state.copyWith(
       loading: true,
@@ -387,6 +418,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> login(String phone, String pin) async {
+    _cancelSessionRetry();
     state = const AuthState(loading: true);
 
     try {
@@ -422,6 +454,20 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
+  Future<void> requestPinReset(String phone) async {
+    await ref.read(authRepoProvider).requestPinReset(phone: phone);
+  }
+
+  Future<void> completeTemporaryPinChange(
+    String currentPin,
+    String newPin,
+  ) async {
+    final user = await ref
+        .read(authRepoProvider)
+        .completeTemporaryPinChange(currentPin: currentPin, newPin: newPin);
+    state = state.copyWith(user: user, loading: false, error: null);
+  }
+
   Future<void> register(
     Map<String, dynamic> dto, {
     LocalImageFile? imageFile,
@@ -443,6 +489,15 @@ class AuthController extends StateNotifier<AuthState> {
             block: dto['block']!.trim(),
             buildingNumber: dto['buildingNumber']!.trim(),
             apartment: dto['apartment']!.trim(),
+            workTitle: '${dto['workTitle'] ?? ''}'.trim(),
+            workCompany: '${dto['workCompany'] ?? ''}'.trim(),
+            latitude: dto['latitude'] is num
+                ? (dto['latitude'] as num).toDouble()
+                : null,
+            longitude: dto['longitude'] is num
+                ? (dto['longitude'] as num).toDouble()
+                : null,
+            referralCode: '${dto['referralCode'] ?? ''}'.trim(),
             analyticsConsentAccepted: dto['analyticsConsentAccepted'] == true,
             analyticsConsentVersion:
                 '${dto['analyticsConsentVersion'] ?? 'analytics_v1'}',
@@ -560,6 +615,12 @@ class AuthController extends StateNotifier<AuthState> {
                 dto['merchantSupportsPharmacyWorkflow'] is bool
                 ? dto['merchantSupportsPharmacyWorkflow'] as bool
                 : null,
+            latitude: dto['latitude'] is num
+                ? (dto['latitude'] as num).toDouble()
+                : null,
+            longitude: dto['longitude'] is num
+                ? (dto['longitude'] as num).toDouble()
+                : null,
             analyticsConsentAccepted: dto['analyticsConsentAccepted'] == true,
             analyticsConsentVersion:
                 '${dto['analyticsConsentVersion'] ?? 'analytics_v1'}',
@@ -630,6 +691,12 @@ class AuthController extends StateNotifier<AuthState> {
             plateLetter: dto['plateLetter']?.toString(),
             plateDigits: dto['plateDigits']?.toString(),
             carColor: dto['carColor']?.toString(),
+            latitude: dto['latitude'] is num
+                ? (dto['latitude'] as num).toDouble()
+                : null,
+            longitude: dto['longitude'] is num
+                ? (dto['longitude'] as num).toDouble()
+                : null,
             analyticsConsentAccepted: dto['analyticsConsentAccepted'] == true,
             analyticsConsentVersion:
                 '${dto['analyticsConsentVersion'] ?? 'analytics_v1'}',
@@ -741,6 +808,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> logout() async {
+    _cancelSessionRetry();
     final userId = state.user?.id ?? 0;
     if (userId > 0) {
       await ref.read(mediaCacheServiceProvider).clearUserScopedCache(userId);
@@ -762,6 +830,7 @@ class AuthController extends StateNotifier<AuthState> {
   }
 
   Future<void> continueAsGuest() async {
+    _cancelSessionRetry();
     final store = ref.read(secureStoreProvider);
     await store.saveGuestMode(true);
     state = const AuthState(guestMode: true);
@@ -859,6 +928,37 @@ class AuthController extends StateNotifier<AuthState> {
         clearWorkCompany: workCompany == null || workCompany.trim().isEmpty,
       ),
     );
+  }
+
+  void _scheduleSessionRetry() {
+    if (_sessionRetryTimer?.isActive == true) return;
+    const delays = <Duration>[
+      Duration(seconds: 3),
+      Duration(seconds: 6),
+      Duration(seconds: 12),
+      Duration(seconds: 20),
+      Duration(seconds: 30),
+    ];
+    final index = _sessionRetryAttempt.clamp(0, delays.length - 1);
+    final delay = delays[index];
+    _sessionRetryAttempt = (_sessionRetryAttempt + 1).clamp(0, delays.length);
+    _sessionRetryTimer = Timer(delay, () {
+      _sessionRetryTimer = null;
+      if (!mounted || !state.sessionRecoveryPending) return;
+      unawaited(bootstrap());
+    });
+  }
+
+  void _cancelSessionRetry() {
+    _sessionRetryTimer?.cancel();
+    _sessionRetryTimer = null;
+    _sessionRetryAttempt = 0;
+  }
+
+  @override
+  void dispose() {
+    _sessionRetryTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> _applyPreferredLocale(UserModel? user) async {

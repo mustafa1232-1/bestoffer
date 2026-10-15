@@ -64,6 +64,7 @@ class AppPermissionMatrix {
   bool get isHr => isAuthed && role == 'hr';
   bool get isAdmin => isAuthed && role == 'admin';
   bool get isDeputyAdmin => isAuthed && role == 'deputy_admin';
+  bool get isStaff => isAuthed && role == 'staff';
   bool get isBackoffice => isAdmin || isDeputyAdmin || isSuperAdmin;
 
   bool can(AppCapability capability) {
@@ -99,6 +100,8 @@ class AppPermissionMatrix {
         return isHr;
 
       case AppCapability.adminDashboard:
+        return isBackoffice || isStaff;
+
       case AppCapability.adminResidenceRequests:
       case AppCapability.adminSocialRestrictions:
       case AppCapability.adminRealEstate:

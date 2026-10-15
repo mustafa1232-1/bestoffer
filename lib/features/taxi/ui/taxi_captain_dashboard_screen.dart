@@ -17,14 +17,16 @@ import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/network/session_invalidation.dart';
+import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
+import '../../../core/theme/app_colors.dart';
 import 'package:core_maps/core_maps.dart';
 import '../../../core/utils/parsers.dart';
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../../core/widgets/desktop_dashboard_frame.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../settings/ui/pages/settings_account_screen.dart';
-import '../../settings/ui/pages/settings_support_screen.dart';
+import '../../support/ui/support_tickets_screen.dart';
 import '../../tracking/tracking_map_utils.dart';
 import '../data/taxi_api.dart';
 import 'taxi_cancel_reason_sheet.dart';
@@ -296,17 +298,16 @@ class _DesktopCaptainInfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: scheme.surface.withValues(alpha: 0.58),
+        color: Colors.white.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        border: Border.all(color: AppColors.brandGold.withValues(alpha: 0.24)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: scheme.primary),
+          Icon(icon, color: AppColors.brandGreen),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -314,13 +315,16 @@ class _DesktopCaptainInfoCard extends StatelessWidget {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+                  style: const TextStyle(
+                    color: AppColors.brandNavy,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
                   style: TextStyle(
-                    color: scheme.onSurface.withValues(alpha: 0.72),
+                    color: AppColors.brandNavy.withValues(alpha: 0.68),
                   ),
                 ),
               ],
@@ -368,16 +372,24 @@ class TaxiCaptainDashboardScreen extends ConsumerStatefulWidget {
 class _TaxiCaptainDashboardScreenState
     extends ConsumerState<TaxiCaptainDashboardScreen>
     with WidgetsBindingObserver {
-  static const _center = LatLng(33.3128, 44.3615);
+  static const _center = LatLng(33.19302, 44.62071);
 
   final _mapController = MapController();
   late final TaxiApi _api;
   late final TaxiRouteService _routeService;
   Timer? _ticker;
   StreamSubscription<TaxiLiveEvent>? _streamSub;
+  StreamSubscription<Position>? _positionSubscription;
   Timer? _streamReconnectTimer;
   late final VoidCallback _sessionRecoveryListener;
   bool _recoveryResyncInFlight = false;
+  bool _tickInFlight = false;
+  bool _locationStreamStarting = false;
+  bool _locationPublishInFlight = false;
+  Position? _latestCaptainPosition;
+  Position? _pendingCaptainPosition;
+  Position? _lastPublishedCaptainPosition;
+  DateTime? _lastCaptainLocationPublishAt;
 
   bool _loading = true;
   bool _sending = false;
@@ -708,6 +720,7 @@ class _TaxiCaptainDashboardScreenState
     SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
     _ticker?.cancel();
     _streamSub?.cancel();
+    _stopCaptainLocationStream();
     _streamReconnectTimer?.cancel();
     super.dispose();
   }
@@ -715,7 +728,11 @@ class _TaxiCaptainDashboardScreenState
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _lifecycleResumed = state == AppLifecycleState.resumed;
-    if (_lifecycleResumed) unawaited(_tick(full: true));
+    if (_lifecycleResumed) {
+      unawaited(_tick(full: true));
+    } else {
+      _stopCaptainLocationStream();
+    }
   }
 
   /// Re-syncs the captain dashboard after a silent session recovery.
@@ -731,7 +748,7 @@ class _TaxiCaptainDashboardScreenState
     _recoveryResyncInFlight = true;
     // The periodic ticker keeps presence alive; only re-arm it if a previous
     // teardown left it cancelled.
-    _ticker ??= Timer.periodic(const Duration(seconds: 5), (_) async {
+    _ticker ??= Timer.periodic(const Duration(seconds: 10), (_) async {
       await _tick();
       _tickCounter++;
       if (_tickCounter % 6 == 0) await _refreshMeta();
@@ -752,7 +769,7 @@ class _TaxiCaptainDashboardScreenState
     await _applyInitialIntent();
     if (!mounted) return;
     _connectStream();
-    _ticker = Timer.periodic(const Duration(seconds: 5), (_) async {
+    _ticker = Timer.periodic(const Duration(seconds: 10), (_) async {
       await _tick();
       _tickCounter++;
       if (_tickCounter % 6 == 0) await _refreshMeta();
@@ -790,17 +807,19 @@ class _TaxiCaptainDashboardScreenState
   }
 
   Future<void> _tick({bool full = false}) async {
-    if (!mounted || !_lifecycleResumed) return;
+    if (!mounted || !_lifecycleResumed || _tickInFlight) return;
+    _tickInFlight = true;
     if (_locked && !full) {
       setState(() {
         _loading = false;
         _routePoints = const [];
       });
+      _tickInFlight = false;
       return;
     }
 
     try {
-      final pos = await _position();
+      final pos = _latestCaptainPosition ?? await _position();
       if (pos != null) _captainPoint = LatLng(pos.latitude, pos.longitude);
 
       if (_online && pos != null) {
@@ -817,25 +836,7 @@ class _TaxiCaptainDashboardScreenState
       }
 
       _currentRideEnvelope = await _api.getCurrentRideForCaptain();
-      final rideId = _asInt(_ride?['id']);
-      final rideStatus = '${_ride?['status'] ?? ''}';
-      if (rideId != null &&
-          pos != null &&
-          canPublishTaxiRideLocation(
-            lifecycleResumed: _lifecycleResumed,
-            permissionGranted: true,
-            assigned: true,
-            status: rideStatus,
-          )) {
-        await _api.updateRideLocation(
-          rideId: rideId,
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          headingDeg: _sanitizeHeading(pos.heading),
-          speedKmh: _sanitizeSpeed(pos.speed),
-          accuracyM: pos.accuracy,
-        );
-      }
+      unawaited(_refreshCaptainLocationStream());
 
       final focusedRideId = _focusedRideId;
       if (focusedRideId != null && focusedRideId > 0) {
@@ -876,7 +877,135 @@ class _TaxiCaptainDashboardScreenState
           'Failed to refresh rides data',
         );
       });
+    } finally {
+      _tickInFlight = false;
     }
+  }
+
+  bool _shouldPublishCaptainPosition(Position position) {
+    final previous = _lastPublishedCaptainPosition;
+    if (previous == null) return true;
+    final moved = trackingDistanceMeters(
+      LatLng(previous.latitude, previous.longitude),
+      LatLng(position.latitude, position.longitude),
+    );
+    final headingChanged = shortestTrackingHeadingDelta(
+      previous.heading.isFinite ? previous.heading : 0,
+      position.heading.isFinite ? position.heading : 0,
+    ).abs();
+    final heartbeatDue =
+        _lastCaptainLocationPublishAt == null ||
+        DateTime.now().difference(_lastCaptainLocationPublishAt!) >=
+            const Duration(seconds: 10);
+    return moved >= 4 || headingChanged >= 15 || heartbeatDue;
+  }
+
+  Future<void> _enqueueCaptainPosition(Position position) async {
+    _latestCaptainPosition = position;
+    _pendingCaptainPosition = position;
+    if (_locationPublishInFlight) return;
+    _locationPublishInFlight = true;
+    try {
+      while (_pendingCaptainPosition != null && mounted) {
+        final next = _pendingCaptainPosition!;
+        _pendingCaptainPosition = null;
+        if (!_shouldPublishCaptainPosition(next)) continue;
+        final rideId = _asInt(_ride?['id']);
+        final rideStatus = '${_ride?['status'] ?? ''}';
+        if (rideId == null ||
+            !canPublishTaxiRideLocation(
+              lifecycleResumed: _lifecycleResumed,
+              permissionGranted: true,
+              assigned: true,
+              status: rideStatus,
+            )) {
+          break;
+        }
+        await _api.updateRideLocation(
+          rideId: rideId,
+          latitude: next.latitude,
+          longitude: next.longitude,
+          headingDeg: _sanitizeHeading(next.heading),
+          speedKmh: _sanitizeSpeed(next.speed),
+          accuracyM: next.accuracy,
+        );
+        _lastPublishedCaptainPosition = next;
+        _lastCaptainLocationPublishAt = DateTime.now();
+      }
+    } catch (_) {
+      // The dashboard/realtime stream remains available and the next sample
+      // retries the latest location without stacking requests.
+    } finally {
+      _locationPublishInFlight = false;
+      if (_pendingCaptainPosition != null && mounted) {
+        unawaited(_enqueueCaptainPosition(_pendingCaptainPosition!));
+      }
+    }
+  }
+
+  Future<void> _refreshCaptainLocationStream() async {
+    final rideId = _asInt(_ride?['id']);
+    final rideStatus = '${_ride?['status'] ?? ''}';
+    final shouldRun =
+        mounted &&
+        _lifecycleResumed &&
+        _online &&
+        rideId != null &&
+        canPublishTaxiRideLocation(
+          lifecycleResumed: _lifecycleResumed,
+          permissionGranted: true,
+          assigned: true,
+          status: rideStatus,
+        );
+    if (!shouldRun) {
+      _stopCaptainLocationStream();
+      return;
+    }
+    if (_positionSubscription != null || _locationStreamStarting) return;
+    _locationStreamStarting = true;
+    try {
+      final permissionService = ref.read(locationPermissionServiceProvider);
+      var status = await permissionService.getStatus();
+      if (!status.serviceEnabled) return;
+      if (!status.isGranted) {
+        status = await permissionService.requestPermission();
+      }
+      if (!status.isGranted || !_lifecycleResumed || !_online) return;
+      _positionSubscription =
+          Geolocator.getPositionStream(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.bestForNavigation,
+              distanceFilter: 3,
+            ),
+          ).listen(
+            (position) {
+              if (!mounted) return;
+              final point = LatLng(position.latitude, position.longitude);
+              if (_followMe) {
+                try {
+                  _mapController.move(point, 16);
+                } catch (_) {
+                  // The map can be detached while changing dashboard tabs.
+                }
+              }
+              unawaited(_enqueueCaptainPosition(position));
+            },
+            onError: (_) {
+              _positionSubscription?.cancel();
+              _positionSubscription = null;
+            },
+          );
+    } catch (_) {
+      _stopCaptainLocationStream();
+    } finally {
+      _locationStreamStarting = false;
+    }
+  }
+
+  void _stopCaptainLocationStream() {
+    _positionSubscription?.cancel();
+    _positionSubscription = null;
+    _pendingCaptainPosition = null;
   }
 
   /// يحدث polyline المسار الحالي بين نقاط الرحلة لتتبعها على الخريطة.
@@ -1036,6 +1165,7 @@ class _TaxiCaptainDashboardScreenState
 
             if (event.event == 'taxi_ride_requested' ||
                 event.event == 'taxi_new_request') {
+              unawaited(_showIncomingRideAlert(event));
               _snack(_t('وصل طلب تكسي جديد', 'New taxi request arrived'));
               _refreshFromRealtime(force: true);
               return;
@@ -1069,6 +1199,33 @@ class _TaxiCaptainDashboardScreenState
     }
     _lastStreamEventId = eventId;
     return true;
+  }
+
+  Future<void> _showIncomingRideAlert(TaxiLiveEvent event) async {
+    final rideId =
+        _asInt(event.data['rideId']) ??
+        _asInt((event.data['ride'] as Map?)?['id']);
+    try {
+      await ref
+          .read(localNotificationsProvider)
+          .showRaw(
+            title: _t('طلب تكسي جديد', 'New taxi request'),
+            body: _t(
+              'يوجد طلب رحلة جديد بانتظارك',
+              'A new ride request is waiting for you',
+            ),
+            rideId: rideId,
+            notificationId: event.eventId,
+            type: event.event,
+            target: 'taxi_ride_requested',
+            targetModule: 'taxi',
+            roleScope: 'taxi_captain',
+            requiresAction: true,
+          );
+    } catch (_) {
+      // The in-app banner and realtime refresh remain available if local
+      // notification permission is unavailable.
+    }
   }
 
   void _refreshFromRealtime({bool force = false}) {
@@ -1151,6 +1308,7 @@ class _TaxiCaptainDashboardScreenState
   Future<void> _setOnline(bool value) async {
     setState(() => _online = value);
     if (!value) {
+      _stopCaptainLocationStream();
       final p = _captainPoint ?? _center;
       setState(() => _routePoints = const []);
       await _api.upsertCaptainPresence(
@@ -1161,6 +1319,7 @@ class _TaxiCaptainDashboardScreenState
       );
     } else {
       await _tick(full: true);
+      unawaited(_refreshCaptainLocationStream());
     }
   }
 
@@ -1180,7 +1339,17 @@ class _TaxiCaptainDashboardScreenState
     try {
       if (action == 'arrive') await _api.markArrived(rideId);
       if (action == 'start') await _api.startRide(rideId);
-      if (action == 'complete') await _api.completeRide(rideId);
+      if (action == 'complete') {
+        await _api.completeRide(rideId);
+        if (mounted) {
+          setState(() {
+            _tab = TaxiCaptainDashboardTab.rides.index;
+            _focusedRideId = null;
+            _focusedRideSnapshot = null;
+            _focusedRideUnavailable = false;
+          });
+        }
+      }
       await _tick(full: true);
     } on DioException catch (e) {
       _snack(_err(e));
@@ -1245,7 +1414,9 @@ class _TaxiCaptainDashboardScreenState
     try {
       await _api.raiseRideEmergency(rideId);
       if (mounted) {
-        _snack(_t('تم إرسال طلب المساعدة للدعم.', 'Help request sent to support.'));
+        _snack(
+          _t('تم إرسال طلب المساعدة للدعم.', 'Help request sent to support.'),
+        );
       }
     } on DioException catch (e) {
       _snack(_err(e));
@@ -2296,6 +2467,14 @@ class _TaxiCaptainDashboardScreenState
 
   bool get _locked => _sub?['canAccess'] != true && _sub != null;
 
+  int get _remainingRides {
+    final rideCredit = _sub?['rideCredit'];
+    if (rideCredit is Map) {
+      return _asInt(rideCredit['remainingRides']) ?? 0;
+    }
+    return 0;
+  }
+
   @override
   /// يبني لوحة الكابتن كاملة، بما فيها الخريطة والرحلات الحالية ولوحة الملف.
   Widget build(BuildContext context) {
@@ -2387,7 +2566,7 @@ class _TaxiCaptainDashboardScreenState
           onTap: (_) async {
             await Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => const SettingsSupportScreen(),
+                builder: (_) => const SupportTicketsScreen(),
               ),
             );
           },
@@ -2400,9 +2579,13 @@ class _TaxiCaptainDashboardScreenState
     );
 
     return Scaffold(
+      backgroundColor: AppColors.brandIvory,
       resizeToAvoidBottomInset: false,
       drawer: useDesktop ? null : drawerWidget,
       appBar: AppBar(
+        backgroundColor: AppColors.brandIvory,
+        foregroundColor: AppColors.brandNavy,
+        surfaceTintColor: Colors.transparent,
         title: Text(pageTitle),
         actions: [
           if (useDesktop)
@@ -2554,6 +2737,9 @@ class _TaxiCaptainDashboardScreenState
       bottomNavigationBar: useDesktop
           ? null
           : NavigationBar(
+              backgroundColor: Colors.white.withValues(alpha: 0.96),
+              indicatorColor: AppColors.brandGreen.withValues(alpha: 0.16),
+              surfaceTintColor: Colors.transparent,
               selectedIndex: _tab,
               onDestinationSelected: _setTab,
               destinations: [
@@ -2574,6 +2760,8 @@ class _TaxiCaptainDashboardScreenState
       floatingActionButton: _tab == 0
           ? FloatingActionButton.extended(
               heroTag: null,
+              backgroundColor: AppColors.brandGreen,
+              foregroundColor: Colors.white,
               onPressed: () => setState(() => _followMe = !_followMe),
               icon: Icon(_followMe ? Icons.gps_fixed : Icons.gps_not_fixed),
               label: Text(_followMe ? _t('تتبع', 'Track') : _t('حر', 'Free')),
@@ -2591,17 +2779,21 @@ class _TaxiCaptainDashboardScreenState
           options: const MapOptions(initialCenter: _center, initialZoom: 15.5),
           children: [
             TileLayer(
-              urlTemplate:
-                  'https://basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               retinaMode:
                   (MediaQuery.maybeOf(context)?.devicePixelRatio ?? 1.0) > 1.0,
-              fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              maxZoom: 19,
               userAgentPackageName: 'app.maslaki.bismayah',
               tileProvider: NetworkTileProvider(
                 headers: {
                   'User-Agent': 'MaslakiTaxi/1.0 (+https://maslaki.app)',
                 },
               ),
+            ),
+            const RichAttributionWidget(
+              attributions: [
+                TextSourceAttribution('OpenStreetMap contributors'),
+              ],
             ),
             if (_routePoints.length >= 2)
               PolylineLayer(
@@ -2686,6 +2878,39 @@ class _TaxiCaptainDashboardScreenState
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: Colors.amber.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.amber.withValues(alpha: 0.55)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.local_taxi, color: Colors.amberAccent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _t('الرحلات المتبقية', 'Remaining rides'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  '$_remainingRides',
+                  style: const TextStyle(
+                    color: Colors.amberAccent,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
           Row(
             children: [
               Text(
@@ -2695,6 +2920,20 @@ class _TaxiCaptainDashboardScreenState
               const Spacer(),
               Switch(value: _online, onChanged: _locked ? null : _setOnline),
             ],
+          ),
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: FilledButton.tonalIcon(
+              onPressed: _locked ? null : () => _setOnline(!_online),
+              icon: Icon(
+                _online ? Icons.power_settings_new : Icons.play_arrow_rounded,
+              ),
+              label: Text(
+                _online
+                    ? _t('إطفاء التكسي', 'Go offline')
+                    : _t('تشغيل التكسي', 'Go online'),
+              ),
+            ),
           ),
           if (widget.initialIntent != TaxiCaptainDashboardIntent.defaultHome ||
               _focusedRideId != null)
@@ -3577,6 +3816,88 @@ class _TaxiCaptainDashboardScreenState
     final s = _sub;
     final can = s?['canAccess'] == true;
     final pending = s?['cashPaymentPending'] == true;
+    final rideCredit = (s?['rideCredit'] is Map)
+        ? Map<String, dynamic>.from(s!['rideCredit'] as Map)
+        : const <String, dynamic>{};
+    final remainingRides = _asInt(rideCredit['remainingRides']) ?? 0;
+    final packageRides = _asInt(rideCredit['packageRides']) ?? 30;
+    final fee =
+        _asInt(rideCredit['packageAmountIqd']) ??
+        _asInt(s?['discountedMonthlyFeeIqd']) ??
+        20000;
+    final discount = _asInt(s?['discountPercent']) ?? 0;
+
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: can
+            ? Colors.teal.withValues(alpha: 0.2)
+            : Colors.red.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            can
+                ? _t('رصيد الرحلات فعال', 'Ride credit active')
+                : (pending
+                      ? _t('بانتظار اعتماد الشحن', 'Top-up approval pending')
+                      : _t('رصيد الرحلات نافد', 'Ride credit empty')),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            can
+                ? '${_t('الرحلات المتبقية', 'Remaining rides')}: $remainingRides'
+                : '${_t('حزمة الشحن', 'Top-up package')}: $packageRides ${_t('رحلة', 'rides')} / ${_money(fee)}',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          Text(
+            '${_t('الشحن المسبق', 'Prepaid balance')}: $remainingRides ${_t('رحلة', 'rides')}',
+            style: const TextStyle(color: Colors.white70),
+          ),
+          if (discount > 0)
+            Text(
+              '${_t('الخصم', 'Discount')}: $discount%',
+              style: const TextStyle(color: Colors.white70),
+            ),
+          if (!can)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: FilledButton(
+                onPressed: (pending || _sending) ? null : _requestCashPayment,
+                child: Text(
+                  pending
+                      ? _t('تم إرسال طلب الشحن', 'Top-up request submitted')
+                      : _t('طلب شحن 30 رحلة', 'Request 30-ride top-up'),
+                ),
+              ),
+            ),
+          if (!compact && can && remainingRides <= 5)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _t(
+                  'تنبيه: رصيد الرحلات قريب من النفاد',
+                  'Alert: ride credit is almost empty',
+                ),
+                style: const TextStyle(color: Colors.amber),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ignore: unused_element
+  Widget _subscriptionCardLegacy({required bool compact}) {
+    final s = _sub;
+    final can = s?['canAccess'] == true;
+    final pending = s?['cashPaymentPending'] == true;
     final days = _asInt(s?['remainingDays']) ?? 0;
     final fee = _asInt(s?['discountedMonthlyFeeIqd']) ?? 10000;
     final discount = _asInt(s?['discountPercent']) ?? 0;
@@ -3652,8 +3973,9 @@ class _TaxiCaptainDashboardScreenState
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.black26,
-        borderRadius: BorderRadius.circular(10),
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.brandGold.withValues(alpha: 0.24)),
       ),
       child: Row(
         children: [
@@ -3661,25 +3983,28 @@ class _TaxiCaptainDashboardScreenState
             child: Text(
               title,
               style: const TextStyle(
-                color: Colors.white,
+                color: AppColors.brandNavy,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
           Text(
             '${_t('الرحلات', 'Rides')}: $rides',
-            style: const TextStyle(color: Colors.white70),
+            style: TextStyle(color: AppColors.brandNavy.withValues(alpha: 0.7)),
           ),
           const SizedBox(width: 12),
           Text(
             _money(earnings),
-            style: const TextStyle(color: Colors.greenAccent),
+            style: const TextStyle(
+              color: AppColors.brandGreen,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           if (onTap != null) ...[
             const SizedBox(width: 8),
             const Icon(
               Icons.chevron_left_rounded,
-              color: Colors.white70,
+              color: AppColors.brandGreen,
               size: 20,
             ),
           ],
@@ -3744,9 +4069,16 @@ class _TaxiCaptainDashboardScreenState
     final theme = Theme.of(context);
     return Material(
       color: selected
-          ? const Color(0xFF53B8FF).withValues(alpha: 0.18)
-          : Colors.white.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(20),
+          ? AppColors.brandGreen.withValues(alpha: 0.16)
+          : Colors.white.withValues(alpha: 0.92),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(
+          color: selected
+              ? AppColors.brandGreen.withValues(alpha: 0.35)
+              : AppColors.brandGold.withValues(alpha: 0.22),
+        ),
+      ),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
         onTap: onTap,
@@ -3756,7 +4088,7 @@ class _TaxiCaptainDashboardScreenState
             label,
             style: theme.textTheme.labelLarge?.copyWith(
               fontWeight: FontWeight.w700,
-              color: selected ? const Color(0xFF53B8FF) : Colors.white70,
+              color: selected ? AppColors.brandGreen : AppColors.brandNavy,
             ),
           ),
         ),

@@ -11,6 +11,7 @@ import {
   validateResubmitModeratedPost,
   validateResubmitModeratedStory,
   validateCreateThread,
+  validateMarketplaceContactBody,
   validateGroupThreadMembersBody,
   validateGroupThreadMemberRoleBody,
   validateCommentId,
@@ -1300,6 +1301,21 @@ export async function createThread(req, res, next) {
   }
 }
 
+export async function contactMarketplaceListing(req, res, next) {
+  try {
+    const v = validateMarketplaceContactBody(req.body || {});
+    if (!v.ok) return badRequest(res, v.errors);
+    const out = await service.contactMarketplaceListing({
+      userId: req.userId,
+      listingType: v.value.listingType,
+      listingId: v.value.listingId,
+    });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function getGroupThreadDetails(req, res, next) {
   try {
     const thread = validateThreadId(req.params.threadId);
@@ -1965,11 +1981,25 @@ export async function startThreadCall(req, res, next) {
     const out = await service.startThreadCall({
       userId: req.userId,
       threadId: thread.value,
+      preferLiveKit: req.body?.voiceTransport === "auto",
     });
     return res.status(201).json(out);
   } catch (error) {
     return next(error);
   }
+}
+
+export async function getThreadCallVoiceToken(req, res, next) {
+  try {
+    const thread = validateThreadId(req.params.threadId);
+    const session = validateThreadId(req.body?.sessionId);
+    if (!thread.ok || !session.ok) return badRequest(res, ["threadId/sessionId"]);
+    const out = await service.getThreadCallVoiceToken({
+      userId: req.userId, threadId: thread.value, sessionId: session.value,
+    });
+    res.setHeader("Cache-Control", "no-store");
+    return res.json(out);
+  } catch (error) { return next(error); }
 }
 
 export async function sendThreadCallSignal(req, res, next) {

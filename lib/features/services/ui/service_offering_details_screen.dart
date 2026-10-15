@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 
+import '../../../core/media/cached_app_video_loader.dart';
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
+import '../../auth/presentation/login_screen.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../behavior/data/behavior_api.dart';
 import '../data/services_api.dart';
@@ -140,30 +142,6 @@ class _ServiceOfferingDetailsScreenState
     }
   }
 
-  String _pricingUnitLabel(String value) {
-    switch (value) {
-      case 'hour':
-        return _t(ar: 'ساعة', en: 'hour');
-      case 'visit':
-        return _t(ar: 'زيارة', en: 'visit');
-      case 'day':
-        return _t(ar: 'يوم', en: 'day');
-      case 'device':
-        return _t(ar: 'جهاز', en: 'device');
-      case 'room':
-        return _t(ar: 'غرفة', en: 'room');
-      case 'meter':
-        return _t(ar: 'متر', en: 'meter');
-      case 'item':
-        return _t(ar: 'قطعة', en: 'item');
-      case 'package':
-      case 'job':
-        return _t(ar: 'حجز', en: 'booking');
-      default:
-        return value;
-    }
-  }
-
   String _executionModeLabel(String value) {
     switch (value) {
       case 'home':
@@ -177,6 +155,43 @@ class _ServiceOfferingDetailsScreenState
       default:
         return value;
     }
+  }
+
+  String _money(double value) {
+    final digits = value.round().toString();
+    return digits.replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (_) => ',');
+  }
+
+  String _promotionValue(ServicePromotionModel promotion) {
+    switch (promotion.discountType.trim().toUpperCase()) {
+      case 'PERCENTAGE':
+        return '${promotion.discountValue?.toStringAsFixed(0) ?? '0'}%';
+      case 'FIXED_AMOUNT':
+        return '${_money(promotion.discountValue ?? 0)} د.ع';
+      case 'SPECIAL_UNIT_PRICE':
+        return '${_money(promotion.specialPrice ?? 0)} د.ع';
+      default:
+        return promotion.discountType;
+    }
+  }
+
+  Future<void> _startBooking(ServiceOfferingModel offering) async {
+    var auth = ref.read(authControllerProvider);
+    if (!auth.isAuthed || auth.isGuest) {
+      final loggedIn = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => const LoginScreen(popOnSuccess: true),
+        ),
+      );
+      if (!mounted || loggedIn != true) return;
+      auth = ref.read(authControllerProvider);
+      if (!auth.isAuthed || auth.isGuest) return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ServiceRequestCreateScreen(offering: offering),
+      ),
+    );
   }
 
   Widget _specChip(String label, String value) {
@@ -229,6 +244,7 @@ class _ServiceOfferingDetailsScreenState
 
     final offering = _offering!;
     final provider = offering.provider;
+    final primaryMedia = offering.media.isEmpty ? null : offering.media.first;
     final primaryMediaUrl = offering.primaryMediaUrl;
     final galleryMedia = offering.media.length > 1
         ? offering.media.skip(1).toList()
@@ -240,6 +256,8 @@ class _ServiceOfferingDetailsScreenState
         orElse: () => offering.pricingOptions.first,
       );
     }
+    final basePrice = offering.baseUnitPrice;
+    final discountedPrice = offering.discountedUnitPrice;
 
     return Scaffold(
       appBar: AppBar(
@@ -251,14 +269,7 @@ class _ServiceOfferingDetailsScreenState
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: FilledButton.icon(
-                  onPressed: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) =>
-                            ServiceRequestCreateScreen(offering: offering),
-                      ),
-                    );
-                  },
+                  onPressed: () => _startBooking(offering),
                   icon: const Icon(Icons.calendar_today_outlined),
                   label: Text(offering.bookingCta),
                 ),
@@ -299,18 +310,9 @@ class _ServiceOfferingDetailsScreenState
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          Image.network(
-                            primaryMediaUrl,
+                          _ServiceMediaSurface(
+                            media: primaryMedia!,
                             fit: BoxFit.cover,
-                            alignment: Alignment.center,
-                            errorBuilder: (_, _, _) => Container(
-                              color: Colors.black12,
-                              alignment: Alignment.center,
-                              child: const Icon(
-                                Icons.broken_image_outlined,
-                                size: 42,
-                              ),
-                            ),
                           ),
                           DecoratedBox(
                             decoration: BoxDecoration(
@@ -423,14 +425,32 @@ class _ServiceOfferingDetailsScreenState
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      offering.displayPriceText,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
+                    if (discountedPrice != null && basePrice != null) ...[
+                      Text(
+                        '${_money(basePrice)} د.ع',
+                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                          decoration: TextDecoration.lineThrough,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${_money(discountedPrice)} د.ع${leadPricing == null ? '' : ' ${leadPricing.unitDisplayText()}'}',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ] else
+                      Text(
+                        offering.displayPriceText,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     const SizedBox(height: 6),
                     if (leadPricing != null)
                       Wrap(
@@ -443,7 +463,7 @@ class _ServiceOfferingDetailsScreenState
                           ),
                           _specChip(
                             _t(ar: 'الوحدة', en: 'Unit'),
-                            _pricingUnitLabel(leadPricing.pricingUnit),
+                            leadPricing.unitDisplayText(),
                           ),
                           _specChip(
                             _t(ar: 'مكان التنفيذ', en: 'Execution'),
@@ -474,7 +494,7 @@ class _ServiceOfferingDetailsScreenState
             if (galleryMedia.isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(
-                _t(ar: 'الصور', en: 'Photos'),
+                _t(ar: 'صور وفيديو الخدمة', en: 'Service media'),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w800,
@@ -491,16 +511,12 @@ class _ServiceOfferingDetailsScreenState
                     final media = galleryMedia[index];
                     return ClipRRect(
                       borderRadius: BorderRadius.circular(10),
-                      child: Image.network(
-                        media.mediaUrl,
+                      child: SizedBox(
                         width: 160,
                         height: 120,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => Container(
-                          width: 160,
-                          color: Colors.black12,
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.broken_image_outlined),
+                        child: _ServiceMediaSurface(
+                          media: media,
+                          fit: BoxFit.cover,
                         ),
                       ),
                     );
@@ -560,11 +576,7 @@ class _ServiceOfferingDetailsScreenState
                   child: ListTile(
                     title: Text(promo.title),
                     subtitle: Text(promo.description ?? ''),
-                    trailing: Text(
-                      promo.discountType == 'percentage'
-                          ? '${promo.discountValue?.toStringAsFixed(0) ?? '0'}%'
-                          : promo.discountType,
-                    ),
+                    trailing: Text(_promotionValue(promo)),
                   ),
                 ),
               ),
@@ -602,6 +614,47 @@ class _ServiceOfferingDetailsScreenState
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _ServiceMediaSurface extends StatelessWidget {
+  final ServiceMediaModel media;
+  final BoxFit fit;
+
+  const _ServiceMediaSurface({required this.media, required this.fit});
+
+  @override
+  Widget build(BuildContext context) {
+    if (media.mediaKind.trim().toLowerCase() == 'video') {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          CachedAppVideoLoader(
+            videoUrl: media.mediaUrl,
+            fit: fit,
+            muted: true,
+            loop: true,
+          ),
+          const Center(
+            child: Icon(
+              Icons.play_circle_fill_rounded,
+              color: Colors.white,
+              size: 42,
+            ),
+          ),
+        ],
+      );
+    }
+    return Image.network(
+      media.mediaUrl,
+      fit: fit,
+      alignment: Alignment.center,
+      errorBuilder: (_, _, _) => Container(
+        color: Colors.black12,
+        alignment: Alignment.center,
+        child: const Icon(Icons.broken_image_outlined, size: 42),
       ),
     );
   }

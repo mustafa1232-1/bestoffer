@@ -6,7 +6,10 @@ import fs from "fs";
 import { getDbFailoverState, q } from "./config/db.js";
 import { env } from "./config/env.js";
 import { redisHealthSnapshot } from "./config/redis.js";
-import { getSupabaseRealtimeReadiness } from "./config/supabase.js";
+import {
+  getSupabaseRealtimeReadiness,
+  getSupabaseRealtimeStatus,
+} from "./config/supabase.js";
 import { adminRouter } from "./modules/admin/admin.routes.js";
 import { assistantRouter } from "./modules/assistant/assistant.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
@@ -59,6 +62,7 @@ import { settingsPublicRouter } from "./modules/settings/settings.routes.js";
 import { supportRouter } from "./modules/support/support.routes.js";
 import { staffRouter } from "./modules/employees/staff.routes.js";
 import { guidesRouter } from "./modules/guides/guides.routes.js";
+import { gamesRouter } from "./modules/games/games.routes.js";
 import { accountRouter, usersRouter } from "./modules/users/users.routes.js";
 import { requireAuth } from "./shared/middleware/auth.middleware.js";
 import { createOpsRouter } from "./ops/routes/ops.routes.js";
@@ -91,8 +95,145 @@ import {
   resolveUploadFilePath,
   uploadsDir,
 } from "./shared/utils/uploads.js";
+import { buildTransientRealtimeProbeFailure } from "./shared/utils/realtime-readiness.js";
 
 export const app = express();
+
+const HEALTH_REALTIME_CACHE_TTL_MS = 2 * 60_000;
+const HEALTH_REALTIME_FAILURE_CACHE_TTL_MS = 15_000;
+const HEALTH_REALTIME_STALE_TTL_MS = 15 * 60_000;
+const HEALTH_REALTIME_INITIAL_WAIT_MS = 1_500;
+let healthRealtimeReadinessValue = null;
+let healthRealtimeReadinessExpiresAt = 0;
+let healthRealtimeReadinessStaleAt = 0;
+let healthRealtimeReadinessUpdatedAt = 0;
+let healthRealtimeReadinessPending = null;
+
+function buildRealtimeProbeFailure(reason, error = null) {
+  const status = getSupabaseRealtimeStatus();
+  return buildTransientRealtimeProbeFailure({
+    reason,
+    status,
+    error,
+  });
+}
+
+function withRealtimeProbeMetadata(value, { cached, stale, refreshing }) {
+  return {
+    ...value,
+    probe: {
+      cached,
+      stale,
+      refreshing,
+      checkedAt:
+        healthRealtimeReadinessUpdatedAt > 0
+          ? new Date(healthRealtimeReadinessUpdatedAt).toISOString()
+          : null,
+    },
+  };
+}
+
+function startHealthRealtimeReadinessRefresh() {
+  if (healthRealtimeReadinessPending) return healthRealtimeReadinessPending;
+
+  // The Supabase readiness probe performs real authorization writes. Keep one
+  // probe in flight and cache its result so health endpoints never amplify a
+  // transient provider slowdown into a request storm.
+  const pending = getSupabaseRealtimeReadiness()
+    .catch((error) => buildRealtimeProbeFailure("realtime_probe_failed", error))
+    .then((value) => {
+      const now = Date.now();
+      healthRealtimeReadinessValue = value;
+      healthRealtimeReadinessUpdatedAt = now;
+      healthRealtimeReadinessExpiresAt =
+        now +
+        (value?.ok === true
+          ? HEALTH_REALTIME_CACHE_TTL_MS
+          : HEALTH_REALTIME_FAILURE_CACHE_TTL_MS);
+      healthRealtimeReadinessStaleAt = now + HEALTH_REALTIME_STALE_TTL_MS;
+      return value;
+    });
+  healthRealtimeReadinessPending = pending;
+  void pending.finally(() => {
+    if (healthRealtimeReadinessPending === pending) {
+      healthRealtimeReadinessPending = null;
+    }
+  });
+  return pending;
+}
+
+async function waitForInitialRealtimeProbe(pending) {
+  let timer = null;
+  try {
+    return await Promise.race([
+      pending.then((value) => ({ timedOut: false, value })),
+      new Promise((resolve) => {
+        timer = setTimeout(
+          () => resolve({ timedOut: true, value: null }),
+          HEALTH_REALTIME_INITIAL_WAIT_MS
+        );
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function getHealthRealtimeReadiness() {
+  const now = Date.now();
+  if (
+    healthRealtimeReadinessValue != null &&
+    now < healthRealtimeReadinessExpiresAt
+  ) {
+    return withRealtimeProbeMetadata(healthRealtimeReadinessValue, {
+      cached: true,
+      stale: false,
+      refreshing: false,
+    });
+  }
+
+  if (
+    healthRealtimeReadinessValue != null &&
+    now < healthRealtimeReadinessStaleAt
+  ) {
+    startHealthRealtimeReadinessRefresh();
+    return withRealtimeProbeMetadata(healthRealtimeReadinessValue, {
+      cached: true,
+      stale: true,
+      refreshing: true,
+    });
+  }
+
+  const pending = startHealthRealtimeReadinessRefresh();
+  const result = await waitForInitialRealtimeProbe(pending);
+  if (!result.timedOut) {
+    return withRealtimeProbeMetadata(result.value, {
+      cached: false,
+      stale: false,
+      refreshing: false,
+    });
+  }
+
+  // A provider probe can occasionally finish just after the bounded wait.
+  // Keep serving the last known-good result while the single refresh remains
+  // in flight. This prevents an idle service from returning a one-off 503 on
+  // the first readiness request without masking a known failed probe.
+  if (healthRealtimeReadinessValue?.ok === true) {
+    return withRealtimeProbeMetadata(healthRealtimeReadinessValue, {
+      cached: true,
+      stale: true,
+      refreshing: true,
+    });
+  }
+
+  // Do not let a third-party readiness probe hang /ready or /health/details.
+  // The in-flight probe continues and populates the cache for the next request.
+  return withRealtimeProbeMetadata(
+    buildRealtimeProbeFailure("realtime_probe_timeout"),
+    { cached: false, stale: false, refreshing: true }
+  );
+}
 
 function normalizeRateLimitPath(req) {
   const raw = String(req.originalUrl || req.url || req.path || "").trim();
@@ -246,6 +387,7 @@ function mountApiSurface(prefix = "/api") {
   app.use(`${prefix}/support`, supportRouter);
   app.use(`${prefix}/staff`, staffRouter);
   app.use(`${prefix}/guides`, guidesRouter);
+  app.use(`${prefix}/games`, gamesRouter);
   app.use(`${prefix}/services/public`, servicesPublicRouter);
   app.use(`${prefix}/services/provider`, servicesProviderRouter);
   app.use(`${prefix}/services/requests`, servicesRequestsRouter);
@@ -269,6 +411,7 @@ function mountApiSurface(prefix = "/api") {
       next(e);
     }
   });
+  app.use(`${prefix}/commerce`, commerceRouter);
   app.use(prefix, commerceRouter);
   app.use(`${prefix}/admin/paid-upgrades`, paidUpgradesAdminRouter);
   app.use(`${prefix}/admin/merchant-subscriptions`, subscriptionsAdminRouter);
@@ -352,6 +495,10 @@ app.use(
     maxRequests: Math.max(env.rateLimitMaxRequests, env.globalRateLimitFloor),
     keyPrefix: "api",
     skip: shouldSkipGlobalRateLimit,
+    // This high-ceiling guard protects each process from bursts without adding
+    // a Redis round trip to every app request. Sensitive routes such as auth
+    // keep their dedicated distributed limiter below.
+    backend: "local",
   })
 );
 app.use(activityAuditMiddleware());
@@ -438,13 +585,33 @@ app.get("/r/:reelId", sendReelOpenPage);
 app.get("/reel/:reelId", sendReelOpenPage);
 app.get("/reels/:reelId", sendReelOpenPage);
 
-app.get("/health", async (req, res, next) => {
+// Deployment probes must stay independent from external dependencies. Deep
+// database, Redis, realtime, and push checks remain available on
+// /health/details and /ready for operational monitoring.
+function sendLiveness(_req, res) {
+  res.status(200).json({
+    status: "alive",
+    service: "maslaki-api",
+    region:
+      String(
+        process.env.RAILWAY_REPLICA_REGION || process.env.RAILWAY_REGION || ""
+      ).trim() || null,
+    uptimeSec: Math.round(process.uptime()),
+  });
+}
+
+app.get("/live", sendLiveness);
+app.get("/health", sendLiveness);
+
+app.get("/health/details", async (req, res, next) => {
   try {
     const startedAt = Date.now();
+    const dbStartedAt = Date.now();
     await q("SELECT 1");
+    const dbResponseMs = Date.now() - dbStartedAt;
     const [redis, realtime, requestSigning] = await Promise.all([
       redisHealthSnapshot(),
-      getSupabaseRealtimeReadiness(),
+      getHealthRealtimeReadiness(),
       getRequestSigningRuntimeStatus(),
     ]);
     res.json({
@@ -453,6 +620,7 @@ app.get("/health", async (req, res, next) => {
       uptimeSec: Math.round(process.uptime()),
       db: {
         ok: true,
+        responseMs: dbResponseMs,
         topology: getDbFailoverState(),
       },
       redis,
@@ -484,10 +652,12 @@ app.get("/health", async (req, res, next) => {
 app.get("/ready", async (req, res, next) => {
   try {
     const startedAt = Date.now();
+    const dbStartedAt = Date.now();
     await q("SELECT 1");
+    const dbResponseMs = Date.now() - dbStartedAt;
     const [redis, realtime, requestSigning] = await Promise.all([
       redisHealthSnapshot(),
-      getSupabaseRealtimeReadiness(),
+      getHealthRealtimeReadiness(),
       getRequestSigningRuntimeStatus(),
     ]);
     const reasons = [];
@@ -508,6 +678,7 @@ app.get("/ready", async (req, res, next) => {
         reasons,
         db: {
           ok: true,
+          responseMs: dbResponseMs,
           topology: getDbFailoverState(),
         },
         redis,
@@ -524,6 +695,7 @@ app.get("/ready", async (req, res, next) => {
       status: "ready",
       db: {
         ok: true,
+        responseMs: dbResponseMs,
         topology: getDbFailoverState(),
       },
       redis,

@@ -1,5 +1,6 @@
 // ignore_for_file: prefer_const_constructors, duplicate_ignore
 
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,8 +35,15 @@ import 'package:maslaki/core/media/cached_app_image.dart';
 
 class MerchantProductsScreen extends ConsumerStatefulWidget {
   final MerchantModel merchant;
+  final int? initialCategoryId;
+  final int? initialProductId;
 
-  const MerchantProductsScreen({super.key, required this.merchant});
+  const MerchantProductsScreen({
+    super.key,
+    required this.merchant,
+    this.initialCategoryId,
+    this.initialProductId,
+  });
 
   @override
   ConsumerState<MerchantProductsScreen> createState() =>
@@ -65,6 +73,18 @@ class _MerchantProductsScreenState
     extends ConsumerState<MerchantProductsScreen> {
   AsyncValue<_MerchantProductsData> state = const AsyncValue.loading();
   int? selectedCategoryId;
+  static const _pageSize = 24;
+  int _catalogGeneration = 0;
+  int _nextOffset = 0;
+  bool _hasMore = true;
+  bool _loadingMore = false;
+  bool _refreshingCatalog = false;
+  bool _catalogRefreshFailed = false;
+  bool _pageFailed = false;
+  bool _initialProductOpened = false;
+  bool _trackedMerchantOpen = false;
+  Timer? _searchDebounce;
+  final _catalogScroll = ScrollController();
   final Map<int, ProductSummaryCardSelection> _cardSelections = {};
   final productSearchCtrl = TextEditingController();
   String productSearchQuery = '';
@@ -96,9 +116,16 @@ class _MerchantProductsScreenState
   @override
   void initState() {
     super.initState();
+    selectedCategoryId = widget.initialCategoryId;
+    _catalogScroll.addListener(() {
+      if (_catalogScroll.hasClients &&
+          _catalogScroll.position.extentAfter < 600) {
+        unawaited(_loadNextPage());
+      }
+    });
     Future.microtask(() async {
       await _load();
-      if (_canCustomerActions) {
+      if (mounted && _canCustomerActions) {
         await ref
             .read(ordersControllerProvider.notifier)
             .loadFavoriteProductIds();
@@ -139,46 +166,70 @@ class _MerchantProductsScreenState
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _catalogScroll.dispose();
     productSearchCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() => state = const AsyncValue.loading());
+  Future<void> _load({bool reuseCategories = false}) async {
+    if (!mounted) return;
+    final generation = ++_catalogGeneration;
+    _searchDebounce?.cancel();
+    _loadingMore = false;
+    _pageFailed = false;
+    final previous = state.valueOrNull;
+    setState(() {
+      _refreshingCatalog = true;
+      _catalogRefreshFailed = false;
+      if (previous == null) state = const AsyncValue.loading();
+    });
     try {
       final api = ref.read(merchantsApiProvider);
-      final productsFuture = _loadAllProducts(api);
-      final categoriesFuture = api.listCategories(widget.merchant.id);
+      final productsFuture = _fetchProductPage(api, offset: 0);
+      final categoriesFuture = reuseCategories && previous != null
+          ? Future<List<dynamic>>.value(const [])
+          : api.listCategories(widget.merchant.id);
       final responses = await Future.wait([productsFuture, categoriesFuture]);
+      if (!mounted || generation != _catalogGeneration) return;
+      _nextOffset = responses[0].length;
+      _hasMore = _nextOffset == _pageSize;
 
       final products = List<dynamic>.from(responses[0])
           .map(
             (e) => ProductModel.fromJson(Map<String, dynamic>.from(e as Map)),
           )
           .toList();
-      final categories = List<dynamic>.from(responses[1])
-          .map(
-            (e) => ProductCategoryModel.fromJson(
-              Map<String, dynamic>.from(e as Map),
-            ),
-          )
-          .toList();
+      final categories = reuseCategories && previous != null
+          ? previous.categories
+          : List<dynamic>.from(responses[1])
+                .map(
+                  (e) => ProductCategoryModel.fromJson(
+                    Map<String, dynamic>.from(e as Map),
+                  ),
+                )
+                .toList();
       final visibleCategories = filterCategoriesForActivity(
         categories,
         widget.merchant.activityType,
       );
 
-      final availableCategoryIds = products
-          .map((p) => p.categoryId)
-          .whereType<int>()
-          .toSet();
       final visibleCategoryIds = visibleCategories.map((c) => c.id).toSet();
       if (selectedCategoryId != null &&
-          (!availableCategoryIds.contains(selectedCategoryId) ||
-              !visibleCategoryIds.contains(selectedCategoryId))) {
+          !visibleCategoryIds.contains(selectedCategoryId)) {
         selectedCategoryId = null;
+        unawaited(_load());
+        return;
       }
-
+      ProductModel? initialProduct;
+      if (widget.initialProductId != null) {
+        for (final product in products) {
+          if (product.id == widget.initialProductId) {
+            initialProduct = product;
+            break;
+          }
+        }
+      }
       setState(
         () => state = AsyncValue.data(
           _MerchantProductsData(
@@ -187,53 +238,160 @@ class _MerchantProductsScreenState
           ),
         ),
       );
-      await ref
-          .read(behaviorApiProvider)
-          .trackEvent(
-            eventName: 'shopping.merchant_open',
-            category: 'shopping',
-            action: 'open_merchant',
-            entityType: 'merchant',
-            entityId: widget.merchant.id,
-            metadata: {
-              'merchantId': widget.merchant.id,
-              'merchantName': widget.merchant.name,
-              'merchantType': widget.merchant.type,
-              'activityType': widget.merchant.activityType,
-              'route': widget.merchant.type == 'market'
-                  ? 'main_market'
-                  : 'shopping',
-              'screenLabel': widget.merchant.name,
-              'recentTitle': 'كنت تتصفح متجر: ${widget.merchant.name}',
-              'recentSubtitle': 'اضغط للعودة إلى ${widget.merchant.name}',
-            },
+      if (initialProduct == null &&
+          widget.initialProductId != null &&
+          !_initialProductOpened) {
+        try {
+          final target = await api.listProducts(
+            widget.merchant.id,
+            limit: 1,
+            productIds: [widget.initialProductId!],
           );
+          if (!mounted || generation != _catalogGeneration) return;
+          if (target.isNotEmpty) {
+            initialProduct = ProductModel.fromJson(
+              Map<String, dynamic>.from(target.first as Map),
+            );
+          }
+        } catch (_) {
+          // A missing linked product must not hide the loaded catalogue.
+        }
+      }
+      if (initialProduct != null && mounted && !_initialProductOpened) {
+        _initialProductOpened = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          _openProductDetails(product: initialProduct!, allProducts: products);
+        });
+      }
+      if (!_trackedMerchantOpen) {
+        _trackedMerchantOpen = true;
+        unawaited(
+          ref
+              .read(behaviorApiProvider)
+              .trackEvent(
+                eventName: 'shopping.merchant_open',
+                category: 'shopping',
+                action: 'open_merchant',
+                entityType: 'merchant',
+                entityId: widget.merchant.id,
+                metadata: {
+                  'merchantId': widget.merchant.id,
+                  'merchantName': widget.merchant.name,
+                  'merchantType': widget.merchant.type,
+                  'activityType': widget.merchant.activityType,
+                  'route': widget.merchant.type == 'market'
+                      ? 'main_market'
+                      : 'shopping',
+                  'screenLabel': widget.merchant.name,
+                  'recentTitle': 'كنت تتصفح متجر: ${widget.merchant.name}',
+                  'recentSubtitle': 'اضغط للعودة إلى ${widget.merchant.name}',
+                },
+              )
+              .catchError((_) {}),
+        );
+      }
     } catch (_) {
-      setState(
-        () => state = const AsyncValue.error(
-          'فشل تحميل منتجات المتجر',
-          StackTrace.empty,
-        ),
-      );
+      if (!mounted || generation != _catalogGeneration) return;
+      setState(() {
+        _catalogRefreshFailed = true;
+        if (previous == null) {
+          state = const AsyncValue.error(
+            'فشل تحميل منتجات المتجر',
+            StackTrace.empty,
+          );
+        }
+      });
+    } finally {
+      if (mounted && generation == _catalogGeneration) {
+        setState(() => _refreshingCatalog = false);
+      }
     }
   }
 
-  Future<List<dynamic>> _loadAllProducts(MerchantsApi api) async {
-    const pageSize = 200;
-    const maxProducts = 5000;
-    final products = <dynamic>[];
-    var offset = 0;
-    while (products.length < maxProducts) {
-      final page = await api.listProducts(
-        widget.merchant.id,
-        limit: pageSize,
-        offset: offset,
-      );
-      products.addAll(page);
-      if (page.length < pageSize) break;
-      offset += pageSize;
+  Future<List<dynamic>> _fetchProductPage(
+    MerchantsApi api, {
+    required int offset,
+  }) {
+    return api.listProducts(
+      widget.merchant.id,
+      limit: _pageSize,
+      offset: offset,
+      categoryId: selectedCategoryId,
+      search: productSearchQuery,
+      onlyAvailable: onlyAvailable,
+      onlyOffers: onlyOffers,
+      sort: sortMode.name,
+      productIds: favoritesOnly
+          ? ref.read(ordersControllerProvider).favoriteProductIds.toList()
+          : null,
+    );
+  }
+
+  void _changeCatalogFilter(VoidCallback change, {bool debounce = false}) {
+    setState(change);
+    // Invalidate any old page immediately, including during the debounce.
+    _catalogGeneration++;
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(
+      debounce ? const Duration(milliseconds: 300) : Duration.zero,
+      () {
+        if (mounted) unawaited(_load(reuseCategories: true));
+      },
+    );
+  }
+
+  Future<void> _loadNextPage({bool retry = false}) async {
+    if (!mounted ||
+        _loadingMore ||
+        _refreshingCatalog ||
+        _catalogRefreshFailed ||
+        !_hasMore ||
+        (_pageFailed && !retry) ||
+        !state.hasValue ||
+        _searchDebounce?.isActive == true) {
+      return;
     }
-    return products;
+    final generation = _catalogGeneration;
+    setState(() {
+      _loadingMore = true;
+      _pageFailed = false;
+    });
+    try {
+      final rows = await _fetchProductPage(
+        ref.read(merchantsApiProvider),
+        offset: _nextOffset,
+      );
+      if (!mounted || generation != _catalogGeneration) return;
+      final current = state.requireValue;
+      final products = {
+        for (final product in current.products) product.id: product,
+      };
+      for (final raw in rows) {
+        final product = ProductModel.fromJson(
+          Map<String, dynamic>.from(raw as Map),
+        );
+        products[product.id] = product;
+      }
+      setState(() {
+        _nextOffset += rows.length;
+        _hasMore = rows.length == _pageSize;
+        state = AsyncValue.data(
+          _MerchantProductsData(
+            products: products.values.toList(),
+            categories: current.categories,
+          ),
+        );
+      });
+    } catch (_) {
+      if (mounted && generation == _catalogGeneration) {
+        setState(() => _pageFailed = true);
+      }
+    } finally {
+      if (mounted && generation == _catalogGeneration) {
+        setState(() => _loadingMore = false);
+      }
+    }
   }
 
   List<ProductModel> _buildVisibleProducts(
@@ -277,33 +435,6 @@ class _MerchantProductsScreenState
       list = list
           .where((product) => favoriteProductIds.contains(product.id))
           .toList();
-    }
-
-    switch (sortMode) {
-      case _ProductsSortMode.priceLowToHigh:
-        list.sort((a, b) => _effectivePrice(a).compareTo(_effectivePrice(b)));
-        break;
-      case _ProductsSortMode.priceHighToLow:
-        list.sort((a, b) => _effectivePrice(b).compareTo(_effectivePrice(a)));
-        break;
-      case _ProductsSortMode.biggestDiscount:
-        list.sort((a, b) {
-          final aDiscount = a.discountPercent ?? 0;
-          final bDiscount = b.discountPercent ?? 0;
-          final discountDiff = bDiscount.compareTo(aDiscount);
-          if (discountDiff != 0) return discountDiff;
-          return _effectivePrice(a).compareTo(_effectivePrice(b));
-        });
-        break;
-      case _ProductsSortMode.recommended:
-        list.sort((a, b) {
-          final aScore = _productScore(a, favoriteProductIds);
-          final bScore = _productScore(b, favoriteProductIds);
-          final scoreDiff = bScore.compareTo(aScore);
-          if (scoreDiff != 0) return scoreDiff;
-          return a.sortOrder.compareTo(b.sortOrder);
-        });
-        break;
     }
 
     return list;
@@ -417,24 +548,28 @@ class _MerchantProductsScreenState
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Expanded(
-                    child: _buildSingleProductCard(
-                      left,
-                      allProducts,
-                      appearance: appearance,
-                      locale: locale,
-                      grid: true,
+                    child: Builder(
+                      builder: (context) => _buildSingleProductCard(
+                        left,
+                        allProducts,
+                        appearance: appearance,
+                        locale: locale,
+                        grid: true,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: right == null
                         ? const SizedBox.shrink()
-                        : _buildSingleProductCard(
-                            right,
-                            allProducts,
-                            appearance: appearance,
-                            locale: locale,
-                            grid: true,
+                        : Builder(
+                            builder: (context) => _buildSingleProductCard(
+                              right,
+                              allProducts,
+                              appearance: appearance,
+                              locale: locale,
+                              grid: true,
+                            ),
                           ),
                   ),
                 ],
@@ -451,12 +586,14 @@ class _MerchantProductsScreenState
         .map(
           (product) => Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: _buildSingleProductCard(
-              product,
-              allProducts,
-              appearance: appearance,
-              locale: locale,
-              grid: false,
+            child: Builder(
+              builder: (context) => _buildSingleProductCard(
+                product,
+                allProducts,
+                appearance: appearance,
+                locale: locale,
+                grid: false,
+              ),
             ),
           ),
         )
@@ -575,7 +712,8 @@ class _MerchantProductsScreenState
   ) {
     if (visibleProducts.isEmpty) return const [_EmptyProducts()];
 
-    if (selectedCategoryId != null) {
+    if (selectedCategoryId != null ||
+        sortMode != _ProductsSortMode.recommended) {
       return _buildProductCards(visibleProducts, allProducts);
     }
 
@@ -699,16 +837,6 @@ class _MerchantProductsScreenState
       if (selectedVariantSelections.isNotEmpty)
         'selectedVariantSelections': selectedVariantSelections,
     };
-  }
-
-  int _productScore(ProductModel product, Set<int> favoriteProductIds) {
-    var score = 0;
-    if (product.canBeOrdered) score += 40;
-    if (favoriteProductIds.contains(product.id)) score += 35;
-    if (product.hasDiscount) score += 25;
-    if (product.freeDelivery) score += 18;
-    if ((product.offerLabel?.trim().isNotEmpty ?? false)) score += 10;
-    return score;
   }
 
   Future<void> _toggleFavorite() async {
@@ -1166,6 +1294,7 @@ class _MerchantProductsScreenState
             );
 
             return ListView(
+              controller: _catalogScroll,
               padding: const EdgeInsets.all(12),
               children: [
                 _MerchantHeader(merchant: widget.merchant),
@@ -1181,20 +1310,23 @@ class _MerchantProductsScreenState
                   selectedCategoryId: selectedCategoryId,
                   totalProductsCount: visibleProducts.length,
                   productCounts: productCounts,
-                  onSelect: (id) => setState(() => selectedCategoryId = id),
+                  onSelect: (id) =>
+                      _changeCatalogFilter(() => selectedCategoryId = id),
                 ),
                 const SizedBox(height: 12),
                 MaslakiSearchField(
                   controller: productSearchCtrl,
-                  onChanged: (value) =>
-                      setState(() => productSearchQuery = value),
+                  onChanged: (value) => _changeCatalogFilter(
+                    () => productSearchQuery = value,
+                    debounce: true,
+                  ),
                   hintText: 'ابحث عن المنتجات',
                   trailing: productSearchQuery.isEmpty
                       ? null
                       : IconButton(
                           onPressed: () {
                             productSearchCtrl.clear();
-                            setState(() => productSearchQuery = '');
+                            _changeCatalogFilter(() => productSearchQuery = '');
                           },
                           icon: const Icon(Icons.close_rounded),
                         ),
@@ -1206,12 +1338,13 @@ class _MerchantProductsScreenState
                   favoritesOnly: favoritesOnly,
                   sortMode: sortMode,
                   onOnlyAvailableChanged: (value) =>
-                      setState(() => onlyAvailable = value),
+                      _changeCatalogFilter(() => onlyAvailable = value),
                   onOnlyOffersChanged: (value) =>
-                      setState(() => onlyOffers = value),
+                      _changeCatalogFilter(() => onlyOffers = value),
                   onFavoritesOnlyChanged: (value) =>
-                      setState(() => favoritesOnly = value),
-                  onSortChanged: (value) => setState(() => sortMode = value),
+                      _changeCatalogFilter(() => favoritesOnly = value),
+                  onSortChanged: (value) =>
+                      _changeCatalogFilter(() => sortMode = value),
                 ),
                 const SizedBox(height: 8),
                 _ProductViewModeToggle(
@@ -1407,7 +1540,43 @@ class _MerchantProductsScreenState
                   ),
                   const SizedBox(height: 12),
                 ],
+                SizedBox(
+                  height: 3,
+                  child: _refreshingCatalog
+                      ? const LinearProgressIndicator()
+                      : null,
+                ),
+                if (_catalogRefreshFailed)
+                  TextButton(
+                    onPressed: () => _load(reuseCategories: true),
+                    child: Text(
+                      context.lt(
+                        ar: 'تعذر تحديث المنتجات. اضغط لإعادة المحاولة',
+                        en: 'Could not update products. Tap to retry',
+                      ),
+                    ),
+                  ),
                 ...productSections,
+                if (_loadingMore)
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                if (_hasMore &&
+                    !_loadingMore &&
+                    !_refreshingCatalog &&
+                    !_catalogRefreshFailed)
+                  TextButton(
+                    onPressed: () => _loadNextPage(retry: true),
+                    child: Text(
+                      _pageFailed
+                          ? context.lt(
+                              ar: 'تعذر تحميل المزيد. أعد المحاولة',
+                              en: 'Could not load more. Retry',
+                            )
+                          : context.lt(ar: 'عرض المزيد', en: 'Load more'),
+                    ),
+                  ),
               ],
             );
           },

@@ -39,7 +39,7 @@ class _FakeAuthController extends AuthController {
       user: UserModel(
         id: 91,
         fullName: 'Super Admin',
-        phone: '07746515247',
+        phone: '07700000001',
         role: 'admin',
         block: 'A1',
         buildingNumber: '1',
@@ -96,7 +96,7 @@ void main() {
     final textFields = find.byType(TextField);
     expect(textFields, findsNWidgets(2));
 
-    await tester.enterText(textFields.at(0), '07746515247');
+    await tester.enterText(textFields.at(0), '07700000001');
     await tester.enterText(textFields.at(1), '1234');
     await tester.tap(find.byType(ElevatedButton));
     await tester.pump(const Duration(milliseconds: 250));

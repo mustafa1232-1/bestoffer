@@ -18,6 +18,7 @@ class _SeededDeliveryController extends DeliveryController {
   Future<void> bootstrap({
     String? historyDate,
     bool forcePresenceSync = false,
+    bool includeExtended = true,
   }) async {}
 
   @override

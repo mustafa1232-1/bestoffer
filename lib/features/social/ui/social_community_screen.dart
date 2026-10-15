@@ -118,9 +118,12 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   Timer? _peerTypingResetTimer;
   Timer? _chatSearchDebounceTimer;
   int? _chatLastEventId;
+  int? _chatSyncCursor;
   int _chatReconnectAttempt = 0;
   bool _communityRealtimeConnected = false;
   int _communityConnectedPollTick = 0;
+  bool _chatSyncInFlight = false;
+  int _reloadGeneration = 0;
   ProviderSubscription<AuthState>? _authStateSub;
   bool _communityComposerHasText = false;
   late final SocialVoiceComposerController _voiceComposer;
@@ -477,6 +480,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
         _chatSearchError = null;
         _highlightedChatMessageId = null;
         _chatLastEventId = null;
+        _chatSyncCursor = null;
         if (_tab >= 2) {
           _tab = 0;
         }
@@ -501,15 +505,15 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     }
     _connectCommunityRealtime();
     _chatPollTimer?.cancel();
-    _chatPollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _chatPollTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!mounted || _tab != 2) return;
       final route = ModalRoute.of(context);
       if (route?.isCurrent != true) return;
       if (_communityRealtimeConnected) {
-        _communityConnectedPollTick = (_communityConnectedPollTick + 1) % 6;
+        _communityConnectedPollTick = (_communityConnectedPollTick + 1) % 9;
         if (_communityConnectedPollTick != 0) return;
       }
-      _reloadCommunityChatOnly(silent: true);
+      unawaited(_reloadCommunityChatOnly(silent: true));
     });
     _syncActiveCommunityChatContext();
   }
@@ -603,12 +607,13 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _onCommunityRealtimeEvent(NotificationLiveEvent event) async {
+    if (_isGuestSession) return;
     _communityRealtimeConnected = true;
     _communityConnectedPollTick = 0;
     _chatReconnectAttempt = 0;
     if (event.event == 'resync_required') {
       _chatLastEventId = int.tryParse('${event.data['latestEventId'] ?? ''}');
-      await _reloadCommunityChatOnly(silent: true);
+      await _reloadCommunityChatOnly(silent: true, fullSnapshot: true);
       return;
     }
     if (!_acceptCommunityRealtimeEvent(event.eventId)) return;
@@ -635,14 +640,20 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
         try {
           final next = SocialCommunityChatMessage.fromJson(
             Map<String, dynamic>.from(rawMessage),
-          );
+          ).forViewer(_currentUserId);
           final nearBottom = _isNearCommunityBottom();
           if (!mounted) return;
           setState(() {
-            _chatMessages = [
+            final merged = [
               ..._chatMessages.where((m) => m.id != next.id),
               next,
             ]..sort((a, b) => a.id.compareTo(b.id));
+            _chatMessages = merged.length <= 240
+                ? merged
+                : merged.sublist(merged.length - 240);
+            if ((_chatSyncCursor ?? 0) < next.id) {
+              _chatSyncCursor = next.id;
+            }
           });
           if (nearBottom) {
             _scrollCommunityChatToBottom();
@@ -660,12 +671,116 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       return;
     }
 
-    if (event.event == 'social_community_chat_message_deleted' ||
-        event.event == 'social_community_chat_message_updated' ||
-        event.event == 'social_community_chat_message_reaction' ||
-        event.event == 'social_community_chat_lock_updated' ||
-        event.event == 'social_community_chat_user_restricted' ||
+    if (event.event == 'social_community_chat_message_updated' ||
+        event.event == 'social_community_chat_message_deleted') {
+      final rawMessage = event.data['message'];
+      if (rawMessage is Map) {
+        try {
+          var next = SocialCommunityChatMessage.fromJson(
+            Map<String, dynamic>.from(rawMessage),
+          ).forViewer(_currentUserId);
+          if (event.event == 'social_community_chat_message_updated') {
+            final updatedByUserId = int.tryParse(
+              '${event.data['updatedByUserId'] ?? ''}',
+            );
+            if (updatedByUserId != _currentUserId) {
+              for (final current in _chatMessages) {
+                if (current.id != next.id) continue;
+                next = next.withReactionState(
+                  counts: next.reactionCounts,
+                  totalCount: next.reactionTotalCount,
+                  reaction: current.myReaction,
+                );
+                break;
+              }
+            }
+          }
+          if (!mounted) return;
+          setState(() {
+            final merged = [
+              ..._chatMessages.where((message) => message.id != next.id),
+              next,
+            ]..sort((left, right) => left.id.compareTo(right.id));
+            _chatMessages = merged.length <= 240
+                ? merged
+                : merged.sublist(merged.length - 240);
+          });
+          return;
+        } catch (_) {
+          // Fall through to a bounded incremental sync.
+        }
+      }
+      await _reloadCommunityChatOnly(silent: true, fullSnapshot: true);
+      return;
+    }
+
+    if (event.event == 'social_community_chat_message_reaction') {
+      final messageId = int.tryParse('${event.data['messageId'] ?? ''}');
+      final rawReactions = event.data['reactions'];
+      if (messageId != null && rawReactions is Map) {
+        final reactions = Map<String, dynamic>.from(rawReactions);
+        final rawCounts = reactions['counts'];
+        final counts = <String, int>{};
+        if (rawCounts is Map) {
+          for (final entry in rawCounts.entries) {
+            final count = int.tryParse('${entry.value}') ?? 0;
+            if (count > 0) counts['${entry.key}'] = count;
+          }
+        }
+        final reactedByUserId = int.tryParse(
+          '${event.data['reactedByUserId'] ?? ''}',
+        );
+        if (!mounted) return;
+        setState(() {
+          _chatMessages = _chatMessages
+              .map((message) {
+                if (message.id != messageId) return message;
+                final totalCount =
+                    int.tryParse('${reactions['totalCount'] ?? ''}') ??
+                    counts.values.fold<int>(0, (sum, count) => sum + count);
+                final myReaction = reactedByUserId == _currentUserId
+                    ? '${reactions['myReaction'] ?? ''}'.trim()
+                    : message.myReaction;
+                return message.withReactionState(
+                  counts: counts,
+                  totalCount: totalCount,
+                  reaction: (myReaction ?? '').isEmpty ? null : myReaction,
+                );
+              })
+              .toList(growable: false);
+        });
+        return;
+      }
+      await _reloadCommunityChatOnly(silent: true, fullSnapshot: true);
+      return;
+    }
+
+    if (event.event == 'social_community_chat_lock_updated') {
+      if (mounted) {
+        setState(() => _chatLocked = event.data['chatLocked'] == true);
+      }
+      await _reloadCommunityChatOnly(silent: true);
+      return;
+    }
+
+    if (event.event == 'social_community_chat_user_restricted' ||
         event.event == 'social_community_chat_user_restored') {
+      final affectedUserId = int.tryParse('${event.data['userId'] ?? ''}');
+      final restricted = event.event == 'social_community_chat_user_restricted';
+      if (mounted && affectedUserId != null) {
+        setState(() {
+          if (affectedUserId == _currentUserId) _isBanned = restricted;
+          if (restricted && !_canManageChat) {
+            _chatMessages = _chatMessages
+                .where(
+                  (message) =>
+                      message.isSystem ||
+                      message.senderUserId != affectedUserId,
+                )
+                .toList(growable: false);
+          }
+        });
+      }
       await _reloadCommunityChatOnly(silent: true);
       return;
     }
@@ -893,13 +1008,27 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     });
   }
 
-  Future<void> _reloadCommunityChatOnly({bool silent = false}) async {
-    if (_isGuestSession) return;
+  Future<void> _reloadCommunityChatOnly({
+    bool silent = false,
+    bool fullSnapshot = false,
+  }) async {
+    if (_isGuestSession || _chatSyncInFlight) return;
+    _chatSyncInFlight = true;
+    final syncUserId = _currentUserId;
     try {
+      final afterId = fullSnapshot || _chatMessages.isEmpty
+          ? null
+          : _chatSyncCursor ??
+                _chatMessages.fold<int>(
+                  0,
+                  (latest, message) =>
+                      message.id > latest ? message.id : latest,
+                );
       final chat = await _api.listCommunityChatMessages(
         scopeType: _scopeType,
         scopeCode: _scopeCode,
-        limit: 120,
+        limit: afterId == null ? 120 : 80,
+        afterId: afterId,
       );
       final messages =
           List<dynamic>.from(chat['messages'] as List? ?? const [])
@@ -911,11 +1040,27 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
               .toList(growable: false)
             ..sort((a, b) => a.id.compareTo(b.id));
 
-      if (!mounted) return;
+      if (!mounted || _currentUserId != syncUserId || _isGuestSession) return;
+      final responseCursor = int.tryParse('${chat['latestCursor'] ?? ''}');
       setState(() {
-        _chatMessages = messages;
+        if (afterId == null) {
+          _chatMessages = messages;
+        } else if (messages.isNotEmpty) {
+          final merged =
+              <int, SocialCommunityChatMessage>{
+                  for (final message in _chatMessages) message.id: message,
+                  for (final message in messages) message.id: message,
+                }.values.toList(growable: false)
+                ..sort((left, right) => left.id.compareTo(right.id));
+          _chatMessages = merged.length <= 240
+              ? merged
+              : merged.sublist(merged.length - 240);
+        }
         _chatLocked = chat['chatLocked'] == true;
         _isBanned = chat['isBanned'] == true;
+        _chatSyncCursor =
+            responseCursor ??
+            (_chatMessages.isEmpty ? null : _chatMessages.last.id);
       });
       final route = ModalRoute.of(context);
       if (_tab == 2 && route?.isCurrent == true) {
@@ -926,11 +1071,14 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       }
     } catch (_) {
       // keep current snapshot; full reload/pull-to-refresh will recover
+    } finally {
+      _chatSyncInFlight = false;
     }
   }
 
   Future<void> _reload({bool silent = false}) async {
     if (!mounted) return;
+    final generation = ++_reloadGeneration;
     setState(() {
       _loading = !silent;
       if (!silent) _error = null;
@@ -992,7 +1140,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       final scope = Map<String, dynamic>.from(
         feed['scope'] as Map? ?? ann['scope'] as Map? ?? const {},
       );
-      if (!mounted) return;
+      if (!mounted || generation != _reloadGeneration) return;
       setState(() {
         _scopeTitle = '${scope['title'] ?? _scopeTitle}'.trim();
         _scopeSubtitle = '${scope['subtitle'] ?? ''}'.trim();
@@ -1021,6 +1169,10 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
         _chatMessages = hasSession
             ? parsedChat
             : const <SocialCommunityChatMessage>[];
+        _chatSyncCursor = hasSession
+            ? int.tryParse('${chat['latestCursor'] ?? ''}') ??
+                  (parsedChat.isEmpty ? null : parsedChat.last.id)
+            : null;
         _bills = hasSession
             ? List<dynamic>.from(bills['bills'] as List? ?? const [])
                   .map(
@@ -1061,7 +1213,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
         });
       }
     } on DioException catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _reloadGeneration) return;
       if (isAuthDioError(e)) {
         setState(() {
           _loading = false;
@@ -1085,6 +1237,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
           _chatSearchError = null;
           _highlightedChatMessageId = null;
           _chatLastEventId = null;
+          _chatSyncCursor = null;
           if (_tab >= 2) {
             _tab = 0;
           }
@@ -1104,7 +1257,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
         );
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || generation != _reloadGeneration) return;
       setState(() {
         _loading = false;
         _error = mapAnyError(
@@ -1369,10 +1522,8 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => SocialGifPickerSheet(
-        api: _api,
-        isEnglish: context.isEnglishLocale,
-      ),
+      builder: (_) =>
+          SocialGifPickerSheet(api: _api, isEnglish: context.isEnglishLocale),
     );
     if (!mounted || gif == null) return;
     await _sendCommunityGif(gif);
@@ -1388,10 +1539,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       bytes = await _api.downloadRemoteMedia(gif.url);
     } catch (_) {
       if (!mounted) return;
-      _snack(
-        _t('تعذّر تحميل GIF.', 'Could not load the GIF.'),
-        error: true,
-      );
+      _snack(_t('تعذّر تحميل GIF.', 'Could not load the GIF.'), error: true);
       return;
     }
     if (!mounted) return;
@@ -2820,7 +2968,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
       child: MaslakiCard(
         elevated: false,
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         child: Row(
           children: [
             for (var i = 0; i < stats.length; i++) ...[
@@ -2837,19 +2985,26 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
                       borderRadius: BorderRadius.circular(18),
                       color: stats[i].$4
                           ? context.maslakiTokens.primaryAccent.withValues(
-                              alpha: 0.12,
+                              alpha: 0.16,
                             )
                           : Colors.transparent,
+                      border: Border.all(
+                        color: stats[i].$4
+                            ? context.maslakiTokens.primaryAccent.withValues(
+                                alpha: 0.42,
+                              )
+                            : Colors.transparent,
+                      ),
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
                           stats[i].$1,
-                          size: 16,
+                          size: 18,
                           color: stats[i].$4
                               ? context.maslakiTokens.primaryAccent
-                              : context.maslakiTokens.textMuted,
+                              : context.maslakiTokens.textSecondary,
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -2857,7 +3012,10 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w900),
+                              ?.copyWith(
+                                color: context.maslakiTokens.textPrimary,
+                                fontWeight: FontWeight.w900,
+                              ),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -2867,8 +3025,10 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
                           textAlign: TextAlign.center,
                           style: Theme.of(context).textTheme.labelSmall
                               ?.copyWith(
-                                color: context.maslakiTokens.textMuted,
-                                fontWeight: FontWeight.w700,
+                                color: stats[i].$4
+                                    ? context.maslakiTokens.primaryAccent
+                                    : context.maslakiTokens.textSecondary,
+                                fontWeight: FontWeight.w800,
                               ),
                         ),
                       ],

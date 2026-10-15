@@ -373,6 +373,7 @@ class SocialPost {
   final DateTime? updatedAt;
   final SocialMediaAsset? asset;
   final List<SocialPostMediaItem> mediaGallery;
+  final List<SocialComment> commentPreview;
   final SocialContentLink? contentLink;
   final SocialAuthor author;
 
@@ -406,9 +407,16 @@ class SocialPost {
     required this.updatedAt,
     required this.asset,
     required this.mediaGallery,
+    this.commentPreview = const [],
     required this.contentLink,
     required this.author,
   });
+
+  bool get commentsEnabled =>
+      _parseJsonMap(storyStyle['postSettings'])['commentsEnabled'] != false;
+
+  bool get sharingEnabled =>
+      _parseJsonMap(storyStyle['postSettings'])['sharingEnabled'] != false;
 
   factory SocialPost.fromJson(Map<String, dynamic> j) => SocialPost(
     id: parseInt(j['id']),
@@ -483,6 +491,12 @@ class SocialPost {
         .whereType<Map>()
         .map((e) => SocialPostMediaItem.fromJson(Map<String, dynamic>.from(e)))
         .toList(growable: false),
+    commentPreview: _parseJsonList(j['commentPreview'] ?? j['comment_preview'])
+        .whereType<Map>()
+        .map((e) => SocialComment.fromJson(Map<String, dynamic>.from(e)))
+        .where((comment) => !comment.isDeleted)
+        .take(2)
+        .toList(growable: false),
     contentLink:
         _parseJsonMap(j['contentLink']).isNotEmpty ||
             _parseJsonMap(j['content_link']).isNotEmpty
@@ -496,6 +510,7 @@ class SocialPost {
   );
 
   SocialPost copyWith({
+    List<SocialComment>? commentPreview,
     int? likesCount,
     int? commentsCount,
     int? savesCount,
@@ -542,6 +557,7 @@ class SocialPost {
       updatedAt: updatedAt,
       asset: asset,
       mediaGallery: mediaGallery,
+      commentPreview: commentPreview ?? this.commentPreview,
       contentLink: contentLink,
       author: author ?? this.author,
     );
@@ -3312,10 +3328,12 @@ class SocialCommunityChatMessage {
         isMine: parseBool(j['isMine'] ?? j['is_mine']),
         isSystem: parseBool(j['isSystem'] ?? j['is_system']),
         reactionCounts: _parseReactionCounts(j['reactions']),
-        reactionTotalCount: parseInt(
-          j['reactionTotalCount'] ?? j['reaction_total_count'],
-        ),
-        myReaction: parseNullableString(j['myReaction'] ?? j['my_reaction']),
+        reactionTotalCount: j['reactions'] is Map
+            ? _parseReactionTotalCount(j['reactions'])
+            : parseInt(j['reactionTotalCount'] ?? j['reaction_total_count']),
+        myReaction:
+            _parseMyReaction(j['reactions']) ??
+            parseNullableString(j['myReaction'] ?? j['my_reaction']),
         replyToMessage:
             _parseJsonMap(j['replyToMessage']).isNotEmpty ||
                 _parseJsonMap(j['reply_to_message']).isNotEmpty
@@ -3356,6 +3374,63 @@ class SocialCommunityChatMessage {
             : null,
         sender: SocialAuthor.fromJson(_parseJsonMap(j['sender'])),
       );
+
+  SocialCommunityChatMessage withReactionState({
+    required Map<String, int> counts,
+    required int totalCount,
+    required String? reaction,
+  }) {
+    return SocialCommunityChatMessage(
+      id: id,
+      scopeType: scopeType,
+      scopeCode: scopeCode,
+      senderUserId: senderUserId,
+      body: body,
+      clientMessageId: clientMessageId,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      editedAt: editedAt,
+      deletedAt: deletedAt,
+      isDeleted: isDeleted,
+      isMine: isMine,
+      isSystem: isSystem,
+      reactionCounts: Map<String, int>.unmodifiable(counts),
+      reactionTotalCount: totalCount,
+      myReaction: reaction,
+      replyToMessage: replyToMessage,
+      attachment: attachment,
+      sharedEntity: sharedEntity,
+      sender: sender,
+    );
+  }
+
+  SocialCommunityChatMessage forViewer(int? viewerUserId) {
+    final viewerOwnsMessage =
+        viewerUserId != null && senderUserId == viewerUserId;
+    if (viewerOwnsMessage == isMine) return this;
+    return SocialCommunityChatMessage(
+      id: id,
+      scopeType: scopeType,
+      scopeCode: scopeCode,
+      senderUserId: senderUserId,
+      body: body,
+      clientMessageId: clientMessageId,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      editedAt: editedAt,
+      deletedAt: deletedAt,
+      isDeleted: isDeleted,
+      isMine: viewerOwnsMessage,
+      isSystem: isSystem,
+      reactionCounts: reactionCounts,
+      reactionTotalCount: reactionTotalCount,
+      myReaction: myReaction,
+      replyToMessage: replyToMessage,
+      attachment: attachment,
+      sharedEntity: sharedEntity,
+      sender: sender,
+    );
+  }
 }
 
 class SocialCommunityAnnouncement {

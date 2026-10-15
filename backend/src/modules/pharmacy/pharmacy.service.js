@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { env } from "../../config/env.js";
 import { AppError } from "../../shared/utils/errors.js";
 import { createNotification } from "../notifications/notifications.repo.js";
+import { getFreeDeliveryCampaignStatus } from "../commerce/free-delivery-campaign.js";
 import * as repo from "./pharmacy.repo.js";
 
 const ATTACHMENT_URL_TTL_SEC = 5 * 60;
@@ -508,11 +509,13 @@ export async function createProposedCart({
     actorUserId,
     actorRole,
   });
+  const deliveryCampaign = getFreeDeliveryCampaignStatus();
+  const effectiveDeliveryFee = deliveryCampaign.active ? 0 : deliveryFee;
   const cart = await repo.createProposedCartWithItems({
     conversationId,
     createdByUserId: actorUserId,
     items,
-    deliveryFee,
+    deliveryFee: effectiveDeliveryFee,
     notes,
     expiresAt,
   });
@@ -546,7 +549,10 @@ export async function createProposedCart({
       cartId: Number(cart.id),
     },
   });
-  return mapCartRow(cart, cartItems);
+  return {
+    ...mapCartRow(cart, cartItems),
+    deliveryPromotion: deliveryCampaign.active ? deliveryCampaign : null,
+  };
 }
 
 export async function updateCartStatusByCustomer({

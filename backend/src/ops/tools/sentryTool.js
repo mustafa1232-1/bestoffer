@@ -72,8 +72,15 @@ export async function initSentryBackend({ env, app }) {
       },
     });
 
-    app.use(sentry.Handlers.requestHandler());
-    app.use(sentry.Handlers.errorHandler());
+    if (typeof sentry.setupExpressErrorHandler === "function") {
+      sentry.setupExpressErrorHandler(app);
+    } else if (sentry.Handlers?.errorHandler) {
+      // Compatibility for older installations used by local tooling.
+      if (sentry.Handlers.requestHandler) {
+        app.use(sentry.Handlers.requestHandler());
+      }
+      app.use(sentry.Handlers.errorHandler());
+    }
 
     process.on("unhandledRejection", (reason) => {
       sentry.captureException(reason);

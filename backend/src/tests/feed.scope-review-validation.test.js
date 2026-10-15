@@ -40,11 +40,12 @@ test("validateCreatePost accepts a valid building-scoped post", () => {
   assert.equal(r.value.audienceScopeType, "building");
 });
 
-test("validateCreatePost requires merchant + rating for a review", () => {
+test("validateCreatePost requires merchant + rating + order for a review", () => {
   const missing = validateCreatePost({ caption: "", postKind: "merchant_review" });
   assert.equal(missing.ok, false);
   assert.ok(missing.errors.includes("merchantId_required"));
   assert.ok(missing.errors.includes("reviewRating_required"));
+  assert.ok(missing.errors.includes("orderId_required"));
 });
 
 test("validateCreatePost rejects an out-of-range review rating", () => {
@@ -53,6 +54,7 @@ test("validateCreatePost rejects an out-of-range review rating", () => {
     postKind: "merchant_review",
     merchantId: 5,
     reviewRating: 9,
+    orderId: 42,
   });
   assert.equal(bad.ok, false);
   assert.ok(bad.errors.includes("reviewRating"));
@@ -64,6 +66,7 @@ test("validateCreatePost accepts a valid merchant review", () => {
     postKind: "merchant_review",
     merchantId: 5,
     reviewRating: 4,
+    orderId: 42,
   });
   assert.equal(ok.ok, true);
 });

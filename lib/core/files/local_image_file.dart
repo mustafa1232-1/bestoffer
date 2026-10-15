@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 
 const int kMaxUploadImageBytes = 8 * 1024 * 1024;
+const int kMaxUploadVideoBytes = 80 * 1024 * 1024;
 const Set<String> kSupportedUploadImageExtensions = {
   'jpg',
   'jpeg',
@@ -10,6 +11,13 @@ const Set<String> kSupportedUploadImageExtensions = {
   'webp',
   'heic',
   'heif',
+};
+const Set<String> kSupportedUploadVideoExtensions = {
+  'mp4',
+  'mov',
+  'webm',
+  'mkv',
+  '3gp',
 };
 
 class LocalImageFile {
@@ -35,17 +43,21 @@ class LocalImageFile {
   }
 
   bool get hasSupportedExtension =>
-      kSupportedUploadImageExtensions.contains(extension);
+      kSupportedUploadImageExtensions.contains(extension) ||
+      kSupportedUploadVideoExtensions.contains(extension);
+
+  bool get isVideo => kSupportedUploadVideoExtensions.contains(extension);
 
   bool get isWithinUploadLimit =>
-      sizeBytes == null || sizeBytes! <= kMaxUploadImageBytes;
+      sizeBytes == null ||
+      sizeBytes! <= (isVideo ? kMaxUploadVideoBytes : kMaxUploadImageBytes);
 
   String? get uploadValidationError {
     if (!hasSupportedExtension) {
-      return 'UNSUPPORTED_IMAGE_FORMAT';
+      return 'UNSUPPORTED_MEDIA_FORMAT';
     }
     if (!isWithinUploadLimit) {
-      return 'IMAGE_TOO_LARGE';
+      return isVideo ? 'VIDEO_TOO_LARGE' : 'IMAGE_TOO_LARGE';
     }
     return null;
   }

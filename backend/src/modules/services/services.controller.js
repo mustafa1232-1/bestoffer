@@ -6,6 +6,10 @@ import {
   validateAdminOfferingStatusBody,
   validateAdminProviderStatusBody,
   validateCategorySuggestionBody,
+  validateCentralServiceRequestBody,
+  validateCentralServiceRoutingBody,
+  validateEmergencyLocationBody,
+  validateEmergencyMessageBody,
   validateIdParam,
   validateModerationStatusQuery,
   validateAdminCashConfirmationBody,
@@ -30,6 +34,10 @@ import {
   validateServiceBookingPreviewBody,
   validateServiceRequestBody,
   validateServiceSearchQuery,
+  validateServiceCouponBody,
+  validateServiceMessageBody,
+  validateServicePaymentBody,
+  validateServicePriceAdjustmentBody,
 } from './services.validators.js';
 
 function collectUploadedUrls(req, fieldName = null) {
@@ -45,6 +53,22 @@ function collectUploadedUrls(req, fieldName = null) {
       .filter(Boolean);
   }
   return [];
+}
+
+function collectUploadedMedia(req, fieldName = null) {
+  const files = Array.isArray(req.files)
+    ? req.files
+    : req.files && typeof req.files === 'object'
+      ? (fieldName ? req.files[fieldName] : Object.values(req.files).flat())
+      : [];
+  return (Array.isArray(files) ? files : [])
+    .map((file) => ({
+      mediaUrl: buildUploadedFileUrl(req, file),
+      mediaKind: String(file?.mimetype || '').toLowerCase().startsWith('video/')
+        ? 'video'
+        : 'image',
+    }))
+    .filter((item) => item.mediaUrl);
 }
 
 function firstUploadedUrl(req, fieldName) {
@@ -76,6 +100,14 @@ function deviceContextFromReq(req) {
     userAgent: req.headers['user-agent'] || null,
     ipAddress: req.ip || req.connection?.remoteAddress || null,
   };
+}
+
+export async function listCentralCatalog(_req, res, next) {
+  try {
+    res.json({ items: service.listCentralCatalog() });
+  } catch (error) {
+    next(error);
+  }
 }
 
 export async function registerProvider(req, res, next) {
@@ -311,7 +343,7 @@ export async function createOffering(req, res, next) {
       userId: req.userId,
       userRole: req.userRole,
       dto: v.value,
-      mediaUrls: collectUploadedUrls(req, 'mediaFiles'),
+      mediaUrls: collectUploadedMedia(req, 'mediaFiles'),
     });
     res.status(201).json({ offering: out });
   } catch (error) {
@@ -331,7 +363,7 @@ export async function updateOffering(req, res, next) {
       userRole: req.userRole,
       offeringId: idv.value,
       dto: v.value,
-      mediaUrls: collectUploadedUrls(req, 'mediaFiles'),
+      mediaUrls: collectUploadedMedia(req, 'mediaFiles'),
     });
     res.json({ offering: out });
   } catch (error) {
@@ -485,16 +517,84 @@ export async function updateProviderRequestStatus(req, res, next) {
   }
 }
 
+export async function adjustServiceRequestPrice(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const v = validateServicePriceAdjustmentBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.adjustServiceRequestPrice({
+      userId: req.userId,
+      userRole: req.userRole,
+      requestId: idv.value,
+      dto: v.value,
+    });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function confirmServiceRequestPayment(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const v = validateServicePaymentBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.confirmServiceRequestPayment({
+      userId: req.userId,
+      userRole: req.userRole,
+      requestId: idv.value,
+      dto: v.value,
+    });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function routeCentralServiceRequest(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const v = validateCentralServiceRoutingBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.routeCentralServiceRequest({
+      userId: req.userId,
+      userRole: req.userRole,
+      requestId: idv.value,
+      dto: v.value,
+    });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function createServiceRequest(req, res, next) {
   try {
     const body = req.body || {};
     const v = validateServiceRequestBody(body);
     if (!v.ok) return validationError(res, v.errors);
-    const attachments = collectUploadedUrls(req, 'attachmentFiles').map((url) => ({
-      mediaUrl: url,
-      mediaKind: 'image',
-    }));
+    const attachments = collectUploadedMedia(req, 'attachmentFiles');
     const out = await service.createServiceRequest({
+      userId: req.userId,
+      dto: v.value,
+      attachments,
+    });
+    res.status(201).json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createCentralServiceRequest(req, res, next) {
+  try {
+    const body = parseBodyJsonFields(req.body || {}, ['intakeAnswers']);
+    const v = validateCentralServiceRequestBody(body);
+    if (!v.ok) return validationError(res, v.errors);
+    const attachments = collectUploadedMedia(req, 'attachmentFiles');
+    const out = await service.createCentralServiceRequest({
       userId: req.userId,
       dto: v.value,
       attachments,
@@ -546,6 +646,56 @@ export async function getMyRequest(req, res, next) {
   }
 }
 
+export async function updateEmergencyLocation(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const v = validateEmergencyLocationBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.updateEmergencyLocation({
+      userId: req.userId,
+      requestId: idv.value,
+      dto: v.value,
+    });
+    res.status(201).json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getEmergencyThread(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const out = await service.getEmergencyThread({
+      userId: req.userId,
+      requestId: idv.value,
+      admin: false,
+    });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function sendEmergencyMessage(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const v = validateEmergencyMessageBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.sendEmergencyMessage({
+      userId: req.userId,
+      requestId: idv.value,
+      message: v.value.message,
+      admin: false,
+    });
+    res.status(201).json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function updateMyRequestStatus(req, res, next) {
   try {
     const idv = validateIdParam(req.params.requestId, 'requestId');
@@ -558,6 +708,71 @@ export async function updateMyRequestStatus(req, res, next) {
       dto: v.value,
     });
     res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function applyServiceRequestCoupon(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const v = validateServiceCouponBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.applyServiceRequestCoupon({
+      userId: req.userId,
+      requestId: idv.value,
+      code: v.value.code,
+    });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function submitServiceRequestPayment(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const v = validateServicePaymentBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.submitServiceRequestPayment({
+      userId: req.userId,
+      requestId: idv.value,
+      dto: v.value,
+    });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listServiceRequestMessages(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const out = await service.listServiceRequestMessages({
+      userId: req.userId,
+      requestId: idv.value,
+    });
+    res.json({ items: out });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function sendServiceRequestMessage(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const v = validateServiceMessageBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.sendServiceRequestMessage({
+      userId: req.userId,
+      requestId: idv.value,
+      message: v.value.message,
+    });
+    res.status(201).json(out);
   } catch (error) {
     next(error);
   }
@@ -827,6 +1042,33 @@ export async function listOfferingsForAdmin(req, res, next) {
   }
 }
 
+export async function listCategoriesForAdmin(_req, res, next) {
+  try {
+    const out = await service.listCategoriesForAdmin();
+    res.json({ items: out });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function adminUpdateOfferingDetails(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.offeringId, 'offeringId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const body = parseBodyJsonFields(req.body || {}, ['pricingOptions']);
+    const v = validateOfferingBody(body, { partial: true });
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.adminUpdateOfferingDetails({
+      offeringId: idv.value,
+      dto: v.value,
+      adminUserId: req.userId,
+    });
+    res.json({ offering: out });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function adminUpdateOfferingStatus(req, res, next) {
   try {
     const idv = validateIdParam(req.params.offeringId, 'offeringId');
@@ -913,6 +1155,49 @@ export async function listRequestsForAdmin(req, res, next) {
       query: { ...p.value, ...m.value },
     });
     res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listEmergencyRequestsForAdmin(req, res, next) {
+  try {
+    const p = validatePaginationQuery(req.query || {});
+    const out = await service.listEmergencyRequestsForAdmin({ query: p.value });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getEmergencyThreadForAdmin(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const out = await service.getEmergencyThread({
+      userId: req.userId,
+      requestId: idv.value,
+      admin: true,
+    });
+    res.json(out);
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function sendEmergencyMessageAsAdmin(req, res, next) {
+  try {
+    const idv = validateIdParam(req.params.requestId, 'requestId');
+    if (!idv.ok) return validationError(res, idv.errors);
+    const v = validateEmergencyMessageBody(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const out = await service.sendEmergencyMessage({
+      userId: req.userId,
+      requestId: idv.value,
+      message: v.value.message,
+      admin: true,
+    });
+    res.status(201).json(out);
   } catch (error) {
     next(error);
   }

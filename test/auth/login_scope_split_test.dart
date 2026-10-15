@@ -16,14 +16,23 @@ Widget _app(Widget child) {
 }
 
 void main() {
-  testWidgets('user login screen exposes user and service-provider registration actions', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_app(const LoginScreen()));
-    await tester.pump();
+  testWidgets(
+    'user login screen exposes only customer registration',
+    (tester) async {
+      await tester.pumpWidget(_app(const LoginScreen()));
+      await tester.pump();
 
-    expect(find.byType(TextButton), findsNWidgets(2));
-  });
+      final l10n = AppLocalizations.of(
+        tester.element(find.byType(LoginScreen)),
+      );
+      expect(
+        find.widgetWithText(TextButton, l10n.authCreateUserAccount),
+        findsOneWidget,
+      );
+      expect(find.text('إنشاء حساب صاحب خدمة'), findsNothing);
+      expect(find.byType(TextButton), findsNWidgets(2));
+    },
+  );
 
   testWidgets('owner role login exposes owner registration action', (
     tester,
@@ -33,7 +42,14 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(TextButton), findsOneWidget);
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(RoleLoginScreen)),
+    );
+    expect(
+      find.widgetWithText(TextButton, l10n.authCreateOwnerAccount),
+      findsOneWidget,
+    );
+    expect(find.byType(TextButton), findsNWidgets(2));
   });
 
   testWidgets('delivery role login does not expose registration action', (
@@ -44,7 +60,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(TextButton), findsNothing);
+    expect(find.byType(TextButton), findsOneWidget);
   });
 
   testWidgets('captain role login exposes captain registration action', (
@@ -55,6 +71,13 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.byType(TextButton), findsOneWidget);
+    final l10n = AppLocalizations.of(
+      tester.element(find.byType(RoleLoginScreen)),
+    );
+    expect(
+      find.widgetWithText(TextButton, l10n.authTaxiCaptainAccount),
+      findsOneWidget,
+    );
+    expect(find.byType(TextButton), findsNWidgets(2));
   });
 }

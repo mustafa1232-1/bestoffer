@@ -7,6 +7,7 @@ import { createManyNotifications } from "../notifications/notifications.repo.js"
 import * as ordersRepo from "../orders/orders.repo.js";
 import { invalidateOrderListCacheForUser } from "../orders/orders.service.js";
 import * as commerceRepo from "../commerce/commerce.repo.js";
+import * as commerceService from "../commerce/commerce.service.js";
 import * as repo from "./delivery.repo.js";
 
 function normalizeConsentAccepted(value) {
@@ -201,14 +202,16 @@ export async function markArrived(deliveryUserId, orderId) {
   invalidateOrderListCacheForUser(updated.customer_user_id);
 }
 
-export async function markDelivered(deliveryUserId, orderId) {
-  const updated = await ordersRepo.markOrderDelivered(deliveryUserId, Number(orderId));
-  if (!updated) {
-    const err = new Error("ORDER_NOT_AVAILABLE");
-    err.status = 404;
-    throw err;
-  }
-  invalidateOrderListCacheForUser(updated.customer_user_id);
+export async function markDelivered(
+  deliveryUserId,
+  orderId,
+  customerReceivedActual,
+) {
+  await commerceService.courierDeliveredOrder(
+    Number(deliveryUserId),
+    Number(orderId),
+    { customerReceivedActual },
+  );
 }
 
 export async function endDay(deliveryUserId, date) {

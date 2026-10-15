@@ -64,7 +64,7 @@ const OPENAI_FREQUENCY_PENALTY = clampNumber(
 );
 const OPENAI_RETRIES = clampInteger(process.env.OPENAI_RETRIES, 0, 3, 1);
 const OPENAI_ASSISTANT_NAME = String(
-  process.env.OPENAI_ASSISTANT_NAME || "سوقي"
+  process.env.OPENAI_ASSISTANT_NAME || "مساعد مسلكي"
 ).trim();
 const OPENAI_LANGUAGE_LOCK = readBooleanEnv("OPENAI_LANGUAGE_LOCK", true);
 const OPENAI_SYSTEM_PROMPT_AR = String(
@@ -358,11 +358,45 @@ const TAXI_ASSIST_KEYWORDS = [
   "trip",
   "captain",
   "\u062a\u0643\u0633\u064a",
-  "\u0634\u0643\u0627\u0643\u064a",
+  "\u062a\u0627\u0643\u0633\u064a",
   "\u0645\u0634\u0648\u0627\u0631",
   "\u0631\u062d\u0644\u0629",
   "\u0643\u0627\u0628\u062a\u0646",
   "\u062a\u0641\u0627\u0648\u0636",
+];
+
+const SERVICES_ASSIST_KEYWORDS = [
+  "service",
+  "services",
+  "maintenance",
+  "repair",
+  "cleaning",
+  "medical",
+  "legal",
+  "doctor",
+  "lawyer",
+  "emergency",
+  "sos",
+  "ambulance",
+  "fire",
+  "خدمة",
+  "خدمات",
+  "صيانة",
+  "تصليح",
+  "تنظيف",
+  "طبية",
+  "طبي",
+  "قانونية",
+  "محامي",
+  "طبيب",
+  "اسعاف",
+  "إسعاف",
+  "اطفاء",
+  "إطفاء",
+  "طوارئ",
+  "سباك",
+  "كهربائي",
+  "مكيف",
 ];
 
 const COMMUNITY_ASSIST_KEYWORDS = [
@@ -409,6 +443,45 @@ const APP_HELP_KEYWORDS = [
   "\u0645\u0633\u0627\u0639\u062f\u0629",
   "\u0634\u0631\u062d",
   "\u0627\u0644\u062a\u0637\u0628\u064a\u0642",
+];
+
+const APP_NAVIGATION_KEYWORDS = [
+  "real estate",
+  "property",
+  "properties",
+  "cars",
+  "car market",
+  "pharmacy",
+  "medicine",
+  "prescription",
+  "coupon",
+  "coupons",
+  "favorites",
+  "saved items",
+  "addresses",
+  "عقار",
+  "عقارات",
+  "شقة",
+  "بيت للبيع",
+  "بيت للايجار",
+  "سيارة",
+  "سيارات",
+  "صيدلية",
+  "صيدليات",
+  "دواء",
+  "وصفة",
+  "كوبون",
+  "كوبونات",
+  "قسيمة",
+  "المفضلة",
+  "مفضلة",
+  "العناوين",
+  "عنوان محفوظ",
+  "تعديل اسمي",
+  "تغيير اسمي",
+  "اسمي",
+  "ملف شخصي",
+  "تسجيل الدخول",
 ];
 
 const RESTAURANT_DISCOVERY_KEYWORDS = [
@@ -1124,11 +1197,176 @@ function detectPrimaryIntent(normalizedText, supportIntent) {
 function detectAssistDomain(flags) {
   if (flags.jobsIntent) return "jobs";
   if (flags.taxiIntent) return "taxi";
+  if (flags.servicesIntent) return "services";
   if (flags.communityIntent) return "community";
   if (flags.appHelpIntent) return "app_help";
   if (flags.commerceAssistIntent) return "commerce";
   if (flags.orderIntent) return "orders";
   return "general";
+}
+
+export function buildAssistantUiActions({ intent, createdDraft, domainRecommendations }) {
+  const actions = [];
+  const added = new Set();
+
+  const add = (target, reason = "intent") => {
+    if (!target || added.has(target)) return;
+    added.add(target);
+    actions.push({ target, reason });
+  };
+
+  const domain = intent?.assistDomain || "general";
+  const normalizedText = String(intent?.normalizedText || "").toLowerCase();
+  if (domain === "taxi") add("taxi", "assist_domain");
+  if (domain === "jobs") add("jobs", "assist_domain");
+  if (domain === "services") add("services", "assist_domain");
+  if (domain === "orders") add("orders", "assist_domain");
+  if (domain === "commerce") add("market", "assist_domain");
+
+  if (intent?.taxiIntent) add("taxi", "intent_flag");
+  if (intent?.jobsIntent) add("jobs", "intent_flag");
+  if (intent?.servicesIntent) add("services", "intent_flag");
+  if (intent?.communityIntent) add("community", "intent_flag");
+  if (intent?.commerceAssistIntent || intent?.restaurantDiscoveryIntent || intent?.shoppingDiscoveryIntent) {
+    add("market", "intent_flag");
+  }
+  if (createdDraft?.token) add("orders", "draft_created");
+
+  const recommendationsType = domainRecommendations?.type || "";
+  if (recommendationsType === "jobs") add("jobs", "domain_recommendations");
+  if (recommendationsType === "commerce") add("market", "domain_recommendations");
+
+  if (intent?.supportIntent) add("support", "support_intent");
+
+  if (
+    containsAny(normalizedText, [
+      "real estate",
+      "property",
+      "properties",
+      "عقار",
+      "عقارات",
+      "شقة",
+      "بيت للبيع",
+      "بيت للايجار",
+    ])
+  ) {
+    add("real_estate", "app_navigation");
+  }
+  if (
+    containsAny(normalizedText, ["cars", "car market", "سيارة", "سيارات"])
+  ) {
+    add("cars", "app_navigation");
+  }
+  if (
+    containsAny(normalizedText, [
+      "pharmacy",
+      "medicine",
+      "prescription",
+      "صيدلية",
+      "صيدليات",
+      "دواء",
+      "وصفة",
+    ])
+  ) {
+    add("pharmacy", "app_navigation");
+  }
+  if (containsAny(normalizedText, ["coupon", "coupons", "كوبون", "كوبونات", "قسيمة"])) {
+    add("coupons", "app_navigation");
+  }
+  if (
+    containsAny(normalizedText, [
+      "favorites",
+      "saved items",
+      "المفضلة",
+      "مفضلة",
+    ])
+  ) {
+    add("favorites", "app_navigation");
+  }
+  if (
+    containsAny(normalizedText, [
+      "addresses",
+      "saved address",
+      "العناوين",
+      "عنوان محفوظ",
+    ])
+  ) {
+    add("addresses", "app_navigation");
+  }
+  if (
+    containsAny(normalizedText, [
+      "settings",
+      "profile",
+      "account",
+      "اعدادات",
+      "الإعدادات",
+      "حساب",
+      "ملف شخصي",
+      "تعديل اسمي",
+      "تغيير اسمي",
+      "اغير اسمي",
+      "أغير اسمي",
+      "غير اسمي",
+      "اسمي",
+    ])
+  ) {
+    add("settings", "app_navigation");
+  }
+
+  if (
+    containsAny(normalizedText, [
+      "message",
+      "messages",
+      "chat",
+      "رسالة",
+      "رسائل",
+      "محادثة",
+      "محادثات",
+    ])
+  ) {
+    add("messages", "message_help");
+  }
+  if (
+    containsAny(normalizedText, [
+      "notification",
+      "notifications",
+      "تنبيه",
+      "تنبيهات",
+      "اشعار",
+      "اشعارات",
+      "إشعار",
+      "إشعارات",
+    ])
+  ) {
+    add("notifications", "notification_help");
+  }
+  if (
+    containsAny(normalizedText, [
+      "cart",
+      "basket",
+      "checkout",
+      "سلة",
+      "السلة",
+      "الدفع",
+    ])
+  ) {
+    add("cart", "cart_help");
+  }
+  if (
+    intent?.appHelpIntent &&
+    containsAny(normalizedText, [
+      "help",
+      "support",
+      "مساعدة",
+      "دعم",
+      "شكوى",
+      "مشكلة",
+    ])
+  ) {
+    add("support", "app_help_support");
+  }
+
+  return actions.slice(0, 4);
 }
 
 function isExplicitServiceIntent({
@@ -1140,6 +1378,7 @@ function isExplicitServiceIntent({
   supportIntent,
   jobsIntent,
   taxiIntent,
+  servicesIntent,
   communityIntent,
   appHelpIntent,
   commerceAssistIntent,
@@ -1154,7 +1393,7 @@ function isExplicitServiceIntent({
 }) {
   if (supportIntent || comparisonIntent) return true;
   if (orderIntent || confirmIntent || cancelIntent) return true;
-  if (jobsIntent || taxiIntent || communityIntent || appHelpIntent) return true;
+  if (jobsIntent || taxiIntent || servicesIntent || communityIntent || appHelpIntent) return true;
   if (commerceAssistIntent || restaurantDiscoveryIntent || shoppingDiscoveryIntent) return true;
   if (wantsCheap || wantsTopRated || wantsFreeDelivery || wantsFast) return true;
   if (["ORDER_DIRECT", "SUPPORT"].includes(primaryIntent)) return true;
@@ -1186,7 +1425,7 @@ function extractCityAreaHints(normalizedText) {
   return hints;
 }
 
-function detectIntent(message) {
+export function detectIntent(message) {
   const rawMessage = String(message || "");
   const normalized = normalizeDialectText(rawMessage);
   const categoryHints = detectCategoryHints(normalized);
@@ -1211,8 +1450,11 @@ function detectIntent(message) {
   const languageSwitch = detectLanguageSwitch(normalized);
   const jobsIntent = containsAny(normalized, JOBS_ASSIST_KEYWORDS);
   const taxiIntent = containsAny(normalized, TAXI_ASSIST_KEYWORDS);
+  const servicesIntent = containsAny(normalized, SERVICES_ASSIST_KEYWORDS);
   const communityIntent = containsAny(normalized, COMMUNITY_ASSIST_KEYWORDS);
-  const appHelpIntent = containsAny(normalized, APP_HELP_KEYWORDS);
+  const appHelpIntent =
+    containsAny(normalized, APP_HELP_KEYWORDS) ||
+    containsAny(normalized, APP_NAVIGATION_KEYWORDS);
   const restaurantDiscoveryIntent = containsAny(
     normalized,
     RESTAURANT_DISCOVERY_KEYWORDS
@@ -1228,6 +1470,7 @@ function detectIntent(message) {
   const commerceAssistIntent =
     !jobsIntent &&
     !taxiIntent &&
+    !servicesIntent &&
     !communityIntent &&
     !orderIntent &&
     !supportIntent &&
@@ -1240,6 +1483,7 @@ function detectIntent(message) {
   const assistDomain = detectAssistDomain({
     jobsIntent,
     taxiIntent,
+    servicesIntent,
     communityIntent,
     appHelpIntent,
     commerceAssistIntent,
@@ -1253,6 +1497,7 @@ function detectIntent(message) {
     supportIntent ||
     jobsIntent ||
     taxiIntent ||
+    servicesIntent ||
     communityIntent ||
     appHelpIntent ||
     commerceAssistIntent;
@@ -1273,6 +1518,7 @@ function detectIntent(message) {
     supportIntent ||
     jobsIntent ||
     taxiIntent ||
+    servicesIntent ||
     communityIntent ||
     appHelpIntent ||
     commerceAssistIntent ||
@@ -1293,6 +1539,7 @@ function detectIntent(message) {
     supportIntent,
     jobsIntent,
     taxiIntent,
+    servicesIntent,
     communityIntent,
     appHelpIntent,
     commerceAssistIntent,
@@ -1337,6 +1584,7 @@ function detectIntent(message) {
     assistDomain,
     jobsIntent,
     taxiIntent,
+    servicesIntent,
     communityIntent,
     appHelpIntent,
     commerceAssistIntent,
@@ -2714,6 +2962,52 @@ function compactLlmProduct(product) {
   };
 }
 
+const MASLAKI_APP_KNOWLEDGE_EN = [
+  "Maslaki app modules: main market, restaurants, supermarkets, fashion, pharmacies, offers, orders, order tracking, cart, taxi, services, jobs, community, messages, notifications, account, addresses, support.",
+  "Shopping flow: search or open a category/store, inspect products, add to cart, choose address, confirm order, then follow store/courier updates from orders/tracking.",
+  "Taxi flow: choose pickup, choose destination, review map route, enter proposed fare, confirm request, then wait for captain offers or assignment. Never create a ride without pickup, destination, fare, and explicit confirmation.",
+  "Services flow: choose service type, describe the issue, add location and optional images, submit request, wait for Maslaki/services response, then follow details, quotes, booking status, and messages.",
+  "Jobs flow: browse and filter jobs, open job details, apply directly when the user wants a role, and track applications.",
+  "Real-estate flow: open Real Estate, filter sale or rent listings by location and budget, inspect photos and details, save suitable listings, and contact through the available listing action.",
+  "Cars flow: open Cars, browse or filter listings, inspect specifications and photos, save a listing, and use the listing contact action. Never invent a price or availability.",
+  "Pharmacy flow: open Pharmacies, find a pharmacy or start the supported prescription conversation, attach a clear prescription when needed, review the proposed cart, then confirm explicitly.",
+  "Coupons and offers are separate from the cart: open Coupons to inspect eligibility and validity, then apply a valid code in the relevant checkout or taxi flow.",
+  "Favorites contains products the customer saved. Saved taxi places and favorite trips are managed from Taxi tools; delivery addresses are managed from Addresses.",
+  "Community flow: posts, reels, stories, messages, activity and discovery. Keep social help focused on app usage and safety.",
+  "Notifications are actionable: an order notification opens its order, a message notification opens its conversation, and taxi/service updates open their related details when the payload is available.",
+  "Store reviews are limited to stores the customer actually ordered from. Reviewing a specific product is optional and the product must exist in that completed order.",
+  "The cart groups purchasable items, lets the customer review quantities, address, notes, discounts and totals, then requires explicit confirmation before checkout.",
+  "Account help includes profile information, saved addresses, notification access, privacy controls and support. Never ask for the user's PIN or expose private credentials.",
+  "To change the account name or profile details, open account/settings, edit the permitted field, save it, and refresh the session only if the displayed value does not update.",
+  "Maslaki Services centrally receives legal, medical, home maintenance, roadside car maintenance, cleaning, leisure and SOS requests, then routes them to the suitable provider.",
+  "For SOS or urgent medical/fire danger, tell the user to contact the official emergency authority immediately; the app is not a substitute for emergency dispatch.",
+  "When the user asks how to do something, explain in steps and end with one useful next action you can help with.",
+  "When the user asks you to do something, collect only missing required fields, summarize the action, and ask for confirmation before final creation.",
+];
+
+const MASLAKI_APP_KNOWLEDGE_AR = [
+  "أقسام مسلكي: السوق الرئيسي، المطاعم، السوبرماركت، الأزياء، الصيدليات، العروض، الطلبات، تتبع الطلب، السلة، التكسي، الخدمات، الوظائف، المجتمع، الرسائل، الإشعارات، الحساب، العناوين، والدعم.",
+  "التسوق: يبحث المستخدم عن متجر أو منتج، يفتح المتجر، يضيف المنتجات للسلة، يختار العنوان، يؤكد الطلب، ثم يتابع تحديثات المتجر والدلفري من الطلبات/التتبع.",
+  "التكسي: يحدد نقطة الانطلاق، يحدد نقطة الوصول، يراجع المسار على الخريطة، يكتب السعر المقترح، يؤكد الطلب، ثم ينتظر عروض الكباتن أو التعيين. لا تنشئ رحلة بدون نقطة انطلاق ووصول وسعر وتأكيد صريح.",
+  "الخدمات: يختار نوع الخدمة، يصف المشكلة، يضيف الموقع والصور اختياريًا، يرسل الطلب، ثم يتابع الرد والعروض والحجز والمحادثة من تفاصيل الطلب.",
+  "الوظائف: يتصفح المستخدم الوظائف، يفلتر حسب النوع والمكان والراتب، يفتح التفاصيل، يقدم على الوظيفة، ثم يتابع طلبات التقديم.",
+  "العقارات: يفتح المستخدم العقارات، يحدد البيع أو الإيجار والموقع والميزانية، يراجع الصور والتفاصيل، يحفظ الإعلان المناسب، ثم يستخدم وسيلة التواصل المتاحة في الإعلان.",
+  "السيارات: يفتح المستخدم سوق السيارات، يفلتر الإعلانات، يراجع المواصفات والصور، يحفظ الإعلان، ثم يستخدم وسيلة التواصل المتاحة. لا تخترع سعراً أو توفرًا غير موجود.",
+  "الصيدلية: يفتح المستخدم الصيدليات أو محادثة الوصفة المدعومة، يرفق وصفة واضحة عند الحاجة، يراجع السلة المقترحة، ثم يؤكدها صراحة.",
+  "الكوبونات والعروض منفصلة عن السلة: افتح الكوبونات لمراجعة الصلاحية والشروط ثم طبّق الرمز الصالح في الدفع أو رحلة التكسي المناسبة.",
+  "المفضلة تحتوي المنتجات المحفوظة. الأماكن ورحلات التكسي المفضلة تدار من أدوات التكسي، وعناوين التوصيل تدار من صفحة العناوين.",
+  "المجتمع: منشورات وريels وستوري ورسائل ونشاط واكتشاف. اجعل المساعدة هنا مخصصة لاستخدام التطبيق والسلامة وعدم الإزعاج.",
+  "الإشعارات قابلة للتنفيذ: إشعار الطلب يفتح الطلب، وإشعار الرسالة يفتح المحادثة، وتحديث التكسي أو الخدمة يفتح التفاصيل المرتبطة عندما تكون بيانات الوجهة متوفرة.",
+  "مراجعة المتجر متاحة فقط للمتاجر التي طلب منها المستخدم فعليًا. مراجعة منتج محدد اختيارية ويجب أن يكون المنتج ضمن طلب مكتمل للمستخدم.",
+  "السلة تجمع المنتجات القابلة للشراء وتسمح بمراجعة الكميات والعنوان والملاحظات والخصومات والمجموع، ثم تتطلب تأكيدًا صريحًا قبل إنشاء الطلب.",
+  "مساعدة الحساب تشمل الملف الشخصي والعناوين المحفوظة وإذن الإشعارات والخصوصية والدعم. لا تطلب رمز المستخدم السري ولا تعرض بيانات دخول خاصة.",
+  "لتغيير الاسم أو بيانات الملف الشخصي افتح الحساب أو الإعدادات، عدّل الحقل المسموح واحفظه، ولا تطلب إعادة تسجيل الدخول إلا إذا لم تتحدث القيمة المعروضة.",
+  "خدمات مسلكي تستقبل مركزيًا طلبات الخدمات القانونية والطبية والصيانة المنزلية وصيانة السيارات الخارجية والتنظيف والرفاهية وSOS، ثم توجهها لمقدم الخدمة المناسب.",
+  "عند وجود خطر طبي أو حريق أو طارئ فوري، وجّه المستخدم للاتصال بالجهة الرسمية المختصة فورًا؛ التطبيق ليس بديلًا عن مركز الطوارئ.",
+  "إذا سأل المستخدم كيف يستخدم ميزة، اشرحها بخطوات قصيرة ثم اقترح إجراء واحد مناسب داخل التطبيق.",
+  "إذا طلب المستخدم تنفيذ شيء، اجمع الحقول الناقصة فقط، ثم لخّص العملية واطلب التأكيد قبل الإنشاء النهائي.",
+];
+
 function buildLlmSystemPrompt(lang) {
   if (lang === "en" && OPENAI_SYSTEM_PROMPT_EN) return OPENAI_SYSTEM_PROMPT_EN;
   if (lang !== "en" && OPENAI_SYSTEM_PROMPT_AR) return OPENAI_SYSTEM_PROMPT_AR;
@@ -2735,6 +3029,7 @@ function buildLlmSystemPrompt(lang) {
       "Avoid repetitive greetings or repeated boilerplate.",
       "Do not repeat the user message verbatim and do not expose chain-of-thought.",
       "Output plain text only, no markdown tables.",
+      `App knowledge: ${MASLAKI_APP_KNOWLEDGE_EN.join(" ")}`,
     ].join(" ");
   }
 
@@ -2750,6 +3045,7 @@ function buildLlmSystemPrompt(lang) {
     "لا تكرر نفس التحية أو نفس الردود بشكل آلي.",
     "Avoid repeating the user message verbatim and avoid generic filler.",
     "Output plain text only and keep the response concise and actionable.",
+    `معرفة التطبيق: ${MASLAKI_APP_KNOWLEDGE_AR.join(" ")}`,
   ].join(" ");
 }
 
@@ -3279,8 +3575,16 @@ function buildCommerceAssistReply({ domainRecommendations, lang }) {
 function buildTaxiAssistReply(lang) {
   return tr(
     lang,
-    "\u0623\u0642\u062f\u0631 \u0623\u0633\u0627\u0639\u062f\u0643 \u0628\u0637\u0644\u0628 \u0627\u0644\u062a\u0643\u0633\u064a \u0645\u0646 \u0634\u0643\u0627\u0643\u064a: \u062d\u062f\u062f \u0646\u0642\u0637\u0629 \u0627\u0644\u0627\u0646\u0637\u0644\u0627\u0642 \u0648\u0627\u0644\u0648\u062c\u0647\u0629 \u0648\u0633\u0623\u0631\u062a\u0628 \u0644\u0643 \u0643\u0627\u0628\u062a\u0646 \u0645\u0646\u0627\u0633\u0628 \u0645\u0639 \u0625\u0645\u0643\u0627\u0646\u064a\u0629 \u0627\u0644\u062a\u0641\u0627\u0648\u0636.",
-    "I can help with a Shakaky taxi request: share pickup and destination, and I will guide the best captain flow with price negotiation."
+    "أساعدك بطلب تكسي مسلكي: افتح صفحة التكسي، حدّد نقطة الانطلاق والوصول، راجع المسار والسعر المقترح، ثم أكّد الطلب لتصلك عروض الكباتن. لن أنشئ رحلة قبل تأكيدك النهائي.",
+    "I can help with a Maslaki taxi request: open Taxi, choose pickup and destination, review the route and proposed fare, then confirm to receive captain offers. I will not create a ride before your final confirmation."
+  );
+}
+
+function buildServicesAssistReply(lang) {
+  return tr(
+    lang,
+    "أساعدك بطلب خدمة من مسلكي. افتح الخدمات واختر النوع المناسب، اكتب المشكلة والموقع وأرفق صورًا إن احتجت، ثم أرسل الطلب لتتم متابعته وتوجيهه للمختص. إذا كانت الحالة طارئة أو فيها خطر مباشر فاتصل بالجهة الرسمية المختصة فورًا.",
+    "I can help you request a Maslaki service. Open Services, choose the service type, describe the issue and location, add photos if useful, then submit it for follow-up and routing to the right specialist. For immediate danger, contact the official emergency authority now."
   );
 }
 
@@ -3292,7 +3596,107 @@ function buildCommunityAssistReply(lang) {
   );
 }
 
-function buildAppHelpReply(lang) {
+export function buildAppHelpReply(intent, lang) {
+  const text = String(intent?.normalizedText || "").toLowerCase();
+  if (
+    containsAny(text, [
+      "real estate",
+      "property",
+      "عقار",
+      "عقارات",
+      "بيت للبيع",
+      "بيت للايجار",
+    ])
+  ) {
+    return tr(
+      lang,
+      "افتح العقارات، اختر بيع أو إيجار، ثم استخدم فلاتر الموقع والسعر. افتح الإعلان لمراجعة الصور والتفاصيل وحفظه أو استخدام وسيلة التواصل المتاحة.",
+      "Open Real Estate, choose sale or rent, then filter by location and price. Open a listing to inspect details, save it, or use its available contact action."
+    );
+  }
+  if (containsAny(text, ["cars", "car market", "سيارة", "سيارات"])) {
+    return tr(
+      lang,
+      "افتح سوق السيارات، حدّد النوع والسعر والمواصفات، ثم افتح الإعلان المناسب لمراجعة الصور والتفاصيل والحفظ أو التواصل.",
+      "Open Cars, filter by type, price, and specifications, then inspect a listing to save it or contact through the available action."
+    );
+  }
+  if (
+    containsAny(text, [
+      "pharmacy",
+      "medicine",
+      "prescription",
+      "صيدلية",
+      "صيدليات",
+      "دواء",
+      "وصفة",
+    ])
+  ) {
+    return tr(
+      lang,
+      "افتح الصيدليات واختر صيدلية أو محادثة الوصفة، أرفق وصفة واضحة عند الحاجة، ثم راجع السلة التي تقترحها الصيدلية قبل التأكيد.",
+      "Open Pharmacies, choose a pharmacy or prescription chat, attach a clear prescription when needed, then review the proposed cart before confirming."
+    );
+  }
+  if (containsAny(text, ["coupon", "coupons", "كوبون", "كوبونات", "قسيمة"])) {
+    return tr(
+      lang,
+      "افتح الكوبونات، راجع مدة الصلاحية والشروط، ثم استخدم الرمز في صفحة الدفع أو التكسي إذا كان الكوبون مخصصاً له.",
+      "Open Coupons, review validity and conditions, then apply the code at checkout or in Taxi when it is eligible."
+    );
+  }
+  if (containsAny(text, ["favorites", "saved items", "المفضلة", "مفضلة"])) {
+    return tr(
+      lang,
+      "افتح المفضلة لمشاهدة المنتجات المحفوظة. أما الأماكن ورحلات التكسي المفضلة فتجدها في أدوات التكسي.",
+      "Open Favorites for saved products. Saved places and favorite taxi trips are available in Taxi tools."
+    );
+  }
+  if (
+    containsAny(text, ["addresses", "saved address", "العناوين", "عنوان محفوظ"])
+  ) {
+    return tr(
+      lang,
+      "افتح العناوين لإضافة عنوان توصيل أو تعديله وحفظه، ثم اختره مباشرة عند إكمال الطلب.",
+      "Open Addresses to add, edit, and save a delivery address, then select it during checkout."
+    );
+  }
+  if (
+    containsAny(text, [
+      "name",
+      "profile",
+      "account",
+      "تعديل اسمي",
+      "تغيير اسمي",
+      "اسمي",
+      "ملف شخصي",
+      "حساب",
+    ])
+  ) {
+    return tr(
+      lang,
+      "افتح الحساب ثم إعدادات الحساب، عدّل الاسم أو البيانات المتاحة واضغط حفظ. لا تحتاج للخروج عادة؛ حدّث الصفحة فقط إذا تأخر ظهور الاسم الجديد.",
+      "Open Account, then Account settings, edit the permitted name or profile field, and save. You normally do not need to sign out; refresh only if the new value is delayed."
+    );
+  }
+  if (
+    containsAny(text, [
+      "notification",
+      "notifications",
+      "تنبيه",
+      "تنبيهات",
+      "اشعار",
+      "اشعارات",
+      "إشعار",
+      "إشعارات",
+    ])
+  ) {
+    return tr(
+      lang,
+      "افتح الإشعارات واضغط التنبيه نفسه لفتح الطلب أو الرحلة أو المحادثة المرتبطة. إذا لم تصل التنبيهات، فعّل إذن الإشعارات من إعدادات الجهاز ثم افتح التطبيق مرة أخرى.",
+      "Open Notifications and tap the alert to open its related order, ride, or conversation. If alerts do not arrive, enable notification permission in device settings and reopen the app."
+    );
+  }
   return tr(
     lang,
     "\u0623\u0643\u062f\u0631 \u0623\u0633\u0627\u0639\u062f\u0643 \u0628\u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u062e\u0637\u0648\u0629 \u0628\u062e\u0637\u0648\u0629: \u0627\u0643\u062a\u0628 \u0628\u0627\u0644\u0636\u0628\u0637 \u0627\u0644\u0635\u0641\u062d\u0629 \u0623\u0648 \u0627\u0644\u0645\u0634\u0643\u0644\u0629 (\u0625\u0634\u0639\u0627\u0631\u0627\u062a\u060c \u062d\u0633\u0627\u0628\u060c \u0631\u0633\u0627\u0626\u0644\u060c \u0637\u0644\u0628\u0627\u062a) \u0648\u0623\u0639\u0637\u064a\u0643 \u0627\u0644\u062d\u0644 \u0627\u0644\u0645\u0628\u0627\u0634\u0631.",
@@ -3637,11 +4041,14 @@ function buildIntentAwareReply({
   if (intent.taxiIntent) {
     return buildTaxiAssistReply(lang);
   }
+  if (intent.servicesIntent) {
+    return buildServicesAssistReply(lang);
+  }
   if (intent.communityIntent) {
     return buildCommunityAssistReply(lang);
   }
   if (intent.appHelpIntent) {
-    return buildAppHelpReply(lang);
+    return buildAppHelpReply(intent, lang);
   }
 
   if (intent.supportIntent || intent.primaryIntent === "SUPPORT") {
@@ -4025,7 +4432,7 @@ async function ensureWelcomeMessage(sessionId) {
   await repo.insertMessage(
     sessionId,
     'assistant',
-    'هلا بيك 🌟 أني مساعد سوقي. أكدر أرتبلك أفضل خيارات الطلب وأجهزلك مسودة جاهزة.'
+    'هلا بيك، أني مساعد مسلكي. أكدر أساعدك تبحث، تختار، وتوصل للخطوة الصحيحة داخل التطبيق بدون تعقيد.'
   );
 }
 
@@ -4709,6 +5116,12 @@ export async function chat(customerUserId, dto) {
     artifacts.adminSummary.summary
   );
 
+  const uiActions = buildAssistantUiActions({
+    intent,
+    createdDraft,
+    domainRecommendations,
+  });
+
   const assistantMessage = await repo.insertMessage(session.id, "assistant", assistantText, {
     type:
       conversationDecision.mode === "discovery"
@@ -4720,6 +5133,7 @@ export async function chat(customerUserId, dto) {
     merchantsCount: visibleMerchants.length,
     productsCount: visibleProducts.length,
     assistDomain: intent.assistDomain || "general",
+    uiActions,
     domainRecommendationsType: domainRecommendations?.type || null,
     domainRecommendationsCount: Array.isArray(domainRecommendations?.items)
       ? domainRecommendations.items.length
@@ -4786,6 +5200,7 @@ export async function chat(customerUserId, dto) {
       merchantsCount: visibleMerchants.length,
       productsCount: visibleProducts.length,
       assistDomain: intent.assistDomain || "general",
+      uiActions,
       domainRecommendationsType: domainRecommendations?.type || null,
       domainRecommendationsCount: Array.isArray(domainRecommendations?.items)
         ? domainRecommendations.items.length

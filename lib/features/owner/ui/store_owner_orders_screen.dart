@@ -50,8 +50,10 @@ class StoreOwnerOrdersScreen extends ConsumerStatefulWidget {
 class _StoreOwnerOrdersScreenState
     extends ConsumerState<StoreOwnerOrdersScreen> {
   final Map<int, bool> _printingByOrder = {};
+  late final TextEditingController _searchController;
   bool _printingSample = false;
   bool _printingTest = false;
+  String _orderSearchQuery = '';
   late final OwnerController _ownerController;
 
   bool get _useArabicLabels =>
@@ -60,6 +62,14 @@ class _StoreOwnerOrdersScreenState
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController()
+      ..addListener(() {
+        final next = _searchController.text.trim();
+        if (next == _orderSearchQuery) return;
+        setState(() {
+          _orderSearchQuery = next;
+        });
+      });
     _ownerController = ref.read(ownerControllerProvider.notifier);
     Future.microtask(() async {
       if (!mounted) return;
@@ -76,6 +86,7 @@ class _StoreOwnerOrdersScreenState
     if (!widget.isReadOnlyView) {
       _ownerController.stopLiveOrders();
     }
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -348,6 +359,12 @@ class _StoreOwnerOrdersScreenState
   }
 
   String _emptyMessage() {
+    if (_orderSearchQuery.trim().isNotEmpty) {
+      return context.lt(
+        ar: 'لا توجد طلبات مطابقة للبحث.',
+        en: 'No orders match this search.',
+      );
+    }
     final l10n = context.l10n;
     switch (widget.view) {
       case StoreOwnerOrdersView.current:
@@ -407,9 +424,7 @@ class _StoreOwnerOrdersScreenState
       case 'arrived':
         return l10n.ownerOrdersHintArrived;
       case 'delivered':
-        return order.customerConfirmedAt != null
-            ? null
-            : l10n.ownerOrdersHintDeliveredAwaitingConfirmation;
+        return null;
       case 'failed_delivery':
         return l10n.ownerOrdersHintFailedDelivery;
       default:
@@ -668,6 +683,58 @@ class _StoreOwnerOrdersScreenState
     }
   }
 
+  bool _canCancelByStore(OrderModel order) {
+    final normalized = normalizeOrderStatusForUi(order.status);
+    return const {
+      'pending',
+      'approved',
+      'preparing',
+      'ready_for_delivery',
+      'ready_for_pickup',
+    }.contains(normalized);
+  }
+
+  Future<void> _cancelStoreOrder(
+    OrderModel order,
+    OwnerController controller,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(context.lt(ar: 'إلغاء الطلب', en: 'Cancel order')),
+        content: Text(
+          context.lt(
+            ar: 'هل تريد إلغاء هذا الطلب؟ سيتم تحرير أي دلفري مرتبط به وإرجاع المخزون المحجوز.',
+            en: 'Cancel this order? Any assigned courier will be released and reserved stock will be returned.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(context.l10n.commonCancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(context.l10n.commonConfirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final updated = await controller.updateOrderStatus(
+      orderId: order.id,
+      status: 'cancelled',
+    );
+    if (!updated || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          context.lt(ar: 'تم إلغاء الطلب.', en: 'Order cancelled.'),
+        ),
+      ),
+    );
+  }
+
   bool _matchesView(OrderModel order) {
     final normalized = normalizeOrderStatusForUi(order.status);
     switch (widget.view) {
@@ -695,11 +762,97 @@ class _StoreOwnerOrdersScreenState
     }
   }
 
+  String _normalizeSearchText(String value) {
+    const digitMap = {
+      '٠': '0',
+      '١': '1',
+      '٢': '2',
+      '٣': '3',
+      '٤': '4',
+      '٥': '5',
+      '٦': '6',
+      '٧': '7',
+      '٨': '8',
+      '٩': '9',
+      '۰': '0',
+      '۱': '1',
+      '۲': '2',
+      '۳': '3',
+      '۴': '4',
+      '۵': '5',
+      '۶': '6',
+      '۷': '7',
+      '۸': '8',
+      '۹': '9',
+    };
+    final buffer = StringBuffer();
+    for (final codePoint in value.runes) {
+      final char = String.fromCharCode(codePoint);
+      buffer.write(digitMap[char] ?? char);
+    }
+    return buffer.toString().trim().toLowerCase();
+  }
+
+  bool _matchesSearch(OrderModel order) {
+    final query = _normalizeSearchText(_orderSearchQuery);
+    if (query.isEmpty) return true;
+    if (RegExp(r'^\d{1,6}$').hasMatch(query)) {
+      return order.id.toString().contains(query) ||
+          _normalizeSearchText(order.subOrderId ?? '').contains(query);
+    }
+    final searchable = _normalizeSearchText(
+      [
+        order.id.toString(),
+        '#${order.id}',
+        order.subOrderId ?? '',
+        order.merchantName,
+        order.customerFullName,
+        order.customerPhone,
+        order.customerCity,
+        order.customerBlock,
+        order.customerBuildingNumber,
+        order.customerApartment,
+        order.status,
+        order.deliveryAssignmentStatus ?? '',
+        order.deliveryFullName ?? '',
+        order.deliveryPhone ?? '',
+        ...order.items.map((item) => item.productName),
+      ].where((value) => value.trim().isNotEmpty).join(' '),
+    );
+    return searchable.contains(query);
+  }
+
   List<OrderModel> _resolveVisibleOrders(OwnerState state) {
     final source = widget.view == StoreOwnerOrdersView.current
         ? state.currentOrders
         : [...state.currentOrders, ...state.historyOrders];
-    return source.where(_matchesView).toList(growable: false);
+    return source
+        .where(_matchesView)
+        .where(_matchesSearch)
+        .toList(growable: false);
+  }
+
+  Widget _buildOrderSearchField() {
+    return TextField(
+      controller: _searchController,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        isDense: true,
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: _orderSearchQuery.isEmpty
+            ? null
+            : IconButton(
+                tooltip: context.lt(ar: 'مسح البحث', en: 'Clear search'),
+                onPressed: _searchController.clear,
+                icon: const Icon(Icons.close_rounded),
+              ),
+        hintText: context.lt(
+          ar: 'بحث برقم الطلب أو الزبون أو المنتج',
+          en: 'Search by order, customer, or product',
+        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
   }
 
   @override
@@ -714,23 +867,38 @@ class _StoreOwnerOrdersScreenState
     }
     final controller = ref.read(ownerControllerProvider.notifier);
     final visibleOrders = _resolveVisibleOrders(state);
+    final showSearch =
+        widget.view != StoreOwnerOrdersView.details &&
+        (state.currentOrders.isNotEmpty ||
+            state.historyOrders.isNotEmpty ||
+            _orderSearchQuery.isNotEmpty);
     final pageTitle = _viewTitle();
 
     final pending = state.currentOrders
-        .where((o) => o.status == 'pending')
+        .where(
+          (o) => const {
+            'pending',
+            'approved',
+          }.contains(normalizeOrderStatusForUi(o.status)),
+        )
         .length;
     final preparing = state.currentOrders
-        .where((o) => o.status == 'preparing')
+        .where((o) => normalizeOrderStatusForUi(o.status) == 'preparing')
         .length;
     final ready = state.currentOrders
         .where(
           (o) =>
-              o.status == 'ready_for_delivery' ||
-              o.status == 'ready_for_pickup',
+              normalizeOrderStatusForUi(o.status) == 'ready_for_delivery' ||
+              normalizeOrderStatusForUi(o.status) == 'ready_for_pickup',
         )
         .length;
     final delivering = state.currentOrders
-        .where((o) => const {'on_the_way', 'arrived'}.contains(o.status))
+        .where(
+          (o) => const {
+            'on_the_way',
+            'arrived',
+          }.contains(normalizeOrderStatusForUi(o.status)),
+        )
         .length;
 
     return Scaffold(
@@ -926,6 +1094,10 @@ class _StoreOwnerOrdersScreenState
                       onRetry: state.loading ? null : _refresh,
                     ),
                     const SizedBox(height: 10),
+                  ],
+                  if (showSearch) ...[
+                    _buildOrderSearchField(),
+                    const SizedBox(height: 12),
                   ],
                   if (visibleOrders.isEmpty)
                     Container(
@@ -1157,6 +1329,19 @@ class _StoreOwnerOrdersScreenState
                     icon: const Icon(Icons.verified_user_outlined),
                     label: const Text('موثوقية العميل'),
                   ),
+                  if (_canCancelByStore(order))
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Theme.of(context).colorScheme.error,
+                      ),
+                      onPressed: state.savingOrder
+                          ? null
+                          : () => _cancelStoreOrder(order, controller),
+                      icon: const Icon(Icons.cancel_outlined),
+                      label: Text(
+                        context.lt(ar: 'إلغاء الطلب', en: 'Cancel order'),
+                      ),
+                    ),
                   if (order.status == 'pending' || order.status == 'approved')
                     ElevatedButton(
                       onPressed: state.savingOrder

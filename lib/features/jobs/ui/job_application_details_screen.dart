@@ -72,7 +72,7 @@ class _JobApplicationDetailsScreenState
       case 'archived':
         return const Color(0xFFB7C0D1);
       default:
-        return Colors.white70;
+        return Theme.of(context).colorScheme.onSurfaceVariant;
     }
   }
 

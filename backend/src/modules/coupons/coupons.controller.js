@@ -14,6 +14,8 @@ export async function validateCoupon(req, res, next) {
       merchantId,
       orderTotal,
       orderSubtotal,
+      deviceContext: req.authDeviceContext,
+      authSessionId: req.authSessionId,
     });
     res.json(out);
   } catch (e) {
@@ -33,6 +35,27 @@ export async function listMyCoupons(req, res, next) {
       },
       { userId: req.userId }
     );
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getPendingCouponPopup(req, res, next) {
+  try {
+    const out = await service.getPendingCouponPopup({ userId: req.userId });
+    res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function acknowledgeCouponPopup(req, res, next) {
+  try {
+    const out = await service.acknowledgeCouponPopup({
+      userId: req.userId,
+      couponId: Number(req.params.couponId),
+    });
     res.json(out);
   } catch (e) {
     next(e);
@@ -150,6 +173,82 @@ export async function getAgentCouponRedemptions(req, res, next) {
       isSuperAdmin: req.userIsSuperAdmin === true,
     });
     res.json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function createInfluencerProfile(req, res, next) {
+  try {
+    const out = await service.createInfluencerProfile(req.body || {}, {
+      userId: req.userId,
+      role: req.userRole,
+      isSuperAdmin: req.userIsSuperAdmin === true,
+    });
+    res.status(201).json(out);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function listInfluencerProfiles(req, res, next) {
+  try {
+    res.json(
+      await service.listInfluencerProfiles({
+        userId: req.userId,
+        role: req.userRole,
+        isSuperAdmin: req.userIsSuperAdmin === true,
+      }),
+    );
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function getInfluencerReferrals(req, res, next) {
+  try {
+    res.json(
+      await service.getInfluencerReferrals(req.params.influencerId, {
+        userId: req.userId,
+        role: req.userRole,
+        isSuperAdmin: req.userIsSuperAdmin === true,
+      }),
+    );
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function toggleInfluencerProfile(req, res, next) {
+  try {
+    res.json(
+      await service.toggleInfluencerProfile(
+        req.params.influencerId,
+        req.body?.isActive,
+        {
+          userId: req.userId,
+          role: req.userRole,
+          isSuperAdmin: req.userIsSuperAdmin === true,
+        },
+      ),
+    );
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function createInfluencerMarketingCoupon(req, res, next) {
+  try {
+    const out = await service.createInfluencerMarketingCoupon(
+      req.params.influencerId,
+      req.body || {},
+      {
+        userId: req.userId,
+        role: req.userRole,
+        isSuperAdmin: req.userIsSuperAdmin === true,
+      },
+    );
+    res.status(201).json(out);
   } catch (e) {
     next(e);
   }

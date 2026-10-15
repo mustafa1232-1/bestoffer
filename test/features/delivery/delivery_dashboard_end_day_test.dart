@@ -122,9 +122,22 @@ class _FakeDeliveryApi extends DeliveryApi {
     readinessCalls += 1;
     return readiness;
   }
+
+  @override
+  Future<Map<String, dynamic>> deliveryEarnings() async => const {
+    'todayEarnings': 0,
+    'monthEarnings': 0,
+    'completedTodayCount': 0,
+    'completedMonthCount': 0,
+    'rows': <dynamic>[],
+  };
 }
 
-Widget _wrap(Widget child, DeliveryApi api) => ProviderScope(
+Widget _wrap(
+  Widget child,
+  DeliveryApi api, {
+  Locale locale = const Locale('en'),
+}) => ProviderScope(
   overrides: [
     authControllerProvider.overrideWith(
       (ref) => _FakeAuthController(ref, const AuthState(token: 'test-token')),
@@ -132,7 +145,7 @@ Widget _wrap(Widget child, DeliveryApi api) => ProviderScope(
     deliveryApiProvider.overrideWithValue(api),
   ],
   child: MaterialApp(
-    locale: const Locale('en'),
+    locale: locale,
     supportedLocales: AppLocalizations.supportedLocales,
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     theme: AppTheme.dark(),
@@ -141,38 +154,114 @@ Widget _wrap(Widget child, DeliveryApi api) => ProviderScope(
 );
 
 void main() {
-  testWidgets('delivery dashboard shows end-day readiness warning', (
+  testWidgets(
+    'delivery home stays focused and skips extended dashboard calls',
+    (tester) async {
+      final api = _FakeDeliveryApi(
+        readiness: const {
+          'canEndDay': false,
+          'outstandingAmount': 1500,
+          'openSettlements': [
+            {
+              'id': 1,
+              'appDueFromDelivery': 1500,
+              'settlementStatus': 'pending_store_confirmation',
+              'status': 'pending',
+            },
+          ],
+        },
+      );
+
+      await tester.pumpWidget(_wrap(const DeliveryDashboardScreen(), api));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+      await tester.pump(const Duration(milliseconds: 120));
+
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('delivery_home_current')), findsOneWidget);
+      expect(find.byKey(const Key('delivery_home_completed')), findsOneWidget);
+      expect(
+        find.byKey(const Key('delivery_home_today_earnings')),
+        findsOneWidget,
+      );
+      expect(find.text('Current orders'), findsOneWidget);
+      expect(find.text('Completed orders'), findsOneWidget);
+      expect(find.text('Today earnings'), findsOneWidget);
+      expect(find.textContaining('You cannot close the day yet'), findsNothing);
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(api.readinessCalls, 0);
+      expect(api.reportsCalls, 0);
+      expect(api.activeCompetitionsCalls, 0);
+      expect(api.historyCompetitionsCalls, 0);
+      expect(api.competitionProgressCalls, 0);
+      expect(api.achievementsCalls, 0);
+    },
+  );
+
+  testWidgets('delivery home cards open their real destinations', (
     tester,
   ) async {
     final api = _FakeDeliveryApi(
-      readiness: const {
-        'canEndDay': false,
-        'outstandingAmount': 1500,
-        'openSettlements': [
-          {
-            'id': 1,
-            'appDueFromDelivery': 1500,
-            'settlementStatus': 'pending_store_confirmation',
-            'status': 'pending',
-          },
-        ],
-      },
+      readiness: const {'canEndDay': true, 'openSettlements': <dynamic>[]},
     );
 
-    await tester.pumpWidget(_wrap(const DeliveryDashboardScreen(), api));
+    Future<void> openHome() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+      await tester.pumpWidget(_wrap(const DeliveryDashboardScreen(), api));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+
+    await openHome();
+    await tester.ensureVisible(find.byKey(const Key('delivery_home_current')));
+    await tester.tap(find.byKey(const Key('delivery_home_current')));
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 120));
-    await tester.pump(const Duration(milliseconds: 120));
+    expect(find.byKey(const Key('delivery_home_current')), findsNothing);
+    expect(find.text('Current orders'), findsWidgets);
 
-    expect(tester.takeException(), isNull);
-    expect(find.textContaining('You cannot close the day yet'), findsOneWidget);
-    expect(find.textContaining('App due:'), findsWidgets);
-    expect(find.textContaining('Unresolved differences:'), findsWidgets);
-
-    final fab = tester.widget<FloatingActionButton>(
-      find.byType(FloatingActionButton),
+    await openHome();
+    await tester.ensureVisible(
+      find.byKey(const Key('delivery_home_completed')),
     );
-    expect(fab.onPressed, isNull);
-    expect(api.readinessCalls, greaterThanOrEqualTo(1));
+    await tester.tap(find.byKey(const Key('delivery_home_completed')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('delivery_home_completed')), findsNothing);
+    expect(find.text('Completed orders'), findsOneWidget);
+
+    await openHome();
+    await tester.ensureVisible(
+      find.byKey(const Key('delivery_home_today_earnings')),
+    );
+    await tester.tap(find.byKey(const Key('delivery_home_today_earnings')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('delivery_home_today_earnings')), findsNothing);
+    expect(find.text('Delivery earnings'), findsOneWidget);
+  });
+
+  testWidgets('delivery home fits a narrow Arabic phone', (tester) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final api = _FakeDeliveryApi(
+      readiness: const {'canEndDay': true, 'openSettlements': <dynamic>[]},
+    );
+    await tester.pumpWidget(
+      _wrap(const DeliveryDashboardScreen(), api, locale: const Locale('ar')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    expect(find.text('الطلبات الحالية'), findsOneWidget);
+    expect(find.text('الطلبات المنتهية'), findsOneWidget);
+    expect(find.text('أرباح اليوم'), findsOneWidget);
+    expect(find.text('ذمة التطبيق'), findsOneWidget);
+    expect(find.text('تسويات مفتوحة'), findsOneWidget);
+    expect(find.text('أرباح الشهر'), findsOneWidget);
+    expect(find.text('الطلبات الملغية'), findsOneWidget);
+    expect(find.text('إجمالي الطلبات'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

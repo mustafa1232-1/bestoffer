@@ -55,6 +55,17 @@ class CouponsApi {
         .toList(growable: false);
   }
 
+  Future<Map<String, dynamic>?> getPendingPopup() async {
+    final response = await dio.get('/api/coupons/popups/pending');
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final popup = map['popup'];
+    return popup is Map ? Map<String, dynamic>.from(popup) : null;
+  }
+
+  Future<void> acknowledgePopup(int couponId) async {
+    await dio.post('/api/coupons/$couponId/popups/ack');
+  }
+
   Future<Map<String, dynamic>> getCouponStats({
     int? merchantId,
     bool includeGlobal = true,
@@ -128,5 +139,59 @@ class CouponsApi {
       '/api/coupons/$couponId/discount',
       data: {'discountType': discountType, 'discountValue': discountValue},
     );
+  }
+
+  Future<List<Map<String, dynamic>>> listInfluencerProfiles() async {
+    final response = await dio.get('/api/coupons/influencers');
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final raw = map['influencers'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> createInfluencerProfile(
+    Map<String, dynamic> body,
+  ) async {
+    final response = await dio.post('/api/coupons/influencers', data: body);
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> getInfluencerReferrals(
+    int influencerId,
+  ) async {
+    final response = await dio.get(
+      '/api/coupons/influencers/$influencerId/referrals',
+    );
+    final map = Map<String, dynamic>.from(response.data as Map);
+    final raw = map['referrals'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList(growable: false);
+  }
+
+  Future<void> toggleInfluencerProfile({
+    required int influencerId,
+    required bool isActive,
+  }) async {
+    await dio.patch(
+      '/api/coupons/influencers/$influencerId/active',
+      data: {'isActive': isActive},
+    );
+  }
+
+  Future<Map<String, dynamic>> createInfluencerMarketingCoupon({
+    required int influencerId,
+    required Map<String, dynamic> body,
+  }) async {
+    final response = await dio.post(
+      '/api/coupons/influencers/$influencerId/coupons',
+      data: body,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
   }
 }

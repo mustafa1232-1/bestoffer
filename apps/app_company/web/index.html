@@ -34,12 +34,14 @@
 </head>
 <body>
   <script>
+    window.__MASLAKI_WEB_RELEASE__ = "1.0.13+59-web-20261013-call2";
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", function () {
         navigator.serviceWorker.register("/firebase-messaging-sw.js");
       });
     }
   </script>
-  <script src="flutter_bootstrap.js" async></script>
+  <script src="maslaki_web_update.js?v=1.0.13+59-web-20261013-call2"></script>
+  <script src="flutter_bootstrap.js?v=1.0.13+59-web-20261013-call2" async></script>
 </body>
 </html>

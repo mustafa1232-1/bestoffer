@@ -125,33 +125,33 @@ class _AdminFinancialMerchantDetailsScreenState
       final to = _iso(_to, endOfDay: true);
 
       final raw = switch (widget.reportType) {
-        AdminFinancialMerchantReportType.sales => await api
-            .adminSalesMerchantDetails(
-              merchantId: widget.merchantId,
-              period: period,
-              from: from,
-              to: to,
-              limit: 300,
-              offset: 0,
-            ),
-        AdminFinancialMerchantReportType.collections => await api
-            .adminCollectionsMerchantDetails(
-              merchantId: widget.merchantId,
-              period: period,
-              from: from,
-              to: to,
-              limit: 300,
-              offset: 0,
-            ),
-        AdminFinancialMerchantReportType.receivables => await api
-            .adminReceivablesMerchantStatement(
-              merchantId: widget.merchantId,
-              period: period,
-              from: from,
-              to: to,
-              limit: 400,
-              offset: 0,
-            ),
+        AdminFinancialMerchantReportType.sales =>
+          await api.adminSalesMerchantDetails(
+            merchantId: widget.merchantId,
+            period: period,
+            from: from,
+            to: to,
+            limit: 300,
+            offset: 0,
+          ),
+        AdminFinancialMerchantReportType.collections =>
+          await api.adminCollectionsMerchantDetails(
+            merchantId: widget.merchantId,
+            period: period,
+            from: from,
+            to: to,
+            limit: 300,
+            offset: 0,
+          ),
+        AdminFinancialMerchantReportType.receivables =>
+          await api.adminReceivablesMerchantStatement(
+            merchantId: widget.merchantId,
+            period: period,
+            from: from,
+            to: to,
+            limit: 400,
+            offset: 0,
+          ),
       };
 
       final detail = switch (widget.reportType) {
@@ -184,6 +184,36 @@ class _AdminFinancialMerchantDetailsScreenState
     return DateFormat('yyyy-MM-dd HH:mm').format(date.toLocal());
   }
 
+  double _discountTotal(AdminFinancialSalesOrderLine item) {
+    return item.productDiscountTotal + item.couponDiscountTotal;
+  }
+
+  String _discountType(AdminFinancialSalesOrderLine item) {
+    final parts = <String>[];
+    if (item.couponDiscountTotal > 0) {
+      final code = item.couponCode.trim();
+      final type = item.couponDiscountType.trim();
+      parts.add(
+        code.isEmpty
+            ? 'كوبون${type.isEmpty ? '' : ' - $type'}'
+            : 'كوبون $code${type.isEmpty ? '' : ' - $type'}',
+      );
+    }
+    if (item.productDiscountTotal > 0) {
+      parts.add('خصم سعر/عرض منتج');
+    }
+    return parts.isEmpty ? 'لا يوجد خصم' : parts.join(' + ');
+  }
+
+  String _deliveryName(AdminFinancialSalesOrderLine item) {
+    final name = item.deliveryFullName.trim();
+    final phone = item.deliveryPhone.trim();
+    if (name.isEmpty && phone.isEmpty) return '-';
+    if (phone.isEmpty) return name;
+    if (name.isEmpty) return phone;
+    return '$name - $phone';
+  }
+
   Future<void> _print() async {
     final detail = _detail;
     if (detail == null) return;
@@ -203,7 +233,13 @@ class _AdminFinancialMerchantDetailsScreenState
         l10n.adminFinancialMerchantHeaderDate,
         l10n.commonStatus,
         l10n.adminFinancialMerchantHeaderCustomer,
-        l10n.adminFinancialMerchantHeaderAmount,
+        'قيمة الفاتورة',
+        'قيمة الخصم',
+        'نوع الخصم',
+        'قيمة التوصيل',
+        'اسم المندوب',
+        'عمولة الطلب',
+        'إجمالي عمولات المتجر',
       ];
       rows = detail.salesItems
           .map(
@@ -213,6 +249,12 @@ class _AdminFinancialMerchantDetailsScreenState
               item.status,
               item.customerName,
               formatIqd(item.totalAmount),
+              formatIqd(_discountTotal(item)),
+              _discountType(item),
+              formatIqd(item.deliveryFee),
+              _deliveryName(item),
+              formatIqd(item.commissionAmount),
+              formatIqd(detail.summary.totalCommission),
             ],
           )
           .toList(growable: false);
@@ -220,9 +262,13 @@ class _AdminFinancialMerchantDetailsScreenState
         '${l10n.adminFinancialMerchantTotalSales}: ${formatIqd(detail.summary.totalSales)}',
       );
       summary.add(
+        'إجمالي عمولات التطبيق المستحقة من المتجر: ${formatIqd(detail.summary.totalCommission)}',
+      );
+      summary.add(
         '${l10n.adminFinancialMerchantOrdersCount}: ${detail.summary.totalOrders}',
       );
-    } else if (widget.reportType == AdminFinancialMerchantReportType.collections) {
+    } else if (widget.reportType ==
+        AdminFinancialMerchantReportType.collections) {
       headers = [
         l10n.adminFinancialMerchantHeaderOperation,
         l10n.adminFinancialMerchantHeaderDate,
@@ -286,6 +332,155 @@ class _AdminFinancialMerchantDetailsScreenState
     );
   }
 
+  Future<void> _exportExcel() async {
+    final detail = _detail;
+    if (detail == null) return;
+    final title = _title(context);
+    final summary = <String>[
+      '${context.l10n.adminFinancialMerchantLabelMerchant}: ${detail.merchant.name}',
+      '${context.l10n.adminFinancialMerchantLabelPeriod}: ${_periodLabel(context)}',
+    ];
+
+    late final List<AdminFinancialExcelSheet> sheets;
+    if (widget.reportType == AdminFinancialMerchantReportType.sales) {
+      summary.add(
+        '${context.l10n.adminFinancialMerchantTotalSales}: ${formatIqd(detail.summary.totalSales)}',
+      );
+      summary.add(
+        'إجمالي عمولات التطبيق المستحقة من المتجر: ${formatIqd(detail.summary.totalCommission)}',
+      );
+      summary.add(
+        '${context.l10n.adminFinancialMerchantOrdersCount}: ${detail.summary.totalOrders}',
+      );
+      sheets = [
+        AdminFinancialExcelSheet(
+          name: 'كشف طلبات المتجر',
+          headers: const [
+            'رقم الطلب',
+            'تاريخ الطلب',
+            'حالة الطلب',
+            'اسم الزبون',
+            'قيمة الفاتورة',
+            'قيمة الخصم',
+            'نوع الخصم',
+            'قيمة التوصيل',
+            'اسم المندوب',
+            'اسم المتجر',
+            'عمولة الطلب',
+            'إجمالي العمولات المستحقة من المتجر',
+          ],
+          rows: detail.salesItems
+              .map(
+                (item) => [
+                  item.orderId,
+                  _fmtDate(item.createdAt),
+                  item.status,
+                  item.customerName,
+                  item.totalAmount,
+                  _discountTotal(item),
+                  _discountType(item),
+                  item.deliveryFee,
+                  _deliveryName(item),
+                  detail.merchant.name,
+                  item.commissionAmount,
+                  detail.summary.totalCommission,
+                ],
+              )
+              .toList(growable: false),
+        ),
+        AdminFinancialExcelSheet(
+          name: 'العمولات فقط',
+          headers: const [
+            'رقم الطلب',
+            'اسم الزبون',
+            'عمولة الطلب',
+            'إجمالي عمولات المتجر',
+          ],
+          rows: detail.salesItems
+              .map(
+                (item) => [
+                  item.orderId,
+                  item.customerName,
+                  item.commissionAmount,
+                  detail.summary.totalCommission,
+                ],
+              )
+              .toList(growable: false),
+        ),
+      ];
+    } else if (widget.reportType ==
+        AdminFinancialMerchantReportType.collections) {
+      summary.add(
+        '${context.l10n.adminFinancialMerchantTotalCollected}: ${formatIqd(detail.summary.totalCollected)}',
+      );
+      summary.add(
+        '${context.l10n.adminFinancialMerchantOperationsCount}: ${detail.summary.totalOperations}',
+      );
+      sheets = [
+        AdminFinancialExcelSheet(
+          name: 'تحصيلات المتجر',
+          headers: [
+            context.l10n.adminFinancialMerchantHeaderOperation,
+            context.l10n.adminFinancialMerchantHeaderDate,
+            context.l10n.adminFinancialMerchantHeaderScope,
+            context.l10n.commonStatus,
+            context.l10n.adminFinancialMerchantHeaderAmount,
+          ],
+          rows: detail.collectionItems
+              .map(
+                (item) => [
+                  item.paymentRequestId,
+                  _fmtDate(item.eventAt),
+                  item.paymentScope,
+                  item.status,
+                  item.paidAmount > 0 ? item.paidAmount : item.requestedAmount,
+                ],
+              )
+              .toList(growable: false),
+        ),
+      ];
+    } else {
+      summary.add(
+        '${context.l10n.adminFinancialMerchantOpeningBalance}: ${formatIqd(detail.summary.openingBalance)}',
+      );
+      summary.add(
+        '${context.l10n.adminFinancialMerchantNetReceivables}: ${formatIqd(detail.summary.netReceivables)}',
+      );
+      sheets = [
+        AdminFinancialExcelSheet(
+          name: 'كشف المستحقات',
+          headers: [
+            context.l10n.adminFinancialMerchantHeaderDate,
+            context.l10n.adminFinancialMerchantHeaderDescription,
+            context.l10n.adminFinancialMerchantHeaderDebit,
+            context.l10n.adminFinancialMerchantHeaderCredit,
+            context.l10n.adminFinancialMerchantHeaderBalance,
+          ],
+          rows: detail.statementItems
+              .map(
+                (item) => [
+                  _fmtDate(item.eventAt),
+                  item.description,
+                  item.debit,
+                  item.credit,
+                  item.balanceAfter,
+                ],
+              )
+              .toList(growable: false),
+        ),
+      ];
+    }
+
+    await exportAdminFinancialExcelReport(
+      title: title,
+      periodLabel: _periodLabel(context),
+      merchantName: detail.merchant.name,
+      summaryLines: summary,
+      filenamePrefix: 'admin-merchant-${detail.merchant.id}-report',
+      sheets: sheets,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -294,10 +489,7 @@ class _AdminFinancialMerchantDetailsScreenState
       appBar: AppBar(
         title: Text(_title(context)),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
       body: RefreshIndicator(
@@ -330,7 +522,10 @@ class _AdminFinancialMerchantDetailsScreenState
                 ),
               ),
               const SizedBox(height: 8),
-              AdminFinancialPrintActions(onPrint: _print),
+              AdminFinancialPrintActions(
+                onPrintPdf: _print,
+                onExportExcel: _exportExcel,
+              ),
               const SizedBox(height: 8),
             ],
             if (_loading)
@@ -377,47 +572,53 @@ class _AdminFinancialMerchantDetailsScreenState
     final l10n = context.l10n;
     if (widget.reportType == AdminFinancialMerchantReportType.sales) {
       if (detail.salesItems.isEmpty) {
-        return [
-          Center(
-            child: Text(l10n.adminFinancialMerchantNoSalesInRange),
-          ),
-        ];
+        return [Center(child: Text(l10n.adminFinancialMerchantNoSalesInRange))];
       }
-      return detail.salesItems.map((item) {
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            title: Text('#${item.orderId} - ${formatIqd(item.totalAmount)}'),
-            subtitle: Text(
-              '${_fmtDate(item.createdAt)} - ${item.status}\n'
-              '${item.customerName} - ${item.customerPhone}',
-            ),
-          ),
-        );
-      }).toList(growable: false);
+      return detail.salesItems
+          .map((item) {
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text(
+                  '#${item.orderId} - ${formatIqd(item.totalAmount)}',
+                ),
+                subtitle: Text(
+                  '${_fmtDate(item.createdAt)} - ${item.status}\n'
+                  '${item.customerName} - ${item.customerPhone}\n'
+                  'الخصم: ${formatIqd(_discountTotal(item))} (${_discountType(item)}) - '
+                  'التوصيل: ${formatIqd(item.deliveryFee)}\n'
+                  'المندوب: ${_deliveryName(item)} - '
+                  'عمولة الطلب: ${formatIqd(item.commissionAmount)}',
+                ),
+              ),
+            );
+          })
+          .toList(growable: false);
     }
 
     if (widget.reportType == AdminFinancialMerchantReportType.collections) {
       if (detail.collectionItems.isEmpty) {
         return [
-          Center(
-            child: Text(l10n.adminFinancialMerchantNoCollectionsInRange),
-          ),
+          Center(child: Text(l10n.adminFinancialMerchantNoCollectionsInRange)),
         ];
       }
-      return detail.collectionItems.map((item) {
-        final amount = item.paidAmount > 0 ? item.paidAmount : item.requestedAmount;
-        return Card(
-          margin: const EdgeInsets.only(bottom: 8),
-          child: ListTile(
-            title: Text('#${item.paymentRequestId} - ${formatIqd(amount)}'),
-            subtitle: Text(
-              '${_fmtDate(item.eventAt)} - ${item.status}\n'
-              '${item.paymentMethod ?? '-'} - ${item.referenceCode ?? '-'}',
-            ),
-          ),
-        );
-      }).toList(growable: false);
+      return detail.collectionItems
+          .map((item) {
+            final amount = item.paidAmount > 0
+                ? item.paidAmount
+                : item.requestedAmount;
+            return Card(
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                title: Text('#${item.paymentRequestId} - ${formatIqd(amount)}'),
+                subtitle: Text(
+                  '${_fmtDate(item.eventAt)} - ${item.status}\n'
+                  '${item.paymentMethod ?? '-'} - ${item.referenceCode ?? '-'}',
+                ),
+              ),
+            );
+          })
+          .toList(growable: false);
     }
 
     if (detail.statementItems.isEmpty) {
@@ -428,19 +629,21 @@ class _AdminFinancialMerchantDetailsScreenState
       ];
     }
 
-    return detail.statementItems.map((item) {
-      return Card(
-        margin: const EdgeInsets.only(bottom: 8),
-        child: ListTile(
-          title: Text(_fmtDate(item.eventAt)),
-          subtitle: Text(
-            '${item.description}\n'
-            '${l10n.adminFinancialMerchantHeaderDebit}: ${formatIqd(item.debit)} - '
-            '${l10n.adminFinancialMerchantHeaderCredit}: ${formatIqd(item.credit)} - '
-            '${l10n.adminFinancialMerchantHeaderBalance}: ${formatIqd(item.balanceAfter)}',
-          ),
-        ),
-      );
-    }).toList(growable: false);
+    return detail.statementItems
+        .map((item) {
+          return Card(
+            margin: const EdgeInsets.only(bottom: 8),
+            child: ListTile(
+              title: Text(_fmtDate(item.eventAt)),
+              subtitle: Text(
+                '${item.description}\n'
+                '${l10n.adminFinancialMerchantHeaderDebit}: ${formatIqd(item.debit)} - '
+                '${l10n.adminFinancialMerchantHeaderCredit}: ${formatIqd(item.credit)} - '
+                '${l10n.adminFinancialMerchantHeaderBalance}: ${formatIqd(item.balanceAfter)}',
+              ),
+            ),
+          );
+        })
+        .toList(growable: false);
   }
 }

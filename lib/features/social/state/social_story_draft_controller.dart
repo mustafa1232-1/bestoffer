@@ -51,8 +51,9 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
   final Ref ref;
   Future<void> _persistQueue = Future<void>.value();
   bool _persistenceEnabled = true;
+  final bool persistAutomatically;
 
-  SocialStoryDraftController(this.ref)
+  SocialStoryDraftController(this.ref, {this.persistAutomatically = true})
     : super(
         SocialStoryDraftState(
           draft: SocialStoryDraft.initialText(),
@@ -81,7 +82,7 @@ class SocialStoryDraftController extends StateNotifier<SocialStoryDraftState> {
   }
 
   void _persistDraft([SocialStoryDraft? draft]) {
-    if (!_persistenceEnabled) return;
+    if (!_persistenceEnabled || !persistAutomatically) return;
     final snapshot = draft ?? state.draft;
     _persistQueue = _persistQueue
         .catchError((_) {})

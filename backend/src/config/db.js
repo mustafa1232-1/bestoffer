@@ -1,5 +1,6 @@
 import pg from "pg";
 import { env } from "./env.js";
+import { classifyServiceConnection } from "../shared/utils/connection-transport.js";
 
 function resolvePoolMax() {
   if (env.dbPoolMax > 0) return env.dbPoolMax;
@@ -34,6 +35,7 @@ export async function q(text, params) {
 export function getDbFailoverState() {
   return {
     configured: Boolean(env.databaseUrl),
+    transport: classifyServiceConnection(env.databaseUrl),
     strategy: "single",
     writeTarget: "primary",
     readTarget: "primary",
@@ -107,191 +109,201 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant
       ADD COLUMN IF NOT EXISTS owner_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS image_url TEXT;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS delivery_account_approved BOOLEAN;
     `);
 
-    await q(`
+      await q(`
       UPDATE app_user
       SET delivery_account_approved = TRUE
       WHERE delivery_account_approved IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ALTER COLUMN delivery_account_approved SET DEFAULT TRUE;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ALTER COLUMN delivery_account_approved SET NOT NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS delivery_approved_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS delivery_approved_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS taxi_account_approved BOOLEAN;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS taxi_approved_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS taxi_approved_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       UPDATE app_user
       SET taxi_account_approved = delivery_account_approved
       WHERE role = 'taxi_captain'
         AND taxi_account_approved IS NULL;
     `);
 
-    await q(`
+      await q(`
       UPDATE app_user
       SET taxi_account_approved = TRUE
       WHERE role <> 'taxi_captain'
         AND taxi_account_approved IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ALTER COLUMN taxi_account_approved SET DEFAULT TRUE;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ALTER COLUMN taxi_account_approved SET NOT NULL;
     `);
 
-    await q(`
+      await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_app_user_single_super_admin
       ON app_user ((is_super_admin))
       WHERE is_super_admin = TRUE;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_app_user_taxi_approval
       ON app_user (role, taxi_account_approved)
       WHERE role = 'taxi_captain';
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS analytics_consent_granted BOOLEAN NOT NULL DEFAULT FALSE;
     `);
 
-    await q(`
+      await q(`
+      ALTER TABLE app_user
+      ADD COLUMN IF NOT EXISTS ai_chat_review_consent BOOLEAN NOT NULL DEFAULT TRUE;
+    `);
+
+      await q(`
+      CREATE INDEX IF NOT EXISTS idx_app_user_ai_chat_review_consent
+      ON app_user (ai_chat_review_consent, id DESC);
+    `);
+
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS analytics_consent_version VARCHAR(32);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS analytics_consent_granted_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS failed_login_attempts SMALLINT NOT NULL DEFAULT 0;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS last_failed_login_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS account_deleted BOOLEAN NOT NULL DEFAULT FALSE;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS account_deleted_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS account_deletion_requested_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS account_deletion_completed_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS account_deletion_status VARCHAR(24) NOT NULL DEFAULT 'none';
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS account_deletion_note TEXT;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE app_user
       ADD COLUMN IF NOT EXISTS account_deletion_retention_policy_version VARCHAR(32);
     `);
 
-    await q(`
+      await q(`
       UPDATE app_user
       SET account_deletion_status = 'none'
       WHERE account_deletion_status IS NULL;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_app_user_account_deleted
       ON app_user (account_deleted, account_deleted_at);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_app_user_active_not_deleted
       ON app_user (role, is_account_disabled, account_deleted)
       WHERE COALESCE(account_deleted, FALSE) = FALSE;
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS user_session (
         id                 BIGSERIAL PRIMARY KEY,
         user_id            BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
@@ -318,133 +330,133 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS token_jti VARCHAR(80);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS device_fingerprint VARCHAR(128);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS is_revoked BOOLEAN NOT NULL DEFAULT FALSE;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS revoked_reason VARCHAR(80);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS access_expires_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS device_session_id VARCHAR(80);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS recovery_secret_hash VARCHAR(255);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS app_surface VARCHAR(40);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS refresh_generation INTEGER NOT NULL DEFAULT 0;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS previous_refresh_token_hash VARCHAR(128);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS previous_refresh_valid_until TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS last_recovered_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_session
       ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     `);
 
-    await q(`
+      await q(`
       UPDATE user_session
       SET is_revoked = FALSE
       WHERE is_revoked IS NULL;
     `);
 
-    await q(`
+      await q(`
       UPDATE user_session
       SET refresh_generation = 0
       WHERE refresh_generation IS NULL;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_session_user_active
       ON user_session (user_id, is_revoked, expires_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_user_session_device_session_unique
       ON user_session (device_session_id)
       WHERE device_session_id IS NOT NULL;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_session_device_recovery_active
       ON user_session (device_session_id, is_revoked);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_session_recovery_lookup
       ON user_session (device_session_id, app_surface, is_revoked)
       WHERE device_session_id IS NOT NULL;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_session_previous_refresh_grace
       ON user_session (previous_refresh_token_hash, previous_refresh_valid_until)
       WHERE previous_refresh_token_hash IS NOT NULL;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_session_user_device
       ON user_session (user_id, device_fingerprint, is_revoked);
     `);
 
-    await q(`
+      await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_user_session_token_jti_unique
       ON user_session (token_jti)
       WHERE token_jti IS NOT NULL;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -459,49 +471,49 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant
       ADD COLUMN IF NOT EXISTS is_approved BOOLEAN;
     `);
 
-    await q(`
+      await q(`
       UPDATE merchant
       SET is_approved = TRUE
       WHERE is_approved IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant
       ALTER COLUMN is_approved SET DEFAULT FALSE;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant
       ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN;
     `);
 
-    await q(`
+      await q(`
       UPDATE merchant
       SET is_disabled = FALSE
       WHERE is_disabled IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant
       ALTER COLUMN is_disabled SET DEFAULT FALSE;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant
       ADD COLUMN IF NOT EXISTS approved_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant
       ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS merchant_category (
         id          BIGSERIAL PRIMARY KEY,
         merchant_id BIGINT NOT NULL REFERENCES merchant(id) ON DELETE CASCADE,
@@ -513,7 +525,7 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE OR REPLACE FUNCTION set_merchant_category_updated_at()
       RETURNS TRIGGER AS $$
       BEGIN
@@ -523,7 +535,7 @@ export async function ensureSchema() {
       $$ LANGUAGE plpgsql;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -542,43 +554,43 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_merchant_category_merchant_sort
       ON merchant_category (merchant_id, sort_order, id);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE product
       ADD COLUMN IF NOT EXISTS category_id BIGINT REFERENCES merchant_category(id) ON DELETE SET NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE product
       ADD COLUMN IF NOT EXISTS free_delivery BOOLEAN;
     `);
 
-    await q(`
+      await q(`
       UPDATE product
       SET free_delivery = FALSE
       WHERE free_delivery IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE product
       ALTER COLUMN free_delivery SET DEFAULT FALSE;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE product
       ADD COLUMN IF NOT EXISTS offer_label VARCHAR(80);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE product
       ADD COLUMN IF NOT EXISTS metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb;
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS product_attribute (
         id BIGSERIAL PRIMARY KEY,
         product_id BIGINT NOT NULL REFERENCES product(id) ON DELETE CASCADE,
@@ -596,17 +608,17 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_product_attribute_unique_value
       ON product_attribute (product_id, attribute_code, value_text);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_product_attribute_product_sort
       ON product_attribute (product_id, show_in_card, sort_order, id);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS product_variant_group (
         id BIGSERIAL PRIMARY KEY,
         product_id BIGINT NOT NULL REFERENCES product(id) ON DELETE CASCADE,
@@ -623,27 +635,27 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_product_variant_group_unique_code
       ON product_variant_group (product_id, group_code);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_product_variant_group_product_sort
       ON product_variant_group (product_id, sort_order, id);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE IF EXISTS product
       ADD COLUMN IF NOT EXISTS unavailable_reason TEXT;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE IF EXISTS product
       ADD COLUMN IF NOT EXISTS unavailable_until TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS product_variant_option (
         id BIGSERIAL PRIMARY KEY,
         group_id BIGINT NOT NULL REFERENCES product_variant_group(id) ON DELETE CASCADE,
@@ -661,27 +673,27 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_product_variant_option_unique_code
       ON product_variant_option (group_id, option_code);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_product_variant_option_group_sort
       ON product_variant_option (group_id, is_available, sort_order, id);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE IF EXISTS product_variant
       ADD COLUMN IF NOT EXISTS unavailable_reason TEXT;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE IF EXISTS product_variant
       ADD COLUMN IF NOT EXISTS unavailable_until TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS product_media (
         id BIGSERIAL PRIMARY KEY,
         product_id BIGINT NOT NULL REFERENCES product(id) ON DELETE CASCADE,
@@ -697,23 +709,23 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_product_media_unique_image
       ON product_media (product_id, image_url);
     `);
 
-    await q(`
+      await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_product_media_single_primary
       ON product_media (product_id)
       WHERE is_primary = TRUE;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_product_media_product_sort
       ON product_media (product_id, is_primary, sort_order, id);
     `);
 
-    await q(`
+      await q(`
       INSERT INTO product_media (product_id, image_url, alt_text, is_primary, sort_order, metadata_json)
       SELECT
         p.id,
@@ -733,27 +745,27 @@ export async function ensureSchema() {
       ON CONFLICT (product_id, image_url) DO NOTHING;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE order_item
       ADD COLUMN IF NOT EXISTS selected_variant_json JSONB NOT NULL DEFAULT '{}'::jsonb;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE order_item
       ADD COLUMN IF NOT EXISTS selected_variant_options_json JSONB NOT NULL DEFAULT '[]'::jsonb;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE order_item
       ADD COLUMN IF NOT EXISTS variant_price_delta_total NUMERIC(12,2) NOT NULL DEFAULT 0;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_product_merchant_category_available
       ON product (merchant_id, category_id, is_available);
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'settlement_status') THEN
@@ -763,7 +775,7 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS merchant_settlement (
         id                   BIGSERIAL PRIMARY KEY,
         merchant_id          BIGINT NOT NULL REFERENCES merchant(id) ON DELETE CASCADE,
@@ -779,22 +791,22 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ADD COLUMN IF NOT EXISTS image_url TEXT;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ADD COLUMN IF NOT EXISTS preparing_started_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       UPDATE customer_order
       SET approved_at = COALESCE(
             approved_at,
@@ -809,7 +821,7 @@ export async function ensureSchema() {
         AND approved_at IS NULL;
     `);
 
-    await q(`
+      await q(`
       UPDATE customer_order
       SET preparing_started_at = COALESCE(
             preparing_started_at,
@@ -820,38 +832,38 @@ export async function ensureSchema() {
         AND preparing_started_at IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ADD COLUMN IF NOT EXISTS customer_city VARCHAR(80);
     `);
 
-    await q(`
+      await q(`
       UPDATE customer_order
       SET customer_city = 'مدينة بسماية'
       WHERE customer_city IS NULL OR TRIM(customer_city) = '';
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ALTER COLUMN customer_city SET DEFAULT 'مدينة بسماية';
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ADD COLUMN IF NOT EXISTS merchant_rating SMALLINT;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ADD COLUMN IF NOT EXISTS merchant_review TEXT;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ADD COLUMN IF NOT EXISTS merchant_rated_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -867,7 +879,7 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS customer_favorite_product (
         customer_user_id BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
         product_id       BIGINT NOT NULL REFERENCES product(id) ON DELETE CASCADE,
@@ -876,12 +888,12 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_customer_favorite_product_customer
       ON customer_favorite_product (customer_user_id);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS app_notification (
         id          BIGSERIAL PRIMARY KEY,
         user_id     BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
@@ -897,17 +909,17 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_app_notification_user_created
       ON app_notification (user_id, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_app_notification_user_unread
       ON app_notification (user_id, is_read);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS user_push_token (
         id           BIGSERIAL PRIMARY KEY,
         user_id      BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
@@ -926,7 +938,7 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE user_push_token
         ADD COLUMN IF NOT EXISTS locale VARCHAR(8),
         ADD COLUMN IF NOT EXISTS auth_session_id BIGINT NULL REFERENCES user_session(id) ON DELETE SET NULL,
@@ -934,22 +946,22 @@ export async function ensureSchema() {
         ADD COLUMN IF NOT EXISTS device_fingerprint TEXT;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_push_token_user_active
       ON user_push_token (user_id, is_active);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_push_token_user_surface_active
       ON user_push_token (user_id, app_surface, is_active);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_push_token_session_active
       ON user_push_token (auth_session_id, is_active);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS customer_address (
         id               BIGSERIAL PRIMARY KEY,
         customer_user_id BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
@@ -965,7 +977,7 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE OR REPLACE FUNCTION set_customer_address_updated_at()
       RETURNS TRIGGER AS $$
       BEGIN
@@ -975,7 +987,7 @@ export async function ensureSchema() {
       $$ LANGUAGE plpgsql;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -994,18 +1006,28 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_customer_address_user_active
       ON customer_address (customer_user_id, is_active, is_default, id DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_address_single_default
       ON customer_address (customer_user_id)
       WHERE is_default = TRUE AND is_active = TRUE;
     `);
 
-    await q(`
+      await q(`
+      ALTER TABLE customer_order
+      ADD COLUMN IF NOT EXISTS address_id BIGINT REFERENCES customer_address(id) ON DELETE SET NULL;
+    `);
+
+      await q(`
+      CREATE INDEX IF NOT EXISTS idx_customer_order_address_id
+      ON customer_order (address_id);
+    `);
+
+      await q(`
       INSERT INTO customer_address
         (customer_user_id, label, city, block, building_number, apartment, is_default, is_active)
       SELECT
@@ -1026,7 +1048,7 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ai_chat_role') THEN
@@ -1036,7 +1058,7 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ai_draft_status') THEN
@@ -1046,7 +1068,7 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS ai_chat_session (
         id               BIGSERIAL PRIMARY KEY,
         customer_user_id BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
@@ -1057,12 +1079,12 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_ai_chat_session_customer_last
       ON ai_chat_session (customer_user_id, last_message_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS ai_chat_message (
         id          BIGSERIAL PRIMARY KEY,
         session_id  BIGINT NOT NULL REFERENCES ai_chat_session(id) ON DELETE CASCADE,
@@ -1073,12 +1095,12 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_ai_chat_message_session_id
       ON ai_chat_message (session_id, id);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS ai_customer_profile (
         customer_user_id BIGINT PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
         preference_json  JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -1088,7 +1110,7 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS ai_order_draft (
         id               BIGSERIAL PRIMARY KEY,
         token            VARCHAR(80) NOT NULL UNIQUE,
@@ -1111,12 +1133,12 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_ai_order_draft_customer_status
       ON ai_order_draft (customer_user_id, status, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE OR REPLACE FUNCTION set_ai_chat_session_updated_at()
       RETURNS TRIGGER AS $$
       BEGIN
@@ -1126,7 +1148,7 @@ export async function ensureSchema() {
       $$ LANGUAGE plpgsql;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -1145,7 +1167,7 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       CREATE OR REPLACE FUNCTION set_ai_customer_profile_updated_at()
       RETURNS TRIGGER AS $$
       BEGIN
@@ -1155,7 +1177,7 @@ export async function ensureSchema() {
       $$ LANGUAGE plpgsql;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -1174,7 +1196,7 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       CREATE OR REPLACE FUNCTION set_ai_order_draft_updated_at()
       RETURNS TRIGGER AS $$
       BEGIN
@@ -1184,7 +1206,7 @@ export async function ensureSchema() {
       $$ LANGUAGE plpgsql;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -1203,7 +1225,7 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS user_activity_event (
         id            BIGSERIAL PRIMARY KEY,
         user_id       BIGINT REFERENCES app_user(id) ON DELETE CASCADE,
@@ -1224,32 +1246,32 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_activity_event_user_created
       ON user_activity_event (user_id, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_activity_event_event_created
       ON user_activity_event (event_name, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_user_activity_event_category_created
       ON user_activity_event (category, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_address
       ADD COLUMN IF NOT EXISTS latitude NUMERIC(9,6);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_address
       ADD COLUMN IF NOT EXISTS longitude NUMERIC(9,6);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_captain_presence (
         captain_user_id BIGINT PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
         is_online       BOOLEAN NOT NULL DEFAULT FALSE,
@@ -1270,12 +1292,12 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_captain_presence_online
       ON taxi_captain_presence (is_online, last_seen_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_captain_profile (
         user_id            BIGINT PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
         profile_image_url  TEXT,
@@ -1294,12 +1316,12 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_captain_profile_active
       ON taxi_captain_profile (is_active, car_make, car_model);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_ride_request (
         id                       BIGSERIAL PRIMARY KEY,
         customer_user_id         BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
@@ -1348,71 +1370,71 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_ride_request_customer
       ON taxi_ride_request (customer_user_id, status, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_ride_request_captain
       ON taxi_ride_request (assigned_captain_user_id, status, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_ride_request_status
       ON taxi_ride_request (status, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD COLUMN IF NOT EXISTS search_phase SMALLINT NOT NULL DEFAULT 1;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD COLUMN IF NOT EXISTS pricing_round SMALLINT NOT NULL DEFAULT 1;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD COLUMN IF NOT EXISTS previous_proposed_fare_iqd INTEGER;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD COLUMN IF NOT EXISTS price_raise_required_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD COLUMN IF NOT EXISTS fare_version INTEGER NOT NULL DEFAULT 1;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD COLUMN IF NOT EXISTS next_escalation_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD COLUMN IF NOT EXISTS no_captain_notified_at TIMESTAMPTZ;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD COLUMN IF NOT EXISTS current_bid_id BIGINT;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       DROP CONSTRAINT IF EXISTS taxi_ride_request_search_radius_m_check;
     `);
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       DROP CONSTRAINT IF EXISTS taxi_ride_request_status_check;
     `);
 
-    await q(`
+      await q(`
       UPDATE taxi_ride_request
       SET next_escalation_at = COALESCE(
         next_escalation_at,
@@ -1425,7 +1447,7 @@ export async function ensureSchema() {
       WHERE next_escalation_at IS NULL;
     `);
 
-    await q(`
+      await q(`
       DO $$
       DECLARE
         constraint_name text;
@@ -1461,11 +1483,11 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       DROP CONSTRAINT IF EXISTS chk_taxi_ride_request_status;
     `);
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD CONSTRAINT chk_taxi_ride_request_status
       CHECK (
@@ -1482,32 +1504,32 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       DROP CONSTRAINT IF EXISTS chk_taxi_ride_request_search_radius_m;
     `);
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_request
       ADD CONSTRAINT chk_taxi_ride_request_search_radius_m
       CHECK (search_radius_m BETWEEN 500 AND 15000);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_decline
       ADD COLUMN IF NOT EXISTS pricing_round SMALLINT NOT NULL DEFAULT 1;
     `);
 
-    await q(`
+      await q(`
       UPDATE taxi_ride_decline
       SET pricing_round = COALESCE(pricing_round, 1);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_decline
       DROP CONSTRAINT IF EXISTS taxi_ride_decline_ride_request_captain_round_key;
     `);
 
-    await q(`
+      await q(`
       DO $$
       DECLARE
         constraint_name text;
@@ -1528,13 +1550,13 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_decline
       ADD CONSTRAINT taxi_ride_decline_ride_request_captain_round_key
       UNIQUE (ride_request_id, captain_user_id, pricing_round);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_ride_bid (
         id               BIGSERIAL PRIMARY KEY,
         ride_request_id  BIGINT NOT NULL REFERENCES taxi_ride_request(id) ON DELETE CASCADE,
@@ -1550,17 +1572,17 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_ride_bid_request
       ON taxi_ride_bid (ride_request_id, status, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_ride_bid_captain
       ON taxi_ride_bid (captain_user_id, status, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -1578,7 +1600,7 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -1596,22 +1618,22 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_bid
       ADD COLUMN IF NOT EXISTS counter_offer_count SMALLINT NOT NULL DEFAULT 0;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_bid
       ADD COLUMN IF NOT EXISTS last_offer_iqd INTEGER;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_bid
       ADD COLUMN IF NOT EXISTS last_offer_by VARCHAR(16);
     `);
 
-    await q(`
+      await q(`
       UPDATE taxi_ride_bid
       SET
         last_offer_iqd = COALESCE(last_offer_iqd, offered_fare_iqd),
@@ -1620,27 +1642,27 @@ export async function ensureSchema() {
          OR last_offer_by IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_bid
       DROP CONSTRAINT IF EXISTS chk_taxi_ride_bid_counter_offer_count;
     `);
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_bid
       ADD CONSTRAINT chk_taxi_ride_bid_counter_offer_count
       CHECK (counter_offer_count BETWEEN 0 AND 6);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_bid
       DROP CONSTRAINT IF EXISTS chk_taxi_ride_bid_last_offer_by;
     `);
-    await q(`
+      await q(`
       ALTER TABLE taxi_ride_bid
       ADD CONSTRAINT chk_taxi_ride_bid_last_offer_by
       CHECK (last_offer_by IN ('captain', 'customer'));
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_ride_chat_message (
         id               BIGSERIAL PRIMARY KEY,
         ride_request_id  BIGINT NOT NULL REFERENCES taxi_ride_request(id) ON DELETE CASCADE,
@@ -1653,12 +1675,12 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_ride_chat_message_ride_time
       ON taxi_ride_chat_message (ride_request_id, id DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_ride_call_session (
         id                 BIGSERIAL PRIMARY KEY,
         ride_request_id    BIGINT NOT NULL REFERENCES taxi_ride_request(id) ON DELETE CASCADE,
@@ -1676,17 +1698,17 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_call_session_ride_status
       ON taxi_ride_call_session (ride_request_id, status, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_call_session_users_status
       ON taxi_ride_call_session (initiator_user_id, receiver_user_id, status, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_ride_call_signal (
         id               BIGSERIAL PRIMARY KEY,
         call_session_id  BIGINT NOT NULL REFERENCES taxi_ride_call_session(id) ON DELETE CASCADE,
@@ -1699,12 +1721,12 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_call_signal_session_time
       ON taxi_ride_call_signal (call_session_id, id DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_ride_location_log (
         id               BIGSERIAL PRIMARY KEY,
         ride_request_id  BIGINT NOT NULL REFERENCES taxi_ride_request(id) ON DELETE CASCADE,
@@ -1721,17 +1743,17 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_location_log_ride_time
       ON taxi_ride_location_log (ride_request_id, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_location_log_captain_time
       ON taxi_ride_location_log (captain_user_id, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_ride_event (
         id               BIGSERIAL PRIMARY KEY,
         ride_request_id  BIGINT NOT NULL REFERENCES taxi_ride_request(id) ON DELETE CASCADE,
@@ -1743,12 +1765,12 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_ride_event_ride_time
       ON taxi_ride_event (ride_request_id, created_at DESC);
     `);
 
-    await q(`
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_captain_subscription (
         captain_user_id                    BIGINT PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
         monthly_fee_iqd                    INTEGER NOT NULL DEFAULT 10000 CHECK (monthly_fee_iqd >= 0),
@@ -1768,12 +1790,53 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_captain_subscription_cycle
       ON taxi_captain_subscription (current_cycle_end_at, cash_payment_pending, captain_user_id);
     `);
 
-    await q(`
+      await q(`
+      CREATE TABLE IF NOT EXISTS taxi_captain_ride_credit_ledger (
+        id BIGSERIAL PRIMARY KEY,
+        captain_user_id BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+        ride_request_id BIGINT REFERENCES taxi_ride_request(id) ON DELETE SET NULL,
+        entry_type VARCHAR(32) NOT NULL
+          CHECK (entry_type IN ('top_up', 'ride_debit', 'admin_adjustment', 'migration_grant')),
+        rides_delta INTEGER NOT NULL CHECK (rides_delta <> 0),
+        amount_iqd INTEGER NOT NULL DEFAULT 0 CHECK (amount_iqd >= 0),
+        payment_method VARCHAR(24),
+        status VARCHAR(16) NOT NULL DEFAULT 'approved'
+          CHECK (status IN ('pending', 'approved', 'rejected', 'cancelled')),
+        reference_kind VARCHAR(64),
+        reference_id BIGINT,
+        note TEXT,
+        meta JSONB NOT NULL DEFAULT '{}'::jsonb,
+        created_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+        approved_by_user_id BIGINT REFERENCES app_user(id) ON DELETE SET NULL,
+        approved_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+      await q(`
+      CREATE INDEX IF NOT EXISTS idx_taxi_captain_ride_credit_captain
+      ON taxi_captain_ride_credit_ledger(captain_user_id, status, created_at DESC);
+    `);
+
+      await q(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_taxi_captain_ride_credit_ride_debit
+      ON taxi_captain_ride_credit_ledger(captain_user_id, ride_request_id, entry_type)
+      WHERE entry_type = 'ride_debit' AND ride_request_id IS NOT NULL;
+    `);
+
+      await q(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_taxi_captain_ride_credit_reference
+      ON taxi_captain_ride_credit_ledger(captain_user_id, entry_type, reference_kind, reference_id)
+      WHERE reference_kind IS NOT NULL AND reference_id IS NOT NULL;
+    `);
+
+      await q(`
       CREATE TABLE IF NOT EXISTS taxi_captain_profile_edit_request (
         id                  BIGSERIAL PRIMARY KEY,
         captain_user_id     BIGINT NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
@@ -1788,18 +1851,18 @@ export async function ensureSchema() {
       );
     `);
 
-    await q(`
+      await q(`
       CREATE INDEX IF NOT EXISTS idx_taxi_captain_profile_edit_request_status
       ON taxi_captain_profile_edit_request (captain_user_id, status, requested_at DESC);
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant_billing_profile
       ADD COLUMN IF NOT EXISTS commission_model VARCHAR(32),
       ADD COLUMN IF NOT EXISTS monthly_subscription_amount NUMERIC(12,2);
     `);
 
-    await q(`
+      await q(`
       UPDATE merchant_billing_profile
       SET commission_model = COALESCE(
             commission_model,
@@ -1813,7 +1876,7 @@ export async function ensureSchema() {
          OR monthly_subscription_amount IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant_billing_profile
       ALTER COLUMN commission_model SET DEFAULT 'percentage',
       ALTER COLUMN commission_model SET NOT NULL,
@@ -1821,7 +1884,7 @@ export async function ensureSchema() {
       ALTER COLUMN monthly_subscription_amount SET NOT NULL;
     `);
 
-    await q(`
+      await q(`
       DO $$
       BEGIN
         IF NOT EXISTS (
@@ -1837,7 +1900,7 @@ export async function ensureSchema() {
       $$;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ADD COLUMN IF NOT EXISTS store_net_received_amount NUMERIC(12,2),
       ADD COLUMN IF NOT EXISTS app_due_from_delivery NUMERIC(12,2),
@@ -1850,7 +1913,7 @@ export async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS settlement_status VARCHAR(40);
     `);
 
-    await q(`
+      await q(`
       UPDATE customer_order
       SET store_net_received_amount = COALESCE(store_net_received_amount, total_amount),
           app_due_from_delivery = COALESCE(app_due_from_delivery, total_amount),
@@ -1866,7 +1929,7 @@ export async function ensureSchema() {
          OR settlement_status IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE customer_order
       ALTER COLUMN store_net_received_amount SET DEFAULT 0,
       ALTER COLUMN store_net_received_amount SET NOT NULL,
@@ -1882,7 +1945,7 @@ export async function ensureSchema() {
       ALTER COLUMN settlement_status SET NOT NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE delivery_cash_settlement
       ADD COLUMN IF NOT EXISTS store_net_received_amount NUMERIC(12,2),
       ADD COLUMN IF NOT EXISTS app_due_from_delivery NUMERIC(12,2),
@@ -1895,7 +1958,7 @@ export async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS settlement_status VARCHAR(40);
     `);
 
-    await q(`
+      await q(`
       UPDATE delivery_cash_settlement
       SET store_net_received_amount = COALESCE(store_net_received_amount, total_amount),
           app_due_from_delivery = COALESCE(app_due_from_delivery, total_amount),
@@ -1911,7 +1974,7 @@ export async function ensureSchema() {
          OR settlement_status IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE delivery_cash_settlement
       ALTER COLUMN store_net_received_amount SET DEFAULT 0,
       ALTER COLUMN store_net_received_amount SET NOT NULL,
@@ -1927,7 +1990,7 @@ export async function ensureSchema() {
       ALTER COLUMN settlement_status SET NOT NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant_receivable_invoice
       ADD COLUMN IF NOT EXISTS store_net_received_amount NUMERIC(12,2),
       ADD COLUMN IF NOT EXISTS app_due_from_delivery NUMERIC(12,2),
@@ -1935,7 +1998,7 @@ export async function ensureSchema() {
       ADD COLUMN IF NOT EXISTS difference_reason TEXT;
     `);
 
-    await q(`
+      await q(`
       UPDATE merchant_receivable_invoice
       SET store_net_received_amount = COALESCE(store_net_received_amount, store_net_amount),
           app_due_from_delivery = COALESCE(app_due_from_delivery, app_receivable_amount),
@@ -1945,7 +2008,7 @@ export async function ensureSchema() {
          OR difference_amount IS NULL;
     `);
 
-    await q(`
+      await q(`
       ALTER TABLE merchant_receivable_invoice
       ALTER COLUMN store_net_received_amount SET DEFAULT 0,
       ALTER COLUMN store_net_received_amount SET NOT NULL,
@@ -1958,7 +2021,10 @@ export async function ensureSchema() {
       try {
         await q(`SELECT pg_advisory_unlock($1)`, [719_244_381]);
       } catch (unlockError) {
-        console.error("[db] ensureSchema advisory unlock failed:", unlockError?.message || unlockError);
+        console.error(
+          "[db] ensureSchema advisory unlock failed:",
+          unlockError?.message || unlockError,
+        );
       }
     }
   })();

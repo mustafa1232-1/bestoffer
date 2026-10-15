@@ -14,6 +14,57 @@ double? parseNullableDouble(dynamic value) {
   return null;
 }
 
+class CentralServiceCatalogItem {
+  final String key;
+  final String title;
+  final String subtitle;
+  final String icon;
+  final String color;
+  final bool emergency;
+  final List<String> executionModes;
+  final List<String> quickIssues;
+  final List<Map<String, dynamic>> questions;
+
+  const CentralServiceCatalogItem({
+    required this.key,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.emergency,
+    required this.executionModes,
+    required this.quickIssues,
+    required this.questions,
+  });
+
+  factory CentralServiceCatalogItem.fromJson(Map<String, dynamic> json) {
+    return CentralServiceCatalogItem(
+      key: parseString(json['key']),
+      title: parseString(json['title']),
+      subtitle: parseString(json['subtitle']),
+      icon: parseString(json['icon'], fallback: 'support_agent'),
+      color: parseString(json['color'], fallback: '#2F684F'),
+      emergency: parseBool(json['emergency']),
+      executionModes: (json['executionModes'] is List)
+          ? List<dynamic>.from(
+              json['executionModes'] as List,
+            ).map((e) => '$e').toList(growable: false)
+          : const <String>['home'],
+      quickIssues: (json['quickIssues'] is List)
+          ? List<dynamic>.from(
+              json['quickIssues'] as List,
+            ).map((e) => '$e').toList(growable: false)
+          : const <String>[],
+      questions: (json['questions'] is List)
+          ? List<dynamic>.from(json['questions'] as List)
+                .whereType<Map>()
+                .map((e) => Map<String, dynamic>.from(e))
+                .toList(growable: false)
+          : const <Map<String, dynamic>>[],
+    );
+  }
+}
+
 class ServiceCategoryModel {
   final int id;
   final int? parentId;
@@ -109,14 +160,37 @@ class ServicePricingOptionModel {
   String displayText() {
     if (pricingModel == 'inspection_required') return 'حسب المعاينة';
     if (pricingModel == 'custom_quote') return 'تسعير مخصص';
+    final customLabel = (label ?? '').trim();
+    final suffix = customLabel.isNotEmpty
+        ? ' $customLabel'
+        : ' / ${_pricingUnitLabel(pricingUnit)}';
     if (pricingModel == 'starting_from' && amount != null) {
-      return 'يبدأ من ${amount!.toStringAsFixed(amount!.truncateToDouble() == amount ? 0 : 2)}';
+      return 'يبدأ من ${_formatAmount(amount!)}$suffix';
     }
     if (amount == null) return 'بعد المعاينة';
-    final amountText = amount!.toStringAsFixed(
-      amount!.truncateToDouble() == amount ? 0 : 2,
+    return '${_formatAmount(amount!)}$suffix';
+  }
+
+  String unitDisplayText() {
+    final customLabel = (label ?? '').trim();
+    return customLabel.isNotEmpty
+        ? customLabel
+        : _pricingUnitLabel(pricingUnit);
+  }
+
+  static String _formatAmount(double value) {
+    final raw = value.toStringAsFixed(
+      value.truncateToDouble() == value ? 0 : 2,
     );
-    return '$amountText / ${_pricingUnitLabel(pricingUnit)}';
+    final parts = raw.split('.');
+    final digits = parts.first;
+    final buffer = StringBuffer();
+    for (var index = 0; index < digits.length; index++) {
+      final remaining = digits.length - index;
+      buffer.write(digits[index]);
+      if (remaining > 1 && remaining % 3 == 1) buffer.write(',');
+    }
+    return parts.length == 1 ? buffer.toString() : '$buffer.${parts.last}';
   }
 
   static String _pricingUnitLabel(String value) {
@@ -471,6 +545,35 @@ class ServiceOfferingModel {
 
   String? get primaryMediaUrl => media.isNotEmpty ? media.first.mediaUrl : null;
 
+  double? get baseUnitPrice {
+    ServicePricingOptionModel? selected;
+    for (final option in pricingOptions) {
+      if (option.isDefault) {
+        selected = option;
+        break;
+      }
+    }
+    selected ??= pricingOptions.isEmpty ? null : pricingOptions.first;
+    return selected?.amount ?? startsFromPrice;
+  }
+
+  double? get discountedUnitPrice {
+    final base = baseUnitPrice;
+    if (base == null || base <= 0 || activePromotions.isEmpty) return null;
+    final promotion = activePromotions.first;
+    final type = promotion.discountType.trim().toUpperCase();
+    double? result;
+    if (type == 'PERCENTAGE' && promotion.discountValue != null) {
+      result = base * (1 - (promotion.discountValue!.clamp(0, 100) / 100));
+    } else if (type == 'FIXED_AMOUNT' && promotion.discountValue != null) {
+      result = (base - promotion.discountValue!).clamp(0, base).toDouble();
+    } else if (type == 'SPECIAL_UNIT_PRICE' && promotion.specialPrice != null) {
+      result = promotion.specialPrice;
+    }
+    if (result == null || result >= base) return null;
+    return result.toDouble();
+  }
+
   static ServicePricingOptionModel _emptyPricing(Map<String, dynamic> json) {
     return ServicePricingOptionModel(
       id: 0,
@@ -795,7 +898,22 @@ class ServiceRequestModel {
   final int providerId;
   final int offeringId;
   final String status;
+  final String? serviceKey;
+  final String? serviceTitle;
+  final String urgency;
+  final Map<String, dynamic> intakeAnswers;
+  final String? routingStatus;
+  final String? assignedProfessionalName;
+  final String? assignedProfessionalPhone;
+  final String? assignmentNote;
+  final String? assignedAt;
+  final String? emergencyTarget;
+  final String preferredContact;
+  final String? contactPhone;
+  final Map<String, dynamic> medicalInfo;
+  final String? customerCancelAvailableAt;
   final String? bookingStatus;
+  final String? bookingFlowKind;
   final int? bookingVersion;
   final String? bookingIdempotencyKey;
   final String? bookingPricingType;
@@ -807,6 +925,15 @@ class ServiceRequestModel {
   final double? bookingDiscountIqd;
   final double? bookingServiceFeeIqd;
   final double? bookingTotalIqd;
+  final double invoiceAdminDiscountIqd;
+  final String? invoiceAdminDiscountNote;
+  final int? invoiceCouponId;
+  final String? invoiceCouponCode;
+  final double invoiceCouponDiscountIqd;
+  final double? invoiceTotalIqd;
+  final String paymentMethod;
+  final String? paymentSubmittedAt;
+  final String? paymentConfirmedAt;
   final Map<String, dynamic>? bookingPromotionSnapshot;
   final String? bookingExpiresAt;
   final String? bookingProviderCompletedAt;
@@ -814,8 +941,14 @@ class ServiceRequestModel {
   final String? bookingFinalizedAt;
   final String? bookingTransitionNote;
   final String? notes;
+  final String? requestedExecutionMode;
+  final String? requestedDate;
+  final String? requestedTime;
   final String? city;
   final String? area;
+  final String? addressLine;
+  final double? latitude;
+  final double? longitude;
   final double? quantity;
   final double? durationHours;
   final double? finalPrice;
@@ -834,7 +967,22 @@ class ServiceRequestModel {
     required this.providerId,
     required this.offeringId,
     required this.status,
+    required this.serviceKey,
+    required this.serviceTitle,
+    required this.urgency,
+    required this.intakeAnswers,
+    required this.routingStatus,
+    required this.assignedProfessionalName,
+    required this.assignedProfessionalPhone,
+    required this.assignmentNote,
+    required this.assignedAt,
+    required this.emergencyTarget,
+    required this.preferredContact,
+    required this.contactPhone,
+    required this.medicalInfo,
+    required this.customerCancelAvailableAt,
     required this.bookingStatus,
+    required this.bookingFlowKind,
     required this.bookingVersion,
     required this.bookingIdempotencyKey,
     required this.bookingPricingType,
@@ -846,6 +994,15 @@ class ServiceRequestModel {
     required this.bookingDiscountIqd,
     required this.bookingServiceFeeIqd,
     required this.bookingTotalIqd,
+    required this.invoiceAdminDiscountIqd,
+    required this.invoiceAdminDiscountNote,
+    required this.invoiceCouponId,
+    required this.invoiceCouponCode,
+    required this.invoiceCouponDiscountIqd,
+    required this.invoiceTotalIqd,
+    required this.paymentMethod,
+    required this.paymentSubmittedAt,
+    required this.paymentConfirmedAt,
     required this.bookingPromotionSnapshot,
     required this.bookingExpiresAt,
     required this.bookingProviderCompletedAt,
@@ -853,8 +1010,14 @@ class ServiceRequestModel {
     required this.bookingFinalizedAt,
     required this.bookingTransitionNote,
     required this.notes,
+    required this.requestedExecutionMode,
+    required this.requestedDate,
+    required this.requestedTime,
     required this.city,
     required this.area,
+    required this.addressLine,
+    required this.latitude,
+    required this.longitude,
     required this.quantity,
     required this.durationHours,
     required this.finalPrice,
@@ -875,7 +1038,35 @@ class ServiceRequestModel {
       providerId: parseInt(json['providerId']),
       offeringId: parseInt(json['offeringId']),
       status: parseString(json['status']),
+      serviceKey: parseNullableString(json['serviceKey']),
+      serviceTitle: parseNullableString(json['serviceTitle']),
+      urgency: parseString(json['urgency'], fallback: 'normal'),
+      intakeAnswers: json['intakeAnswers'] is Map
+          ? Map<String, dynamic>.from(json['intakeAnswers'] as Map)
+          : const <String, dynamic>{},
+      routingStatus: parseNullableString(json['routingStatus']),
+      assignedProfessionalName: parseNullableString(
+        json['assignedProfessionalName'],
+      ),
+      assignedProfessionalPhone: parseNullableString(
+        json['assignedProfessionalPhone'],
+      ),
+      assignmentNote: parseNullableString(json['assignmentNote']),
+      assignedAt: parseNullableString(json['assignedAt']),
+      emergencyTarget: parseNullableString(json['emergencyTarget']),
+      preferredContact: parseString(
+        json['preferredContact'],
+        fallback: 'phone',
+      ),
+      contactPhone: parseNullableString(json['contactPhone']),
+      medicalInfo: json['medicalInfo'] is Map
+          ? Map<String, dynamic>.from(json['medicalInfo'] as Map)
+          : const <String, dynamic>{},
+      customerCancelAvailableAt: parseNullableString(
+        json['customerCancelAvailableAt'],
+      ),
       bookingStatus: parseNullableString(json['bookingStatus']),
+      bookingFlowKind: parseNullableString(json['bookingFlowKind']),
       bookingVersion: parseNullableInt(json['bookingVersion']),
       bookingIdempotencyKey: parseNullableString(json['bookingIdempotencyKey']),
       bookingPricingType: parseNullableString(json['bookingPricingType']),
@@ -887,6 +1078,19 @@ class ServiceRequestModel {
       bookingDiscountIqd: parseNullableDouble(json['bookingDiscountIqd']),
       bookingServiceFeeIqd: parseNullableDouble(json['bookingServiceFeeIqd']),
       bookingTotalIqd: parseNullableDouble(json['bookingTotalIqd']),
+      invoiceAdminDiscountIqd:
+          parseNullableDouble(json['invoiceAdminDiscountIqd']) ?? 0,
+      invoiceAdminDiscountNote: parseNullableString(
+        json['invoiceAdminDiscountNote'],
+      ),
+      invoiceCouponId: parseNullableInt(json['invoiceCouponId']),
+      invoiceCouponCode: parseNullableString(json['invoiceCouponCode']),
+      invoiceCouponDiscountIqd:
+          parseNullableDouble(json['invoiceCouponDiscountIqd']) ?? 0,
+      invoiceTotalIqd: parseNullableDouble(json['invoiceTotalIqd']),
+      paymentMethod: parseString(json['paymentMethod'], fallback: 'cash'),
+      paymentSubmittedAt: parseNullableString(json['paymentSubmittedAt']),
+      paymentConfirmedAt: parseNullableString(json['paymentConfirmedAt']),
       bookingPromotionSnapshot: json['bookingPromotionSnapshot'] is Map
           ? Map<String, dynamic>.from(json['bookingPromotionSnapshot'] as Map)
           : null,
@@ -900,8 +1104,16 @@ class ServiceRequestModel {
       bookingFinalizedAt: parseNullableString(json['bookingFinalizedAt']),
       bookingTransitionNote: parseNullableString(json['bookingTransitionNote']),
       notes: parseNullableString(json['notes']),
+      requestedExecutionMode: parseNullableString(
+        json['requestedExecutionMode'],
+      ),
+      requestedDate: parseNullableString(json['requestedDate']),
+      requestedTime: parseNullableString(json['requestedTime']),
       city: parseNullableString(json['city']),
       area: parseNullableString(json['area']),
+      addressLine: parseNullableString(json['addressLine']),
+      latitude: parseNullableDouble(json['latitude']),
+      longitude: parseNullableDouble(json['longitude']),
       quantity: parseNullableDouble(json['quantity']),
       durationHours: parseNullableDouble(json['durationHours']),
       finalPrice: parseNullableDouble(json['finalPrice']),

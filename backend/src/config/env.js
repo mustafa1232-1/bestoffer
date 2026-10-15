@@ -1,6 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+
+const require = createRequire(import.meta.url);
+const packageVersion = String(require("../../package.json")?.version || "").trim();
 
 function readString(name, fallback = "") {
   const value = process.env[name];
@@ -179,7 +183,10 @@ export const env = {
   nodeEnv: readString("NODE_ENV", "development"),
   isProduction: readString("NODE_ENV", "development") === "production",
   appEnv: readString("APP_ENV", readString("NODE_ENV", "development")),
-  appVersion: readString("APP_VERSION", "0.0.0-dev"),
+  // APP_VERSION remains an explicit deployment override. The package version
+  // is a truthful fallback and avoids reporting a development placeholder from
+  // a production container when the override was not configured.
+  appVersion: readString("APP_VERSION", packageVersion || "unknown"),
   gitCommitSha: readString(
     "GIT_COMMIT_SHA",
     readString("RAILWAY_GIT_COMMIT_SHA", "")
@@ -206,6 +213,35 @@ export const env = {
     "ORDER_STOCK_RESERVATION_CLEANUP_INTERVAL_MS",
     60000,
     { min: 5000, max: 3600000 }
+  ),
+  serviceAreaEnabled: readBoolean("SERVICE_AREA_ENABLED", true),
+  // Taxi routes can cross the Basmayah boundary. Keep this separate from
+  // account registration and merchant/address service-area enforcement.
+  taxiServiceAreaEnforced: readBoolean("TAXI_SERVICE_AREA_ENFORCED", false),
+  serviceAreaRegistrationEnforced: readBoolean(
+    "SERVICE_AREA_REGISTRATION_ENFORCED",
+    false
+  ),
+  serviceAreaName: readString("SERVICE_AREA_NAME", "Bismayah"),
+  serviceAreaCenterLatitude: readNumber("SERVICE_AREA_CENTER_LATITUDE", 33.19302, {
+    min: -90,
+    max: 90,
+  }),
+  serviceAreaCenterLongitude: readNumber("SERVICE_AREA_CENTER_LONGITUDE", 44.62071, {
+    min: -180,
+    max: 180,
+  }),
+  serviceAreaRadiusM: readNumber("SERVICE_AREA_RADIUS_M", 18500, {
+    min: 1000,
+    max: 100000,
+  }),
+  serviceAreaPolygon: readString("SERVICE_AREA_POLYGON", ""),
+  // Temporary rollout switch: keep store browsing available to legacy app
+  // versions until the location-aware client is fully deployed. This does not
+  // disable service-area checks for registration, orders, or delivery flows.
+  merchantBrowseLocationGateEnabled: readBoolean(
+    "MERCHANT_BROWSE_LOCATION_GATE_ENABLED",
+    false
   ),
   // Max age of a courier_presence heartbeat still counted as "online" for
   // delivery auto-assignment eligibility. The Delivery app publishes at a
@@ -315,6 +351,7 @@ export const env = {
   cfR2SecretAccessKey: readString("CF_R2_SECRET_ACCESS_KEY", ""),
   cfR2PublicBaseUrl: readString("CF_R2_PUBLIC_BASE_URL", ""),
   cfR2UploadPrefix: readString("CF_R2_UPLOAD_PREFIX", "uploads"),
+  merchantMediaAllowedHosts: readCsv("MERCHANT_MEDIA_ALLOWED_HOSTS", ""),
   cfR2MinFileSizeBytes: readNumber("CF_R2_MIN_FILE_SIZE_BYTES", 0, {
     min: 0,
     max: 104857600,
@@ -344,6 +381,15 @@ export const env = {
   rtcTurnCredentialTtlSec: readNumber("RTC_TURN_CREDENTIAL_TTL_SEC", 21600, {
     min: 300,
     max: 86400,
+  }),
+  // LiveKit SFU powers multiplayer game voice. Credentials stay server-side;
+  // clients receive short-lived, room-scoped grants from the games API.
+  livekitUrl: readString("LIVEKIT_URL", ""),
+  livekitApiKey: readString("LIVEKIT_API_KEY", ""),
+  livekitApiSecret: readString("LIVEKIT_API_SECRET", ""),
+  livekitTokenTtlSec: readNumber("LIVEKIT_TOKEN_TTL_SEC", 900, {
+    min: 120,
+    max: 3600,
   }),
   // GIF search for chat (Giphy v1 — Tenor's public API was shut down 2026-06-30).
   // Get a free key at https://developers.giphy.com/dashboard/ and set
@@ -548,13 +594,21 @@ export const env = {
   featureFlagProvider: readString("FEATURE_FLAG_PROVIDER", ""),
   unleashUrl: readString("UNLEASH_URL", ""),
   unleashApiToken: readString("UNLEASH_API_TOKEN", ""),
-  superAdminPhone: readString("SUPER_ADMIN_PHONE", "07746515247"),
-  superAdminPin: readString("SUPER_ADMIN_PIN", "1998"),
+  // Privileged credentials must come from the deployment secret store. Never
+  // provide source-controlled fallbacks because a repository is not a vault.
+  superAdminPhone: readString("SUPER_ADMIN_PHONE", ""),
+  superAdminPin: readString("SUPER_ADMIN_PIN", ""),
   superAdminName: readString("SUPER_ADMIN_NAME", "Super Admin"),
   superAdminUserId: readNumber("SUPER_ADMIN_USER_ID", 0, {
     min: 0,
     max: 9000000000,
   }),
+  servicesOperatorPhone: readString("SERVICES_OPERATOR_PHONE", ""),
+  servicesOperatorPin: readString("SERVICES_OPERATOR_PIN", ""),
+  servicesOperatorName: readString(
+    "SERVICES_OPERATOR_NAME",
+    "Maslaki Services Operations"
+  ),
 };
 
 export function validateRuntimeEnv() {
@@ -608,6 +662,24 @@ export function validateRuntimeEnv() {
     }
     if (env.authAllowLegacyTokens === true) {
       errors.push("AUTH_ALLOW_LEGACY_TOKENS must be false in production");
+    }
+    if (!/^\d{8,20}$/.test(env.superAdminPhone)) {
+      errors.push("SUPER_ADMIN_PHONE must be set in the production secret store");
+    }
+    if (!/^\d{8}$/.test(env.superAdminPin)) {
+      errors.push(
+        "SUPER_ADMIN_PIN must be an 8-digit production deployment secret"
+      );
+    }
+    if (!/^\d{8,20}$/.test(env.servicesOperatorPhone)) {
+      errors.push(
+        "SERVICES_OPERATOR_PHONE must be set in the production secret store"
+      );
+    }
+    if (!/^\d{8}$/.test(env.servicesOperatorPin)) {
+      errors.push(
+        "SERVICES_OPERATOR_PIN must be an 8-digit production deployment secret"
+      );
     }
   }
 

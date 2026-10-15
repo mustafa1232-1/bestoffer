@@ -11,6 +11,7 @@ import '../../../core/forms/form_field_error_resolver.dart';
 import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/currency.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/jobs_api.dart';
@@ -180,7 +181,7 @@ class _JobMyApplicationsScreenState
       'withdrawn' => const Color(0xFFFFB35C),
       'dismissed_after_hire' => const Color(0xFFFF986E),
       'archived' => const Color(0xFFB7C0D1),
-      _ => Colors.white70,
+      _ => Theme.of(context).colorScheme.onSurfaceVariant,
     };
   }
 
@@ -635,6 +636,7 @@ class _JobMyApplicationsScreenState
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(
@@ -737,9 +739,9 @@ class _JobMyApplicationsScreenState
                               const Spacer(),
                               Text(
                                 _dateText(item.createdAt),
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 12.5,
-                                  color: Colors.white70,
+                                  color: tokens.textMuted,
                                 ),
                               ),
                             ],
@@ -757,15 +759,15 @@ class _JobMyApplicationsScreenState
                           Text(
                             company,
                             textAlign: TextAlign.end,
-                            style: const TextStyle(color: Colors.white70),
+                            style: TextStyle(color: tokens.textSecondary),
                           ),
                           if (location.isNotEmpty) ...[
                             const SizedBox(height: 4),
                             Text(
                               location,
                               textAlign: TextAlign.end,
-                              style: const TextStyle(
-                                color: Colors.white60,
+                              style: TextStyle(
+                                color: tokens.textMuted,
                                 fontSize: 12.5,
                               ),
                             ),
@@ -777,8 +779,8 @@ class _JobMyApplicationsScreenState
                                 item.statusReason!.trim(),
                               ),
                               textAlign: TextAlign.end,
-                              style: const TextStyle(
-                                color: Colors.white70,
+                              style: TextStyle(
+                                color: tokens.textSecondary,
                                 fontSize: 12.5,
                               ),
                             ),

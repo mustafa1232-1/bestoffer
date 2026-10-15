@@ -1,28 +1,29 @@
-import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:image_picker/image_picker.dart' show XFile;
 import 'package:dio/dio.dart';
 
 import 'tus_upload_client.dart';
 
 /// Production [TusTransport] over Dio implementing the tus 1.0 core protocol.
 ///
-/// Chunks are read from disk on demand via a [RandomAccessFile] — the whole
+/// Chunks are read from disk or browser Blob slices on demand — the whole
 /// video is never loaded into memory. This transport intentionally uses a
 /// dedicated Dio instance with no Maslaki API interceptors so backend auth,
 /// request signing and the API's short generic timeout are never sent/applied
 /// to the one-time Cloudflare upload URL.
 class DioTusTransport implements TusTransport {
   DioTusTransport({required this.filePath, Dio? dio})
-      : _dio =
-            dio ??
-            Dio(
-              BaseOptions(
-                connectTimeout: const Duration(seconds: 20),
-                sendTimeout: const Duration(minutes: 2),
-                receiveTimeout: const Duration(seconds: 30),
-                responseType: ResponseType.plain,
-              ),
-            );
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 20),
+              sendTimeout: const Duration(minutes: 2),
+              receiveTimeout: const Duration(seconds: 30),
+              responseType: ResponseType.plain,
+            ),
+          );
 
   final String filePath;
   final Dio _dio;
@@ -71,11 +72,15 @@ class DioTusTransport implements TusTransport {
     required int length,
     required int total,
   }) async {
-    final raf = await File(filePath).open();
     try {
-      await raf.setPosition(offset);
-      final bytes = await raf.read(length);
-      if (bytes.isEmpty && offset < total) {
+      final buffer = BytesBuilder(copy: false);
+      await for (final chunk in XFile(
+        filePath,
+      ).openRead(offset, offset + length)) {
+        buffer.add(chunk);
+      }
+      final bytes = buffer.takeBytes();
+      if (bytes.length != length) {
         throw StateError('TUS_SOURCE_ENDED_BEFORE_UPLOAD_LENGTH');
       }
       final res = await _dio.patchUri<void>(
@@ -119,8 +124,6 @@ class DioTusTransport implements TusTransport {
         throw const TusExpiredUploadException();
       }
       rethrow;
-    } finally {
-      await raf.close();
     }
   }
 }

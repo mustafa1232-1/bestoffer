@@ -48,6 +48,7 @@ class _AdminServicesHubScreenState
   Map<String, dynamic> _stats = const <String, dynamic>{};
   List<Map<String, dynamic>> _providers = const <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _offerings = const <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _categories = const <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _suggestions = const <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _reports = const <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _requests = const <Map<String, dynamic>>[];
@@ -86,11 +87,12 @@ class _AdminServicesHubScreenState
       final results = await Future.wait<dynamic>([
         api.getServiceAdminStats(),
         api.listPendingServiceProviders(),
-        api.listPendingServiceOfferings(),
+        api.listAllServiceOfferingsForAdmin(),
         api.listServiceCategorySuggestions(),
         api.listServiceReports(),
         api.listServiceAdminRequests(limit: 40),
         api.listServiceModuleSettings(),
+        api.listServiceCategoriesForAdmin(),
       ]);
       if (!mounted) return;
       setState(() {
@@ -101,6 +103,7 @@ class _AdminServicesHubScreenState
         _reports = _itemsFromAny(results[4]);
         _requests = _itemsFromAny(results[5]);
         _settings = _itemsFromList(results[6]);
+        _categories = _itemsFromAny(results[7]);
         _loading = false;
         _phase = _hasAnyData
             ? _ServicesLoadPhase.loadedWithData
@@ -121,6 +124,7 @@ class _AdminServicesHubScreenState
       _stats.isNotEmpty ||
       _providers.isNotEmpty ||
       _offerings.isNotEmpty ||
+      _categories.isNotEmpty ||
       _suggestions.isNotEmpty ||
       _reports.isNotEmpty ||
       _requests.isNotEmpty ||
@@ -250,6 +254,319 @@ class _AdminServicesHubScreenState
             note: note,
           ),
     );
+  }
+
+  Future<void> _editOffering(Map<String, dynamic> row) async {
+    if (_categories.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'تعذر تحميل أقسام الخدمات. حدّث الصفحة ثم حاول مجددًا.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final nameCtrl = TextEditingController(text: _text(row['name']));
+    final descriptionCtrl = TextEditingController(
+      text: _text(row['description']),
+    );
+    final pricingRows = row['pricingOptions'] is List
+        ? List<dynamic>.from(row['pricingOptions'] as List)
+        : const <dynamic>[];
+    final pricing = pricingRows.whereType<Map>().isEmpty
+        ? const <String, dynamic>{}
+        : Map<String, dynamic>.from(pricingRows.whereType<Map>().first);
+    final priceCtrl = TextEditingController(
+      text: pricing['amount'] == null
+          ? _text(row['startsFromPrice'])
+          : _text(pricing['amount']),
+    );
+    final priceLabelCtrl = TextEditingController(text: _text(pricing['label']));
+    var mainCategoryId = _int(row['mainCategoryId']);
+    if (!_categories.any((item) => _int(item['id']) == mainCategoryId)) {
+      mainCategoryId = _int(_categories.first['id']);
+    }
+    var subcategoryId = row['subcategoryId'] == null
+        ? -1
+        : _int(row['subcategoryId']);
+    var executionMode = _text(row['executionMode'], 'both');
+    var pricingModel = _text(pricing['pricingModel'], 'custom_quote');
+
+    List<Map<String, dynamic>> childrenFor(int categoryId) {
+      final root = _categories.firstWhere(
+        (item) => _int(item['id']) == categoryId,
+        orElse: () => const <String, dynamic>{},
+      );
+      final children = root['children'];
+      return children is List ? _itemsFromList(children) : const [];
+    }
+
+    try {
+      final payload = await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) {
+            final subcategories = childrenFor(mainCategoryId);
+            if (subcategoryId > 0 &&
+                !subcategories.any(
+                  (item) => _int(item['id']) == subcategoryId,
+                )) {
+              subcategoryId = -1;
+            }
+            final requiresPrice = !const {
+              'custom_quote',
+              'inspection_required',
+            }.contains(pricingModel);
+            return AlertDialog(
+              title: const Text('تعديل بيانات الخدمة'),
+              content: SizedBox(
+                width: 520,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: nameCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'اسم الخدمة',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: descriptionCtrl,
+                        maxLines: 3,
+                        decoration: const InputDecoration(labelText: 'الوصف'),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<int>(
+                        initialValue: mainCategoryId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'القسم الرئيسي',
+                        ),
+                        items: _categories
+                            .map(
+                              (item) => DropdownMenuItem<int>(
+                                value: _int(item['id']),
+                                child: Text(_text(item['name'], 'قسم')),
+                              ),
+                            )
+                            .toList(growable: false),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setDialogState(() {
+                            mainCategoryId = value;
+                            subcategoryId = -1;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<int>(
+                        initialValue: subcategoryId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'القسم الفرعي',
+                        ),
+                        items: [
+                          const DropdownMenuItem<int>(
+                            value: -1,
+                            child: Text('بدون قسم فرعي'),
+                          ),
+                          ...subcategories.map(
+                            (item) => DropdownMenuItem<int>(
+                              value: _int(item['id']),
+                              child: Text(_text(item['name'], 'قسم فرعي')),
+                            ),
+                          ),
+                        ],
+                        onChanged: (value) =>
+                            setDialogState(() => subcategoryId = value ?? -1),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: executionMode,
+                        decoration: const InputDecoration(
+                          labelText: 'نمط التنفيذ',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'home',
+                            child: Text('منزلية'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'provider_location',
+                            child: Text('داخل موقع مقدم الخدمة'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'both',
+                            child: Text('كلاهما'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'remote',
+                            child: Text('عن بُعد'),
+                          ),
+                        ],
+                        onChanged: (value) => setDialogState(
+                          () => executionMode = value ?? 'both',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: pricingModel,
+                        decoration: const InputDecoration(
+                          labelText: 'نمط السعر',
+                        ),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'custom_quote',
+                            child: Text('تسعير مخصص'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'inspection_required',
+                            child: Text('حسب المعاينة'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'starting_from',
+                            child: Text('يبدأ من'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'fixed_package',
+                            child: Text('باقة ثابتة'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'per_hour',
+                            child: Text('بالساعة'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'per_day',
+                            child: Text('باليوم'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'per_device',
+                            child: Text('لكل جهاز'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'per_room',
+                            child: Text('لكل غرفة'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'per_meter',
+                            child: Text('بالمتر'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'per_item',
+                            child: Text('لكل قطعة'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'per_visit',
+                            child: Text('للزيارة'),
+                          ),
+                        ],
+                        onChanged: (value) => setDialogState(
+                          () => pricingModel = value ?? 'custom_quote',
+                        ),
+                      ),
+                      if (requiresPrice) ...[
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: priceCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: const InputDecoration(labelText: 'السعر'),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: priceLabelCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'وصف السعر',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('إلغاء'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final name = nameCtrl.text.trim();
+                    final amount = double.tryParse(priceCtrl.text.trim());
+                    if (name.isEmpty || (requiresPrice && amount == null)) {
+                      ScaffoldMessenger.of(dialogContext).showSnackBar(
+                        const SnackBar(
+                          content: Text('أدخل اسم الخدمة والسعر المطلوب.'),
+                        ),
+                      );
+                      return;
+                    }
+                    Navigator.of(dialogContext).pop({
+                      'name': name,
+                      'description': descriptionCtrl.text.trim(),
+                      'mainCategoryId': mainCategoryId,
+                      if (subcategoryId > 0) 'subcategoryId': subcategoryId,
+                      'executionMode': executionMode,
+                      'startsFromPrice': amount,
+                      'pricingOptions': [
+                        {
+                          'pricingModel': pricingModel,
+                          'pricingUnit': switch (pricingModel) {
+                            'per_hour' => 'hour',
+                            'per_day' => 'day',
+                            'per_device' => 'device',
+                            'per_room' => 'room',
+                            'per_meter' => 'meter',
+                            'per_item' => 'item',
+                            'per_visit' => 'visit',
+                            'fixed_package' => 'package',
+                            _ => 'job',
+                          },
+                          if (priceLabelCtrl.text.trim().isNotEmpty)
+                            'label': priceLabelCtrl.text.trim(),
+                          if (requiresPrice) 'amount': amount,
+                          'isDefault': true,
+                        },
+                      ],
+                    });
+                  },
+                  child: const Text('حفظ التعديلات'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+      if (payload == null) return;
+      setState(() => _saving = true);
+      await ref
+          .read(adminApiProvider)
+          .updateServiceOfferingDetails(
+            offeringId: _int(row['id']),
+            body: payload,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم تعديل الخدمة بنجاح.')));
+      await _load();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_mapServicesError(error).message)));
+    } finally {
+      nameCtrl.dispose();
+      descriptionCtrl.dispose();
+      priceCtrl.dispose();
+      priceLabelCtrl.dispose();
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Future<void> _reviewSuggestion(Map<String, dynamic> row) async {
@@ -606,7 +923,7 @@ class _AdminServicesHubScreenState
               ),
               const SizedBox(height: 14),
               _SectionCard(
-                title: 'الخدمات بانتظار المراجعة',
+                title: 'كل الخدمات',
                 count: _offerings.length,
                 children: _offerings
                     .map(
@@ -619,11 +936,24 @@ class _AdminServicesHubScreenState
                             'الحالة: ${_text(row['moderationStatus'])}',
                           ].where((item) => item.isNotEmpty).join(' • '),
                         ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.rule_folder_outlined),
-                          onPressed: _saving
-                              ? null
-                              : () => _reviewOffering(row),
+                        trailing: Wrap(
+                          spacing: 2,
+                          children: [
+                            IconButton(
+                              tooltip: 'تعديل بيانات الخدمة',
+                              icon: const Icon(Icons.edit_outlined),
+                              onPressed: _saving
+                                  ? null
+                                  : () => _editOffering(row),
+                            ),
+                            IconButton(
+                              tooltip: 'تغيير حالة النشر',
+                              icon: const Icon(Icons.rule_folder_outlined),
+                              onPressed: _saving
+                                  ? null
+                                  : () => _reviewOffering(row),
+                            ),
+                          ],
                         ),
                       ),
                     )

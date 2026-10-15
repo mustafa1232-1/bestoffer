@@ -13,20 +13,6 @@ function isAdminLikeRole(role) {
   return normalized === "admin" || normalized === "super_admin";
 }
 
-function normalizeDigits(value) {
-  return String(value || "")
-    .replace(/[\u0660-\u0669]/g, (digit) =>
-      String(digit.charCodeAt(0) - 0x0660)
-    )
-    .replace(/[\u06F0-\u06F9]/g, (digit) =>
-      String(digit.charCodeAt(0) - 0x06f0)
-    );
-}
-
-function normalizePhone(value) {
-  return normalizeDigits(value).replace(/[^\d]/g, "");
-}
-
 export async function requireSuperAdmin(req, res, next) {
   if (req.userIsSuperAdmin === true) {
     if (!isAdminLikeRole(req.userRole)) {
@@ -41,17 +27,14 @@ export async function requireSuperAdmin(req, res, next) {
   if (currentUserId > 0 && isAdminLikeRole(currentRole)) {
     try {
       const r = await q(
-        `SELECT is_super_admin, phone
+        `SELECT is_super_admin
          FROM app_user
          WHERE id = $1
          LIMIT 1`,
         [currentUserId]
       );
       const row = r.rows[0];
-      const phoneMatches =
-        normalizePhone(row?.phone) !== "" &&
-        normalizePhone(row?.phone) === normalizePhone(env.superAdminPhone);
-      if (row?.is_super_admin === true || phoneMatches) {
+      if (row?.is_super_admin === true) {
         req.userIsSuperAdmin = true;
         return next();
       }

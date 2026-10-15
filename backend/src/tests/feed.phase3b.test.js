@@ -293,24 +293,38 @@ test("merchant review validation requires merchant and a 1-5 integer rating", ()
     postKind: "merchant_review",
     merchantId: 17,
     reviewRating: 5,
+    orderId: 91,
+    productId: 203,
   });
   assert.equal(valid.ok, true);
   assert.equal(valid.value.postKind, "merchant_review");
   assert.equal(valid.value.merchantId, 17);
   assert.equal(valid.value.reviewRating, 5);
+  assert.equal(valid.value.orderId, 91);
+  assert.equal(valid.value.productId, 203);
 
   const missingMerchant = validateCreatePost({
     postKind: "merchant_review",
     reviewRating: 4,
+    orderId: 91,
   });
   assert.equal(missingMerchant.ok, false);
   assert.ok(missingMerchant.errors.includes("merchantId_required"));
+
+  const missingOrder = validateCreatePost({
+    postKind: "merchant_review",
+    merchantId: 17,
+    reviewRating: 4,
+  });
+  assert.equal(missingOrder.ok, false);
+  assert.ok(missingOrder.errors.includes("orderId_required"));
 
   for (const reviewRating of [0, 1.5, 6]) {
     const invalidRating = validateCreatePost({
       postKind: "merchant_review",
       merchantId: 17,
       reviewRating,
+      orderId: 91,
     });
     assert.equal(invalidRating.ok, false, String(reviewRating));
     assert.ok(invalidRating.errors.includes("reviewRating"));

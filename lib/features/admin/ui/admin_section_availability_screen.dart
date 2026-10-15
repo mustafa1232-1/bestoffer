@@ -37,17 +37,20 @@ class _AdminSectionAvailabilityScreenState
         api.listSectionAvailability(),
         api.listSectionAvailabilityAudit(limit: 60),
       ]);
-      final availability = List<dynamic>.from(results[0] as List)
-          .whereType<Map>()
-          .map((row) => SectionAvailabilityEntry.fromJson(
-                Map<String, dynamic>.from(row),
-              ))
-          .toList(growable: false)
-        ..sort((a, b) {
-          final bySort = a.sortOrder.compareTo(b.sortOrder);
-          if (bySort != 0) return bySort;
-          return a.sectionKey.compareTo(b.sectionKey);
-        });
+      final availability =
+          List<dynamic>.from(results[0] as List)
+              .whereType<Map>()
+              .map(
+                (row) => SectionAvailabilityEntry.fromJson(
+                  Map<String, dynamic>.from(row),
+                ),
+              )
+              .toList(growable: false)
+            ..sort((a, b) {
+              final bySort = a.sortOrder.compareTo(b.sortOrder);
+              if (bySort != 0) return bySort;
+              return a.sectionKey.compareTo(b.sectionKey);
+            });
       final audit = List<dynamic>.from(results[1] as List)
           .whereType<Map>()
           .map((row) => Map<String, dynamic>.from(row))
@@ -71,6 +74,9 @@ class _AdminSectionAvailabilityScreenState
     final displayNameCtrl = TextEditingController(text: entry.displayName);
     final sortOrderCtrl = TextEditingController(text: '${entry.sortOrder}');
     final messageCtrl = TextEditingController(text: entry.userMessage ?? '');
+    final maintenanceUntilCtrl = TextEditingController(
+      text: '${entry.metadata['maintenanceUntil'] ?? ''}',
+    );
     var status = entry.status;
     var isVisible = entry.isVisible;
     var allowExistingActiveAccess = entry.allowExistingActiveAccess;
@@ -97,9 +103,7 @@ class _AdminSectionAvailabilityScreenState
                       const SizedBox(height: 10),
                       DropdownButtonFormField<SectionAvailabilityStatus>(
                         initialValue: status,
-                        decoration: const InputDecoration(
-                          labelText: 'الحالة',
-                        ),
+                        decoration: const InputDecoration(labelText: 'الحالة'),
                         items: const [
                           DropdownMenuItem(
                             value: SectionAvailabilityStatus.open,
@@ -132,6 +136,16 @@ class _AdminSectionAvailabilityScreenState
                           hintText: 'اختيارية',
                         ),
                       ),
+                      if (entry.sectionKey == AppSectionKeys.app) ...[
+                        const SizedBox(height: 10),
+                        TextField(
+                          controller: maintenanceUntilCtrl,
+                          decoration: const InputDecoration(
+                            labelText: 'وقت انتهاء الصيانة (ISO اختياري)',
+                            hintText: '2026-09-10T20:00:00Z',
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 10),
                       TextField(
                         controller: sortOrderCtrl,
@@ -177,7 +191,22 @@ class _AdminSectionAvailabilityScreenState
       if (approved != true) return;
 
       setState(() => _saving = true);
-      await ref.read(adminApiProvider).updateSectionAvailability(
+      final metadata = Map<String, dynamic>.from(entry.metadata);
+      if (entry.sectionKey == AppSectionKeys.app) {
+        final until = maintenanceUntilCtrl.text.trim();
+        if (until.isEmpty) {
+          metadata.remove('maintenanceUntil');
+        } else if (DateTime.tryParse(until) == null) {
+          throw const FormatException('وقت انتهاء الصيانة غير صحيح');
+        } else {
+          metadata['maintenanceUntil'] = DateTime.parse(
+            until,
+          ).toUtc().toIso8601String();
+        }
+      }
+      await ref
+          .read(adminApiProvider)
+          .updateSectionAvailability(
             sectionKey: entry.sectionKey,
             displayName: displayNameCtrl.text.trim().isEmpty
                 ? entry.displayName
@@ -187,24 +216,26 @@ class _AdminSectionAvailabilityScreenState
             surfaceScope: entry.surfaceScope,
             parentSectionKey: entry.parentSectionKey,
             userMessage: messageCtrl.text.trim(),
-            sortOrder: int.tryParse(sortOrderCtrl.text.trim()) ?? entry.sortOrder,
+            sortOrder:
+                int.tryParse(sortOrderCtrl.text.trim()) ?? entry.sortOrder,
             allowExistingActiveAccess: allowExistingActiveAccess,
-            metadata: entry.metadata,
+            metadata: metadata,
           );
       changed = true;
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحديث حالة القسم.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم تحديث حالة القسم.')));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('$error')));
     } finally {
       displayNameCtrl.dispose();
       sortOrderCtrl.dispose();
       messageCtrl.dispose();
+      maintenanceUntilCtrl.dispose();
       if (mounted) setState(() => _saving = false);
     }
     if (changed) {
@@ -296,14 +327,16 @@ class _AdminSectionAvailabilityScreenState
                     child: Text('لا توجد تغييرات مسجلة حتى الآن.'),
                   ),
                 ),
-              ..._audit.take(40).map(
-                (row) => Card(
-                  child: ListTile(
-                    title: Text(_auditTitle(row)),
-                    subtitle: Text(_auditSubtitle(row)),
+              ..._audit
+                  .take(40)
+                  .map(
+                    (row) => Card(
+                      child: ListTile(
+                        title: Text(_auditTitle(row)),
+                        subtitle: Text(_auditSubtitle(row)),
+                      ),
+                    ),
                   ),
-                ),
-              ),
             ],
           ],
         ),

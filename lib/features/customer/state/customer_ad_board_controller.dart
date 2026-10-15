@@ -42,7 +42,8 @@ class CustomerAdBoardController
       state = const AsyncValue.data(<CustomerAdBoardItem>[]);
       return Future.value();
     }
-    final hasLoadedCurrent = _loadedType == normalizedType &&
+    final hasLoadedCurrent =
+        _loadedType == normalizedType &&
         _loadedPlacement == normalizedPlacement &&
         state.hasValue;
     if (!force && hasLoadedCurrent) {
@@ -89,8 +90,8 @@ class CustomerAdBoardController
 }
 
 /// A placement-scoped ad request. Used by the marketplace home & category ad
-/// widgets which each fetch an independent, non-duplicated ad from the same
-/// `ad_board` backend but with a different placement/category target.
+/// widgets which each fetch independent ads from the same `ad_board` backend
+/// but with a different placement/category target.
 class MarketplaceAdRequest {
   final String placement;
   final String? type;
@@ -116,19 +117,21 @@ class MarketplaceAdRequest {
   int get hashCode => Object.hash(placement, type, categoryKey, activityType);
 }
 
-/// Fetches the highest-priority active ad for a placement. Returns null when
-/// there is no eligible ad so the surface can collapse fully. Customer-only:
-/// non-customer sessions resolve to null without hitting the network.
-final marketplaceAdProvider =
-    FutureProvider.family<CustomerAdBoardItem?, MarketplaceAdRequest>((
+/// Fetches all active ads for a placement. Returns an empty list when there is
+/// no eligible ad so the surface can collapse fully. Customer-only: non-customer
+/// sessions resolve locally without hitting the network.
+final marketplaceAdsProvider =
+    FutureProvider.family<List<CustomerAdBoardItem>, MarketplaceAdRequest>((
       ref,
       request,
     ) async {
       final role = ref.read(authControllerProvider).user?.role;
       final isCustomer = role != null && role.trim().toLowerCase() == 'user';
-      if (!isCustomer) return null;
+      if (!isCustomer) return const <CustomerAdBoardItem>[];
 
-      final raw = await ref.read(merchantsApiProvider).adBoard(
+      final raw = await ref
+          .read(merchantsApiProvider)
+          .adBoard(
             type: request.type,
             placement: request.placement,
             categoryKey: request.categoryKey,
@@ -139,8 +142,16 @@ final marketplaceAdProvider =
           .map(CustomerAdBoardItem.fromJson)
           .where((ad) => ad.placement == request.placement)
           .toList();
-      if (items.isEmpty) return null;
-      // Backend already orders category-specific over general, then by
-      // priority; the first row is the winning ad for this surface.
-      return items.first;
+      return items;
+    });
+
+/// Legacy single-ad reader kept for callers that still need the first ranked
+/// item. New marketplace surfaces should use [marketplaceAdsProvider].
+final marketplaceAdProvider =
+    FutureProvider.family<CustomerAdBoardItem?, MarketplaceAdRequest>((
+      ref,
+      request,
+    ) async {
+      final items = await ref.watch(marketplaceAdsProvider(request).future);
+      return items.isEmpty ? null : items.first;
     });

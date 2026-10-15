@@ -507,10 +507,9 @@ class CompanyInventoryOverview {
   });
 
   factory CompanyInventoryOverview.fromJson(Map<String, dynamic> json) {
-    final rawBranches = (json['branches'] as List? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(CompanyBranch.fromJson)
-        .toList();
+    final rawBranches = _toMapList(
+      json['branches'],
+    ).map(CompanyBranch.fromJson).toList();
     return CompanyInventoryOverview(
       totals: _toMap(json['totals']),
       branches: rawBranches,
@@ -663,10 +662,9 @@ class CompanyBranchDetail {
           : CompanyInventorySettings.fromJson(
               _toMap(json['inventorySettings']),
             ),
-      inventoryItems: (json['inventoryItems'] as List? ?? const [])
-          .whereType<Map<String, dynamic>>()
-          .map(CompanyInventoryItem.fromJson)
-          .toList(),
+      inventoryItems: _toMapList(
+        json['inventoryItems'],
+      ).map(CompanyInventoryItem.fromJson).toList(),
       products: _toMapList(json['products']),
       categories: _toMapList(json['categories']),
     );
@@ -871,10 +869,9 @@ class CompanyPortalBootstrap {
   const CompanyPortalBootstrap({required this.user, required this.memberships});
 
   factory CompanyPortalBootstrap.fromJson(Map<String, dynamic> json) {
-    final memberships = (json['memberships'] as List? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(CompanyMembership.fromJson)
-        .toList();
+    final memberships = _toMapList(
+      json['memberships'],
+    ).map(CompanyMembership.fromJson).toList();
     return CompanyPortalBootstrap(
       user: CompanyPortalUser.fromJson(_toMap(json['user'])),
       memberships: memberships,
@@ -902,10 +899,9 @@ class CompanyPortalLoginResult {
   });
 
   factory CompanyPortalLoginResult.fromJson(Map<String, dynamic> json) {
-    final memberships = (json['memberships'] as List? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(CompanyMembership.fromJson)
-        .toList();
+    final memberships = _toMapList(
+      json['memberships'],
+    ).map(CompanyMembership.fromJson).toList();
     return CompanyPortalLoginResult(
       token:
           '${json['token'] ?? json['accessToken'] ?? json['access_token'] ?? ''}'

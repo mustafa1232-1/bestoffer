@@ -1,6 +1,11 @@
+import 'dart:convert';
+import 'dart:math' as math;
+
 import 'package:latlong2/latlong.dart';
 
-const basmayaTrackingCenter = LatLng(33.2388, 44.4975);
+// Basmaya center. Keep this aligned with the service-area polygon and the
+// customer taxi map; the old fallback was several kilometres east of Basmaya.
+const basmayaTrackingCenter = LatLng(33.19302, 44.62071);
 
 Map<String, dynamic>? trackingMap(dynamic raw) {
   if (raw is! Map) return null;
@@ -63,7 +68,158 @@ LatLng? latLngFromMap(dynamic raw) {
     '${map['longitude'] ?? map['lng'] ?? map['lon'] ?? ''}',
   );
   if (latitude == null || longitude == null) return null;
+  if (!latitude.isFinite ||
+      !longitude.isFinite ||
+      latitude < -90 ||
+      latitude > 90 ||
+      longitude < -180 ||
+      longitude > 180) {
+    return null;
+  }
   return LatLng(latitude, longitude);
+}
+
+class TrackingMotionSample {
+  final LatLng point;
+  final double headingDegrees;
+  final DateTime recordedAt;
+  final double? accuracyMeters;
+
+  const TrackingMotionSample({
+    required this.point,
+    required this.headingDegrees,
+    required this.recordedAt,
+    this.accuracyMeters,
+  });
+}
+
+TrackingMotionSample? trackingMotionSampleFromMap(
+  dynamic raw, {
+  DateTime? fallbackTimestamp,
+  double fallbackHeading = 0,
+}) {
+  final map = trackingMap(raw);
+  final point = latLngFromMap(map);
+  if (map == null || point == null) return null;
+  final rawTimestamp = trackingString(
+    map['recordedAt'] ??
+        map['recorded_at'] ??
+        map['updatedAt'] ??
+        map['updated_at'] ??
+        map['createdAt'] ??
+        map['created_at'] ??
+        map['timestamp'],
+  );
+  final timestamp = rawTimestamp == null
+      ? fallbackTimestamp
+      : DateTime.tryParse(rawTimestamp)?.toUtc();
+  return TrackingMotionSample(
+    point: point,
+    headingDegrees: normalizeTrackingHeading(
+      _trackingDouble(map['heading'] ?? map['bearing'] ?? map['course']) ??
+          fallbackHeading,
+    ),
+    recordedAt:
+        timestamp?.toUtc() ??
+        DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+    accuracyMeters: _trackingDouble(
+      map['accuracy'] ?? map['accuracyMeters'] ?? map['accuracy_meters'],
+    ),
+  );
+}
+
+double trackingDistanceMeters(LatLng from, LatLng to) {
+  const earthRadiusMeters = 6371000.0;
+  final lat1 = from.latitude * math.pi / 180;
+  final lat2 = to.latitude * math.pi / 180;
+  final deltaLat = (to.latitude - from.latitude) * math.pi / 180;
+  final deltaLng = (to.longitude - from.longitude) * math.pi / 180;
+  final a =
+      math.sin(deltaLat / 2) * math.sin(deltaLat / 2) +
+      math.cos(lat1) *
+          math.cos(lat2) *
+          math.sin(deltaLng / 2) *
+          math.sin(deltaLng / 2);
+  return earthRadiusMeters * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+}
+
+double normalizeTrackingHeading(double value) {
+  final normalized = value % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+}
+
+double shortestTrackingHeadingDelta(double from, double to) {
+  return ((normalizeTrackingHeading(to) -
+              normalizeTrackingHeading(from) +
+              540) %
+          360) -
+      180;
+}
+
+TrackingMotionSample interpolateTrackingSample(
+  TrackingMotionSample from,
+  TrackingMotionSample to,
+  double t,
+) {
+  final progress = t.clamp(0.0, 1.0);
+  return TrackingMotionSample(
+    point: LatLng(
+      from.point.latitude +
+          (to.point.latitude - from.point.latitude) * progress,
+      from.point.longitude +
+          (to.point.longitude - from.point.longitude) * progress,
+    ),
+    headingDegrees: normalizeTrackingHeading(
+      from.headingDegrees +
+          shortestTrackingHeadingDelta(from.headingDegrees, to.headingDegrees) *
+              progress,
+    ),
+    recordedAt: to.recordedAt,
+    accuracyMeters: to.accuracyMeters,
+  );
+}
+
+bool shouldAcceptTrackingSample(
+  TrackingMotionSample? current,
+  TrackingMotionSample incoming, {
+  double deadZoneMeters = 2,
+}) {
+  if (current == null) return true;
+  if (incoming.recordedAt.isBefore(current.recordedAt)) return false;
+  final distance = trackingDistanceMeters(current.point, incoming.point);
+  final headingDelta = shortestTrackingHeadingDelta(
+    current.headingDegrees,
+    incoming.headingDegrees,
+  ).abs();
+  return distance >= deadZoneMeters || headingDelta >= 8;
+}
+
+bool shouldSnapTrackingSample(
+  TrackingMotionSample? current,
+  TrackingMotionSample incoming, {
+  Duration maxGap = const Duration(seconds: 30),
+  double maxDistanceMeters = 500,
+}) {
+  if (current == null) return true;
+  final gap = incoming.recordedAt.difference(current.recordedAt);
+  return gap > maxGap ||
+      gap.isNegative ||
+      trackingDistanceMeters(current.point, incoming.point) > maxDistanceMeters;
+}
+
+String trackingPayloadFingerprint(Map<String, dynamic>? payload) {
+  dynamic canonical(dynamic value) {
+    if (value is Map) {
+      final keys = value.keys.map((key) => '$key').toList()..sort();
+      return <String, dynamic>{
+        for (final key in keys) key: canonical(value[key]),
+      };
+    }
+    if (value is List) return value.map(canonical).toList(growable: false);
+    return value;
+  }
+
+  return jsonEncode(canonical(payload ?? const <String, dynamic>{}));
 }
 
 const _terminalOrderStatuses = <String>{

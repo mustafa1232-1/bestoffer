@@ -1,3 +1,5 @@
+import { normalizeCatalogQuery } from './merchant-catalog-query.js';
+import { isFreeDeliveryCampaignActive } from '../commerce/free-delivery-campaign.js';
 import { pool, q } from "../../config/db.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import { getRedisClient } from "../../config/redis.js";
@@ -344,9 +346,11 @@ export async function createMerchantWithOwnerLink({
           delivery_eta_max_minutes,
           delivery_fee,
           minimum_order,
+          latitude,
+          longitude,
           is_verified
         )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,NOW(),$12::jsonb,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21,$22,$23)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$11,NOW(),$12::jsonb,$13,$14,$15,$16::jsonb,$17,$18,$19,$20,$21,$22,$23,$24,$25)
        RETURNING id`,
       [
         merchant.name,
@@ -371,6 +375,8 @@ export async function createMerchantWithOwnerLink({
         merchant.deliveryEtaMaxMinutes ?? null,
         merchant.deliveryFee ?? null,
         merchant.minimumOrder ?? null,
+        merchant.latitude ?? null,
+        merchant.longitude ?? null,
         merchant.isVerified === true,
       ]
     );
@@ -597,13 +603,48 @@ export async function getAllMerchants(type, search, options = {}) {
   return r.rows;
 }
 
-export async function getPublicMerchantProducts(merchantId, { limit = 200, offset = 0 } = {}) {
-  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 200));
-  const safeOffset = Math.max(0, Number(offset) || 0);
+export async function getPublicMerchantProducts(merchantId, options = {}) {
+  const filters = normalizeCatalogQuery({ ...options,
+    productIds: Array.isArray(options.productIds) ? options.productIds.join(',') : options.productIds });
+  const { limit: safeLimit, offset: safeOffset } = filters;
+  const campaignActive = isFreeDeliveryCampaignActive();
+  const effectiveAvailable = `CASE
+    WHEN s.inventory_enabled = TRUE AND s.daily_update_mode <> 'manual_override'
+      AND s.show_all_without_auto_disable = FALSE
+    THEN CASE WHEN COALESCE(si.manual_disabled, FALSE) OR COALESCE(si.auto_disabled, FALSE)
+      OR COALESCE(si.stock_status, '') = 'manual_disabled'
+      OR (si.stock_status = 'out_of_stock' AND s.auto_disable_out_of_stock = TRUE)
+      THEN FALSE ELSE p.is_available END ELSE p.is_available END`;
+  const effectivePrice = `CASE offer.offer_type
+    WHEN 'percentage' THEN GREATEST(0, p.price - ROUND(p.price * GREATEST(0, offer.discount_value) / 100, 2))
+    WHEN 'fixed_amount' THEN GREATEST(0, p.price - GREATEST(0, offer.discount_value))
+    WHEN 'buy_x_get_y' THEN p.price
+    ELSE COALESCE(p.discounted_price, p.price) END`;
+  const orderBy = filters.sort === 'priceLowToHigh' ? `${effectivePrice} ASC, p.id DESC`
+    : filters.sort === 'priceHighToLow' ? `${effectivePrice} DESC, p.id DESC`
+    : filters.sort === 'biggestDiscount' ? `CASE WHEN p.price > 0 AND (${effectivePrice}) > 0
+        THEN ROUND(100 * (1 - (${effectivePrice}) / p.price)) ELSE 0 END DESC,
+        ${effectivePrice} ASC, p.id DESC`
+    : `COALESCE(c.order_index, c.sort_order, 999999), COALESCE(c.sort_order, 999999),
+       COALESCE(c.id, 0), p.sort_order ASC, p.id DESC`;
+  const needsOffers = filters.onlyOffers || filters.sort !== 'recommended';
+  const offerJoin = needsOffers ? `LEFT JOIN LATERAL (
+    SELECT mo.* FROM merchant_offer_product mop JOIN merchant_offer mo ON mo.id = mop.offer_id
+    WHERE mop.product_id = p.id AND mo.merchant_id = p.merchant_id
+      AND mo.status NOT IN ('draft', 'disabled', 'expired')
+      AND (mo.starts_at IS NULL OR mo.starts_at <= NOW())
+      AND (mo.ends_at IS NULL OR mo.ends_at >= NOW())
+      AND (mo.max_usage IS NULL OR (SELECT COUNT(*) FROM merchant_offer_usage usage
+        WHERE usage.offer_id = mo.id AND COALESCE(usage.is_void, FALSE) = FALSE) < mo.max_usage)
+    ORDER BY mo.created_at DESC, mo.id DESC LIMIT 1
+  ) offer ON TRUE` : '';
+  const offerFilter = filters.onlyOffers && !campaignActive
+    ? `AND (offer.id IS NOT NULL OR p.free_delivery = TRUE OR NULLIF(p.offer_label, '') IS NOT NULL
+      OR (p.discounted_price > 0 AND p.discounted_price < p.price))` : '';
 
   const redis = await getRedisClient().catch(() => null);
   const cacheVersion = await getMerchantCatalogVersion(redis, merchantId);
-  const cacheKey = `merchant:products:${Number(merchantId)}:v${cacheVersion}:${safeOffset}:${safeLimit}`;
+  const cacheKey = `merchant:products:page2:${Number(merchantId)}:v${cacheVersion}:${JSON.stringify(filters)}:${campaignActive}`;
   if (redis) {
     try {
       const hit = await redis.get(cacheKey);
@@ -644,17 +685,24 @@ export async function getPublicMerchantProducts(merchantId, { limit = 200, offse
      LEFT JOIN store_inventory_item si
        ON si.merchant_id = p.merchant_id
       AND si.product_id = p.id
+     ${offerJoin}
      WHERE p.merchant_id=$1
+       AND p.deleted_at IS NULL
        AND m.is_approved=TRUE
        AND m.is_disabled=FALSE
-     ORDER BY
-       COALESCE(c.order_index, c.sort_order, 999999),
-       COALESCE(c.sort_order, 999999),
-       COALESCE(c.id, 0),
-       p.sort_order ASC,
-       p.id DESC
+       AND ($4::bigint IS NULL OR p.category_id = $4)
+       AND ($5::text = '' OR p.name ILIKE '%' || $5 || '%' OR COALESCE(p.description, '') ILIKE '%' || $5 || '%' OR c.name ILIKE '%' || $5 || '%')
+       AND ($6::bigint[] IS NULL OR p.id = ANY($6))
+       AND ($7::boolean = FALSE OR ((${effectiveAvailable}) AND (
+         EXISTS (SELECT 1 FROM product_variant pv WHERE pv.product_id = p.id AND pv.is_available = TRUE
+           AND (COALESCE(s.inventory_enabled, FALSE) = FALSE OR pv.stock_quantity > 0))
+         OR (NOT EXISTS (SELECT 1 FROM product_variant pv WHERE pv.product_id = p.id)
+           AND (COALESCE(s.inventory_enabled, FALSE) = FALSE OR COALESCE(si.quantity, 0) > 0))
+       )))
+       ${offerFilter}
+     ORDER BY ${orderBy}
      LIMIT $2 OFFSET $3`,
-    [merchantId, safeLimit, safeOffset]
+    [merchantId, safeLimit, safeOffset, filters.categoryId, filters.search, filters.productIds, filters.onlyAvailable]
   );
   if (redis) redis.set(cacheKey, JSON.stringify(r.rows), "EX", MERCHANT_PRODUCTS_TTL).catch(() => {});
   return r.rows;
@@ -694,6 +742,7 @@ export async function getPublicMerchantCategories(merchantId) {
      LEFT JOIN inventory_settings s ON s.merchant_id = c.merchant_id
      LEFT JOIN product p
        ON p.category_id = c.id
+      AND p.deleted_at IS NULL
      LEFT JOIN store_inventory_item si
        ON si.merchant_id = p.merchant_id
       AND si.product_id = p.id
@@ -734,6 +783,7 @@ export async function getPublicMerchantById(merchantId) {
          SELECT 1
          FROM product p
          WHERE p.merchant_id = m.id
+           AND p.deleted_at IS NULL
            AND p.is_available = TRUE
            AND (
              (p.discounted_price IS NOT NULL AND p.discounted_price < p.price)
@@ -753,6 +803,7 @@ export async function getPublicMerchantById(merchantId) {
          SELECT 1
          FROM product p
          WHERE p.merchant_id = m.id
+           AND p.deleted_at IS NULL
            AND p.is_available = TRUE
            AND p.free_delivery = TRUE
        ) AS has_free_delivery_offer,
@@ -964,8 +1015,23 @@ export async function getPublicAdBoardItems({
        AND (
          $2::text IS DISTINCT FROM 'MARKETPLACE_CATEGORY'
          OR (a.category IS NULL AND a.activity_type IS NULL)
-         OR ($3::text IS NOT NULL AND a.category = $3::text)
-         OR ($4::text IS NOT NULL AND a.activity_type = $4::text)
+         OR (
+           $3::text IS NOT NULL
+           AND a.category = $3::text
+           AND (
+             $4::text IS NULL
+             OR a.activity_type IS NULL
+             OR a.activity_type = $4::text
+           )
+         )
+         OR (
+           $4::text IS NOT NULL
+           AND a.activity_type = $4::text
+           AND NOT (
+             $4::text = 'fashion_clothing'
+             AND LOWER($3::text) IN ('men', 'women')
+           )
+         )
        )
      ORDER BY
        -- Exact category/subcategory/department ads outrank activity-wide ads,
@@ -973,8 +1039,7 @@ export async function getPublicAdBoardItems({
        COALESCE(($3::text IS NOT NULL AND a.category = $3::text), FALSE) DESC,
        COALESCE(($4::text IS NOT NULL AND a.activity_type = $4::text), FALSE) DESC,
        COALESCE((a.category IS NOT NULL OR a.activity_type IS NOT NULL), FALSE) DESC,
-       a.priority ASC, a.created_at DESC, a.id DESC
-     LIMIT 60`,
+       a.priority ASC, a.created_at DESC, a.id DESC`,
     [type || null, placement || null, categoryKey || null, activityType || null]
   );
   return r.rows;

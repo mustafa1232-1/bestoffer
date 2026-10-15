@@ -8,7 +8,9 @@ import { requestDeliveryAssignmentRecovery } from "../orders/delivery-assignment
 import { q } from "../../config/db.js";
 
 function inferModuleFromTarget(target) {
-  const normalized = String(target || "").trim().toLowerCase();
+  const normalized = String(target || "")
+    .trim()
+    .toLowerCase();
   if (normalized.startsWith("courier")) return "courier";
   if (normalized.startsWith("delivery")) return "courier";
   if (normalized.startsWith("merchant")) return "merchant";
@@ -23,7 +25,11 @@ function inferModuleFromTarget(target) {
 }
 
 function inferRoleScopeFromModule(module) {
-  switch (String(module || "").trim().toLowerCase()) {
+  switch (
+    String(module || "")
+      .trim()
+      .toLowerCase()
+  ) {
     case "courier":
       return "courier";
     case "merchant":
@@ -40,15 +46,15 @@ function inferRoleScopeFromModule(module) {
 }
 
 function toOrderPayload(order, target, options = {}) {
-  const targetModule =
-    options.targetModule || inferModuleFromTarget(target);
-  const roleScope =
-    options.roleScope || inferRoleScopeFromModule(targetModule);
+  const targetModule = options.targetModule || inferModuleFromTarget(target);
+  const roleScope = options.roleScope || inferRoleScopeFromModule(targetModule);
   const orderId = Number(order?.id || 0);
   return {
     target,
     orderId,
-    status: String(order?.status || "").trim().toLowerCase(),
+    status: String(order?.status || "")
+      .trim()
+      .toLowerCase(),
     merchantId: order?.merchant_id ? Number(order.merchant_id) : null,
     targetModule,
     target_module: targetModule,
@@ -78,7 +84,9 @@ async function notify(rows) {
   if (!list.length) return;
   const normalized = list.map((row) => {
     const payload =
-      row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
+      row.payload &&
+      typeof row.payload === "object" &&
+      !Array.isArray(row.payload)
         ? { ...row.payload }
         : {};
     const type = String(row.type || "").trim();
@@ -103,12 +111,12 @@ async function buildCompetitionNotifications({ out, orderId }) {
     ? competitionUpdates.adminEvents
     : [];
   const finalizedSummaryEvents = Array.isArray(
-    competitionUpdates.finalized?.summaryEvents
+    competitionUpdates.finalized?.summaryEvents,
   )
     ? competitionUpdates.finalized.summaryEvents
     : [];
   const finalizedCourierEvents = Array.isArray(
-    competitionUpdates.finalized?.courierFinishedEvents
+    competitionUpdates.finalized?.courierFinishedEvents,
   )
     ? competitionUpdates.finalized.courierFinishedEvents
     : [];
@@ -124,7 +132,7 @@ async function buildCompetitionNotifications({ out, orderId }) {
 
   const adminRecipients = await repo.listBackofficeUserIds();
   const adminRecipientSet = new Set(
-    adminRecipients.map((id) => Number(id)).filter((id) => id > 0)
+    adminRecipients.map((id) => Number(id)).filter((id) => id > 0),
   );
 
   const courierNotifications = courierEvents
@@ -147,7 +155,7 @@ async function buildCompetitionNotifications({ out, orderId }) {
           action: "open_courier_competitions",
           roleScope: "courier",
           notificationType: String(
-            event.type || "courier_competition_rank_unlocked"
+            event.type || "courier_competition_rank_unlocked",
           ),
         }),
         competitionId: Number(event.competitionId || 0) || null,
@@ -265,6 +273,31 @@ export async function ownerStartPreparing(ownerUserId, orderId, body = {}) {
       : out.assignmentCreated === true && out.deliveryAssignment?.driver
         ? [out.deliveryAssignment.driver]
         : [];
+  const sendsDirectAssignmentNotice =
+    out.assignmentCreated === true && !!out.deliveryAssignment?.driver;
+  const assignedCourierId = Number(out.deliveryAssignment?.driver?.id || 0);
+  const previousCourierId = Number(out.previousDriver?.id || 0);
+  const previousCourierNotifications =
+    previousCourierId > 0 && previousCourierId !== assignedCourierId
+      ? [
+          {
+            userId: previousCourierId,
+            type: "delivery_order_removed",
+            title: "تم تحديث تعيين الطلب",
+            body: `لم يعد الطلب #${out.order.id} معيناً لك. تم اختيار دلفري آخر من المتجر.`,
+            orderId: Number(out.order.id),
+            merchantId: Number(out.order.merchant_id),
+            payload: {
+              ...toOrderPayload(out.order, "courier_orders_current", {
+                action: "refresh_orders",
+                roleScope: "courier",
+              }),
+              releaseReason: "STORE_SELECTED_ANOTHER_COURIER",
+              requiresAction: true,
+            },
+          },
+        ]
+      : [];
 
   await notify([
     {
@@ -280,19 +313,28 @@ export async function ownerStartPreparing(ownerUserId, orderId, body = {}) {
     },
     ...courierTargets.map((courier) => ({
       userId: Number(courier.id),
-      type: "delivery_order_available",
-      title: "New delivery request",
-      body: `Order #${out.order.id} from ${out.merchantName || "store"} is available.`,
+      type: sendsDirectAssignmentNotice
+        ? "delivery_order_assigned"
+        : "delivery_order_available",
+      title: sendsDirectAssignmentNotice
+        ? "Order assigned"
+        : "New delivery request",
+      body: sendsDirectAssignmentNotice
+        ? `Order #${out.order.id} from ${out.merchantName || "store"} was assigned to you.`
+        : `Order #${out.order.id} from ${out.merchantName || "store"} is available.`,
       orderId: Number(out.order.id),
       merchantId: Number(out.order.merchant_id),
       payload: {
         ...toOrderPayload(out.order, "courier_orders_current", {
-          action: "open_order_offer",
+          action: sendsDirectAssignmentNotice
+            ? "open_assigned_order"
+            : "open_order_offer",
           roleScope: "courier",
         }),
-        requiresAction: true,
+        requiresAction: !sendsDirectAssignmentNotice,
       },
     })),
+    ...previousCourierNotifications,
   ]);
 
   return out;
@@ -308,6 +350,59 @@ export async function ownerAssignCourier(ownerUserId, orderId, body = {}) {
   });
   invalidateCustomerOrderList(out.order);
 
+  const newDriver = out.deliveryAssignment?.driver || out.courier || null;
+  const newDriverId = Number(newDriver?.id || 0);
+  const previousDriverId = Number(out.previousDriver?.id || 0);
+  const notifications = [];
+  if (previousDriverId > 0 && previousDriverId !== newDriverId) {
+    notifications.push({
+      userId: previousDriverId,
+      type: "delivery_order_removed",
+      title: "تم تحديث تعيين الطلب",
+      body: `لم يعد الطلب #${out.order.id} معيناً لك. اختار المتجر دلفرياً آخر.`,
+      orderId: Number(out.order.id),
+      merchantId: Number(out.order.merchant_id),
+      payload: {
+        ...toOrderPayload(out.order, "courier_orders_current", {
+          action: "refresh_orders",
+          roleScope: "courier",
+        }),
+        releaseReason: "STORE_SELECTED_ANOTHER_COURIER",
+        requiresAction: true,
+      },
+    });
+  }
+  if (out.assignmentCreated === true && newDriverId > 0) {
+    notifications.push({
+      userId: newDriverId,
+      type: "delivery_order_assigned",
+      title: "تم إسناد طلب جديد إليك",
+      body: `تم إسناد الطلب #${out.order.id} من ${out.merchantName || "المتجر"} إليك.`,
+      orderId: Number(out.order.id),
+      merchantId: Number(out.order.merchant_id),
+      payload: {
+        ...toOrderPayload(out.order, "courier_orders_current", {
+          action: "open_assigned_order",
+          roleScope: "courier",
+        }),
+        assignmentStatus: out.assignmentStatus,
+        requiresAction: false,
+      },
+    });
+    notifications.push({
+      userId: Number(out.order.customer_user_id),
+      type: "customer_delivery_assigned",
+      title: "تم تعيين التوصيل",
+      body: `تم تعيين دلفري للطلب #${out.order.id}.`,
+      orderId: Number(out.order.id),
+      merchantId: Number(out.order.merchant_id),
+      payload: toOrderPayload(out.order, "order_tracking", {
+        action: "open_order_tracking",
+      }),
+    });
+  }
+  if (notifications.length > 0) await notify(notifications);
+
   return out;
 }
 
@@ -320,11 +415,11 @@ export async function ownerReadyForPickup(ownerUserId, orderId, body = {}) {
   });
   invalidateCustomerOrderList(out.order);
   const courierTargets =
-    (Array.isArray(out.courierRecipients) && out.courierRecipients.length > 0
+    Array.isArray(out.courierRecipients) && out.courierRecipients.length > 0
       ? out.courierRecipients
       : out.deliveryAssignment?.driver
         ? [out.deliveryAssignment.driver]
-        : []);
+        : [];
 
   await notify([
     {
@@ -365,6 +460,7 @@ export async function courierAcceptOrder(courierUserId, orderId, body = {}) {
     note: body?.note ?? null,
   });
   invalidateCustomerOrderList(out.order);
+  if (out.alreadyAssigned) return out;
 
   await notify([
     {
@@ -440,6 +536,10 @@ export async function courierPickedUpOrder(courierUserId, orderId, body = {}) {
     courierUserId,
     orderId,
     note: body?.note ?? null,
+    merchantPaidActual: body?.merchantPaidActual,
+    receiptUrl: body?.receiptUrl ?? null,
+    withoutReceipt: body?.withoutReceipt === true,
+    merchantPaymentNote: body?.merchantPaymentNote ?? null,
   });
   invalidateCustomerOrderList(out.order);
 
@@ -495,15 +595,21 @@ export async function courierDeliveredOrder(courierUserId, orderId, body = {}) {
     courierUserId,
     orderId,
     note: body?.note ?? null,
+    customerReceivedActual: body?.customerReceivedActual,
   });
   invalidateCustomerOrderList(out.order);
+
+  const competitionNotifications = await buildCompetitionNotifications({
+    out,
+    orderId,
+  });
 
   await notify([
     {
       userId: Number(out.order.customer_user_id),
       type: "order_status_update",
-      title: "Order delivered",
-      body: `Order #${orderId} was delivered. Please confirm receipt.`,
+      title: "اكتمل طلبك",
+      body: `تم تسليم الطلب #${orderId} واكتملت دورته.`,
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: toOrderPayload(out.order, "order_tracking"),
@@ -511,12 +617,13 @@ export async function courierDeliveredOrder(courierUserId, orderId, body = {}) {
     {
       userId: Number(out.ownerUserId),
       type: "owner_order_delivered",
-      title: "Order delivered to customer",
-      body: `Courier delivered order #${orderId}.`,
+      title: "تم تسليم الطلب للزبون",
+      body: `تم تسليم الطلب #${orderId} واكتملت دورته.`,
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: toOrderPayload(out.order, "owner_orders"),
     },
+    ...competitionNotifications,
   ]);
 
   // The courier just became free. Run a dispatch round now so a waiting
@@ -531,7 +638,10 @@ export async function courierUpsertPresence(courierUserId, body = {}) {
   const orderId = body?.orderId == null ? null : Number(body.orderId);
   let trackedOrder = null;
   if (orderId != null) {
-    trackedOrder = await ordersRepo.findCourierTrackableOrder(courierUserId, orderId);
+    trackedOrder = await ordersRepo.findCourierTrackableOrder(
+      courierUserId,
+      orderId,
+    );
     if (!trackedOrder) {
       const error = new Error("ORDER_NOT_AVAILABLE");
       error.status = 404;
@@ -560,7 +670,7 @@ export async function courierUpsertPresence(courierUserId, body = {}) {
      SET availability_status = $2, updated_at = NOW()
      WHERE user_id = $1
        AND COALESCE(LOWER(availability_status), '') <> $2`,
-    [Number(courierUserId), isOnline ? "online" : "offline"]
+    [Number(courierUserId), isOnline ? "online" : "offline"],
   );
 
   // Phase 10: a heartbeat from an idle, available driver should immediately try
@@ -572,18 +682,18 @@ export async function courierUpsertPresence(courierUserId, body = {}) {
   }
 
   if (trackedOrder?.customer_user_id) {
-    const snapshot = await ordersRepo.getCustomerOrderTrackingSnapshot(
-      Number(trackedOrder.customer_user_id),
-      Number(trackedOrder.id)
-    );
-    if (snapshot) {
+    // Presence updates are latency-sensitive and may arrive every few seconds.
+    // The assignment was already validated above, so the just-written presence
+    // is the authoritative location for this event; reloading the full order,
+    // its items, share token, and presence again only adds avoidable DB work.
+    if (presence) {
       const trackingEvent = {
-          orderId: Number(trackedOrder.id),
-          status: trackedOrder.status,
-          stage: snapshot.stage,
-          latestLocation: snapshot.latestLocation,
-          lastUpdatedAt: snapshot.lastUpdatedAt,
-          target: "order_tracking",
+        orderId: Number(trackedOrder.id),
+        status: trackedOrder.status,
+        stage: ordersRepo.buildOrderTrackingStage(trackedOrder),
+        latestLocation: presence,
+        lastUpdatedAt: presence.updatedAt || presence.recordedAt || null,
+        target: "order_tracking",
       };
       const viewers = new Set(
         [
@@ -592,14 +702,19 @@ export async function courierUpsertPresence(courierUserId, body = {}) {
           trackedOrder.delivery_user_id,
         ]
           .map(Number)
-          .filter((id) => Number.isInteger(id) && id > 0)
+          .filter((id) => Number.isInteger(id) && id > 0),
       );
       await Promise.all(
         [...viewers].map((viewerUserId) =>
-          emitRealtimeToUser(viewerUserId, "order_tracking_update", trackingEvent, {
-            channel: "notifications",
-          })
-        )
+          emitRealtimeToUser(
+            viewerUserId,
+            "order_tracking_update",
+            trackingEvent,
+            {
+              channel: "notifications",
+            },
+          ),
+        ),
       );
     }
   }
@@ -610,56 +725,28 @@ export async function courierUpsertPresence(courierUserId, body = {}) {
   };
 }
 
-export async function customerConfirmReceived(customerUserId, orderId, body = {}) {
+export async function customerConfirmReceived(
+  customerUserId,
+  orderId,
+  body = {},
+) {
   const out = await repo.customerConfirmOrderReceived({
     customerUserId,
     orderId,
     note: body?.note ?? null,
   });
   invalidateCustomerOrderList(out.order);
-
-  const competitionNotifications = await buildCompetitionNotifications({
-    out,
-    orderId,
-  });
-
-  await notify([
-    {
-      userId: Number(out.ownerUserId),
-      type: "owner_customer_received",
-      title: "Customer confirmed receipt",
-      body: `Customer confirmed receiving order #${orderId}.`,
-      orderId: Number(orderId),
-      merchantId: Number(out.order.merchant_id),
-      payload: toOrderPayload(out.order, "owner_orders", {
-        action: "open_owner_order",
-        roleScope: "owner",
-      }),
-    },
-    ...(out.courierUserId
-      ? [
-          {
-            userId: Number(out.courierUserId),
-            type: "delivery_customer_received",
-            title: "Receipt confirmed",
-            body: `Customer confirmed order #${orderId}.`,
-            orderId: Number(orderId),
-            merchantId: Number(out.order.merchant_id),
-            payload: toOrderPayload(out.order, "courier_orders_completed", {
-              action: "open_completed_order",
-              roleScope: "courier",
-            }),
-          },
-        ]
-      : []),
-    ...competitionNotifications,
-  ]);
-
   return out;
 }
 
-export async function courierRequestCancelOrder(courierUserId, orderId, body = {}) {
-  const reasonCode = String(body?.reasonCode || "").trim().toLowerCase();
+export async function courierRequestCancelOrder(
+  courierUserId,
+  orderId,
+  body = {},
+) {
+  const reasonCode = String(body?.reasonCode || "")
+    .trim()
+    .toLowerCase();
   const reasonText =
     body?.reasonText == null ? null : String(body.reasonText).trim() || null;
   const reasonMeta = await getOrderActionReason({
@@ -725,7 +812,11 @@ export async function courierRequestCancelOrder(courierUserId, orderId, body = {
   return out;
 }
 
-export async function ownerReviewCourierCancelRequest(ownerUserId, orderId, body = {}) {
+export async function ownerReviewCourierCancelRequest(
+  ownerUserId,
+  orderId,
+  body = {},
+) {
   const out = await repo.reviewCourierCancelRequestByOwner({
     ownerUserId,
     orderId,
@@ -737,8 +828,14 @@ export async function ownerReviewCourierCancelRequest(ownerUserId, orderId, body
   await notify([
     {
       userId: Number(out.request.courier_user_id),
-      type: body?.approved === true ? "courier_cancel_request_approved" : "courier_cancel_request_rejected",
-      title: body?.approved === true ? "Cancellation approved" : "Cancellation rejected",
+      type:
+        body?.approved === true
+          ? "courier_cancel_request_approved"
+          : "courier_cancel_request_rejected",
+      title:
+        body?.approved === true
+          ? "Cancellation approved"
+          : "Cancellation rejected",
       body:
         body?.approved === true
           ? `Store approved cancellation for order #${orderId}.`
@@ -748,7 +845,9 @@ export async function ownerReviewCourierCancelRequest(ownerUserId, orderId, body
       payload: {
         ...toOrderPayload(out.order, "courier_orders_current", {
           action:
-            body?.approved === true ? "open_cancelled_order" : "open_current_order",
+            body?.approved === true
+              ? "open_cancelled_order"
+              : "open_current_order",
           roleScope: "courier",
           notificationType:
             body?.approved === true
@@ -779,7 +878,11 @@ export async function ownerReviewCourierCancelRequest(ownerUserId, orderId, body
   return out;
 }
 
-export async function adminReviewCourierCancelRequest(adminUserId, orderId, body = {}) {
+export async function adminReviewCourierCancelRequest(
+  adminUserId,
+  orderId,
+  body = {},
+) {
   const out = await repo.reviewCourierCancelRequestByAdmin({
     adminUserId,
     orderId,
@@ -791,8 +894,14 @@ export async function adminReviewCourierCancelRequest(adminUserId, orderId, body
   await notify([
     {
       userId: Number(out.request.courier_user_id),
-      type: body?.approved === true ? "courier_cancel_request_approved" : "courier_cancel_request_rejected",
-      title: body?.approved === true ? "Cancellation approved" : "Cancellation rejected",
+      type:
+        body?.approved === true
+          ? "courier_cancel_request_approved"
+          : "courier_cancel_request_rejected",
+      title:
+        body?.approved === true
+          ? "Cancellation approved"
+          : "Cancellation rejected",
       body:
         body?.approved === true
           ? `Admin approved cancellation for order #${orderId}.`
@@ -802,7 +911,9 @@ export async function adminReviewCourierCancelRequest(adminUserId, orderId, body
       payload: {
         ...toOrderPayload(out.order, "courier_orders_current", {
           action:
-            body?.approved === true ? "open_cancelled_order" : "open_current_order",
+            body?.approved === true
+              ? "open_cancelled_order"
+              : "open_current_order",
           roleScope: "courier",
         }),
         cancelRequestId: Number(out.request.id),
@@ -880,11 +991,15 @@ export async function sendOrderChatMessage({
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: {
-        ...toOrderPayload(out.order, out.targetByUserId?.[String(participantId)] || "order_tracking", {
-          action: "open_order_chat",
-          roleScope: out.roleScopeByUserId?.[String(participantId)] || null,
-          notificationType: "order_chat_message",
-        }),
+        ...toOrderPayload(
+          out.order,
+          out.targetByUserId?.[String(participantId)] || "order_tracking",
+          {
+            action: "open_order_chat",
+            roleScope: out.roleScopeByUserId?.[String(participantId)] || null,
+            notificationType: "order_chat_message",
+          },
+        ),
         target: out.targetByUserId?.[String(participantId)] || "order_tracking",
         chatOrderId: Number(orderId),
       },
@@ -907,7 +1022,10 @@ export async function getCourierRequests(courierUserId, query = {}) {
   return repo.listCourierRequests(courierUserId, query);
 }
 
-export async function getCourierOrdersGroupedByMerchant(courierUserId, query = {}) {
+export async function getCourierOrdersGroupedByMerchant(
+  courierUserId,
+  query = {},
+) {
   return repo.listCourierOrdersGroupedByMerchant(courierUserId, query);
 }
 
@@ -919,13 +1037,70 @@ export async function getCourierEarnings(courierUserId, query = {}) {
   return repo.listCourierEarnings(courierUserId, query);
 }
 
+export async function getCourierReconciliation(courierUserId, query = {}) {
+  return repo.listCourierReconciliation({
+    courierUserId: Number(courierUserId),
+    limit: query?.limit,
+    offset: query?.offset,
+  });
+}
+
+export async function getAdminCourierReconciliation(query = {}) {
+  return repo.listCourierReconciliation({
+    courierUserId: query?.courierUserId || null,
+    reviewStatus: query?.reviewStatus || null,
+    limit: query?.limit,
+    offset: query?.offset,
+  });
+}
+
+export async function adminReviewCourierReconciliation(
+  adminUserId,
+  orderId,
+  body = {},
+) {
+  const order = await repo.reviewCourierReconciliation({
+    adminUserId,
+    orderId,
+    approved: body?.approved === true,
+    reviewNote: body?.reviewNote ?? null,
+  });
+  if (order.delivery_user_id) {
+    await notify([
+      {
+        userId: Number(order.delivery_user_id),
+        type: body?.approved === true
+          ? 'courier_reconciliation_approved'
+          : 'courier_reconciliation_rejected',
+        title: body?.approved === true
+          ? 'Settlement approved'
+          : 'Settlement needs correction',
+        body: body?.approved === true
+          ? `Settlement for order #${orderId} was approved.`
+          : `Settlement for order #${orderId} was rejected. ${body?.reviewNote || ''}`.trim(),
+        orderId: Number(orderId),
+        merchantId: Number(order.merchant_id),
+        payload: toOrderPayload(order, 'courier_reconciliation', {
+          action: 'open_courier_reconciliation',
+          roleScope: 'courier',
+          reviewNote: body?.reviewNote ?? null,
+        }),
+      },
+    ]);
+  }
+  return { order };
+}
+
 export async function getCourierCompetitions(courierUserId, query = {}) {
   return repo.listCourierCompetitions(courierUserId, {
     scope: query?.scope || "active",
   });
 }
 
-export async function getCourierCompetitionDetails(courierUserId, competitionId) {
+export async function getCourierCompetitionDetails(
+  courierUserId,
+  competitionId,
+) {
   return repo.getCourierCompetitionDetails(courierUserId, competitionId);
 }
 
@@ -963,7 +1138,7 @@ export async function getMerchantVerifiedReviews(ownerUserId, query = {}) {
 
 export async function getMerchantCustomerReliability(
   ownerUserId,
-  customerUserId
+  customerUserId,
 ) {
   return repo.getMerchantCustomerReliability(ownerUserId, customerUserId);
 }
@@ -997,7 +1172,11 @@ export async function createMerchantCourier(ownerUserId, body = {}) {
   });
 }
 
-export async function updateMerchantCourier(ownerUserId, courierUserId, body = {}) {
+export async function updateMerchantCourier(
+  ownerUserId,
+  courierUserId,
+  body = {},
+) {
   return repo.updateMerchantCourier({
     ownerUserId,
     deliveryUserId: courierUserId,
@@ -1050,7 +1229,8 @@ export async function createMerchantPaymentRequest(ownerUserId, body = {}) {
     selectionMeta: body?.selectionMeta || null,
   });
 
-  const isStorePays = String(out.paymentRequest?.request_type || "") === "store_pays_app";
+  const isStorePays =
+    String(out.paymentRequest?.request_type || "") === "store_pays_app";
   const notificationType = isStorePays
     ? "admin_merchant_payment_request"
     : "admin_merchant_outgoing_payment_request";
@@ -1081,10 +1261,12 @@ export async function createMerchantPaymentRequest(ownerUserId, body = {}) {
         target_entity: "payment_request",
         entityId: Number(out.paymentRequest.id),
         entity_id: Number(out.paymentRequest.id),
-        requestType: String(out.paymentRequest?.request_type || "store_pays_app"),
+        requestType: String(
+          out.paymentRequest?.request_type || "store_pays_app",
+        ),
         status: String(out.paymentRequest?.status || ""),
       },
-    }))
+    })),
   );
 
   return out;
@@ -1094,18 +1276,24 @@ export async function listMerchantPaymentRequests(ownerUserId, query = {}) {
   return repo.listMerchantPaymentRequests(ownerUserId, query);
 }
 
-export async function getMerchantPaymentRequestDetails(ownerUserId, paymentRequestId) {
+export async function getMerchantPaymentRequestDetails(
+  ownerUserId,
+  paymentRequestId,
+) {
   return repo.getMerchantPaymentRequestDetails(ownerUserId, paymentRequestId);
 }
 
-export async function getMerchantPaymentRequestInvoices(ownerUserId, paymentRequestId) {
+export async function getMerchantPaymentRequestInvoices(
+  ownerUserId,
+  paymentRequestId,
+) {
   return repo.getMerchantPaymentRequestInvoices(ownerUserId, paymentRequestId);
 }
 
 export async function updateMerchantPaymentRequest(
   ownerUserId,
   paymentRequestId,
-  body = {}
+  body = {},
 ) {
   const out = await repo.updateMerchantPaymentRequest({
     ownerUserId,
@@ -1132,7 +1320,7 @@ export async function updateMerchantPaymentRequest(
 export async function confirmMerchantPaymentRequestReceived(
   ownerUserId,
   paymentRequestId,
-  body = {}
+  body = {},
 ) {
   const out = await repo.merchantConfirmPaymentRequestReceived({
     ownerUserId,
@@ -1162,7 +1350,7 @@ export async function confirmMerchantPaymentRequestReceived(
         entityId: Number(out.request?.id || 0) || null,
         entity_id: Number(out.request?.id || 0) || null,
       },
-    }))
+    })),
   );
   return out;
 }
@@ -1170,7 +1358,7 @@ export async function confirmMerchantPaymentRequestReceived(
 export async function reportMerchantPaymentRequestIssue(
   ownerUserId,
   paymentRequestId,
-  body = {}
+  body = {},
 ) {
   const out = await repo.merchantReportPaymentRequestIssue({
     ownerUserId,
@@ -1200,7 +1388,7 @@ export async function reportMerchantPaymentRequestIssue(
         entityId: Number(out.request?.id || 0) || null,
         entity_id: Number(out.request?.id || 0) || null,
       },
-    }))
+    })),
   );
   return out;
 }
@@ -1217,7 +1405,11 @@ export async function getAdminPaymentRequestInvoices(paymentRequestId) {
   return repo.getAdminPaymentRequestInvoices(paymentRequestId);
 }
 
-export async function patchAdminMerchantBillingProfile(adminUserId, merchantId, body = {}) {
+export async function patchAdminMerchantBillingProfile(
+  adminUserId,
+  merchantId,
+  body = {},
+) {
   return repo.updateMerchantBillingProfile({
     adminUserId,
     merchantId,
@@ -1232,7 +1424,9 @@ export async function patchAdminMerchantBillingProfile(adminUserId, merchantId, 
     storeDeliveryFeeValue: body?.storeDeliveryFeeValue ?? null,
     deliveryFeeValue: body?.deliveryFeeValue ?? null,
     appDeliveryEnabled:
-      typeof body?.appDeliveryEnabled === "boolean" ? body.appDeliveryEnabled : null,
+      typeof body?.appDeliveryEnabled === "boolean"
+        ? body.appDeliveryEnabled
+        : null,
     merchantDeliveryEnabled:
       typeof body?.merchantDeliveryEnabled === "boolean"
         ? body.merchantDeliveryEnabled
@@ -1244,7 +1438,11 @@ export async function patchAdminMerchantBillingProfile(adminUserId, merchantId, 
   });
 }
 
-export async function adminMarkPaymentRequestReceived(adminUserId, paymentRequestId, body = {}) {
+export async function adminMarkPaymentRequestReceived(
+  adminUserId,
+  paymentRequestId,
+  body = {},
+) {
   const out = await repo.markPaymentRequestReceived({
     adminUserId,
     paymentRequestId,
@@ -1281,7 +1479,11 @@ export async function adminMarkPaymentRequestReceived(adminUserId, paymentReques
   return out;
 }
 
-export async function adminRejectPaymentRequest(adminUserId, paymentRequestId, body = {}) {
+export async function adminRejectPaymentRequest(
+  adminUserId,
+  paymentRequestId,
+  body = {},
+) {
   const out = await repo.rejectPaymentRequest({
     adminUserId,
     paymentRequestId,
@@ -1321,7 +1523,7 @@ export async function adminRejectPaymentRequest(adminUserId, paymentRequestId, b
 export async function adminApprovePaymentRequest(
   adminUserId,
   paymentRequestId,
-  body = {}
+  body = {},
 ) {
   const out = await repo.adminApprovePaymentRequest({
     adminUserId,
@@ -1363,7 +1565,7 @@ export async function adminApprovePaymentRequest(
 export async function adminAssignPaymentRequest(
   adminUserId,
   paymentRequestId,
-  body = {}
+  body = {},
 ) {
   const out = await repo.adminAssignPaymentRequest({
     adminUserId,
@@ -1407,7 +1609,7 @@ export async function adminAssignPaymentRequest(
 export async function adminMarkPaymentRequestPaid(
   adminUserId,
   paymentRequestId,
-  body = {}
+  body = {},
 ) {
   const out = await repo.adminMarkPaymentRequestPaid({
     adminUserId,
@@ -1456,7 +1658,7 @@ export async function adminMarkPaymentRequestPaid(
 export async function adminReturnPaymentRequestForRevision(
   adminUserId,
   paymentRequestId,
-  body = {}
+  body = {},
 ) {
   const out = await repo.adminReturnPaymentRequestForRevision({
     adminUserId,
@@ -1496,7 +1698,7 @@ export async function adminReturnPaymentRequestForRevision(
 export async function adminCreateAppPayablesAdjustment(
   adminUserId,
   merchantId,
-  body = {}
+  body = {},
 ) {
   const out = await repo.adminCreateMerchantAppPayablesAdjustment({
     adminUserId,
@@ -1572,7 +1774,9 @@ export async function createAdminCompetition(adminUserId, body = {}) {
 
   const competition = out?.competition || {};
   const competitionId = Number(competition.id || 0);
-  const competitionStatus = String(competition.status || "").trim().toLowerCase();
+  const competitionStatus = String(competition.status || "")
+    .trim()
+    .toLowerCase();
   const competitionIsActive = competition.is_active === true;
   const startAt = competition.start_at ? new Date(competition.start_at) : null;
   const endAt = competition.end_at ? new Date(competition.end_at) : null;
@@ -1583,9 +1787,10 @@ export async function createAdminCompetition(adminUserId, body = {}) {
     const couriers = await repo.listActiveCourierUsers();
     if (couriers.length) {
       const now = Date.now();
-      const startsInFuture = startAt instanceof Date && !Number.isNaN(startAt.getTime())
-        ? startAt.getTime() > now
-        : false;
+      const startsInFuture =
+        startAt instanceof Date && !Number.isNaN(startAt.getTime())
+          ? startAt.getTime() > now
+          : false;
       const title = startsInFuture
         ? "New competition scheduled"
         : "New courier competition";
@@ -1619,7 +1824,7 @@ export async function createAdminCompetition(adminUserId, body = {}) {
             startAt: startAt ? startAt.toISOString() : null,
             endAt: endAt ? endAt.toISOString() : null,
           },
-        }))
+        })),
       );
     }
   }
@@ -1670,7 +1875,7 @@ export async function getAdminCollectionsReport(query = {}) {
 
 export async function getAdminCollectionsMerchantDetails(
   merchantId,
-  query = {}
+  query = {},
 ) {
   return repo.getAdminCollectionsMerchantDetails({ merchantId, ...query });
 }
@@ -1681,7 +1886,7 @@ export async function getAdminReceivablesReport(query = {}) {
 
 export async function getAdminReceivablesMerchantStatement(
   merchantId,
-  query = {}
+  query = {},
 ) {
   return repo.getAdminReceivablesMerchantStatement({ merchantId, ...query });
 }

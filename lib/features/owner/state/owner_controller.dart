@@ -7,9 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/files/local_image_file.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/network/session_invalidation.dart';
+import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../delivery/models/delivery_agent_model.dart';
+import '../../notifications/data/notifications_api.dart';
 import '../../orders/models/order_model.dart';
+import '../../orders/state/order_refresh_bus.dart';
 import '../../products/models/product_category_model.dart';
 import '../../products/models/product_model.dart';
 import '../data/owner_api.dart';
@@ -163,12 +166,20 @@ class OwnerController extends StateNotifier<OwnerState> {
   DateTime? _lastBootstrapAt;
   bool _disposed = false;
   bool _recoveryResyncInFlight = false;
+  bool _externalOrderRefreshInFlight = false;
+  bool _ordersRealtimeConnecting = false;
+  int _ordersRealtimeReconnectAttempt = 0;
+  StreamSubscription<NotificationLiveEvent>? _ordersRealtimeSub;
+  Timer? _ordersRealtimeReconnectTimer;
   late final VoidCallback _sessionRecoveryListener;
+  late final VoidCallback _orderRefreshListener;
   static const Duration _bootstrapFreshWindow = Duration(seconds: 12);
 
   OwnerController(this.ref) : super(const OwnerState()) {
     _sessionRecoveryListener = _handleSessionRecovery;
+    _orderRefreshListener = _handleExternalOrderRefresh;
     SessionRecoveryBus.instance.addListener(_sessionRecoveryListener);
+    OrderRefreshBus.instance.addListener(_orderRefreshListener);
   }
 
   /// يحدد ما إذا كان polling مسموحاً حالياً حسب جلسة المستخدم والدور.
@@ -203,10 +214,27 @@ class OwnerController extends StateNotifier<OwnerState> {
     if (_recoveryResyncInFlight) return;
     _recoveryResyncInFlight = true;
     startLiveOrders();
+    _restartOrdersRealtime();
     unawaited(
       bootstrap(
         force: true,
       ).whenComplete(() => _recoveryResyncInFlight = false),
+    );
+  }
+
+  void _handleExternalOrderRefresh() {
+    _refreshOrdersFromLiveSignal();
+  }
+
+  void _refreshOrdersFromLiveSignal() {
+    if (_disposed || _externalOrderRefreshInFlight) return;
+    if (!_canRunOwnerPolling()) return;
+    _externalOrderRefreshInFlight = true;
+    unawaited(
+      refreshOrders(
+        silent: true,
+        includeHistory: false,
+      ).whenComplete(() => _externalOrderRefreshInFlight = false),
     );
   }
 
@@ -402,12 +430,20 @@ class OwnerController extends StateNotifier<OwnerState> {
     if (_ordersRefreshInFlight) return;
     _ordersRefreshInFlight = true;
     try {
-      final currentOrdersResponse = await ref
-          .read(ownerApiProvider)
-          .listCurrentOrders();
+      final api = ref.read(ownerApiProvider);
+      final currentOrdersFuture = api.listCurrentOrders();
       final historyOrdersResponse = includeHistory
-          ? await ref.read(ownerApiProvider).listOrderHistory(date: historyDate)
+          ? await api.listOrderHistory(date: historyDate)
           : null;
+      final analyticsFuture = api.analytics().catchError(
+        (_) => <String, dynamic>{},
+      );
+      final settlementSummaryFuture = api.settlementSummary().catchError(
+        (_) => <String, dynamic>{},
+      );
+      final currentOrdersResponse = await currentOrdersFuture;
+      final analyticsResponse = await analyticsFuture;
+      final settlementSummaryResponse = await settlementSummaryFuture;
 
       final currentOrders = currentOrdersResponse
           .map((e) => OrderModel.fromJson(Map<String, dynamic>.from(e as Map)))
@@ -419,6 +455,12 @@ class OwnerController extends StateNotifier<OwnerState> {
       state = state.copyWith(
         currentOrders: currentOrders,
         historyOrders: historyOrders ?? state.historyOrders,
+        analytics: analyticsResponse.isEmpty
+            ? state.analytics
+            : analyticsResponse,
+        settlementSummary: settlementSummaryResponse.isEmpty
+            ? state.settlementSummary
+            : settlementSummaryResponse,
         error: null,
       );
     } on DioException catch (e) {
@@ -441,6 +483,7 @@ class OwnerController extends StateNotifier<OwnerState> {
       stopLiveOrders();
       return;
     }
+    _startOrdersRealtime();
     _liveOrdersTimer?.cancel();
     _liveOrdersTimer = Timer.periodic(interval, (_) async {
       if (_disposed || _liveFetchInFlight) return;
@@ -455,16 +498,148 @@ class OwnerController extends StateNotifier<OwnerState> {
         _liveFetchInFlight = false;
       }
     });
+    if (!_liveFetchInFlight) {
+      _liveFetchInFlight = true;
+      unawaited(
+        refreshOrders(
+          silent: true,
+          includeHistory: false,
+        ).whenComplete(() => _liveFetchInFlight = false),
+      );
+    }
   }
 
   /// يوقف polling ويحرر المؤقت الدوري.
   void stopLiveOrders() {
     _liveOrdersTimer?.cancel();
     _liveOrdersTimer = null;
+    _ordersRealtimeReconnectTimer?.cancel();
+    _ordersRealtimeReconnectTimer = null;
+    _ordersRealtimeReconnectAttempt = 0;
+    final realtimeSub = _ordersRealtimeSub;
+    _ordersRealtimeSub = null;
+    if (realtimeSub != null) {
+      unawaited(realtimeSub.cancel());
+    }
+  }
+
+  void _startOrdersRealtime() {
+    if (_disposed || !_canRunOwnerPolling()) return;
+    if (_ordersRealtimeSub != null || _ordersRealtimeConnecting) return;
+    _ordersRealtimeConnecting = true;
+    _ordersRealtimeReconnectTimer?.cancel();
+    _ordersRealtimeReconnectTimer = null;
+    unawaited(_connectOrdersRealtime());
+  }
+
+  Future<void> _connectOrdersRealtime() async {
+    try {
+      final api = NotificationsApi(
+        ref.read(dioClientProvider).dio,
+        realtime: ref.read(maslakiRealtimeServiceProvider),
+      );
+      _ordersRealtimeSub = api
+          .streamEvents(channel: 'notifications')
+          .listen(
+            _handleOrdersRealtimeEvent,
+            onError: (_) => _scheduleOrdersRealtimeReconnect(),
+            onDone: _scheduleOrdersRealtimeReconnect,
+            cancelOnError: true,
+          );
+      _ordersRealtimeReconnectAttempt = 0;
+    } catch (_) {
+      _scheduleOrdersRealtimeReconnect();
+    } finally {
+      _ordersRealtimeConnecting = false;
+    }
+  }
+
+  void _scheduleOrdersRealtimeReconnect() {
+    if (_disposed || !_canRunOwnerPolling()) return;
+    _ordersRealtimeSub?.cancel();
+    _ordersRealtimeSub = null;
+    if (_ordersRealtimeReconnectTimer?.isActive == true) return;
+    _ordersRealtimeReconnectAttempt = (_ordersRealtimeReconnectAttempt + 1)
+        .clamp(1, 6);
+    final delaySeconds = switch (_ordersRealtimeReconnectAttempt) {
+      1 => 2,
+      2 => 4,
+      3 => 8,
+      4 => 12,
+      5 => 20,
+      _ => 30,
+    };
+    _ordersRealtimeReconnectTimer = Timer(Duration(seconds: delaySeconds), () {
+      _startOrdersRealtime();
+    });
+  }
+
+  void _restartOrdersRealtime() {
+    _ordersRealtimeReconnectTimer?.cancel();
+    _ordersRealtimeReconnectTimer = null;
+    _ordersRealtimeReconnectAttempt = 0;
+    final realtimeSub = _ordersRealtimeSub;
+    _ordersRealtimeSub = null;
+    if (realtimeSub != null) {
+      unawaited(realtimeSub.cancel());
+    }
+    _startOrdersRealtime();
+  }
+
+  void _handleOrdersRealtimeEvent(NotificationLiveEvent event) {
+    if (_disposed) return;
+    if (event.event == 'heartbeat') return;
+    if (event.event == 'connected' ||
+        event.event == 'replayed' ||
+        event.event == 'resync_required' ||
+        _isOwnerOrderRealtimeEvent(event)) {
+      _ordersRealtimeReconnectAttempt = 0;
+      _refreshOrdersFromLiveSignal();
+    }
+  }
+
+  bool _isOwnerOrderRealtimeEvent(NotificationLiveEvent event) {
+    final eventName = event.event.trim().toLowerCase();
+    if (eventName.startsWith('order_')) return true;
+    if (_readRealtimeOrderId(event.data) != null) return true;
+
+    final rawNotification = event.data['notification'];
+    if (rawNotification is! Map) return false;
+    final notification = Map<String, dynamic>.from(rawNotification);
+    if (_readRealtimeOrderId(notification) != null) return true;
+
+    final type = '${notification['type'] ?? ''}'.trim().toLowerCase();
+    if (type.startsWith('owner_') || type.startsWith('order_')) return true;
+
+    final payload = notification['payload'];
+    final target = payload is Map
+        ? '${payload['target'] ?? ''}'.trim().toLowerCase()
+        : '';
+    return target.contains('merchant_order') || target.contains('owner_order');
+  }
+
+  int? _readRealtimeOrderId(Map<String, dynamic> data) {
+    int? parse(dynamic value) {
+      final parsed = int.tryParse('${value ?? ''}');
+      return parsed != null && parsed > 0 ? parsed : null;
+    }
+
+    final entityType = '${data['entityType'] ?? ''}'.trim().toLowerCase();
+    return parse(data['orderId']) ??
+        parse(data['order_id']) ??
+        (entityType == 'order' ? parse(data['entityId']) : null) ??
+        (data['payload'] is Map
+            ? _readRealtimeOrderId(Map<String, dynamic>.from(data['payload']))
+            : null) ??
+        (data['notification'] is Map
+            ? _readRealtimeOrderId(
+                Map<String, dynamic>.from(data['notification']),
+              )
+            : null);
   }
 
   /// يحدّث بطاقة المتجر وبياناته المرئية في تبويب profile/store.
-  Future<void> updateMerchant({
+  Future<bool> updateMerchant({
     required String name,
     required String type,
     required String description,
@@ -482,6 +657,8 @@ class OwnerController extends StateNotifier<OwnerState> {
     int? deliveryEtaMaxMinutes,
     num? deliveryFee,
     num? minimumOrder,
+    double? latitude,
+    double? longitude,
     required bool isOpen,
   }) async {
     state = state.copyWith(savingMerchant: true, error: null);
@@ -505,6 +682,8 @@ class OwnerController extends StateNotifier<OwnerState> {
               'deliveryEtaMaxMinutes': ?deliveryEtaMaxMinutes,
               'deliveryFee': ?deliveryFee,
               'minimumOrder': ?minimumOrder,
+              'latitude': ?latitude,
+              'longitude': ?longitude,
               'isOpen': isOpen,
             },
             imageFile: imageFile,
@@ -517,13 +696,39 @@ class OwnerController extends StateNotifier<OwnerState> {
       );
 
       state = state.copyWith(savingMerchant: false, merchant: merchant);
+      return true;
     } on DioException catch (e) {
       state = state.copyWith(savingMerchant: false, error: _mapError(e));
+      return false;
     } catch (_) {
       state = state.copyWith(
         savingMerchant: false,
         error: _ownerText('merchant_update_failed'),
       );
+      return false;
+    }
+  }
+
+  Future<bool> setMerchantOpenStatus({required bool isOpen}) async {
+    state = state.copyWith(savingMerchant: true, error: null);
+    try {
+      final response = await ref.read(ownerApiProvider).updateMerchant({
+        'isOpen': isOpen,
+      });
+      final merchant = OwnerMerchantModel.fromJson(
+        Map<String, dynamic>.from(response['merchant'] as Map),
+      );
+      state = state.copyWith(savingMerchant: false, merchant: merchant);
+      return true;
+    } on DioException catch (e) {
+      state = state.copyWith(savingMerchant: false, error: _mapError(e));
+      return false;
+    } catch (_) {
+      state = state.copyWith(
+        savingMerchant: false,
+        error: _ownerText('merchant_update_failed'),
+      );
+      return false;
     }
   }
 
@@ -715,6 +920,54 @@ class OwnerController extends StateNotifier<OwnerState> {
   }
 
   /// يحذف المنتج ثم يطلب القائمة الجديدة من الخادم لتفادي بقاء بيانات مشتقة قديمة.
+  Future<bool> updateDailyInventoryItem({
+    required int productId,
+    required int quantity,
+    required bool isAvailable,
+  }) async {
+    state = state.copyWith(savingProduct: true, error: null);
+    try {
+      await ref
+          .read(ownerApiProvider)
+          .updateDailyInventoryItem(
+            productId: productId,
+            quantity: quantity,
+            isAvailable: isAvailable,
+          );
+      await _reloadProducts();
+      state = state.copyWith(savingProduct: false);
+      return true;
+    } on DioException catch (e) {
+      state = state.copyWith(savingProduct: false, error: _mapError(e));
+      return false;
+    } catch (_) {
+      state = state.copyWith(
+        savingProduct: false,
+        error: _ownerText('product_update_failed'),
+      );
+      return false;
+    }
+  }
+
+  Future<bool> confirmDailyInventoryCheck({String? note}) async {
+    state = state.copyWith(savingProduct: true, error: null);
+    try {
+      await ref.read(ownerApiProvider).confirmDailyInventoryCheck(note: note);
+      await _reloadProducts();
+      state = state.copyWith(savingProduct: false);
+      return true;
+    } on DioException catch (e) {
+      state = state.copyWith(savingProduct: false, error: _mapError(e));
+      return false;
+    } catch (_) {
+      state = state.copyWith(
+        savingProduct: false,
+        error: _ownerText('product_update_failed'),
+      );
+      return false;
+    }
+  }
+
   Future<void> deleteProduct(int productId) async {
     state = state.copyWith(savingProduct: true, error: null);
     try {
@@ -1834,6 +2087,7 @@ class OwnerController extends StateNotifier<OwnerState> {
   void dispose() {
     _disposed = true;
     SessionRecoveryBus.instance.removeListener(_sessionRecoveryListener);
+    OrderRefreshBus.instance.removeListener(_orderRefreshListener);
     stopLiveOrders();
     super.dispose();
   }

@@ -4,12 +4,16 @@
 // Critical notes: الشاشة تعيد تشغيل realtime عند الفتح وتحوّل الأخطاء إلى `SnackBar` بدلاً من كسر الواجهة.
 // Maintenance notes: إذا لم تُفتح الأهداف الصحيحة افحص `NotificationNavigation.resolveTarget/open` ثم payload القادم من الباكند ثم `markRead`.
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../../core/i18n/notification_localizer.dart';
 import '../../../core/notifications/notification_navigation.dart';
+import '../../../core/notifications/push_notification_service.dart';
+import '../../../core/notifications/web_notification_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../../l10n/app_localizations.dart';
@@ -37,6 +41,8 @@ class NotificationsScreen extends ConsumerStatefulWidget {
 
 class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   bool _unreadOnly = false;
+  bool _webPermissionBusy = false;
+  String _webPermission = WebNotificationService.instance.permission;
   late String _filter;
 
   /// يهيئ الفلتر الأولي ويضمن أن قناة realtime بدأت قبل أول تحميل.
@@ -52,6 +58,27 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
       controller.startRealtime();
       return controller.loadNotifications();
     });
+  }
+
+  Future<void> _enableWebNotifications() async {
+    if (_webPermissionBusy) return;
+    setState(() => _webPermissionBusy = true);
+    try {
+      final push = ref.read(pushNotificationsProvider);
+      await push.requestPermissionIfNeeded(userInitiated: true);
+      final auth = ref.read(authControllerProvider);
+      final userId = auth.user?.id;
+      if (userId != null) {
+        await push.syncToken(userId: userId);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _webPermission = WebNotificationService.instance.permission;
+          _webPermissionBusy = false;
+        });
+      }
+    }
   }
 
   @override
@@ -164,6 +191,17 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
               ),
             ),
           ),
+          if (kIsWeb && _webPermission != 'granted')
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: _WebNotificationPrompt(
+                needsInstall:
+                    WebNotificationService.instance.needsHomeScreenInstall,
+                permission: _webPermission,
+                busy: _webPermissionBusy,
+                onEnable: _enableWebNotifications,
+              ),
+            ),
           Expanded(
             child: RefreshIndicator(
               onRefresh: () => ref
@@ -222,46 +260,54 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   /// التشخيص: إذا اختلفت العدادات عن المعروض افحص أولاً هذا الفرع ثم `_buildStats`
   /// ثم predicate helpers مثل `isSocialActivityNotification`.
   List<AppNotificationModel> _applyFilters(List<AppNotificationModel> source) {
-    return source.where((notification) {
-      if (_unreadOnly && notification.isRead) return false;
-      switch (_filter) {
-        case 'general':
-          return isGeneralAppNotification(notification);
-        case 'social':
-          return isSocialActivityNotification(notification);
-        case 'messages':
-          return isSocialMessageNotification(notification);
-        case 'orders':
-          return notification.type.toLowerCase().contains('order') ||
-              NotificationNavigation.resolveTarget(
-                    rawTarget: notification.target,
-                    type: notification.type,
-                    orderId: notification.orderId,
-                  ) ==
-                  'order_tracking';
-        case 'mobility':
-          final type = notification.type.toLowerCase();
-          return type.startsWith('taxi.') || type.startsWith('delivery.');
-        case 'jobs':
-          return notification.type.toLowerCase().startsWith('jobs.');
-        case 'posts':
-          return notification.type.toLowerCase().startsWith('social.post.');
-        case 'stories':
-          return notification.type.toLowerCase().startsWith('social.story.');
-        case 'relations':
-          return notification.type.toLowerCase().startsWith('social.relation.');
-        case 'mentions':
-          return notification.type.toLowerCase().startsWith('social.mention.');
-        case 'likes':
-          return notification.type.toLowerCase().contains('.like');
-        case 'comments':
-          return notification.type.toLowerCase().contains('.comment');
-        case 'reels':
-          return notification.type.toLowerCase().startsWith('social.reel.');
-        default:
-          return true;
-      }
-    }).toList(growable: false);
+    return source
+        .where((notification) {
+          if (_unreadOnly && notification.isRead) return false;
+          switch (_filter) {
+            case 'general':
+              return isGeneralAppNotification(notification);
+            case 'social':
+              return isSocialActivityNotification(notification);
+            case 'messages':
+              return isSocialMessageNotification(notification);
+            case 'orders':
+              return notification.type.toLowerCase().contains('order') ||
+                  NotificationNavigation.resolveTarget(
+                        rawTarget: notification.target,
+                        type: notification.type,
+                        orderId: notification.orderId,
+                      ) ==
+                      'order_tracking';
+            case 'mobility':
+              final type = notification.type.toLowerCase();
+              return type.startsWith('taxi.') || type.startsWith('delivery.');
+            case 'jobs':
+              return notification.type.toLowerCase().startsWith('jobs.');
+            case 'posts':
+              return notification.type.toLowerCase().startsWith('social.post.');
+            case 'stories':
+              return notification.type.toLowerCase().startsWith(
+                'social.story.',
+              );
+            case 'relations':
+              return notification.type.toLowerCase().startsWith(
+                'social.relation.',
+              );
+            case 'mentions':
+              return notification.type.toLowerCase().startsWith(
+                'social.mention.',
+              );
+            case 'likes':
+              return notification.type.toLowerCase().contains('.like');
+            case 'comments':
+              return notification.type.toLowerCase().contains('.comment');
+            case 'reels':
+              return notification.type.toLowerCase().startsWith('social.reel.');
+            default:
+              return true;
+          }
+        })
+        .toList(growable: false);
   }
 
   /// يحسب العدادات الظاهرة في شريط الفلاتر من نفس المصدر الخام للإشعارات.
@@ -542,6 +588,94 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   }
 }
 
+class _WebNotificationPrompt extends StatelessWidget {
+  const _WebNotificationPrompt({
+    required this.needsInstall,
+    required this.permission,
+    required this.busy,
+    required this.onEnable,
+  });
+
+  final bool needsInstall;
+  final String permission;
+  final bool busy;
+  final Future<void> Function() onEnable;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = needsInstall
+        ? context.lt(
+            ar: 'تفعيل إشعارات الآيفون',
+            en: 'Enable iPhone notifications',
+          )
+        : permission == 'denied'
+        ? context.lt(ar: 'الإشعارات محظورة', en: 'Notifications are blocked')
+        : context.lt(ar: 'تفعيل الإشعارات', en: 'Turn on notifications');
+    final body = needsInstall
+        ? context.lt(
+            ar: 'على Safari في الآيفون، أضف مسلكي إلى الشاشة الرئيسية وافتحه من الأيقونة ثم فعّل الإشعارات.',
+            en: 'On iPhone Safari, add Maslaki to the Home Screen, open it from the icon, then turn notifications on.',
+          )
+        : permission == 'denied'
+        ? context.lt(
+            ar: 'الإشعارات محظورة من إعدادات المتصفح. اسمح بها هناك ثم ارجع إلى مسلكي.',
+            en: 'Notifications are blocked in browser settings. Allow them there, then return to Maslaki.',
+          )
+        : context.lt(
+            ar: 'اضغط تفعيل حتى يعرض مسلكي تنبيهات الطلبات والحساب مباشرة على هذا المتصفح.',
+            en: 'Tap enable so Maslaki can show live order and account alerts on this browser.',
+          );
+    final enableLabel = context.lt(ar: 'تفعيل', en: 'Enable');
+
+    return MaslakiCard(
+      elevated: false,
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Builder(
+            builder: (context) {
+              final color = Theme.of(context).colorScheme.primary;
+              return Icon(
+                needsInstall
+                    ? Icons.add_to_home_screen_rounded
+                    : Icons.notifications_active_outlined,
+                color: color,
+              );
+            },
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                Text(body, style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+          if (!needsInstall && permission != 'denied')
+            FilledButton.icon(
+              onPressed: busy ? null : onEnable,
+              icon: busy
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.notifications_active_rounded),
+              label: Text(enableLabel),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _NotificationStats {
   final int all;
   final int unread;
@@ -591,10 +725,7 @@ class _NotificationCard extends StatelessWidget {
   final AppNotificationModel notification;
   final VoidCallback onTap;
 
-  const _NotificationCard({
-    required this.notification,
-    required this.onTap,
-  });
+  const _NotificationCard({required this.notification, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -654,9 +785,8 @@ class _NotificationCard extends StatelessWidget {
                           textAlign: TextAlign.right,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                          style: Theme.of(context).textTheme.titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
                       ),
                       if (!notification.isRead)
@@ -686,9 +816,9 @@ class _NotificationCard extends StatelessWidget {
                   Text(
                     _timeLabel(notification.createdAt, context),
                     textDirection: TextDirection.rtl,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: tokens.textMuted,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.labelMedium?.copyWith(color: tokens.textMuted),
                   ),
                 ],
               ),
@@ -746,10 +876,6 @@ class _RealtimeBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaslakiStatusPill(
-      label: label,
-      icon: icon,
-      color: color,
-    );
+    return MaslakiStatusPill(label: label, icon: icon, color: color);
   }
 }

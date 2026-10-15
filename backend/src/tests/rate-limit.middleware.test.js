@@ -182,3 +182,44 @@ test("createRateLimiter fails closed when redis is required but unavailable", as
     env.redisUrl = redisUrlSnapshot;
   }
 });
+
+test("createRateLimiter local backend does not require Redis", async () => {
+  const redisUrlSnapshot = env.redisUrl;
+  env.redisUrl = "redis://127.0.0.1:1";
+  const req = buildReq({ ip: "5.5.5.5", userId: 44 });
+  const headers = {};
+  const res = {
+    setHeader(name, value) {
+      headers[name] = value;
+    },
+  };
+  const middleware = createRateLimiter({
+    keyPrefix: "local-fast-path",
+    maxRequests: 2,
+    windowMs: 1000,
+    backend: "local",
+  });
+
+  let nextError = null;
+  try {
+    await middleware(req, res, (error) => {
+      nextError = error || null;
+    });
+    assert.equal(nextError, null);
+    assert.equal(headers["X-RateLimit-Mode"], "local");
+    assert.equal(headers["X-RateLimit-Remaining"], "1");
+  } finally {
+    env.redisUrl = redisUrlSnapshot;
+  }
+});
+
+test("createRateLimiter rejects contradictory backend options", () => {
+  assert.throws(
+    () => createRateLimiter({ backend: "local", requireRedis: true }),
+    /requireRedis cannot be combined/
+  );
+  assert.throws(
+    () => createRateLimiter({ backend: "unknown" }),
+    /Unsupported rate-limit backend/
+  );
+});

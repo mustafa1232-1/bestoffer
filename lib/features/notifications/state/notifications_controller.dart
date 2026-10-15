@@ -7,8 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/notifications/active_chat_context_registry.dart';
 import '../../../core/notifications/attention_alert_service.dart';
+import '../../../core/notifications/web_notification_service.dart';
 import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/platform/app_platform_capabilities.dart';
+import '../../../core/i18n/notification_localizer.dart';
 import '../../../core/network/session_invalidation.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../auth/state/auth_controller.dart';
@@ -608,9 +610,30 @@ class NotificationsController extends StateNotifier<NotificationsState> {
             ref.read(localNotificationsProvider).showFromModel(effectiveModel),
           );
         }
+        if (!shouldSuppress && kIsWeb) {
+          final localized = resolveNotificationText(
+            l10n: appLocalizationsForCurrentLocale(),
+            notification: effectiveModel,
+          );
+          final requiresAction = _notificationRequiresAction(effectiveModel);
+          unawaited(
+            WebNotificationService.instance.showRaw(
+              title: localized.title,
+              body:
+                  localized.body ??
+                  appLocalizationsForCurrentLocale().notificationsGenericBody,
+              notificationId: effectiveModel.id,
+              type: effectiveModel.type,
+              target: effectiveModel.target,
+              requiresAction: requiresAction,
+              urgent: _isWebUrgentNotification(effectiveModel),
+              payload: _webNotificationPayload(effectiveModel),
+            ),
+          );
+        }
         if (!shouldSuppress &&
             _notificationRequiresAction(effectiveModel) &&
-            (!appSupportsLocalNotifications || appIsDesktop)) {
+            (kIsWeb || !appSupportsLocalNotifications || appIsDesktop)) {
           unawaited(ref.read(attentionAlertServiceProvider).play());
         }
 
@@ -752,6 +775,25 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     if (raw == true) return true;
     final normalized = '$raw'.trim().toLowerCase();
     return normalized == 'true' || normalized == '1' || normalized == 'yes';
+  }
+
+  bool _isWebUrgentNotification(AppNotificationModel notification) {
+    if (_notificationRequiresAction(notification)) return true;
+    final payload = notification.payload ?? const <String, dynamic>{};
+    final value =
+        '${notification.type} ${notification.target ?? ''} ${payload['target'] ?? ''} ${payload['targetModule'] ?? payload['target_module'] ?? ''} ${payload['roleScope'] ?? payload['role_scope'] ?? ''} ${payload['action'] ?? ''} ${payload['urgentChannelId'] ?? ''}'
+            .toLowerCase();
+    return value.contains('call') ||
+        value.contains('urgent') ||
+        value.contains('new_order') ||
+        value.contains('courier') ||
+        value.contains('delivery_order_ready') ||
+        value.contains('delivery_order_cancelled') ||
+        value.contains('taxi_ride') ||
+        value.contains('taxi_trips_new') ||
+        value.contains('request_cancel') ||
+        value.contains('maslaki_action_required') ||
+        value.contains('maslaki_delivery_urgent');
   }
 
   bool _isUnreadSocialChatNotification(
@@ -909,6 +951,22 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     stopRealtime();
     super.dispose();
   }
+}
+
+Map<String, Object?> _webNotificationPayload(AppNotificationModel model) {
+  final payload = model.payload ?? const <String, dynamic>{};
+  return <String, Object?>{
+    ...payload,
+    'notificationId': model.id,
+    'orderId': model.orderId ?? payload['orderId'] ?? payload['order_id'],
+    'rideId': model.rideId ?? payload['rideId'] ?? payload['ride_id'],
+    'storyId': model.storyId ?? payload['storyId'] ?? payload['story_id'],
+    'reelId': model.reelId ?? payload['reelId'] ?? payload['reel_id'],
+    'merchantId':
+        model.merchantId ?? payload['merchantId'] ?? payload['merchant_id'],
+    'type': model.type,
+    'target': model.target ?? payload['target'],
+  };
 }
 
 bool isSocialMessageNotification(AppNotificationModel notification) {

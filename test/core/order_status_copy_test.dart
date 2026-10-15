@@ -10,7 +10,7 @@ void main() {
       expect(orderStatusLabel('unknown_state'), 'unknown_state');
     });
 
-    test('owner hints reflect delivery assignment and confirmation', () {
+    test('owner hints stop when the courier completes delivery', () {
       expect(
         ownerOrderStatusHint(
           'approved',
@@ -37,7 +37,7 @@ void main() {
       );
     });
 
-    test('delivery hints stop after customer confirmation', () {
+    test('delivery hints stop after the courier marks delivery complete', () {
       expect(
         deliveryOrderStatusHint('ready_for_delivery', customerConfirmed: false),
         isNotNull,
@@ -48,7 +48,7 @@ void main() {
       );
     });
 
-    test('customer tracking hints cover approval and delivery confirmation', () {
+    test('customer tracking hints stop when delivery is complete', () {
       expect(
         customerOrderTrackingHint(
           'pending',
@@ -79,7 +79,7 @@ void main() {
           hasDeliveryAssigned: true,
           customerConfirmed: false,
         ),
-        isNotNull,
+        isNull,
       );
     });
   });

@@ -13,10 +13,13 @@ import '../../auth/state/auth_controller.dart';
 import '../models/service_models.dart';
 import '../state/services_discovery_controller.dart';
 import 'service_my_requests_screen.dart';
+import 'central_services_marketplace_screen.dart';
 import 'service_offering_details_screen.dart';
 import 'service_provider_onboarding_screen.dart';
 import 'service_provider_shell.dart';
 import 'service_provider_workspace_screen.dart';
+
+bool get _centralServicesExperienceEnabled => true;
 
 class ServicesMarketplaceScreen extends ConsumerStatefulWidget {
   const ServicesMarketplaceScreen({super.key});
@@ -98,6 +101,9 @@ class _ServicesMarketplaceScreenState
 
   @override
   Widget build(BuildContext context) {
+    if (_centralServicesExperienceEnabled) {
+      return const CentralServicesMarketplaceScreen();
+    }
     final state = ref.watch(servicesDiscoveryControllerProvider);
     final auth = ref.watch(authControllerProvider);
     final servicesSection = ref
@@ -499,27 +505,39 @@ class _ServiceOfferingCard extends StatelessWidget {
                           fit: BoxFit.cover,
                           placeholder: (placeholderContext, placeholderChild) =>
                               Container(
-                                color: const Color(0xFF102748),
+                                color: tokens.primaryAccent.withValues(
+                                  alpha: 0.12,
+                                ),
                                 alignment: Alignment.center,
-                                child: const Icon(
+                                child: Icon(
                                   Icons.design_services_outlined,
+                                  color: tokens.primaryAccent,
+                                  size: 34,
                                 ),
                               ),
                           errorWidget:
                               (errorContext, errorChild, errorProgress) =>
                                   Container(
-                                    color: const Color(0xFF102748),
+                                    color: tokens.primaryAccent.withValues(
+                                      alpha: 0.12,
+                                    ),
                                     alignment: Alignment.center,
-                                    child: const Icon(
+                                    child: Icon(
                                       Icons.image_not_supported_outlined,
+                                      color: tokens.primaryAccent,
+                                      size: 34,
                                     ),
                                   ),
                         )
                       else
                         Container(
-                          color: const Color(0xFF102748),
+                          color: tokens.primaryAccent.withValues(alpha: 0.12),
                           alignment: Alignment.center,
-                          child: const Icon(Icons.design_services_outlined),
+                          child: Icon(
+                            Icons.design_services_outlined,
+                            color: tokens.primaryAccent,
+                            size: 34,
+                          ),
                         ),
                       Positioned.fill(
                         child: DecoratedBox(

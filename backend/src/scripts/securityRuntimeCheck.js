@@ -12,6 +12,7 @@ import {
 import { assertSafeE2EDatabaseTarget } from "./e2eDbSafety.js";
 
 const DEFAULT_BASE_URL = "https://bestoffer-production.up.railway.app";
+const BISMAYAH_TEST_LOCATION = { latitude: 33.19302, longitude: 44.62071 };
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -85,6 +86,7 @@ async function registerCustomer(baseUrl, runTag) {
     block: "A1",
     buildingNumber: "A101",
     apartment: "101",
+    ...BISMAYAH_TEST_LOCATION,
     analyticsConsentAccepted: true,
     analyticsConsentVersion: "security_check_v1",
   });
@@ -111,6 +113,8 @@ async function registerOwner(baseUrl, runTag) {
     merchantTagline: `security-tagline-${runTag}`,
     merchantWorkingHours: "09:00-23:00",
     merchantServiceAreaNote: `security-service-area-${runTag}`,
+    latitude: BISMAYAH_TEST_LOCATION.latitude,
+    longitude: BISMAYAH_TEST_LOCATION.longitude,
     merchantSupportsChat: true,
     merchantSupportsAttachments: true,
     analyticsConsentAccepted: true,

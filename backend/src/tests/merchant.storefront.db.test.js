@@ -6,6 +6,7 @@ import test from "node:test";
 
 import { q } from "../config/db.js";
 import { getPublicMerchantSummary } from "../modules/merchants/merchants.service.js";
+import { isFreeDeliveryCampaignActive } from "../modules/commerce/free-delivery-campaign.js";
 
 const MARKER = `storetest_${randomUUID().replaceAll("-", "").slice(0, 10)}`;
 
@@ -37,7 +38,7 @@ test("public store summary exposes real storefront contract with no fake fallbac
     assert.equal(summary.coverImageUrl, "https://cdn.example.com/cover.png");
     assert.equal(summary.deliveryEtaMinMinutes, 20);
     assert.equal(summary.deliveryEtaMaxMinutes, 35);
-    assert.equal(summary.deliveryFee, 3000);
+    assert.equal(summary.deliveryFee, isFreeDeliveryCampaignActive() ? 0 : 3000);
     assert.equal(summary.minimumOrder, 10000);
     assert.equal(summary.isVerified, true);
     assert.equal(summary.isOpen, true);
@@ -45,7 +46,7 @@ test("public store summary exposes real storefront contract with no fake fallbac
     assert.equal(summary.ratingCount, 0);
     assert.equal(summary.avgMerchantRating, 0);
     // No products / offers seeded.
-    assert.equal(summary.hasActiveOffer, false);
+    assert.equal(summary.hasActiveOffer, isFreeDeliveryCampaignActive());
   } finally {
     if (merchantId) {
       await q(`DELETE FROM merchant WHERE id=$1`, [merchantId]);
@@ -67,7 +68,10 @@ test("store with unset delivery fields returns null (unknown, not zero)", async 
     const summary = await getPublicMerchantSummary(merchantId);
     assert.equal(summary.deliveryEtaMinMinutes, null);
     assert.equal(summary.deliveryEtaMaxMinutes, null);
-    assert.equal(summary.deliveryFee, null);
+    assert.equal(
+      summary.deliveryFee,
+      isFreeDeliveryCampaignActive() ? 0 : null,
+    );
     assert.equal(summary.minimumOrder, null);
     assert.equal(summary.logoUrl, null);
     assert.equal(summary.coverImageUrl, null);

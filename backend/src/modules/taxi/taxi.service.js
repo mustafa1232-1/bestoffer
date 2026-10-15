@@ -3,9 +3,15 @@ import { emitRealtimeToUser } from "../../shared/realtime/realtime-gateway.js";
 import { AppError } from "../../shared/utils/errors.js";
 import { createManyNotifications } from "../notifications/notifications.repo.js";
 import { hashPin } from "../../shared/utils/hash.js";
+import { env } from "../../config/env.js";
 import { validateBasmayaAddress } from "../../shared/utils/basmaya-address.js";
+import { assertPointInsideServiceArea } from "../../shared/utils/service-area.js";
 import { createUser, findUserByPhone } from "../auth/auth.repo.js";
 import { runWithGeneratedAppUserUsername } from "../auth/auth.service.js";
+import {
+  buildAdminTaxiRideRequestedNotifications,
+  listBackofficeNotificationUserIds,
+} from "../admin/admin-notification-recipients.js";
 import * as deliveryRepo from "../delivery/delivery.repo.js";
 import * as repo from "./taxi.repo.js";
 import * as loyaltyRepo from "./taxi.loyalty.repo.js";
@@ -17,6 +23,8 @@ const SEARCH_STAGE_MINUTES = 5;
 const NEGOTIATION_TIMEOUT_SECONDS = 90;
 const CALL_RING_TIMEOUT_SECONDS = 35;
 const CAPTAIN_SUBSCRIPTION_MONTHLY_FEE_IQD = 10000;
+const CAPTAIN_RIDE_CREDIT_PACKAGE_RIDES = 30;
+const CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD = 20000;
 
 let lifecycleWorker = null;
 let lifecycleRunning = false;
@@ -44,6 +52,18 @@ function assertValidBasmayaAddress(address) {
 // إنشاء حساب كابتن تكسي (بدون إشعار المعتمدين) — يُعاد استخدامه في التسجيل
 // الذاتي وفي إنشاء الحساب من قبل الإدمن (مع اعتماد تلقائي).
 export async function createCaptainAccount(dto) {
+  if (env.serviceAreaRegistrationEnforced === true) {
+    assertPointInsideServiceArea({
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+  } else if (dto.latitude != null || dto.longitude != null) {
+    assertPointInsideServiceArea({
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+  }
+
   const address = assertValidBasmayaAddress({
     block: dto.block,
     buildingNumber: dto.buildingNumber,
@@ -245,7 +265,24 @@ function calcDiscountedFee(monthlyFeeIqd, discountPercent) {
   return Math.max(0, Math.round((fee * (100 - discount)) / 100));
 }
 
-function evaluateCaptainSubscription(raw) {
+function buildCaptainRideCreditStatus(summary = {}) {
+  const remainingRides = Math.max(0, Number(summary?.remainingRides || 0));
+  return {
+    packageRides: CAPTAIN_RIDE_CREDIT_PACKAGE_RIDES,
+    packageAmountIqd: CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD,
+    remainingRides,
+    purchasedRides: Math.max(0, Number(summary?.purchasedRides || 0)),
+    consumedRides: Math.max(0, Number(summary?.consumedRides || 0)),
+    paidAmountIqd: Math.max(0, Number(summary?.paidAmountIqd || 0)),
+    lastTopUpAt: summary?.lastTopUpAt || null,
+    lastConsumedAt: summary?.lastConsumedAt || null,
+    canReceivePaidRides: remainingRides > 0,
+    nextTopUpAmountIqd: CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD,
+    nextTopUpRides: CAPTAIN_RIDE_CREDIT_PACKAGE_RIDES,
+  };
+}
+
+function evaluateCaptainSubscription(raw, rideCreditSummary = null) {
   const now = new Date();
   const trialDays = Math.max(0, Number(raw?.trial_days) || 30);
   const trialStartedAt = raw?.trial_started_at ? new Date(raw.trial_started_at) : now;
@@ -256,13 +293,13 @@ function evaluateCaptainSubscription(raw) {
     : null;
   const cycleEndsAt = raw?.current_cycle_end_at ? new Date(raw.current_cycle_end_at) : null;
 
-  const isTrialActive = now <= trialEndsAt;
-  const isCycleActive = cycleEndsAt != null && now <= cycleEndsAt;
-  const canAccess = isTrialActive || isCycleActive;
+  const rideCredit = buildCaptainRideCreditStatus(rideCreditSummary || {});
+  const isTrialActive = false;
+  const isCycleActive = false;
+  const canAccess = rideCredit.canReceivePaidRides;
 
-  const activeEndsAt = isCycleActive ? cycleEndsAt : trialEndsAt;
-  const remainingMs = Math.max(0, activeEndsAt.getTime() - now.getTime());
-  const remainingDays = Math.ceil(remainingMs / (24 * 60 * 60 * 1000));
+  const activeEndsAt = null;
+  const remainingDays = 0;
 
   const monthlyFeeIqd = Math.max(
     0,
@@ -273,11 +310,13 @@ function evaluateCaptainSubscription(raw) {
 
   return {
     canAccess,
-    phase: isTrialActive ? "trial" : isCycleActive ? "paid" : "expired",
-    monthlyFeeIqd,
+    mode: "ride_credit",
+    phase: canAccess ? "paid_rides" : "ride_credit_empty",
+    monthlyFeeIqd: CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD,
     discountPercent,
-    discountedMonthlyFeeIqd,
-    dueAmountIqd: canAccess ? 0 : discountedMonthlyFeeIqd,
+    discountedMonthlyFeeIqd: CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD,
+    dueAmountIqd: canAccess ? 0 : CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD,
+    rideCredit,
     trialStartedAt,
     trialEndsAt,
     cycleStartAt,
@@ -293,16 +332,17 @@ function evaluateCaptainSubscription(raw) {
 
 async function maybeSendCaptainSubscriptionReminder(captainUserId, profile, subscriptionStatus) {
   if (!subscriptionStatus?.canAccess) return;
-  if (subscriptionStatus.remainingDays <= 0 || subscriptionStatus.remainingDays > 7) return;
+  const remainingRides = Number(subscriptionStatus.rideCredit?.remainingRides || 0);
+  if (remainingRides <= 0 || remainingRides > 5) return;
 
   const today = new Date().toISOString().slice(0, 10);
   if (subscriptionStatus.lastExpiryReminderOn === today) return;
 
-  const title = "تنبيه انتهاء اشتراك الكابتن";
+  const title = "تنبيه رصيد رحلات التكسي";
   const body =
-    subscriptionStatus.remainingDays === 1
-      ? "باقي يوم واحد على انتهاء اشتراكك الشهري. راجع الإدارة للتسديد النقدي."
-      : `باقي ${subscriptionStatus.remainingDays} أيام على انتهاء اشتراكك الشهري. راجع الإدارة للتسديد النقدي.`;
+    remainingRides === 1
+      ? "باقي رحلة واحدة في رصيدك. يمكنك الشحن مقدماً قبل توقف استقبال الطلبات."
+      : `باقي ${remainingRides} رحلات في رصيدك. يمكنك الشحن مقدماً قبل توقف استقبال الطلبات.`;
 
   queueNotification({
     userId: Number(captainUserId),
@@ -310,8 +350,8 @@ async function maybeSendCaptainSubscriptionReminder(captainUserId, profile, subs
     title,
     body,
     payload: {
-      remainingDays: subscriptionStatus.remainingDays,
-      dueAmountIqd: subscriptionStatus.discountedMonthlyFeeIqd,
+      remainingRides,
+      dueAmountIqd: CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD,
     },
   });
 
@@ -343,7 +383,7 @@ function hasCaptainTaxiProfileCompleteness(row) {
   );
 }
 
-function buildCaptainTaxiEligibility({ profileRow, presenceRow }) {
+function buildCaptainTaxiEligibility({ profileRow, presenceRow, rideCredit = null }) {
   const profile = mapCaptainProfile(profileRow);
   const isOnline =
     presenceRow?.isOnline === true &&
@@ -354,14 +394,22 @@ function buildCaptainTaxiEligibility({ profileRow, presenceRow }) {
   const isApproved = profile?.taxiAccountApproved === true;
   const isActive = profile?.isActive === true;
   const isProfileComplete = hasCaptainTaxiProfileCompleteness(profileRow);
+  const creditStatus = rideCredit || buildCaptainRideCreditStatus();
+  // Keep the pure profile/presence eligibility helper backward-compatible.
+  // The loaded production path always supplies the ledger summary and applies
+  // the ride-credit gate; callers using this helper in isolation are checking
+  // account readiness only.
+  const creditWasProvided = rideCredit != null;
+  const hasRideCredit = !creditWasProvided || creditStatus.remainingRides > 0;
   const canReceiveRideRequests =
-    isApproved && isActive && isOnline && isProfileComplete;
+    isApproved && isActive && isOnline && isProfileComplete && hasRideCredit;
 
   const reasons = [];
   if (!isApproved) reasons.push("not_approved");
   if (!isActive) reasons.push("inactive_profile");
   if (!isOnline) reasons.push("offline");
   if (!isProfileComplete) reasons.push("profile_incomplete");
+  if (creditWasProvided && !hasRideCredit) reasons.push("ride_credit_empty");
 
   return {
     profile,
@@ -370,18 +418,27 @@ function buildCaptainTaxiEligibility({ profileRow, presenceRow }) {
     isActive,
     isOnline,
     isProfileComplete,
+    hasRideCredit,
+    rideCredit: creditStatus,
     canReceiveRideRequests,
     reasons,
   };
 }
 
 async function loadCaptainTaxiEligibility(captainUserId) {
-  const profileRow = await repo.getCaptainProfile(captainUserId);
+  const [profileRow, rideCreditSummary] = await Promise.all([
+    repo.getCaptainProfile(captainUserId),
+    repo.getCaptainRideCreditSummary(captainUserId),
+  ]);
   if (!profileRow) {
     throw new AppError("TAXI_CAPTAIN_NOT_FOUND", { status: 404 });
   }
   const presenceRow = await repo.getCaptainPresence(captainUserId);
-  return buildCaptainTaxiEligibility({ profileRow, presenceRow });
+  return buildCaptainTaxiEligibility({
+    profileRow,
+    presenceRow,
+    rideCredit: buildCaptainRideCreditStatus(rideCreditSummary),
+  });
 }
 
 async function loadCaptainTaxiActionability(captainUserId) {
@@ -1044,8 +1101,9 @@ async function resolveRideCallPeerUserId({ ride, senderUserId, senderRole }) {
 }
 
 function queueNotification(payload) {
-  createNotification(payload).catch((error) => {
+  return createNotification(payload).catch((error) => {
     console.warn("[taxi] notification queue failed", error?.message || error);
+    return null;
   });
 }
 
@@ -1053,6 +1111,18 @@ function queueNotifications(payloads = []) {
   for (const payload of payloads) {
     queueNotification(payload);
   }
+}
+
+async function notifyBackofficeAboutTaxiRideRequest(ride) {
+  const adminRecipientUserIds = await listBackofficeNotificationUserIds({
+    permissionKey: "taxi.rides.read",
+  });
+  await createManyNotifications(
+    buildAdminTaxiRideRequestedNotifications({
+      recipientUserIds: adminRecipientUserIds,
+      ride,
+    }),
+  );
 }
 
 function emitTaxiRealtimeEvents(userId, eventNames, payload) {
@@ -1463,6 +1533,17 @@ export function startTaxiLifecycleWorker({ intervalMs = 5000 } = {}) {
 export async function createRideRequest(customerUserId, dto) {
   await processSearchingLifecycleAndEmit();
 
+  if (env.taxiServiceAreaEnforced === true) {
+    assertPointInsideServiceArea({
+      latitude: dto.pickupLatitude,
+      longitude: dto.pickupLongitude,
+    });
+    assertPointInsideServiceArea({
+      latitude: dto.dropoffLatitude,
+      longitude: dto.dropoffLongitude,
+    });
+  }
+
   const current = await repo.getCustomerCurrentRide(customerUserId);
   if (current) {
     throw new AppError("TAXI_ACTIVE_RIDE_EXISTS", { status: 409 });
@@ -1529,6 +1610,12 @@ export async function createRideRequest(customerUserId, dto) {
   });
 
   const nearbyCaptainsCount = await notifyCaptainsNearRide(ride);
+  await notifyBackofficeAboutTaxiRideRequest(ride).catch((error) => {
+    console.warn(
+      "[taxi] admin ride notification failed",
+      error?.message || error,
+    );
+  });
 
   return {
     ride: buildTaxiRideCompatView(ride),
@@ -1739,8 +1826,11 @@ async function loadCaptainSubscriptionContext(captainUserId) {
     throw new AppError("TAXI_CAPTAIN_NOT_FOUND", { status: 404 });
   }
 
-  const raw = await repo.getCaptainSubscription(captainUserId);
-  const subscription = evaluateCaptainSubscription(raw || {});
+  const [raw, rideCreditSummary] = await Promise.all([
+    repo.getCaptainSubscription(captainUserId),
+    repo.getCaptainRideCreditSummary(captainUserId),
+  ]);
+  const subscription = evaluateCaptainSubscription(raw || {}, rideCreditSummary);
   await maybeSendCaptainSubscriptionReminder(
     captainUserId,
     profileRow,
@@ -1750,6 +1840,7 @@ async function loadCaptainSubscriptionContext(captainUserId) {
   return {
     profile: mapCaptainProfile(profileRow),
     raw,
+    rideCreditSummary,
     subscription,
   };
 }
@@ -1759,6 +1850,7 @@ export async function getCaptainSubscriptionStatus(captainUserId) {
   return {
     profile: ctx.profile,
     subscription: ctx.subscription,
+    rideCredit: ctx.subscription.rideCredit,
   };
 }
 
@@ -2633,6 +2725,23 @@ export async function raiseRideFare({ customerUserId, rideId, dto }) {
 }
 
 export async function acceptBid({ customerUserId, rideId, bidId }) {
+  const activeBids = await repo.listRideBids(rideId);
+  const pendingBid = activeBids.find((entry) => Number(entry.id) === Number(bidId));
+  if (pendingBid?.captainUserId) {
+    const credit = buildCaptainRideCreditStatus(
+      await repo.getCaptainRideCreditSummary(pendingBid.captainUserId)
+    );
+    if (credit.remainingRides <= 0) {
+      throw new AppError("TAXI_CAPTAIN_RIDE_CREDIT_EMPTY", {
+        status: 409,
+        details: {
+          captainUserId: pendingBid.captainUserId,
+          remainingRides: 0,
+        },
+      });
+    }
+  }
+
   const result = await repo.acceptRideBid({
     rideId,
     bidId,
@@ -2717,7 +2826,7 @@ export async function acceptBid({ customerUserId, rideId, bidId }) {
     bidQueue,
   });
 
-  queueNotification({
+  await queueNotification({
     userId: ride.customerUserId,
     type: "taxi.ride.assigned",
     title: "تم تعيين الكابتن",
@@ -2903,7 +3012,7 @@ export async function acceptRideByCaptain({ captainUserId, rideId }) {
     bidQueue,
   });
 
-  queueNotification({
+  await queueNotification({
     userId: ride.customerUserId,
     type: "taxi.ride.assigned",
     title: "تم قبول السعر",
@@ -3821,7 +3930,9 @@ async function transitionRideStatus({
   realtimeEventNames = [],
   notificationType = null,
 }) {
-  await assertCaptainSubscriptionAccess(captainUserId);
+  if (nextStatus !== "completed") {
+    await assertCaptainSubscriptionAccess(captainUserId);
+  }
   const result = await repo.transitionRideStatus({
     rideId,
     captainUserId,
@@ -3928,6 +4039,27 @@ export async function completeRide({ captainUserId, rideId }) {
     notificationType: "taxi.ride.completed",
   });
 
+  const consumed = await repo.consumeCaptainRideCreditForCompletedRide({
+    captainUserId,
+    rideId: ride.id,
+  });
+  const rideCredit = buildCaptainRideCreditStatus(
+    await repo.getCaptainRideCreditSummary(captainUserId)
+  );
+  if (consumed) {
+    await repo.createRideEvent({
+      rideRequestId: ride.id,
+      actorUserId: captainUserId,
+      eventType: "ride_credit_consumed",
+      message: "تم خصم رحلة واحدة من رصيد الكابتن.",
+      payload: {
+        remainingRides: rideCredit.remainingRides,
+        packageRides: rideCredit.packageRides,
+        packageAmountIqd: rideCredit.packageAmountIqd,
+      },
+    });
+  }
+
   queueNotification({
     userId: captainUserId,
     type: "taxi.ride.completed",
@@ -3939,6 +4071,7 @@ export async function completeRide({ captainUserId, rideId }) {
       customerUserId: ride.customerUserId,
       captainId: ride.assignedCaptainUserId || captainUserId,
       target: "taxi_ride_completed",
+      rideCredit,
     },
   });
 
@@ -4162,6 +4295,7 @@ export async function getCaptainProfile(captainUserId) {
   return {
     profile: subscriptionContext.profile,
     subscription: subscriptionContext.subscription,
+    rideCredit: subscriptionContext.subscription.rideCredit,
     eligibility,
   };
 }
@@ -4284,7 +4418,7 @@ export async function getCaptainDashboard(captainUserId, query = {}) {
     : "month";
   const limit = Math.max(1, Math.min(200, Number(query?.limit) || 40));
 
-  const [profileRow, metricsRow, history, subscriptionRaw, eligibility] =
+  const [profileRow, metricsRow, history, subscriptionRaw, rideCreditSummary] =
     await Promise.all([
     repo.getCaptainProfile(captainUserId),
     repo.getCaptainDashboardMetrics(captainUserId),
@@ -4293,23 +4427,30 @@ export async function getCaptainDashboard(captainUserId, query = {}) {
       limit,
     }),
     repo.getCaptainSubscription(captainUserId),
-    loadCaptainTaxiEligibility(captainUserId),
+    repo.getCaptainRideCreditSummary(captainUserId),
   ]);
 
   if (!profileRow) {
     throw new AppError("TAXI_CAPTAIN_NOT_FOUND", { status: 404 });
   }
 
-  const subscription = evaluateCaptainSubscription(subscriptionRaw || {});
+  const rideCredit = buildCaptainRideCreditStatus(rideCreditSummary);
+  const subscription = evaluateCaptainSubscription(subscriptionRaw || {}, rideCreditSummary);
   await maybeSendCaptainSubscriptionReminder(
     captainUserId,
     profileRow,
     subscription
   );
+  const eligibility = buildCaptainTaxiEligibility({
+    profileRow,
+    presenceRow: await repo.getCaptainPresence(captainUserId),
+    rideCredit,
+  });
 
   return {
     profile: mapCaptainProfile(profileRow),
     subscription,
+    rideCredit,
     metrics: mapCaptainDashboardMetrics(metricsRow || {}),
     historyPeriod: safePeriod,
     history,
@@ -4331,11 +4472,12 @@ export async function requestCaptainCashPayment(captainUserId) {
     backofficeUsers.map((userId) => ({
       userId,
       type: "taxi.captain.subscription.cash_payment_requested",
-      title: "طلب تسديد اشتراك كابتن",
-      body: `${current.full_name || "كابتن"} طلب تسديد نقدي لاشتراك التكسي.`,
+      title: "طلب شحن رصيد رحلات كابتن",
+      body: `${current.full_name || "كابتن"} طلب شحن رصيد التكسي نقداً.`,
       payload: {
         captainUserId: Number(captainUserId),
-        dueAmountIqd: subscription.discountedMonthlyFeeIqd,
+        dueAmountIqd: CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD,
+        packageRides: CAPTAIN_RIDE_CREDIT_PACKAGE_RIDES,
       },
     }))
   );
@@ -4384,6 +4526,8 @@ export async function confirmCaptainCashPaymentByAdmin({
   captainUserId,
   adminUserId,
   cycleDays = 30,
+  packageCount = 1,
+  ridesToAdd = null,
 }) {
   const captain = await repo.getCaptainProfile(captainUserId);
   if (!captain) {
@@ -4392,6 +4536,13 @@ export async function confirmCaptainCashPaymentByAdmin({
 
   const now = new Date();
   const safeCycleDays = Math.max(1, Math.min(365, Number(cycleDays) || 30));
+  const safePackageCount = Math.max(1, Math.min(100, Number(packageCount) || 1));
+  const safeRidesToAdd =
+    Number.isInteger(Number(ridesToAdd)) && Number(ridesToAdd) > 0
+      ? Math.max(1, Math.min(10000, Number(ridesToAdd)))
+      : safePackageCount * CAPTAIN_RIDE_CREDIT_PACKAGE_RIDES;
+  const amountIqd = Math.ceil(safeRidesToAdd / CAPTAIN_RIDE_CREDIT_PACKAGE_RIDES) *
+    CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD;
   const cycleEndAt = addDays(now, safeCycleDays);
 
   const updated = await repo.confirmCaptainCashPayment({
@@ -4405,29 +4556,52 @@ export async function confirmCaptainCashPaymentByAdmin({
     throw new AppError("TAXI_CAPTAIN_SUBSCRIPTION_NOT_FOUND", { status: 404 });
   }
 
+  await repo.addCaptainRideCreditTopUp({
+    captainUserId,
+    ridesToAdd: safeRidesToAdd,
+    amountIqd,
+    adminUserId,
+    paymentMethod: "cash",
+    note: `Taxi ride credit top-up: ${safeRidesToAdd} rides for ${amountIqd} IQD.`,
+    meta: {
+      packageRides: CAPTAIN_RIDE_CREDIT_PACKAGE_RIDES,
+      packageAmountIqd: CAPTAIN_RIDE_CREDIT_PACKAGE_AMOUNT_IQD,
+      packageCount: safePackageCount,
+      legacyCycleDays: safeCycleDays,
+    },
+  });
+
   const { subscription } = await loadCaptainSubscriptionContext(captainUserId);
   queueNotification({
     userId: Number(captainUserId),
     type: "taxi.captain.subscription.cash_payment_confirmed",
-    title: "تم تأكيد تسديد الاشتراك",
-    body: `تم تفعيل اشتراكك لمدة ${safeCycleDays} يوم.`,
+    title: "تم شحن رصيد رحلات التكسي",
+    body: `تمت إضافة ${safeRidesToAdd} رحلة إلى رصيدك.`,
     payload: {
       cycleStartAt: updated.current_cycle_start_at,
       cycleEndAt: updated.current_cycle_end_at,
       remainingDays: subscription.remainingDays,
+      ridesAdded: safeRidesToAdd,
+      remainingRides: subscription.rideCredit?.remainingRides || 0,
     },
   });
 
   return {
     captainUserId: Number(captainUserId),
     subscription,
+    rideCredit: subscription.rideCredit,
+    ridesAdded: safeRidesToAdd,
+    amountIqd,
   };
 }
 
 export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
   const rows = await repo.listPendingCaptainCashPayments({ limit });
-  return rows.map((row) => {
-    const subscription = evaluateCaptainSubscription(row);
+  return Promise.all(rows.map(async (row) => {
+    const rideCredit = buildCaptainRideCreditStatus(
+      await repo.getCaptainRideCreditSummary(row.captain_user_id)
+    );
+    const subscription = evaluateCaptainSubscription(row, rideCredit);
     return {
       captainUserId: Number(row.captain_user_id),
       fullName: row.full_name || null,
@@ -4447,8 +4621,9 @@ export async function listPendingCaptainCashPayments({ limit = 100 } = {}) {
       plateDigits: row.plate_digits || null,
       cashPaymentRequestedAt: row.cash_payment_requested_at || null,
       subscription,
+      rideCredit,
     };
-  });
+  }));
 }
 
 

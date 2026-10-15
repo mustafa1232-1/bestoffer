@@ -58,6 +58,23 @@ test("ad_board placement engine (DB): filtering, targeting, fallback, schedule, 
   try {
     ids.home = await seedAd({ title: "home", placement: "HOME_MAIN" });
     ids.mktHome = await seedAd({ title: "mkt", placement: "MARKETPLACE_HOME" });
+    ids.mktHomeSecond = await seedAd({
+      title: "mkt_second",
+      placement: "MARKETPLACE_HOME",
+      priority: 101,
+    });
+    ids.foodLanding = await seedAd({
+      title: "food_landing",
+      placement: "MARKETPLACE_CATEGORY",
+      category: "food",
+      priority: 20,
+    });
+    ids.foodLandingSecond = await seedAd({
+      title: "food_landing_second",
+      placement: "MARKETPLACE_CATEGORY",
+      category: "food",
+      priority: 21,
+    });
     ids.catFashion = await seedAd({
       title: "fashion",
       placement: "MARKETPLACE_CATEGORY",
@@ -74,6 +91,27 @@ test("ad_board placement engine (DB): filtering, targeting, fallback, schedule, 
       title: "fashion_men",
       placement: "MARKETPLACE_CATEGORY",
       category: "men",
+      activityType: "fashion_clothing",
+      priority: 100,
+    });
+    ids.fashionMenSecond = await seedAd({
+      title: "fashion_men_second",
+      placement: "MARKETPLACE_CATEGORY",
+      category: "men",
+      activityType: "fashion_clothing",
+      priority: 101,
+    });
+    ids.menOtherActivity = await seedAd({
+      title: "men_other_activity",
+      placement: "MARKETPLACE_CATEGORY",
+      category: "men",
+      activityType: "home_furniture",
+      priority: 1,
+    });
+    ids.fashionWomen = await seedAd({
+      title: "fashion_women",
+      placement: "MARKETPLACE_CATEGORY",
+      category: "women",
       activityType: "fashion_clothing",
       priority: 100,
     });
@@ -112,9 +150,24 @@ test("ad_board placement engine (DB): filtering, targeting, fallback, schedule, 
     });
     const mktTitles = titles(mktRows);
     assert.ok(mktTitles.includes("mkt"), "marketplace home ad present");
+    assert.ok(
+      mktTitles.includes("mkt_second"),
+      "marketplace home returns every active ad for carousel rotation"
+    );
     assert.ok(!mktTitles.includes("expired"), "expired ad excluded");
     assert.ok(!mktTitles.includes("disabled"), "disabled ad excluded");
     assert.ok(!mktTitles.includes("scheduled"), "scheduled ad excluded");
+
+    const foodLandingRows = await getPublicAdBoardItems({
+      type: null,
+      placement: "MARKETPLACE_CATEGORY",
+      categoryKey: "food",
+    });
+    assert.deepEqual(
+      titles(foodLandingRows),
+      ["food_landing", "food_landing_second", "general"],
+      "sub-market landing pages return all ads for their category key"
+    );
 
     // --- category targeting + general fallback ordering ---
     const fashionRows = await getPublicAdBoardItems({
@@ -128,7 +181,7 @@ test("ad_board placement engine (DB): filtering, targeting, fallback, schedule, 
       "category-specific ad ranks before the general fallback"
     );
 
-    // --- department/category targeting outranks activity fallback ---
+    // --- department/category targeting is isolated for men/women fashion ---
     const fashionMenRows = await getPublicAdBoardItems({
       type: null,
       placement: "MARKETPLACE_CATEGORY",
@@ -136,9 +189,21 @@ test("ad_board placement engine (DB): filtering, targeting, fallback, schedule, 
       activityType: "fashion_clothing",
     });
     assert.deepEqual(
-      titles(fashionMenRows).slice(0, 3),
-      ["fashion_men", "fashion_activity", "general"],
-      "department ad ranks before activity-wide fashion ad and fallback"
+      titles(fashionMenRows),
+      ["fashion_men", "fashion_men_second", "general"],
+      "men fashion sees only men-specific ads and the general fallback"
+    );
+
+    const fashionWomenRows = await getPublicAdBoardItems({
+      type: null,
+      placement: "MARKETPLACE_CATEGORY",
+      categoryKey: "women",
+      activityType: "fashion_clothing",
+    });
+    assert.deepEqual(
+      titles(fashionWomenRows),
+      ["fashion_women", "general"],
+      "women fashion sees only women-specific ads and the general fallback"
     );
 
     // --- unmatched category → only the general fallback ---

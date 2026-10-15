@@ -65,6 +65,52 @@ class CustomerSupportApi {
         .map((e) => Map<String, dynamic>.from(e))
         .toList(growable: false);
   }
+
+  Future<Map<String, dynamic>> ticketDetails(int ticketId) async {
+    final response = await dio.get('/api/support/tickets/$ticketId');
+    final data = response.data;
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> addMessage(
+    int ticketId, {
+    required String body,
+    List<Map<String, dynamic>> attachments = const [],
+  }) async {
+    final response = await dio.post(
+      '/api/support/tickets/$ticketId/messages',
+      data: {
+        'body': body.trim(),
+        if (attachments.isNotEmpty) 'attachments': attachments,
+      },
+    );
+    final data = response.data;
+    final Map<String, dynamic> map = data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    return map['message'] is Map
+        ? Map<String, dynamic>.from(map['message'] as Map)
+        : map;
+  }
+
+  Future<Map<String, dynamic>> reopenTicket(
+    int ticketId, {
+    String? reason,
+  }) async {
+    final response = await dio.post(
+      '/api/support/tickets/$ticketId/reopen',
+      data: {
+        if (reason != null && reason.trim().isNotEmpty) 'reason': reason.trim(),
+      },
+    );
+    final data = response.data;
+    final Map<String, dynamic> map = data is Map
+        ? Map<String, dynamic>.from(data)
+        : <String, dynamic>{};
+    return map['ticket'] is Map
+        ? Map<String, dynamic>.from(map['ticket'] as Map)
+        : map;
+  }
 }
 
 final customerSupportApiProvider = Provider<CustomerSupportApi>((ref) {

@@ -10,6 +10,8 @@ import {
   validateInventorySettingsPatch,
   validateProductCopy,
 } from "./company.validators.js";
+import { validateOwnerOrderStatusUpdate } from "../owner/owner.validators.js";
+import { extractDeviceContext } from "../../shared/utils/device-fingerprint.js";
 
 function validationError(res, fields) {
   return res.status(400).json({ message: "VALIDATION_ERROR", fields });
@@ -17,7 +19,10 @@ function validationError(res, fields) {
 
 export async function companyLogin(req, res, next) {
   try {
-    const out = await service.loginCompany(req.body || {}, req.authDeviceContext || {});
+    const out = await service.loginCompany(
+      req.body || {},
+      req.authDeviceContext || extractDeviceContext(req)
+    );
     res.json(out);
   } catch (error) {
     next(error);
@@ -52,6 +57,31 @@ export async function branches(req, res, next) {
 export async function branchDetail(req, res, next) {
   try {
     res.json(await service.getCompanyBranchDetail(req.companyId, req.params.merchantId));
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listCurrentOrders(req, res, next) {
+  try {
+    res.json(await service.listCompanyCurrentOrders(req.companyId, req.query || {}));
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateOrderStatus(req, res, next) {
+  try {
+    const v = validateOwnerOrderStatusUpdate(req.body || {});
+    if (!v.ok) return validationError(res, v.errors);
+    const order = await service.updateCompanyOrderStatus(
+      req.companyId,
+      req.params.orderId,
+      req.body.status,
+      req.body.estimatedPrepMinutes,
+      req.body.estimatedDeliveryMinutes,
+    );
+    res.json({ order });
   } catch (error) {
     next(error);
   }

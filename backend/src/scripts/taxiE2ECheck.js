@@ -176,6 +176,11 @@ async function cleanup(state) {
 
     if ((state.captainUserIds || []).length > 0) {
       await client.query(
+        `DELETE FROM taxi_captain_ride_credit_ledger
+         WHERE captain_user_id = ANY($1::bigint[])`,
+        [state.captainUserIds]
+      );
+      await client.query(
         `DELETE FROM taxi_captain_profile_edit_request
          WHERE captain_user_id = ANY($1::bigint[])`,
         [state.captainUserIds]
@@ -307,6 +312,10 @@ async function main() {
     enRoute: { latitude: 33.31641, longitude: 44.37172 },
     started: { latitude: 33.31852, longitude: 44.37961 },
   };
+  const registrationPoint = {
+    latitude: env.serviceAreaCenterLatitude || 33.19302,
+    longitude: env.serviceAreaCenterLongitude || 44.62071,
+  };
 
   let server = null;
 
@@ -339,6 +348,8 @@ async function main() {
         block: "A1",
         buildingNumber: "A101",
         apartment: "101",
+        latitude: registrationPoint.latitude,
+        longitude: registrationPoint.longitude,
         analyticsConsentAccepted: true,
         analyticsConsentVersion: "analytics_v1",
       }
@@ -360,6 +371,8 @@ async function main() {
         block: "A2",
         buildingNumber: "A201",
         apartment: "202",
+        latitude: registrationPoint.latitude,
+        longitude: registrationPoint.longitude,
         analyticsConsentAccepted: true,
         analyticsConsentVersion: "analytics_v1",
       }
@@ -382,6 +395,8 @@ async function main() {
           block: "B1",
           buildingNumber: `B10${index + 1}`,
           apartment: `10${index + 1}`,
+          latitude: registrationPoint.latitude,
+          longitude: registrationPoint.longitude,
           carMake: "Toyota",
           carModel: "Corolla",
           vehicleType: "car",
@@ -476,6 +491,30 @@ async function main() {
         Number(captainLogin.data?.sessionId || 0) || null;
       const role = await fetchUserRole(captainCtx.userId);
       assert.equal(role, "taxi_captain", `captain ${index + 1} role must be taxi_captain`);
+
+      const initialSubscription = await request(
+        baseUrl,
+        captainCtx.actor,
+        "GET",
+        "/api/taxi/captain/subscription"
+      );
+      assertStatus(
+        initialSubscription,
+        200,
+        `initial subscription ${index + 1}`
+      );
+
+      const subscriptionTopUp = await request(
+        baseUrl,
+        admin,
+        "PATCH",
+        `/api/admin/taxi-captains/${captainCtx.userId}/subscription/confirm-cash-payment`,
+        {
+          cycleDays: 30,
+          ridesToAdd: 30,
+        }
+      );
+      assertStatus(subscriptionTopUp, 200, `top up captain ${index + 1}`);
     }
 
     const pendingCaptainsAfterApprove = await request(
@@ -604,6 +643,24 @@ async function main() {
         payloadChecks: { rideId: rejectedRideId },
       },
       "captain new ride notification"
+    );
+    const adminRideRequestedNotification = await expectNotification(
+      {
+        userId: state.superAdminId,
+        type: "admin_taxi_ride_requested",
+        payloadChecks: {
+          rideId: rejectedRideId,
+          target: "admin_taxi_ride_details",
+          targetModule: "admin",
+          roleScope: "admin",
+        },
+      },
+      "admin taxi ride requested notification"
+    );
+    assert.equal(
+      adminRideRequestedNotification.payload?.requiresAction,
+      true,
+      "admin taxi ride notification should require action"
     );
 
     for (const [index, captainCtx] of captains.entries()) {

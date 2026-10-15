@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 
@@ -9,10 +11,12 @@ import '../upload/tus_upload_client.dart';
 /// terminal states — Flutter never decides final publication.
 enum ReelComposerStage {
   draft,
+  preparing,
   creatingSession,
   uploading,
   paused,
   processing,
+  publishing,
   published,
   failed,
   cancelled,
@@ -52,7 +56,14 @@ typedef TusClientFactory =
       required String uploadUrl,
       required int totalBytes,
       required int assetId,
+      required PickedSocialMedia video,
     });
+
+typedef ReelVideoPreparer =
+    Future<PickedSocialMedia> Function(
+      void Function(double) onProgress,
+      CancelToken cancelToken,
+    );
 
 /// Orchestrates the whole reel publish flow. Testable with a fake [ReelUploadApi]
 /// and a fake tus transport.
@@ -74,14 +85,26 @@ class ReelComposerController extends ChangeNotifier {
   int? _publishedReelId;
   _ReelPublishRequest? _pendingPublishRequest;
   TusUploadClient? _tus;
+  StreamSubscription<TusProgress>? _progressSubscription;
+  bool _disposed = false;
+  bool _running = false;
+  int _generation = 0;
+  CancelToken? _preparationCancel;
+  String? _uploadSourceSignature;
+  int _uploadSourceRevision = 0;
 
   ReelComposerStage get stage => _stage;
   double get progress => _progress;
   String? get error => _error;
   int? get assetId => _assetId;
   int? get publishedReelId => _publishedReelId;
+  bool get canCancel =>
+      !_disposed &&
+      _stage != ReelComposerStage.publishing &&
+      _stage != ReelComposerStage.published;
 
   void _set(ReelComposerStage stage, {double? progress, String? error}) {
+    if (_disposed) return;
     _stage = stage;
     if (progress != null) _progress = progress;
     _error = error;
@@ -96,8 +119,26 @@ class ReelComposerController extends ChangeNotifier {
     bool commentsEnabled = true,
     bool sharingEnabled = true,
     Object? reelStyle,
+    ReelVideoPreparer? prepareVideo,
   }) async {
+    if (_disposed || _running || _stage == ReelComposerStage.published) return;
+    _running = true;
+    final generation = ++_generation;
     try {
+      var uploadVideo = video;
+      if (prepareVideo != null) {
+        _set(ReelComposerStage.preparing, progress: 0);
+        final cancellation = CancelToken();
+        _preparationCancel = cancellation;
+        uploadVideo = await prepareVideo((progress) {
+          if (_isCurrent(generation) &&
+              _stage == ReelComposerStage.preparing &&
+              progress.isFinite) {
+            _set(ReelComposerStage.preparing, progress: progress.clamp(0, 1));
+          }
+        }, cancellation);
+        if (!_isCurrent(generation)) return;
+      }
       final request = _ReelPublishRequest(
         caption: caption,
         audience: audience,
@@ -106,28 +147,36 @@ class ReelComposerController extends ChangeNotifier {
         reelStyle: normalizeOptionalMap(reelStyle),
       );
       _pendingPublishRequest = request;
+      final signature =
+          '${uploadVideo.path}\n${uploadVideo.sizeBytes}\n${uploadVideo.mimeType}';
+      if (_uploadSourceSignature != null &&
+          _uploadSourceSignature != signature) {
+        _uploadSourceRevision++;
+      }
+      _uploadSourceSignature = signature;
       _set(ReelComposerStage.creatingSession);
       final session = await api.createUploadSession(
-        sizeBytes: video.sizeBytes ?? 0,
-        mimeType: video.mimeType ?? 'video/mp4',
-        fileName: video.name,
-        idempotencyKey: idempotencyKey,
+        sizeBytes: uploadVideo.sizeBytes ?? 0,
+        mimeType: uploadVideo.mimeType ?? 'video/mp4',
+        fileName: uploadVideo.name,
+        idempotencyKey: _uploadSourceRevision == 0
+            ? idempotencyKey
+            : '$idempotencyKey-source-$_uploadSourceRevision',
       );
+      if (!_isCurrent(generation)) return;
       _assetId = session.assetId;
 
       _set(ReelComposerStage.uploading, progress: 0);
+      _tus?.dispose();
       final tus = tusFactory(
         uploadUrl: session.uploadUrl,
-        totalBytes: video.sizeBytes ?? 0,
+        totalBytes: uploadVideo.sizeBytes ?? 0,
         assetId: session.assetId,
+        video: uploadVideo,
       );
       _tus = tus;
-      final sub = tus.progress.listen((p) {
-        _progress = p.fraction;
-        if (p.state == TusUploadState.uploading) notifyListeners();
-      });
-      final result = await tus.start();
-      await sub.cancel();
+      final result = await _upload(tus, generation);
+      if (!_isCurrent(generation)) return;
 
       if (result == TusUploadState.cancelled) {
         _set(ReelComposerStage.cancelled);
@@ -147,33 +196,65 @@ class ReelComposerController extends ChangeNotifier {
       // publicly with an incomplete asset.
       _set(ReelComposerStage.processing, progress: 1);
 
-      final readyAssetId = await _waitForReadyAsset(session.assetId);
+      final readyAssetId = await _waitForReadyAsset(
+        session.assetId,
+        generation,
+      );
+      if (!_isCurrent(generation)) return;
       if (readyAssetId == null) {
         _set(ReelComposerStage.failed, error: reelProcessingFailureMessage);
         return;
       }
 
-      await _publishReadyReel(readyAssetId, request);
+      await _publishReadyReel(readyAssetId, request, generation);
     } catch (error) {
+      if (!_isCurrent(generation)) return;
       final failedStage = _stage;
       _debugLogReelPublishFailure(error, failedStage);
       _set(
         ReelComposerStage.failed,
         error: mapReelPublishError(error, failedStage),
       );
+    } finally {
+      _running = false;
+    }
+  }
+
+  bool _isCurrent(int generation) => !_disposed && generation == _generation;
+
+  Future<TusUploadState> _upload(TusUploadClient tus, int generation) async {
+    await _progressSubscription?.cancel();
+    _progressSubscription = tus.progress.listen((progress) {
+      if (!_isCurrent(generation)) return;
+      _progress = progress.fraction;
+      notifyListeners();
+    });
+    try {
+      return await tus.start();
+    } finally {
+      await _progressSubscription?.cancel();
+      _progressSubscription = null;
     }
   }
 
   void pauseUpload() {
+    if (_disposed || _stage != ReelComposerStage.uploading) return;
     _tus?.pause();
-    _set(ReelComposerStage.paused);
   }
 
   Future<void> resumeUpload() async {
-    if (_tus == null) return;
+    if (_disposed ||
+        _running ||
+        _tus == null ||
+        _stage != ReelComposerStage.paused) {
+      return;
+    }
+    _running = true;
+    final generation = ++_generation;
     try {
       _set(ReelComposerStage.uploading);
-      final result = await _tus!.start();
+      final result = await _upload(_tus!, generation);
+      if (!_isCurrent(generation)) return;
       if (result == TusUploadState.cancelled) {
         _set(ReelComposerStage.cancelled);
         return;
@@ -193,26 +274,33 @@ class ReelComposerController extends ChangeNotifier {
         return;
       }
       _set(ReelComposerStage.processing, progress: 1);
-      final readyAssetId = await _waitForReadyAsset(assetId);
+      final readyAssetId = await _waitForReadyAsset(assetId, generation);
+      if (!_isCurrent(generation)) return;
       if (readyAssetId == null) {
         _set(ReelComposerStage.failed, error: reelProcessingFailureMessage);
         return;
       }
-      await _publishReadyReel(readyAssetId, request);
+      await _publishReadyReel(readyAssetId, request, generation);
     } catch (error) {
+      if (!_isCurrent(generation)) return;
       final failedStage = _stage;
       _debugLogReelPublishFailure(error, failedStage);
       _set(
         ReelComposerStage.failed,
         error: mapReelPublishError(error, failedStage),
       );
+    } finally {
+      _running = false;
     }
   }
 
   Future<void> _publishReadyReel(
     int readyAssetId,
     _ReelPublishRequest request,
+    int generation,
   ) async {
+    if (!_isCurrent(generation)) return;
+    _set(ReelComposerStage.publishing, progress: 1);
     final reelId = await api.publishReel(
       assetId: readyAssetId,
       caption: request.caption,
@@ -222,14 +310,17 @@ class ReelComposerController extends ChangeNotifier {
       reelStyle: request.reelStyle,
       idempotencyKey: idempotencyKey,
     );
+    if (!_isCurrent(generation)) return;
     _publishedReelId = reelId;
     _set(ReelComposerStage.published);
   }
 
-  Future<int?> _waitForReadyAsset(int assetId) async {
+  Future<int?> _waitForReadyAsset(int assetId, int generation) async {
     const attempts = 30;
     for (var i = 0; i < attempts; i++) {
+      if (!_isCurrent(generation)) return null;
       final status = (await api.pollStatus(assetId)).trim().toLowerCase();
+      if (!_isCurrent(generation)) return null;
       if (status == 'ready' || status == 'published') {
         return assetId;
       }
@@ -245,12 +336,20 @@ class ReelComposerController extends ChangeNotifier {
   }
 
   void cancelUpload() {
+    if (!canCancel) return;
+    _generation++;
+    _preparationCancel?.cancel();
     _tus?.cancel();
     _set(ReelComposerStage.cancelled);
   }
 
   @override
   void dispose() {
+    _disposed = true;
+    _generation++;
+    _preparationCancel?.cancel();
+    unawaited(_progressSubscription?.cancel());
+    _tus?.cancel();
     _tus?.dispose();
     super.dispose();
   }
@@ -283,6 +382,9 @@ const reelSessionRecoveryMessage =
 const reelServerFailureMessage = 'تعذر نشر الريل حالياً.';
 
 String mapReelPublishError(Object error, ReelComposerStage stage) {
+  if (stage == ReelComposerStage.preparing) {
+    return 'تعذر تجهيز الفيديو. بقيت تعديلاتك محفوظة هنا؛ حاول مرة أخرى.';
+  }
   if (error is ReelInvalidResponseException || error is FormatException) {
     return reelInvalidResponseMessage;
   }

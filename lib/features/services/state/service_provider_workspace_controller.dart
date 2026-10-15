@@ -163,6 +163,8 @@ class ServiceProviderWorkspaceController
     String? note,
     DateTime? scheduledStartAt,
     DateTime? scheduledEndAt,
+    int? expectedVersion,
+    String? idempotencyKey,
   }) async {
     try {
       await ref
@@ -173,6 +175,32 @@ class ServiceProviderWorkspaceController
             note: note,
             scheduledStartAt: scheduledStartAt,
             scheduledEndAt: scheduledEndAt,
+            expectedVersion: expectedVersion,
+            idempotencyKey: idempotencyKey,
+          );
+      await loadRequests();
+      await loadWorkspace();
+    } catch (e) {
+      state = state.copyWith(error: '$e');
+    }
+  }
+
+  Future<void> routeCentralRequest({
+    required int requestId,
+    required String routingStatus,
+    String? professionalName,
+    String? professionalPhone,
+    String? note,
+  }) async {
+    try {
+      await ref
+          .read(servicesApiProvider)
+          .routeCentralServiceRequest(
+            requestId: requestId,
+            routingStatus: routingStatus,
+            professionalName: professionalName,
+            professionalPhone: professionalPhone,
+            note: note,
           );
       await loadRequests();
       await loadWorkspace();

@@ -28,6 +28,9 @@ class ReelV3ViewData {
     required this.audioLabel,
     required this.localContextBadge,
     this.followState = 'none',
+    this.storyStyle = const {},
+    this.commentsEnabled = true,
+    this.sharingEnabled = true,
   });
 
   final int postId;
@@ -59,6 +62,9 @@ class ReelV3ViewData {
   /// Supported values: `none`, `pending_outgoing`, `pending_incoming`,
   /// `accepted`, `blocked`, `self`.
   final String followState;
+  final Map<String, dynamic> storyStyle;
+  final bool commentsEnabled;
+  final bool sharingEnabled;
 
   ReelV3ViewData copyWith({
     int? likesCount,
@@ -85,6 +91,9 @@ class ReelV3ViewData {
       audioLabel: audioLabel,
       localContextBadge: localContextBadge,
       followState: nextFollowState ?? followState,
+      storyStyle: storyStyle,
+      commentsEnabled: commentsEnabled,
+      sharingEnabled: sharingEnabled,
     );
   }
 
@@ -114,6 +123,9 @@ class ReelV3ViewData {
       audioLabel: defaultAudioLabel,
       localContextBadge: _localContextBadge(post),
       followState: 'none',
+      storyStyle: post.storyStyle,
+      commentsEnabled: post.commentsEnabled,
+      sharingEnabled: post.sharingEnabled,
     );
   }
 

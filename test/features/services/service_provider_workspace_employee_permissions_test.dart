@@ -311,59 +311,52 @@ void main() {
     },
   );
 
-  testWidgets(
-    'service provider can add a subcategory from the create offering dialog',
-    (tester) async {
-      await tester.binding.setSurfaceSize(const Size(1440, 1800));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('create offering dialog exposes main and subcategory choices', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 1800));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            serviceProviderWorkspaceControllerProvider.overrideWith(
-              (ref) => _FakeServiceProviderWorkspaceController(
-                ref,
-                ServiceProviderWorkspaceState(workspace: _workspace()),
-              ),
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          serviceProviderWorkspaceControllerProvider.overrideWith(
+            (ref) => _FakeServiceProviderWorkspaceController(
+              ref,
+              ServiceProviderWorkspaceState(workspace: _workspace()),
             ),
-            servicesApiProvider.overrideWithValue(_FakeServicesApi()),
-          ],
-          child: const MaterialApp(
-            locale: Locale('ar'),
-            home: ServiceProviderWorkspaceScreen(),
           ),
+          servicesApiProvider.overrideWithValue(_FakeServicesApi()),
+        ],
+        child: const MaterialApp(
+          locale: Locale('ar'),
+          home: ServiceProviderWorkspaceScreen(),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      final createButton = find.text('خدمة جديدة');
-      expect(createButton, findsOneWidget);
-      await tester.ensureVisible(createButton);
-      await tester.tap(createButton);
-      await tester.pumpAndSettle();
+    final createButton = find.text('خدمة جديدة');
+    expect(createButton, findsOneWidget);
+    await tester.ensureVisible(createButton);
+    await tester.tap(createButton);
+    await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const Key('service_subcategory_dropdown')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const Key('service_add_subcategory_button')),
-        findsOneWidget,
-      );
-
-      await tester.tap(find.byKey(const Key('service_add_subcategory_button')));
-      await tester.pumpAndSettle();
-
-      expect(find.text('إضافة فئة فرعية'), findsWidgets);
-
-      await tester.enterText(find.byType(TextField).last, 'تنظيف حمامات');
-      await tester.tap(find.text('حفظ').last);
-      await tester.pumpAndSettle();
-
-      expect(find.text('تنظيف حمامات'), findsWidgets);
-      expect(tester.takeException(), isNull);
-    },
-  );
+    expect(
+      find.byKey(const Key('service_main_category_dropdown')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('service_subcategory_dropdown')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('service_add_subcategory_button')),
+      findsNothing,
+    );
+    expect(find.textContaining('القسم الرئيسي'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'service provider can create an offering without crashing after submit',
@@ -398,20 +391,32 @@ void main() {
       await tester.tap(createButton);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const Key('service_add_subcategory_button')));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'تنظيف حمامات');
-      await tester.tap(find.text('حفظ').last);
-      await tester.pumpAndSettle();
-
       await tester.enterText(find.byType(TextField).at(0), 'تنظيف شقق');
       await tester.enterText(find.byType(TextField).at(1), 'تنظيف شامل للشقة');
+
+      await tester.tap(find.text('تسعير مخصص').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('باقة ثابتة').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('service_price_field')),
+        '5000',
+      );
+      await tester.enterText(
+        find.byKey(const Key('service_price_label_field')),
+        'للساعة',
+      );
 
       await tester.tap(find.text('إنشاء').last);
       await tester.pumpAndSettle();
 
       expect(fakeApi.createdOfferings, hasLength(1));
       expect(fakeApi.createdOfferings.single['name'], 'تنظيف شقق');
+      final pricingOptions = List<Map<String, dynamic>>.from(
+        fakeApi.createdOfferings.single['pricingOptions'] as List,
+      );
+      expect(pricingOptions.single['amount'], 5000);
+      expect(pricingOptions.single['label'], 'للساعة');
       expect(tester.takeException(), isNull);
     },
   );

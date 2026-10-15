@@ -33,7 +33,7 @@ const CARD_DEFS = [
   {
     key: "delivery",
     title: "متابعة الدلفري",
-    permission: "orders.read",
+    permission: "delivery.couriers.read",
     wired: true,
     detailPath: "/admin/monitoring/delivery/couriers",
     counters: () => monitoringRepo.getDeliveryMonitoringCounters(),
@@ -89,7 +89,7 @@ const CARD_DEFS = [
   {
     key: "ops_alerts",
     title: "التنبيهات التشغيلية",
-    permission: "settings.guides.manage",
+    permission: "ops.alerts.read",
     wired: true,
     detailPath: "/admin/ops/alerts",
     counters: () => monitoringRepo.getOpsAlertMonitoringCounters(),
@@ -375,6 +375,39 @@ export async function orderDetail(req, res, next) {
         reason,
       });
     }
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
+export async function assignOrderCourier(req, res, next) {
+  try {
+    const orderId = Number(req.params.orderId);
+    const body = req.body || {};
+    const courierUserId =
+      body.courierUserId === undefined ? null : body.courierUserId;
+    const out = await monitoringRepo.assignOrderCourierForMonitoring({
+      actorUserId: req.userId,
+      orderId,
+      courierUserId,
+      allowBusyCourier: truthy(body.allowBusyCourier),
+      note: body.note ?? body.reason ?? null,
+    });
+    void recordAudit({
+      ...auditContextFromReq(req),
+      actionKey: "monitoring.orders.courier.assign",
+      summary: "Manual courier assignment from monitoring",
+      targetType: "customer_order",
+      targetId: orderId,
+      metadata: {
+        courierUserId: courierUserId == null ? null : Number(courierUserId),
+        allowBusyCourier: truthy(body.allowBusyCourier),
+        removed: out.removed === true,
+        previousCourierUserId: out.previousDriver?.id || null,
+      },
+      permissionKey: "orders.modify",
+    });
     return res.json(out);
   } catch (error) {
     return next(error);

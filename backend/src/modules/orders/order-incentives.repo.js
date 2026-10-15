@@ -33,6 +33,55 @@ async function recalculateCouponUsesCountTx(client, couponId) {
   );
 }
 
+async function incrementCouponUseIfAvailableTx(client, couponId, customerId) {
+  const lockedResult = await client.query(
+    `SELECT id, is_active, valid_from, valid_until, max_uses, uses_count,
+            max_uses_per_user
+     FROM coupon
+     WHERE id = $1
+     FOR UPDATE`,
+    [Number(couponId)],
+  );
+  const coupon = lockedResult.rows[0] || null;
+  const now = Date.now();
+  const unavailable =
+    !coupon ||
+    coupon.is_active !== true ||
+    (coupon.valid_from && new Date(coupon.valid_from).getTime() > now) ||
+    (coupon.valid_until && new Date(coupon.valid_until).getTime() < now) ||
+    (Number(coupon.max_uses || 0) > 0 &&
+      Number(coupon.uses_count || 0) >= Number(coupon.max_uses));
+  if (unavailable) {
+    const err = new Error("COUPON_INVALID_OR_EXPIRED");
+    err.status = 409;
+    throw err;
+  }
+
+  const maxUsesPerUser = Number(coupon.max_uses_per_user || 0);
+  if (maxUsesPerUser > 0) {
+    const usageResult = await client.query(
+      `SELECT COUNT(*)::INT AS uses
+       FROM coupon_redemption
+       WHERE coupon_id = $1
+         AND customer_id = $2
+         AND COALESCE(is_void, FALSE) = FALSE`,
+      [Number(couponId), Number(customerId)],
+    );
+    if (Number(usageResult.rows[0]?.uses || 0) >= maxUsesPerUser) {
+      const err = new Error("COUPON_ALREADY_USED");
+      err.status = 409;
+      throw err;
+    }
+  }
+
+  await client.query(
+    `UPDATE coupon
+     SET uses_count = COALESCE(uses_count, 0) + 1
+     WHERE id = $1`,
+    [Number(couponId)],
+  );
+}
+
 function normalizeOrderRow(row) {
   if (!row) return null;
   return {
@@ -99,6 +148,11 @@ export async function consumeCouponRedemptionByOrderTx(
   let changed = false;
   if (existing.rows[0]) {
     if (existing.rows[0].is_void === true) {
+      await incrementCouponUseIfAvailableTx(
+        client,
+        normalizedCouponId,
+        normalizedCustomerId,
+      );
       try {
         await client.query(
           `UPDATE coupon_redemption
@@ -126,6 +180,11 @@ export async function consumeCouponRedemptionByOrderTx(
       changed = true;
     }
   } else {
+    await incrementCouponUseIfAvailableTx(
+      client,
+      normalizedCouponId,
+      normalizedCustomerId,
+    );
     try {
       await client.query(
         `INSERT INTO coupon_redemption
@@ -205,6 +264,11 @@ export async function syncCouponRedemptionForOrderStatusTx(
     }
   } else if (row) {
     if (row.is_void === true) {
+      await incrementCouponUseIfAvailableTx(
+        client,
+        Number(order.couponId),
+        Number(order.customerUserId),
+      );
       try {
         await client.query(
           `UPDATE coupon_redemption

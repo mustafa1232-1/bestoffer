@@ -168,6 +168,39 @@ void main() {
     expect(presentation.displayImageUrl, isNull);
   });
 
+  test('stored item snapshot uses the owning order store for display scope', () {
+    final presentation = OrderItemPresentationModel.fromRawMap(
+      <String, dynamic>{
+        'id': 28,
+        'order_id': 12,
+        'product_id': 2171,
+        'product_name': 'ذرة',
+        'quantity': 1,
+        'unit_price': 1250,
+        'line_total': 1250,
+        'display_snapshot_json': <String, dynamic>{
+          'version': 1,
+          'productId': 2171,
+          'productName': 'ذرة',
+          'quantity': 1,
+          'unitPrice': 1250,
+          'lineTotal': 1250,
+          'currency': 'IQD',
+          'storeId': 51,
+          'storeName': 'سوق الخضار',
+        },
+      },
+      orderContext: const <String, dynamic>{
+        'merchant_id': 52,
+        'merchant_name': 'علوة مسلكي',
+      },
+    );
+
+    expect(presentation.productName, 'ذرة');
+    expect(presentation.storeId, 52);
+    expect(presentation.storeName, 'علوة مسلكي');
+  });
+
   testWidgets('order item thumbnail falls back by activity type', (
     tester,
   ) async {

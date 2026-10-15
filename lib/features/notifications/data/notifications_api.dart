@@ -204,7 +204,13 @@ class NotificationsApi {
         unawaited(bootstrap());
       },
       onCancel: () async {
-        await activeSubscription?.cancel();
+        try {
+          await activeSubscription?.cancel();
+        } catch (_) {
+          // Cancellation can race an in-flight SSE/realtime request. Teardown
+          // must stay best-effort so disposal does not surface stale network
+          // errors after the owning provider/test has completed.
+        }
       },
     );
     return controller.stream;

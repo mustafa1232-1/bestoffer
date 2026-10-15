@@ -36,13 +36,14 @@ class AppBackdrop extends StatelessWidget {
           IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(0.0, -1.0),
-                  radius: 1.2,
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
                   colors: [
-                    tokens.glowPrimary.withValues(alpha: 0.18),
+                    tokens.surfacePrimary.withValues(alpha: 0.58),
                     Colors.transparent,
                   ],
+                  stops: const [0, 0.36],
                 ),
               ),
             ),
@@ -50,43 +51,31 @@ class AppBackdrop extends StatelessWidget {
           IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(-0.85, 0.8),
-                  radius: 0.82,
+                gradient: LinearGradient(
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
                   colors: [
-                    visual.accentGold.withValues(alpha: 0.10),
+                    visual.accentGold.withValues(alpha: 0.05),
+                    tokens.glowPrimary.withValues(alpha: 0.07),
                     Colors.transparent,
                   ],
-                ),
-              ),
-            ),
-          ),
-          IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: RadialGradient(
-                  center: const Alignment(1.0, -0.4),
-                  radius: 1.0,
-                  colors: [
-                    visual.accentBlue.withValues(alpha: 0.14),
-                    Colors.transparent,
-                  ],
+                  stops: const [0, 0.46, 1],
                 ),
               ),
             ),
           ),
           IgnorePointer(
             child: Opacity(
-              opacity: 0.18,
+              opacity: 0.11,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.white.withValues(alpha: 0.02),
+                      Colors.white.withValues(alpha: 0.20),
                       Colors.transparent,
-                      Colors.black.withValues(alpha: 0.14),
+                      tokens.textPrimary.withValues(alpha: 0.04),
                     ],
                     stops: const [0, 0.22, 1],
                   ),

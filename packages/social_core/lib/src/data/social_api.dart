@@ -85,6 +85,24 @@ class SocialApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
+  Future<Map<String, dynamic>> listFeedTabPosts({
+    required String feed,
+    int limit = 20,
+    int? beforeId,
+    String? kind,
+  }) async {
+    final response = await dio.get(
+      '/api/feed/posts',
+      queryParameters: {
+        'feed': feed,
+        'limit': limit,
+        if (beforeId != null) 'beforeId': beforeId,
+        if (kind != null) 'kind': kind,
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   Future<Map<String, dynamic>> listStories({
     int limitUsers = 30,
     int maxPerUser = 8,
@@ -508,6 +526,8 @@ class SocialApi {
     required String postKind,
     int? merchantId,
     int? reviewRating,
+    int? orderId,
+    int? productId,
     int? mediaAssetId,
     LocalMediaFile? mediaFile,
     List<LocalMediaFile>? mediaFiles,
@@ -532,6 +552,8 @@ class SocialApi {
       'postKind': postKind,
       'merchantId': merchantId,
       'reviewRating': reviewRating,
+      'orderId': orderId,
+      'productId': productId,
       'mediaAssetId': mediaAssetId,
       'reelStyle': normalizedReelStyle,
       'sharedEntityType': sharedEntityType,
@@ -823,6 +845,17 @@ class SocialApi {
 
   Future<Map<String, dynamic>> listThreads() async {
     final response = await dio.get('/api/feed/chats/threads');
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> contactMarketplaceListing({
+    required String listingType,
+    required int listingId,
+  }) async {
+    final response = await dio.post(
+      '/api/feed/marketplace/contact',
+      data: {'listingType': listingType, 'listingId': listingId},
+    );
     return Map<String, dynamic>.from(response.data as Map);
   }
 
@@ -1341,9 +1374,13 @@ class SocialApi {
     required String scopeCode,
     int limit = 60,
     int? beforeId,
+    int? afterId,
   }) async {
-    final query = <String, dynamic>{'limit': limit, 'beforeId': beforeId}
-      ..removeWhere((_, value) => value == null);
+    final query = <String, dynamic>{
+      'limit': limit,
+      'beforeId': beforeId,
+      'afterId': afterId,
+    }..removeWhere((_, value) => value == null);
     final response = await dio.get(
       '/api/feed/communities/$scopeType/$scopeCode/chat/messages',
       queryParameters: query,
@@ -1663,9 +1700,24 @@ class SocialApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> startThreadCall({required int threadId}) async {
+  Future<Map<String, dynamic>> startThreadCall({
+    required int threadId,
+    bool preferLiveKit = false,
+  }) async {
     final response = await dio.post(
       '/api/feed/chats/threads/$threadId/call/start',
+      data: {if (preferLiveKit) 'voiceTransport': 'auto'},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> getThreadCallVoiceToken({
+    required int threadId,
+    required int sessionId,
+  }) async {
+    final response = await dio.post(
+      '/api/feed/chats/threads/$threadId/call/voice-token',
+      data: {'sessionId': sessionId},
     );
     return Map<String, dynamic>.from(response.data as Map);
   }

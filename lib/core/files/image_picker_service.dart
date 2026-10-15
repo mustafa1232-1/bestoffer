@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image_picker_android/image_picker_android.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
@@ -102,6 +103,29 @@ Future<List<LocalImageFile>> pickMultipleImagesFromDevice({
   } catch (e) {
     _logMedia('pickMultiImage failed: $e');
     return const <LocalImageFile>[];
+  }
+}
+
+Future<LocalImageFile?> pickVideoFromDevice() async {
+  _logMedia('pickVideo started');
+  try {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      allowMultiple: false,
+      withData: kIsWeb,
+    );
+    if (result == null || result.files.isEmpty) return null;
+    final picked = result.files.first;
+    final file = LocalImageFile(
+      name: picked.name,
+      path: picked.path,
+      bytes: picked.bytes,
+    );
+    if (file.uploadValidationError != null) return null;
+    return file;
+  } catch (e) {
+    _logMedia('pickVideo failed: $e');
+    return null;
   }
 }
 

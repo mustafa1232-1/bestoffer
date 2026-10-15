@@ -79,25 +79,43 @@ ProviderContainer _container(_SpyMerchantsApi spy, String? role) {
 }
 
 void main() {
-  test('non-customer (owner) session does NOT call /api/merchants/ad-board', () async {
-    final spy = _SpyMerchantsApi();
-    final container = _container(spy, 'owner');
-
-    await container.read(customerAdBoardControllerProvider.notifier).load();
-
-    expect(spy.adBoardCalls, 0);
-    final state = container.read(customerAdBoardControllerProvider);
-    expect(state.valueOrNull, isEmpty);
-  });
-
-  test('store/hr/delivery roles are all blocked from the ad-board endpoint', () async {
-    for (final role in ['store', 'hr', 'delivery', 'captain', 'company', 'accountant', 'admin']) {
+  test(
+    'non-customer (owner) session does NOT call /api/merchants/ad-board',
+    () async {
       final spy = _SpyMerchantsApi();
-      final container = _container(spy, role);
+      final container = _container(spy, 'owner');
+
       await container.read(customerAdBoardControllerProvider.notifier).load();
-      expect(spy.adBoardCalls, 0, reason: 'role $role must not call ad-board');
-    }
-  });
+
+      expect(spy.adBoardCalls, 0);
+      final state = container.read(customerAdBoardControllerProvider);
+      expect(state.valueOrNull, isEmpty);
+    },
+  );
+
+  test(
+    'store/hr/delivery roles are all blocked from the ad-board endpoint',
+    () async {
+      for (final role in [
+        'store',
+        'hr',
+        'delivery',
+        'captain',
+        'company',
+        'accountant',
+        'admin',
+      ]) {
+        final spy = _SpyMerchantsApi();
+        final container = _container(spy, role);
+        await container.read(customerAdBoardControllerProvider.notifier).load();
+        expect(
+          spy.adBoardCalls,
+          0,
+          reason: 'role $role must not call ad-board',
+        );
+      }
+    },
+  );
 
   test('customer (role "user") session DOES load the ad-board', () async {
     final spy = _SpyMerchantsApi();
@@ -109,25 +127,28 @@ void main() {
     expect(spy.lastPlacement, 'HOME_MAIN');
   });
 
-  test('marketplace ad provider sends placement and category targeting', () async {
-    final spy = _SpyMerchantsApi();
-    final container = _container(spy, 'user');
+  test(
+    'marketplace ad provider sends placement and category targeting',
+    () async {
+      final spy = _SpyMerchantsApi();
+      final container = _container(spy, 'user');
 
-    await container.read(
-      marketplaceAdProvider(
-        const MarketplaceAdRequest(
-          placement: 'MARKETPLACE_CATEGORY',
-          type: 'market',
-          categoryKey: 'men',
-          activityType: 'fashion_clothing',
-        ),
-      ).future,
-    );
+      await container.read(
+        marketplaceAdProvider(
+          const MarketplaceAdRequest(
+            placement: 'MARKETPLACE_CATEGORY',
+            type: 'market',
+            categoryKey: 'men',
+            activityType: 'fashion_clothing',
+          ),
+        ).future,
+      );
 
-    expect(spy.adBoardCalls, 1);
-    expect(spy.lastPlacement, 'MARKETPLACE_CATEGORY');
-    expect(spy.lastType, 'market');
-    expect(spy.lastCategoryKey, 'men');
-    expect(spy.lastActivityType, 'fashion_clothing');
-  });
+      expect(spy.adBoardCalls, 1);
+      expect(spy.lastPlacement, 'MARKETPLACE_CATEGORY');
+      expect(spy.lastType, 'market');
+      expect(spy.lastCategoryKey, 'men');
+      expect(spy.lastActivityType, 'fashion_clothing');
+    },
+  );
 }

@@ -20,6 +20,8 @@ class OwnerMerchantModel {
   final String? tagline;
   final String? workingHours;
   final String? serviceAreaNote;
+  final double? latitude;
+  final double? longitude;
   final bool isOpen;
   final bool supportsChat;
   final bool supportsAttachments;
@@ -55,6 +57,8 @@ class OwnerMerchantModel {
     this.tagline,
     this.workingHours,
     this.serviceAreaNote,
+    this.latitude,
+    this.longitude,
     required this.isOpen,
     required this.supportsChat,
     required this.supportsAttachments,
@@ -125,6 +129,8 @@ class OwnerMerchantModel {
       serviceAreaNote: parseNullableString(
         j['service_area_note'] ?? j['serviceAreaNote'],
       ),
+      latitude: tryParseLocalizedDouble(j['latitude']),
+      longitude: tryParseLocalizedDouble(j['longitude']),
       isOpen: j['is_open'] ?? j['isOpen'] ?? true,
       supportsChat: parseBool(j['supports_chat'] ?? j['supportsChat']),
       supportsAttachments: parseBool(

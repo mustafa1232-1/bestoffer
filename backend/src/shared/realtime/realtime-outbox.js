@@ -38,11 +38,22 @@ export function computeOutboxDedupeKey({ topic, event, payload } = {}) {
   return createHash("sha1").update(basis).digest("hex");
 }
 
-function isUndefinedColumnError(error) {
+function isUndefinedDedupeColumnError(error) {
   // Postgres 42703 = undefined_column (dedupe_key migration not applied yet).
   return (
     error?.code === "42703" ||
     /column .*dedupe_key.* does not exist/i.test(String(error?.message || ""))
+  );
+}
+
+function isMissingDedupeConstraintError(error) {
+  // Postgres 42P10 means the column exists but the partial unique index does
+  // not. This can occur briefly while an older production schema is upgraded.
+  return (
+    error?.code === "42P10" ||
+    /no unique or exclusion constraint matching the on conflict specification/i.test(
+      String(error?.message || "")
+    )
   );
 }
 
@@ -85,9 +96,10 @@ async function insertOutboxRow({ topic, event, payloadJson, lastError, dedupeKey
   // reuse that row (returning its id) instead of queuing a duplicate.
   const withDedupe = await dependencies.query(
     `INSERT INTO realtime_outbox
-        (topic, event, payload, last_error, dedupe_key)
+       (topic, event, payload, last_error, dedupe_key)
        VALUES ($1,$2,$3::jsonb,$4,$5)
-       ON CONFLICT (dedupe_key) WHERE status IN ('pending','processing')
+       ON CONFLICT (dedupe_key)
+       WHERE status IN ('pending','processing') AND dedupe_key IS NOT NULL
        DO UPDATE SET last_error = COALESCE(realtime_outbox.last_error, EXCLUDED.last_error)
        RETURNING id`,
     [topic, event, payloadJson, lastError, dedupeKey]
@@ -122,16 +134,25 @@ export async function enqueueRealtimeOutbox({
       dedupeKey,
     });
   } catch (insertError) {
-    // Backward compatibility: if the dedupe_key migration has not yet been
-    // applied, fall back to the plain insert so events are never lost.
-    if (isUndefinedColumnError(insertError)) {
+    // Deployment compatibility is intentionally fail-open for event storage:
+    // an application instance may start before migration 222 has reached the
+    // database. We temporarily lose de-duplication, never the notification.
+    if (
+      isUndefinedDedupeColumnError(insertError) ||
+      isMissingDedupeConstraintError(insertError)
+    ) {
       try {
+        const hasDedupeColumn = !isUndefinedDedupeColumnError(insertError);
         const result = await dependencies.query(
           `INSERT INTO realtime_outbox
-            (topic, event, payload, last_error)
-           VALUES ($1,$2,$3::jsonb,$4)
+            (${hasDedupeColumn
+              ? "topic, event, payload, last_error, dedupe_key"
+              : "topic, event, payload, last_error"})
+           VALUES (${hasDedupeColumn ? "$1,$2,$3::jsonb,$4,$5" : "$1,$2,$3::jsonb,$4"})
            RETURNING id`,
-          [safeTopic, safeEvent, payloadJson, lastError]
+          hasDedupeColumn
+            ? [safeTopic, safeEvent, payloadJson, lastError, dedupeKey]
+            : [safeTopic, safeEvent, payloadJson, lastError]
         );
         return Number(result.rows[0]?.id || 0) || null;
       } catch (fallbackError) {

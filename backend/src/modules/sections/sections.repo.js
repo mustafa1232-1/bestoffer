@@ -142,6 +142,7 @@ export async function upsertSectionAvailability({
            updated_by_user_id = $11,
            updated_at = NOW()
          WHERE id = $1
+           AND surface_scope = $2
          RETURNING *`,
         [
           Number(current.id),

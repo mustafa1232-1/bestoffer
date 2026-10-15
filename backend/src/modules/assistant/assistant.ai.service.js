@@ -1218,9 +1218,13 @@ function commerceCard(item) {
     productId: Number(item.product_id),
     productName: item.product_name || "",
     productDescription: item.product_description || "",
+    productImageUrl: item.product_image_url || null,
+    categoryId: Number(item.category_id || 0) || null,
     merchantId: Number(item.merchant_id),
     merchantName: item.merchant_name || "",
     merchantType: item.merchant_type || "",
+    merchantImageUrl: item.merchant_image_url || null,
+    isOpen: item.is_open !== false,
     categoryName: item.category_name || "",
     effectivePrice: Number(item.effective_price || 0),
     basePrice: Number(item.base_price || 0),
@@ -1228,9 +1232,197 @@ function commerceCard(item) {
     freeDelivery: item.free_delivery === true,
     offerLabel: item.offer_label || null,
     avgRating: Number(item.merchant_avg_rating || 0),
+    ratingCount: Number(item.merchant_rating_count || 0),
     avgDeliveryMinutes: Number(item.merchant_avg_delivery_minutes || 0),
     completedOrders: Number(item.merchant_completed_orders || 0),
   };
+}
+
+const COMMERCE_QUERY_STOP_WORDS = new Set([
+  "اريد",
+  "أريد",
+  "احتاج",
+  "أحتاج",
+  "ابحث",
+  "أبحث",
+  "عن",
+  "لي",
+  "من",
+  "في",
+  "جيد",
+  "جيدة",
+  "افضل",
+  "أفضل",
+  "منتج",
+  "متجر",
+  "شيء",
+  "want",
+  "need",
+  "find",
+  "best",
+  "good",
+  "product",
+]);
+
+function normalizeCommerceText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u064b-\u065f\u0670]/g, "")
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ة/g, "ه")
+    .replace(/ى/g, "ي")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function commerceQueryTokens(value) {
+  return normalizeCommerceText(value)
+    .split(/\s+/)
+    .filter((token) => token.length >= 2 && !COMMERCE_QUERY_STOP_WORDS.has(token));
+}
+
+function normalizedInverse(value, min, max, fallback = 0.5) {
+  const number = Number(value || 0);
+  if (!Number.isFinite(number) || number <= 0) return fallback;
+  if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return 1;
+  return 1 - (number - min) / (max - min);
+}
+
+function commerceWeights(priority) {
+  switch (priority) {
+    case "price":
+      return { relevance: 0.3, price: 0.4, rating: 0.1, speed: 0.05, offer: 0.1, trust: 0.05 };
+    case "rating":
+      return { relevance: 0.25, price: 0.03, rating: 0.58, speed: 0.02, offer: 0.02, trust: 0.1 };
+    case "speed":
+      return { relevance: 0.3, price: 0.1, rating: 0.1, speed: 0.35, offer: 0.05, trust: 0.1 };
+    case "offers":
+      return { relevance: 0.3, price: 0.15, rating: 0.1, speed: 0.05, offer: 0.35, trust: 0.05 };
+    default:
+      return { relevance: 0.35, price: 0.2, rating: 0.2, speed: 0.1, offer: 0.05, trust: 0.1 };
+  }
+}
+
+function commerceReason(item, recommendationKey) {
+  if (recommendationKey === "best_price") {
+    return "أقل سعر مناسب ضمن الخيارات المتاحة حاليًا.";
+  }
+  if (recommendationKey === "fastest") {
+    return `من أسرع الخيارات وصولًا بمتوسط ${Math.round(item.avgDeliveryMinutes)} دقيقة.`;
+  }
+  if (recommendationKey === "best_rating") {
+    return "تقييم قوي ومدعوم بعدد طلبات ومراجعات موثوق.";
+  }
+  const discountedPrice = Number(item.discountedPrice || 0);
+  const basePrice = Number(item.basePrice || 0);
+  if (item.freeDelivery || (discountedPrice > 0 && discountedPrice < basePrice)) {
+    return "اختيار متوازن مع عرض فعلي متاح الآن.";
+  }
+  return "أفضل توازن بين مطابقة طلبك والسعر والتقييم وسرعة التوصيل.";
+}
+
+export function rankCommerceCandidates(
+  items,
+  { query = "", maxPrice = null, priority = "balanced", limit = 12 } = {}
+) {
+  const tokens = commerceQueryTokens(query);
+  const eligible = items.filter((item) => {
+    const price = Number(item.effectivePrice || 0);
+    return price > 0 && (maxPrice == null || price <= Number(maxPrice));
+  });
+  if (!eligible.length) return [];
+
+  const prices = eligible.map((item) => Number(item.effectivePrice || 0)).filter((value) => value > 0);
+  const deliveryTimes = eligible
+    .map((item) => Number(item.avgDeliveryMinutes || 0))
+    .filter((value) => value > 0);
+  const minPrice = Math.min(...prices);
+  const maxObservedPrice = Math.max(...prices);
+  const minDelivery = deliveryTimes.length ? Math.min(...deliveryTimes) : 0;
+  const maxDelivery = deliveryTimes.length ? Math.max(...deliveryTimes) : 0;
+  const weights = commerceWeights(priority);
+
+  const ranked = eligible
+    .map((item) => {
+      const haystack = normalizeCommerceText(
+        `${item.productName} ${item.productDescription} ${item.merchantName} ${item.categoryName}`
+      );
+      const tokenHits = tokens.filter((token) => haystack.includes(token)).length;
+      const relevance = tokens.length ? tokenHits / tokens.length : 0.72;
+      const rating = Math.max(0, Math.min(5, Number(item.avgRating || 0)));
+      const ratingCount = Math.max(0, Number(item.ratingCount || 0));
+      const bayesianRating = (rating * ratingCount + 4 * 20) / (ratingCount + 20) / 5;
+      const priceScore = normalizedInverse(item.effectivePrice, minPrice, maxObservedPrice, 0.5);
+      const speedScore = normalizedInverse(item.avgDeliveryMinutes, minDelivery, maxDelivery, 0.45);
+      const discountedPrice = Number(item.discountedPrice || 0);
+      const basePrice = Number(item.basePrice || 0);
+      const offerScore =
+        item.freeDelivery || (discountedPrice > 0 && discountedPrice < basePrice) ? 1 : 0;
+      const trustScore = Math.min(1, Math.log10(Number(item.completedOrders || 0) + 1) / 3);
+      const score =
+        relevance * weights.relevance +
+        priceScore * weights.price +
+        bayesianRating * weights.rating +
+        speedScore * weights.speed +
+        offerScore * weights.offer +
+        trustScore * weights.trust;
+      return {
+        ...item,
+        score: Number(score.toFixed(4)),
+        scoreBreakdown: {
+          relevance: Number(relevance.toFixed(3)),
+          price: Number(priceScore.toFixed(3)),
+          rating: Number(bayesianRating.toFixed(3)),
+          speed: Number(speedScore.toFixed(3)),
+          offer: offerScore,
+          trust: Number(trustScore.toFixed(3)),
+        },
+      };
+    })
+    .filter((item) => tokens.length === 0 || item.scoreBreakdown.relevance > 0)
+    .sort((a, b) => b.score - a.score);
+
+  if (!ranked.length) return [];
+  const selected = [];
+  const addUnique = (item, recommendationKey) => {
+    if (!item) return;
+    const existing = selected.find((entry) => entry.productId === item.productId);
+    if (existing) {
+      if (!existing.recommendationTags.includes(recommendationKey)) {
+        existing.recommendationTags.push(recommendationKey);
+      }
+      return;
+    }
+    selected.push({
+      ...item,
+      recommendationKey,
+      recommendationTags: [recommendationKey],
+      reason: commerceReason(item, recommendationKey),
+    });
+  };
+
+  const primaryKey =
+    priority === "rating"
+      ? "best_rating"
+      : priority === "price"
+        ? "best_price"
+        : priority === "speed"
+          ? "fastest"
+          : "best_match";
+  addUnique(ranked[0], primaryKey);
+  addUnique(
+    [...ranked].sort((a, b) => a.effectivePrice - b.effectivePrice)[0],
+    "best_price"
+  );
+  addUnique(
+    [...ranked]
+      .filter((item) => Number(item.avgDeliveryMinutes || 0) > 0)
+      .sort((a, b) => a.avgDeliveryMinutes - b.avgDeliveryMinutes)[0],
+    "fastest"
+  );
+  ranked.forEach((item) => addUnique(item, "recommended"));
+  return selected.slice(0, limit);
 }
 
 function rankWithFallbackByQuery(items, queryText) {
@@ -1986,15 +2178,21 @@ export async function recommendCommerceForCustomer(customerUserId, dto = {}) {
   const queryText = safeText(dto.query, 300) || "";
   const kindRaw = String(dto.kind || "shopping").trim().toLowerCase();
   const kind = kindRaw === "restaurants" ? "restaurants" : "shopping";
+  const priority = String(dto.priority || "balanced").trim().toLowerCase();
+  const maxPrice = dto.maxPrice == null ? null : Number(dto.maxPrice);
 
-  const rawProfile = await assistantRepo.getProfile(customerUserId);
-  const profile = parseProfileJson(rawProfile);
-
-  const poolRaw = await aiRepo.listCommercePoolForRecommendations({
+  let poolRaw = await aiRepo.listCommercePoolForRecommendations({
     kind,
     search: queryText,
     limit: 500,
   });
+  if (!poolRaw.length && queryText) {
+    poolRaw = await aiRepo.listCommercePoolForRecommendations({
+      kind,
+      search: "",
+      limit: 500,
+    });
+  }
   const candidates = poolRaw.map(commerceCard);
   if (!candidates.length) {
     return buildRecommendationResponse({
@@ -2007,59 +2205,21 @@ export async function recommendCommerceForCustomer(customerUserId, dto = {}) {
       modelName: "fallback_rules",
     });
   }
-
-  let rankedItems = [];
-  let modelName = "fallback_rules";
-  let confidence = 0.62;
-  let summary = null;
-
-  const aiResult = await callOpenAiJson({
-    systemPrompt:
-      "You are a shopping recommendation engine. Return JSON only using schema {summary:string, confidence:number, picks:[{productId:number, score:number(0..1), reason:string}]}. Never invent product ids.",
-    userPayload: {
-      queryText,
-      kind,
-      customerProfile: profile,
-      candidates: candidates.slice(0, 80),
-    },
-    temperature: 0.18,
-    maxTokens: 1200,
+  const rankedItems = rankCommerceCandidates(candidates, {
+    query: queryText,
+    maxPrice,
+    priority,
+    limit,
   });
-
-  if (aiResult.ok) {
-    modelName = aiResult.model || OPENAI_MODEL;
-    confidence = clampFloat(aiResult.json?.confidence, 0.35, 0.99, 0.75);
-    summary = safeText(aiResult.json?.summary, 1800);
-    const picks = Array.isArray(aiResult.json?.picks) ? aiResult.json.picks : [];
-    const byProductId = new Map(candidates.map((item) => [Number(item.productId), item]));
-    rankedItems = picks
-      .map((pick) => {
-        const productId = Number(pick?.productId || 0);
-        const card = byProductId.get(productId);
-        if (!card) return null;
-        return {
-          ...card,
-          score: clampFloat(pick?.score, 0, 1, 0.7),
-          reason: safeText(pick?.reason, 400),
-        };
-      })
-      .filter(Boolean)
-      .slice(0, limit);
-  }
-
-  if (!rankedItems.length) {
-    rankedItems = rankWithFallbackByQuery(candidates, queryText)
-      .slice(0, limit)
-      .map((item) => ({
-        ...item,
-        reason: "تم الترتيب حسب التوافق مع البحث والتقييم والسعر.",
-      }));
-    summary =
-      summary ||
-      (kind === "restaurants"
-        ? "هذه أفضل خيارات المطاعم المتاحة الآن."
-        : "هذه أفضل المنتجات المتاحة الآن.");
-  }
+  const modelName = "deterministic_commerce_ranking_v2";
+  const confidence = rankedItems.length >= 3 ? 0.9 : rankedItems.length ? 0.76 : 0.92;
+  const summary = rankedItems.length
+    ? kind === "restaurants"
+      ? `وجدنا ${rankedItems.length} خيارات طعام مطابقة ورتبناها حسب اختيارك.`
+      : `وجدنا ${rankedItems.length} منتجات مطابقة ورتبناها حسب اختيارك.`
+    : maxPrice != null
+      ? "لا توجد نتائج مطابقة ضمن الميزانية المحددة. جرّب ميزانية أعلى أو عبارة بحث أبسط."
+      : "لا توجد نتائج مطابقة الآن. جرّب كتابة اسم المنتج أو التصنيف بصورة أبسط.";
 
   await aiRepo.saveRecommendationSnapshot({
     customerUserId,
@@ -2070,12 +2230,21 @@ export async function recommendCommerceForCustomer(customerUserId, dto = {}) {
     confidence,
   });
 
-  return buildRecommendationResponse({
-    items: rankedItems,
-    summary,
-    modelName,
-    confidence,
-  });
+  return {
+    ...buildRecommendationResponse({
+      items: rankedItems,
+      summary,
+      modelName,
+      confidence,
+    }),
+    appliedFilters: {
+      kind,
+      priority,
+      maxPrice,
+      query: queryText,
+    },
+    totalCandidates: candidates.length,
+  };
 }
 
 function fallbackPostModerationEvaluation(post) {
@@ -2710,6 +2879,38 @@ export async function listAiChatSessionsForAdmin(query = {}) {
     aiRepo.countAdminAiChatSessions({ search }),
   ]);
   return { items, total, limit, offset };
+}
+
+export async function listAiChatUsersForAdmin(query = {}) {
+  const limit = clampInt(query?.limit, 1, 200, 40);
+  const offset = clampInt(query?.offset, 0, 50000, 0);
+  const search = safeText(query?.search, 120) || "";
+  const [items, total] = await Promise.all([
+    aiRepo.listAdminAiChatUsers({ search, limit, offset }),
+    aiRepo.countAdminAiChatUsers({ search }),
+  ]);
+  return { items, total, limit, offset };
+}
+
+export async function listAiChatSessionsForUserForAdmin(customerUserId, query = {}) {
+  const id = Number(customerUserId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new AppError("VALIDATION_ERROR", {
+      status: 400,
+      details: { fields: ["customerUserId"] },
+    });
+  }
+  const limit = clampInt(query?.limit, 1, 200, 40);
+  const offset = clampInt(query?.offset, 0, 50000, 0);
+  const [items, total] = await Promise.all([
+    aiRepo.listAdminAiChatSessionsForUser({
+      customerUserId: id,
+      limit,
+      offset,
+    }),
+    aiRepo.countAdminAiChatSessionsForUser({ customerUserId: id }),
+  ]);
+  return { items, total, limit, offset, customerUserId: id };
 }
 
 export async function listAiChatMessagesForAdmin(sessionId, query = {}) {

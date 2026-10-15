@@ -48,4 +48,10 @@ test('default user section definitions are available for admin availability setu
     getDefaultSectionDefinition('taxi')?.sortOrder < getDefaultSectionDefinition('cars')?.sortOrder,
     true,
   );
+  assert.deepEqual(getDefaultSectionDefinition('shopping')?.metadata.schedule, {
+    timeZone: 'Asia/Baghdad',
+    openTime: '08:00',
+    closeTime: '00:00',
+  });
+  assert.equal(getDefaultSectionDefinition('app')?.isVisible, false);
 });

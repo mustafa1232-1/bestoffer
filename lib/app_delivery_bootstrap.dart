@@ -22,6 +22,7 @@ import 'features/auth/state/auth_controller.dart';
 import 'features/delivery/state/delivery_controller.dart';
 import 'features/delivery/ui/delivery_dashboard_screen.dart';
 import 'features/delivery/ui/delivery_offer_overlay_screen.dart';
+import 'features/notifications/state/notifications_controller.dart';
 import 'l10n/app_localizations.dart';
 
 /// Dedicated bootstrap for the delivery app surface in the root app.
@@ -88,7 +89,17 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
     });
     Future.microtask(() async {
       await ref.read(mediaCacheServiceProvider).scheduleMaintenance();
-      await ref.read(authControllerProvider.notifier).bootstrap();
+      // Keep the first frame interactive even when session restore is slow.
+      // Auth continues in the background and its state listener will route to
+      // the dashboard once the session is verified.
+      final authBootstrap = ref
+          .read(authControllerProvider.notifier)
+          .bootstrap();
+      unawaited(authBootstrap.catchError((_) {}));
+
+      if (mounted) {
+        setState(() => _bootstrapped = true);
+      }
 
       if (!mounted) return;
       final localNotifications = ref.read(localNotificationsProvider);
@@ -104,9 +115,6 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
         await _ensurePushReadyAndSync(auth);
       }
       if (!mounted) return;
-      setState(() {
-        _bootstrapped = true;
-      });
       _consumePendingTapIfAny();
     });
   }
@@ -151,10 +159,12 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
         next.isDelivery &&
         nextUserId != null &&
         previousUserId != nextUserId) {
+      deliveryController.startPresenceHeartbeat();
       unawaited(_ensurePushReadyAndSync(next));
     }
 
     if (isAuthed && next.isDelivery) {
+      deliveryController.startPresenceHeartbeat();
       _consumePendingTapIfAny();
     }
   }
@@ -164,6 +174,9 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
       return;
     }
 
+    final deliveryController = ref.read(deliveryControllerProvider.notifier);
+    deliveryController.startPresenceHeartbeat();
+    ref.read(notificationsControllerProvider.notifier).startRealtime();
     final push = ref.read(pushNotificationsProvider);
     await push.initialize();
     await push.requestPermissionIfNeeded();
@@ -175,9 +188,9 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
     if (_pushSyncInFlight || _pushSyncedUserId == userId) return;
     _pushSyncInFlight = true;
     try {
-      await push.syncToken(userId: userId);
-      _pushSyncedUserId = userId;
-      ref.read(deliveryControllerProvider.notifier).startPresenceHeartbeat();
+      final synced = await push.syncToken(userId: userId);
+      if (synced) _pushSyncedUserId = userId;
+      deliveryController.startPresenceHeartbeat();
     } finally {
       _pushSyncInFlight = false;
     }
@@ -226,15 +239,17 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
   bool _isDeliveryOfferPayload(NotificationTapPayload payload) {
     final target = (payload.target ?? '').trim().toLowerCase();
     final type = (payload.type ?? '').trim().toLowerCase();
+    final action = (payload.action ?? '').trim().toLowerCase();
+    final isOfferTarget =
+        target == 'courier_orders_new' ||
+        target == 'delivery_order_offer' ||
+        target == 'courier_order_offer';
+    final isOfferType =
+        type == 'delivery_order_available' ||
+        type == 'delivery_order_offer' ||
+        type == 'courier_order_offer';
     return payload.orderId != null &&
-        (payload.requiresAction ||
-            target == 'courier_orders_new' ||
-            target == 'courier_orders_current' ||
-            target == 'delivery_order_offer' ||
-            target == 'courier_order_offer' ||
-            type == 'delivery_order_available' ||
-            type == 'delivery_order_offer' ||
-            type == 'courier_order_offer');
+        (isOfferTarget || isOfferType || action.contains('offer'));
   }
 
   bool _shouldSkipOfferOverlay(int orderId) {
@@ -326,7 +341,7 @@ class _MaslakiDeliveryAppState extends ConsumerState<MaslakiDeliveryApp>
           ),
         );
       },
-      home: !_bootstrapped
+      home: !_bootstrapped || auth.isSessionRecoveryInProgress
           ? const _DeliverySplashScreen()
           : _hasVerifiedSession(auth) && auth.isDelivery
           ? const DeliveryDashboardScreen()

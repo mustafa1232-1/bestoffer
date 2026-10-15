@@ -194,6 +194,8 @@ export function validateListPosts(query = {}) {
   const limit = Number(query.limit ?? 20);
   const beforeId = query.beforeId == null ? null : asPositiveInt(query.beforeId);
   const kind = asTrimmed(query.kind).toLowerCase();
+  const feed = asTrimmed(query.feed).toLowerCase();
+  if (feed && !["for_you", "following", "latest"].includes(feed)) errors.push("feed");
 
   if (!Number.isInteger(limit) || limit < 1 || limit > 50) errors.push("limit");
   if (query.beforeId != null && beforeId == null) errors.push("beforeId");
@@ -208,6 +210,7 @@ export function validateListPosts(query = {}) {
       limit: Math.min(50, Math.max(1, Number.isInteger(limit) ? limit : 20)),
       beforeId,
       kind: kind || null,
+      ...(feed ? { feed } : {}),
     },
   };
 }
@@ -266,6 +269,12 @@ export function validateCreatePost(body = {}) {
     body.storyStyle ?? body.story_style ?? body.reelStyle ?? body.reel_style,
     errors
   );
+  for (const key of ["commentsEnabled", "sharingEnabled"]) {
+    if (body[key] == null) continue;
+    const value = asBooleanOrNull(body[key]);
+    if (value == null) errors.push(key);
+    else storyStyle.postSettings = { ...storyStyle.postSettings, [key]: value };
+  }
   const requestedAudienceType = asTrimmed(
     body.audienceScopeType ??
       body.audience_scope_type ??
@@ -290,6 +299,14 @@ export function validateCreatePost(body = {}) {
     body.reviewRating == null || body.reviewRating === ""
       ? null
       : Number(body.reviewRating);
+  const rawOrderId = body.orderId ?? body.order_id;
+  const rawProductId = body.productId ?? body.product_id;
+  const orderId =
+    rawOrderId == null || rawOrderId === "" ? null : asPositiveInt(rawOrderId);
+  const productId =
+    rawProductId == null || rawProductId === ""
+      ? null
+      : asPositiveInt(rawProductId);
   const taggedUserIds = asPositiveIntArray(
     body.taggedUserIds ?? body.tagged_user_ids
   );
@@ -319,6 +336,12 @@ export function validateCreatePost(body = {}) {
     errors.push("postKind");
   }
   if (body.merchantId != null && merchantId == null) errors.push("merchantId");
+  if ((body.orderId != null || body.order_id != null) && orderId == null) {
+    errors.push("orderId");
+  }
+  if ((body.productId != null || body.product_id != null) && productId == null) {
+    errors.push("productId");
+  }
   if (body.mediaAssetId != null && mediaAssetId == null) errors.push("mediaAssetId");
   if (
     body.reviewRating != null &&
@@ -330,6 +353,7 @@ export function validateCreatePost(body = {}) {
   if (postKind === "merchant_review") {
     if (merchantId == null) errors.push("merchantId_required");
     if (reviewRating == null) errors.push("reviewRating_required");
+    if (orderId == null) errors.push("orderId_required");
   }
   if (sharedEntityType.length > 0) {
     if (!sharedEntityTypeAllowlist.has(sharedEntityType)) {
@@ -373,6 +397,8 @@ export function validateCreatePost(body = {}) {
       postKind,
       storyStyle,
       merchantId,
+      orderId,
+      productId,
       mediaAssetId,
       reviewRating: reviewRating == null ? null : Math.trunc(reviewRating),
       taggedUserIds,
@@ -658,6 +684,19 @@ function _parseStoryStyle(rawStyle, errors) {
   }
 
   const out = {};
+  if (style.postSettings != null) {
+    if (typeof style.postSettings !== "object" || Array.isArray(style.postSettings)) {
+      errors.push("storyStyle.postSettings");
+    } else {
+      out.postSettings = {};
+      for (const key of ["commentsEnabled", "sharingEnabled"]) {
+        if (style.postSettings[key] == null) continue;
+        const value = asBooleanOrNull(style.postSettings[key]);
+        if (value == null) errors.push(`storyStyle.postSettings.${key}`);
+        else out.postSettings[key] = value;
+      }
+    }
+  }
   const hexColorPattern = /^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$/;
   const textAlignAllowed = new Set(["left", "center", "right"]);
   const fontWeightAllowed = new Set(["normal", "bold", "heavy"]);
@@ -898,6 +937,11 @@ function _parseStoryStyle(rawStyle, errors) {
     max: 86400,
   });
   if (clipStartSecRaw != null) out.clipStartSec = clipStartSecRaw;
+
+  const coverFrameMs = readNumber(style.coverFrameMs, "storyStyle.coverFrameMs", {
+    min: 0, max: 3600000,
+  });
+  if (coverFrameMs != null) out.coverFrameMs = Math.trunc(coverFrameMs);
 
   const clipDurationSecRaw = readNumber(
     style.clipDurationSec,
@@ -1200,6 +1244,21 @@ export function validateCreateThread(body = {}) {
           ? { type: contextType, id: contextId }
           : null,
     },
+  };
+}
+
+export function validateMarketplaceContactBody(body = {}) {
+  const listingType = asTrimmed(body.listingType ?? body.listing_type).toLowerCase();
+  const listingId = asPositiveInt(body.listingId ?? body.listing_id);
+  const errors = [];
+  if (!["car_listing", "real_estate_listing"].includes(listingType)) {
+    errors.push("listingType");
+  }
+  if (listingId == null) errors.push("listingId");
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: { listingType, listingId },
   };
 }
 
@@ -1513,8 +1572,11 @@ export function validateUpdateSocialProfile(body = {}, opts = {}) {
   const errors = [];
   const hasImageUpload = opts?.hasImageUpload === true;
   const hasUsername = body.username !== undefined;
+  const fullNameInput = body.fullName ?? body.full_name;
   const hasFullName =
-    body.fullName !== undefined && body.fullName !== null && String(body.fullName).trim().length > 0;
+    fullNameInput !== undefined &&
+    fullNameInput !== null &&
+    String(fullNameInput).trim().length > 0;
   const hasBio = body.bio !== undefined && body.bio !== null;
   const hasAge = body.age !== undefined;
   const hasImageUrl =
@@ -1576,7 +1638,7 @@ export function validateUpdateSocialProfile(body = {}, opts = {}) {
   ) {
     errors.push("username");
   }
-  if (hasFullName && !isNonEmptyString(body.fullName, 120)) {
+  if (hasFullName && !isNonEmptyString(fullNameInput, 120)) {
     errors.push("fullName");
   }
 
@@ -1636,7 +1698,7 @@ export function validateUpdateSocialProfile(body = {}, opts = {}) {
     errors,
     value: {
       username: hasUsername ? String(body.username || "").trim().toLowerCase() : undefined,
-      fullName: hasFullName ? String(body.fullName).trim() : undefined,
+      fullName: hasFullName ? String(fullNameInput).trim() : undefined,
       bio: hasBio ? String(body.bio || "").trim() : undefined,
       age: hasAge ? age : undefined,
       imageUrl: hasImageUrl ? String(body.imageUrl).trim() : undefined,
@@ -1906,7 +1968,29 @@ export function validateCommunityAnnouncementBody(body = {}) {
 }
 
 export function validateCommunityChatListQuery(query = {}) {
-  return validateListCursorQuery(query, { defaultLimit: 60, maxLimit: 200 });
+  const base = validateListCursorQuery(query, {
+    defaultLimit: 60,
+    maxLimit: 200,
+  });
+  const afterId =
+    query.afterId == null || query.afterId === ""
+      ? null
+      : asPositiveInt(query.afterId);
+  const errors = [...base.errors];
+  if (query.afterId != null && query.afterId !== "" && afterId == null) {
+    errors.push("afterId");
+  }
+  if (base.value.beforeId != null && afterId != null) {
+    errors.push("cursor");
+  }
+  return {
+    ok: errors.length === 0,
+    errors,
+    value: {
+      ...base.value,
+      afterId,
+    },
+  };
 }
 
 export function validateCommunityChatMessageBody(body = {}) {

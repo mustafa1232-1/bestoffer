@@ -2,6 +2,8 @@ import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   test('the three official themes have distinct palettes', () {
     final original = AppTheme.tokensForTheme(MaslakiTheme.original);
     final twilight = AppTheme.tokensForTheme(MaslakiTheme.twilight);
@@ -40,5 +42,25 @@ void main() {
       MaslakiTheme.fromStorageValue('legacy_unknown'),
       MaslakiTheme.original,
     );
+  });
+
+  test('menus use opaque, readable surfaces in every theme', () {
+    for (final variant in MaslakiTheme.values) {
+      final tokens = AppTheme.tokensForTheme(variant);
+      final theme = AppTheme.themed(variant);
+
+      expect(theme.canvasColor, tokens.surfacePrimary);
+      expect(theme.canvasColor.a, 1);
+      expect(theme.popupMenuTheme.color, tokens.surfacePrimary);
+      expect(theme.popupMenuTheme.surfaceTintColor?.a, 0);
+      expect(
+        theme.dropdownMenuTheme.menuStyle?.backgroundColor?.resolve({}),
+        tokens.surfacePrimary,
+      );
+      expect(
+        theme.menuTheme.style?.backgroundColor?.resolve({}),
+        tokens.surfacePrimary,
+      );
+    }
   });
 }

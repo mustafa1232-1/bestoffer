@@ -52,6 +52,18 @@ function createHealthySupabaseAdminClient() {
   };
 }
 
+function healthyRailwayRealtimeSchema() {
+  return {
+    rows: [
+      {
+        outbox_table: true,
+        dedupe_column: true,
+        dedupe_index: true,
+      },
+    ],
+  };
+}
+
 test.afterEach(() => {
   __supabaseConfigTestApi.reset();
 });
@@ -106,15 +118,58 @@ test("getSupabaseRealtimeReadiness blocks dual mode when railway outbox table is
     supabaseServiceRoleKey: "service-role-key",
     supabaseJwtSecret: "x".repeat(40),
   });
-  __supabaseConfigTestApi.setQuery(async () => ({ rows: [] }));
+  __supabaseConfigTestApi.setQuery(async () => ({
+    rows: [
+      {
+        outbox_table: false,
+        dedupe_column: false,
+        dedupe_index: false,
+      },
+    ],
+  }));
   __supabaseConfigTestApi.setAdminClientFactory(createHealthySupabaseAdminClient);
 
   const readiness = await getSupabaseRealtimeReadiness();
   assert.equal(readiness.ok, false);
   assert.equal(readiness.releaseBlocking, true);
   assert.equal(readiness.reason, "missing_outbox_table");
-  assert.deepEqual(readiness.missingObjects, ["realtime_outbox"]);
+  assert.deepEqual(readiness.missingObjects, [
+    "realtime_outbox",
+    "realtime_outbox.dedupe_key",
+    "uq_realtime_outbox_dedupe_active",
+  ]);
   assert.equal(readiness.checks.railwayOutboxTable, false);
+});
+
+test("getSupabaseRealtimeReadiness blocks dual mode when the outbox dedupe index is missing", async () => {
+  __supabaseConfigTestApi.setEnv({
+    supabaseRealtimeEnabled: true,
+    supabaseRealtimeMode: "dual",
+    supabaseUrl: "https://demo.supabase.co",
+    supabaseAnonKey: "anon-key",
+    supabaseServiceRoleKey: "service-role-key",
+    supabaseJwtSecret: "x".repeat(40),
+  });
+  __supabaseConfigTestApi.setQuery(async () => ({
+    rows: [
+      {
+        outbox_table: true,
+        dedupe_column: true,
+        dedupe_index: false,
+      },
+    ],
+  }));
+  __supabaseConfigTestApi.setAdminClientFactory(createHealthySupabaseAdminClient);
+
+  const readiness = await getSupabaseRealtimeReadiness();
+  assert.equal(readiness.ok, false);
+  assert.equal(readiness.releaseBlocking, true);
+  assert.equal(readiness.reason, "missing_outbox_dedupe_index");
+  assert.deepEqual(readiness.missingObjects, [
+    "uq_realtime_outbox_dedupe_active",
+  ]);
+  assert.equal(readiness.checks.railwayOutboxTable, true);
+  assert.equal(readiness.checks.railwayOutboxDedupeIndex, false);
 });
 
 test("getSupabaseRealtimeReadiness reports degraded shared topics when supabase authorization tables are missing", async () => {
@@ -126,9 +181,9 @@ test("getSupabaseRealtimeReadiness reports degraded shared topics when supabase 
     supabaseServiceRoleKey: "service-role-key",
     supabaseJwtSecret: "x".repeat(40),
   });
-  __supabaseConfigTestApi.setQuery(async () => ({
-    rows: [{ table_name: "realtime_outbox" }],
-  }));
+  __supabaseConfigTestApi.setQuery(async () =>
+    healthyRailwayRealtimeSchema()
+  );
   __supabaseConfigTestApi.setAdminClientFactory(() => ({
     from(tableName) {
       return {
@@ -189,9 +244,9 @@ test("getSupabaseRealtimeReadiness reports degraded shared topics when membershi
     supabaseServiceRoleKey: "service-role-key",
     supabaseJwtSecret: "x".repeat(40),
   });
-  __supabaseConfigTestApi.setQuery(async () => ({
-    rows: [{ table_name: "realtime_outbox" }],
-  }));
+  __supabaseConfigTestApi.setQuery(async () =>
+    healthyRailwayRealtimeSchema()
+  );
   __supabaseConfigTestApi.setAdminClientFactory(() => ({
     from() {
       return {
@@ -229,9 +284,9 @@ test("getSupabaseRealtimeReadiness succeeds when env, local schema, and supabase
     supabaseServiceRoleKey: "service-role-key",
     supabaseJwtSecret: "x".repeat(40),
   });
-  __supabaseConfigTestApi.setQuery(async () => ({
-    rows: [{ table_name: "realtime_outbox" }],
-  }));
+  __supabaseConfigTestApi.setQuery(async () =>
+    healthyRailwayRealtimeSchema()
+  );
   __supabaseConfigTestApi.setAdminClientFactory(createHealthySupabaseAdminClient);
 
   const readiness = await getSupabaseRealtimeReadiness();

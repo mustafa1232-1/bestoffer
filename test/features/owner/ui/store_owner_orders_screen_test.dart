@@ -22,9 +22,9 @@ class _FakeOwnerApi extends OwnerApi {
 }
 
 class _FakeOwnerController extends OwnerController {
-  _FakeOwnerController(super.ref) {
+  _FakeOwnerController(super.ref, {List<OrderModel>? currentOrders}) {
     state = OwnerState(
-      currentOrders: [_buildOrder()],
+      currentOrders: currentOrders ?? [buildOrder()],
       deliveryAgents: [_buildDeliveryAgent()],
     );
   }
@@ -34,6 +34,8 @@ class _FakeOwnerController extends OwnerController {
   int? lastAssignedOrderId;
   int? lastAssignedCourierUserId;
   String? lastAssignmentMode;
+  int? lastStatusOrderId;
+  String? lastStatus;
 
   @override
   Future<void> bootstrap({String? period, bool force = false}) async {}
@@ -76,17 +78,34 @@ class _FakeOwnerController extends OwnerController {
     return true;
   }
 
-  OrderModel _buildOrder() {
+  @override
+  Future<bool> updateOrderStatus({
+    required int orderId,
+    required String status,
+    int? estimatedPrepMinutes,
+    int? estimatedDeliveryMinutes,
+  }) async {
+    lastStatusOrderId = orderId;
+    lastStatus = status;
+    return true;
+  }
+
+  static OrderModel buildOrder({
+    int id = 101,
+    String customerName = 'Test Customer',
+    String customerPhone = '07700000000',
+    String productName = 'Fashion Hoodie',
+  }) {
     return OrderModel.fromJson({
-      'id': 101,
+      'id': id,
       'merchant_id': 9,
       'customer_user_id': 7001,
       'order_scope': 'single',
       'store_sequence': 1,
       'merchant_name': 'Test Store',
       'status': 'approved',
-      'customer_full_name': 'Test Customer',
-      'customer_phone': '07700000000',
+      'customer_full_name': customerName,
+      'customer_phone': customerPhone,
       'customer_city': 'Baghdad',
       'customer_block': 'A',
       'customer_building_number': '12',
@@ -106,9 +125,9 @@ class _FakeOwnerController extends OwnerController {
       'items': [
         {
           'id': 1,
-          'order_id': 101,
+          'order_id': id,
           'product_id': 55,
-          'product_name': 'Fashion Hoodie',
+          'product_name': productName,
           'merchant_name': 'Test Store',
           'merchant_id': 9,
           'base_unit_price': 10000,
@@ -124,7 +143,7 @@ class _FakeOwnerController extends OwnerController {
           'display_snapshot_json': {
             'version': 1,
             'productId': 55,
-            'productName': 'Fashion Hoodie',
+            'productName': productName,
             'productImageUrl': 'https://example.com/fashion-hoodie.jpg',
             'thumbnailUrl': 'https://example.com/fashion-hoodie-thumb.jpg',
             'sku': 'HOODIE-001',
@@ -248,6 +267,96 @@ void main() {
     },
   );
 
+  testWidgets('store owner orders screen filters current orders by order id', (
+    tester,
+  ) async {
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.binding.setSurfaceSize(const Size(1280, 2600));
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          ownerApiProvider.overrideWithValue(_FakeOwnerApi()),
+          ownerControllerProvider.overrideWith((ref) {
+            return _FakeOwnerController(
+              ref,
+              currentOrders: [
+                _FakeOwnerController.buildOrder(
+                  id: 12,
+                  customerName: 'safa Al Samarrai',
+                  customerPhone: '07707301607',
+                  productName: 'ذرة',
+                ),
+                _FakeOwnerController.buildOrder(id: 101),
+              ],
+            );
+          }),
+        ],
+        child: const MaterialApp(
+          locale: Locale('en'),
+          supportedLocales: AppLocalizations.supportedLocales,
+          localizationsDelegates: AppLocalizations.localizationsDelegates,
+          home: StoreOwnerOrdersScreen(),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    final l10n = lookupAppLocalizations(const Locale('en'));
+    expect(find.text(l10n.ownerOrdersOrderNumber(12)), findsOneWidget);
+    expect(find.text(l10n.ownerOrdersOrderNumber(101)), findsOneWidget);
+
+    await tester.enterText(
+      find.byType(TextField).first,
+      '12',
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.ownerOrdersOrderNumber(12)), findsOneWidget);
+    expect(find.text(l10n.ownerOrdersOrderNumber(101)), findsNothing);
+  });
+
+  testWidgets(
+    'store owner orders screen can cancel an approved order before delivery',
+    (tester) async {
+      late _FakeOwnerController controller;
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.binding.setSurfaceSize(const Size(1280, 1800));
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            ownerApiProvider.overrideWithValue(_FakeOwnerApi()),
+            ownerControllerProvider.overrideWith((ref) {
+              controller = _FakeOwnerController(ref);
+              return controller;
+            }),
+          ],
+          child: const MaterialApp(
+            locale: Locale('en'),
+            supportedLocales: AppLocalizations.supportedLocales,
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            home: StoreOwnerOrdersScreen(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final cancelButton = find.text('Cancel order');
+      await tester.ensureVisible(cancelButton);
+      await tester.tap(cancelButton);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(controller.lastStatusOrderId, 101);
+      expect(controller.lastStatus, 'cancelled');
+    },
+  );
+
   testWidgets(
     'store owner orders screen opens store coupon management from drawer',
     (tester) async {
@@ -291,9 +400,7 @@ void main() {
       await tester.pump();
 
       expect(
-        find.text(
-          l10n.validationRequiredField(l10n.couponManagementCodeLabel),
-        ),
+        find.text(l10n.validationRequiredField(l10n.couponManagementCodeLabel)),
         findsOneWidget,
       );
     },

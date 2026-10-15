@@ -119,7 +119,7 @@ test("legacy order items hydrate from fallback fields when no snapshot exists", 
   assert.equal(hydrated.display_snapshot_json.storeName, "Fashion Hub");
 });
 
-test("stored snapshots stay immutable even if the source product changes later", () => {
+test("stored snapshots keep product display immutable but use the order store scope", () => {
   const originalSnapshot = buildOrderItemDisplaySnapshot({
     productId: 42,
     productName: "Original Tee",
@@ -166,7 +166,41 @@ test("stored snapshots stay immutable even if the source product changes later",
     "https://cdn.example.com/original.jpg"
   );
   assert.equal(hydrated.display_snapshot_json.selectedColor?.value, "Black");
-  assert.equal(hydrated.display_snapshot_json.storeName, "Fashion Hub");
+  assert.equal(hydrated.display_snapshot_json.storeId, 7);
+  assert.equal(hydrated.display_snapshot_json.storeName, "Renamed Fashion Hub");
+});
+
+test("hydration prevents stale snapshots from showing the wrong merchant", () => {
+  const staleSnapshot = buildOrderItemDisplaySnapshot({
+    productId: 2171,
+    productName: "ذرة",
+    quantity: 1,
+    unitPrice: 1250,
+    lineTotal: 1250,
+    storeId: 51,
+    storeName: "سوق الخضار",
+  });
+
+  const hydrated = hydrateOrderItemDisplaySnapshot(
+    {
+      id: 28,
+      order_id: 12,
+      product_id: 2171,
+      product_name: "ذرة",
+      unit_price: 1250,
+      line_total: 1250,
+      display_snapshot_json: staleSnapshot,
+    },
+    {
+      id: 12,
+      merchant_id: 52,
+      merchant_name: "علوة مسلكي",
+    }
+  );
+
+  assert.equal(hydrated.display_snapshot_json.productName, "ذرة");
+  assert.equal(hydrated.display_snapshot_json.storeId, 52);
+  assert.equal(hydrated.display_snapshot_json.storeName, "علوة مسلكي");
 });
 
 test("tracking envelopes expose order.items with display data", () => {

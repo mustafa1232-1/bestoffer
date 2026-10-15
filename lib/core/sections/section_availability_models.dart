@@ -26,6 +26,7 @@ enum SectionAvailabilityStatus {
 }
 
 class AppSectionKeys {
+  static const app = 'app';
   static const shopping = 'shopping';
   static const services = 'services';
   static const taxi = 'taxi';
@@ -70,15 +71,15 @@ class SectionAvailabilityEntry {
     return SectionAvailabilityEntry(
       id: int.tryParse('${json['id'] ?? ''}') ?? 0,
       sectionKey: '${json['sectionKey'] ?? ''}'.trim().toLowerCase(),
-      displayName:
-          '${json['displayName'] ?? json['sectionKey'] ?? ''}'.trim(),
+      displayName: '${json['displayName'] ?? json['sectionKey'] ?? ''}'.trim(),
       parentSectionKey: '${json['parentSectionKey'] ?? ''}'.trim().isEmpty
           ? null
           : '${json['parentSectionKey']}'.trim().toLowerCase(),
       surfaceScope: '${json['surfaceScope'] ?? 'user'}'.trim().toLowerCase(),
       status: SectionAvailabilityStatus.fromApi('${json['status'] ?? ''}'),
       isVisible: json['isVisible'] != false,
-      userMessage: '${json['effectiveMessage'] ?? json['userMessage'] ?? ''}'
+      userMessage:
+          '${json['effectiveMessage'] ?? json['userMessage'] ?? ''}'
               .trim()
               .isEmpty
           ? null

@@ -38,7 +38,26 @@ class BasmayaAddressCatalog {
   static List<String> buildingOptionsForBlock(String? block) {
     final parsed = _parseBlock(block);
     if (parsed == null) return const <String>[];
-    final count = parsed.letter == 'A' ? 12 : 22;
+    const counts = <String, int>{
+      'A1': 12,
+      'A2': 14,
+      'A3': 14,
+      'A4': 12,
+      'A5': 12,
+      'A6': 12,
+      'A7': 13,
+      'A8': 15,
+      'A9': 15,
+      'B1': 12,
+      'B2': 18,
+      'B3': 18,
+      'B4': 12,
+      'B5': 18,
+      'B6': 21,
+      'B7': 16,
+      'B8': 12,
+    };
+    final count = counts['${parsed.letter}${parsed.sector}']!;
     return List<String>.generate(
       count,
       (index) =>
@@ -129,8 +148,8 @@ class BasmayaAddressSelector extends StatelessWidget {
     final selectedGroup = (selectedBlock ?? '').startsWith('B')
         ? 'B'
         : (selectedBlock ?? '').startsWith('A')
-            ? 'A'
-            : null;
+        ? 'A'
+        : null;
     final sectors = BasmayaAddressCatalog.blockOptionsForGroup(selectedGroup);
     final buildings = BasmayaAddressCatalog.buildingOptionsForBlock(
       selectedBlock,
@@ -176,7 +195,9 @@ class BasmayaAddressSelector extends StatelessWidget {
 
     Widget buildApartmentField() {
       return _dropdownField(
-        value: apartments.contains(selectedApartment) ? selectedApartment : null,
+        value: apartments.contains(selectedApartment)
+            ? selectedApartment
+            : null,
         label: l10n.basmayaApartmentLabel,
         hint: l10n.basmayaApartmentHint,
         items: apartments,

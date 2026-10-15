@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
 import '../../paid_upgrades/ui/paid_upgrades_home_screen.dart';
+import '../../social/ui/social_chat_threads_screen.dart';
 import '../data/cars_api.dart';
 import '../models/car_listing_model.dart';
 import 'customer_car_listing_details_screen.dart';
@@ -111,6 +112,17 @@ class _CustomerCarsWorkspaceScreenState
       appBar: AppBar(
         title: Text(l10n.carsWorkspaceTitle),
         actions: [
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const SocialChatThreadsScreen(
+                  contextTypeFilter: 'car_listing',
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.forum_outlined),
+            tooltip: 'محادثات النشاط',
+          ),
           IconButton(
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh_rounded),

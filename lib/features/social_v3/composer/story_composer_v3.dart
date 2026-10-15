@@ -43,7 +43,8 @@ class StoryComposerV3 extends ConsumerStatefulWidget {
   final StoryComposerSource source;
   final StoryComposerScope scope;
   final bool audienceScopeSupported;
-  final Future<bool> Function(String caption, StoryComposerScope scope)? onPublish;
+  final Future<bool> Function(String caption, StoryComposerScope scope)?
+  onPublish;
   final void Function(String caption)? onSaveDraft;
 
   static Route<void> route(
@@ -100,25 +101,25 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
   }
 
   SocialStoryLayer _defaultMediaTransformLayer() => const SocialStoryLayer(
-        id: kStoryBaseMediaTransformLayerId,
-        type: SocialStoryLayerType.reelShare,
-        x: 0.5,
-        y: 0.5,
-        scale: 1,
-        rotation: 0,
-        zIndex: -100,
-        text: 'contain',
-        color: null,
-        backgroundColor: null,
-        fontFamily: null,
-        fontWeight: null,
-        textAlign: null,
-        fontScale: null,
-        sticker: null,
-        mentionedUserId: null,
-        displayLabel: null,
-        locked: true,
-      );
+    id: kStoryBaseMediaTransformLayerId,
+    type: SocialStoryLayerType.reelShare,
+    x: 0.5,
+    y: 0.5,
+    scale: 1,
+    rotation: 0,
+    zIndex: -100,
+    text: 'contain',
+    color: null,
+    backgroundColor: null,
+    fontFamily: null,
+    fontWeight: null,
+    textAlign: null,
+    fontScale: null,
+    sticker: null,
+    mentionedUserId: null,
+    displayLabel: null,
+    locked: true,
+  );
 
   SocialStoryLayer? _mediaTransformLayer(SocialStoryDraft draft) {
     for (final layer in draft.layers) {
@@ -149,7 +150,8 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
     var draft = ref.read(socialStoryDraftControllerProvider).draft;
     if (draft.buildLocalMediaFile() == null) return;
     draft = _ensureMediaTransform(draft);
-    final current = _mediaTransformLayer(draft) ?? _defaultMediaTransformLayer();
+    final current =
+        _mediaTransformLayer(draft) ?? _defaultMediaTransformLayer();
     final next = reset
         ? _defaultMediaTransformLayer()
         : current.copyWith(
@@ -282,10 +284,11 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
 
     final notifier = ref.read(socialStoryDraftControllerProvider.notifier);
     final current = ref.read(socialStoryDraftControllerProvider).draft;
-    final layers = current.layers
-        .where((layer) => layer.id != kStoryBaseMediaTransformLayerId)
-        .toList(growable: true)
-      ..add(_defaultMediaTransformLayer());
+    final layers =
+        current.layers
+            .where((layer) => layer.id != kStoryBaseMediaTransformLayerId)
+            .toList(growable: true)
+          ..add(_defaultMediaTransformLayer());
     notifier.replaceDraft(
       current.copyWith(
         mode: SocialStoryComposerMode.media,
@@ -306,7 +309,8 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
 
   Widget? _buildBaseMedia(SocialStoryDraft draft) {
     final source = widget.source;
-    if (source.kind == StorySourceKind.sharedReel && source.sharedReel != null) {
+    if (source.kind == StorySourceKind.sharedReel &&
+        source.sharedReel != null) {
       return GestureDetector(
         onTap: _openOriginalReel,
         child: _SharedReelPreview(reel: source.sharedReel!),
@@ -397,7 +401,8 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                 borderRadius: BorderRadius.zero,
                 baseMedia: _buildBaseMedia(draft),
                 onSelectLayer: notifier.selectLayer,
-                onLayerChanged: (layer) => notifier.updateLayer(layer.id, layer),
+                onLayerChanged: (layer) =>
+                    notifier.updateLayer(layer.id, layer),
                 onDrawStroke: notifier.addDrawStroke,
                 onLayerTap: (layer) {
                   if (layer.id == kStoryBaseMediaTransformLayerId) return;
@@ -457,12 +462,14 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                 _CircleButton(
                   icon: Icons.alternate_email_rounded,
                   tooltip: 'منشن',
-                  onTap: () => notifier.setTool(SocialStoryComposerTool.mention),
+                  onTap: () =>
+                      notifier.setTool(SocialStoryComposerTool.mention),
                 ),
                 _CircleButton(
                   icon: Icons.emoji_emotions_outlined,
                   tooltip: 'ملصقات',
-                  onTap: () => notifier.setTool(SocialStoryComposerTool.stickers),
+                  onTap: () =>
+                      notifier.setTool(SocialStoryComposerTool.stickers),
                 ),
                 _CircleButton(
                   icon: Icons.brush_rounded,
@@ -508,16 +515,13 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                     },
                     onTextColorChanged: (value) =>
                         notifier.updateSelectedTextLayer(color: value),
-                    onTextBackgroundChanged: (value) =>
-                        notifier.updateSelectedTextLayer(backgroundColor: value),
+                    onTextBackgroundChanged: (value) => notifier
+                        .updateSelectedTextLayer(backgroundColor: value),
                     onFontScaleChanged: (value) =>
                         notifier.updateSelectedTextLayer(fontScale: value),
                     onStickerSelected: notifier.addStickerLayer,
-                    onMentionSelected: (userId, label) =>
-                        notifier.addMentionLayer(
-                      userId: userId,
-                      displayLabel: label,
-                    ),
+                    onMentionSelected: (userId, label) => notifier
+                        .addMentionLayer(userId: userId, displayLabel: label),
                     onReplaceMedia: _replaceMedia,
                     onClearSelection: () =>
                         notifier.setTool(SocialStoryComposerTool.none),
@@ -525,7 +529,10 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
                   const SizedBox(height: 8),
                 ],
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: const Color(0xCC0D1B2A),
                     borderRadius: BorderRadius.circular(18),
@@ -653,7 +660,8 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
         y: _y,
         scale: _scale,
         rotation: _normalizeStoryRotation(_rotation),
-        fit: (widget.transform.text ?? 'contain').trim().toLowerCase() == 'cover'
+        fit:
+            (widget.transform.text ?? 'contain').trim().toLowerCase() == 'cover'
             ? 'cover'
             : 'contain',
       ),
@@ -662,7 +670,8 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
 
   @override
   Widget build(BuildContext context) {
-    final fit = (widget.transform.text ?? 'contain').trim().toLowerCase() == 'cover'
+    final fit =
+        (widget.transform.text ?? 'contain').trim().toLowerCase() == 'cover'
         ? 'cover'
         : 'contain';
     return LayoutBuilder(
@@ -670,7 +679,9 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
         return GestureDetector(
-          behavior: HitTestBehavior.translucent,
+          // Keep the whole story canvas interactive even when the media is
+          // letterboxed or is still initializing.
+          behavior: HitTestBehavior.opaque,
           onScaleStart: (details) {
             _gestureScale = _scale;
             _gestureRotation = _rotation;
@@ -680,7 +691,9 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
             final delta = details.focalPoint - _gestureFocal;
             _gestureFocal = details.focalPoint;
             setState(() {
-              _scale = (_gestureScale * details.scale).clamp(0.5, 4.0).toDouble();
+              _scale = (_gestureScale * details.scale)
+                  .clamp(0.5, 4.0)
+                  .toDouble();
               _rotation = _normalizeStoryRotation(
                 _gestureRotation + details.rotation,
               );
@@ -693,14 +706,16 @@ class _EditableBaseMediaState extends State<_EditableBaseMedia> {
             });
           },
           onScaleEnd: (_) => _emit(),
-          child: ClipRect(
-            child: Transform.translate(
-              offset: Offset((_x - 0.5) * width, (_y - 0.5) * height),
-              child: Transform.rotate(
-                angle: _rotation,
-                child: Transform.scale(
-                  scale: _scale,
-                  child: _MediaContent(media: widget.media, fit: fit),
+          child: SizedBox.expand(
+            child: ClipRect(
+              child: Transform.translate(
+                offset: Offset((_x - 0.5) * width, (_y - 0.5) * height),
+                child: Transform.rotate(
+                  angle: _rotation,
+                  child: Transform.scale(
+                    scale: _scale,
+                    child: _MediaContent(media: widget.media, fit: fit),
+                  ),
                 ),
               ),
             ),
@@ -761,7 +776,8 @@ class _LocalVideoPreviewState extends State<_LocalVideoPreview> {
       final controller = VideoPlayerController.file(File(path));
       await controller.initialize();
       await controller.setLooping(true);
-      await controller.setVolume(0);
+      // Story previews should include the original video's audio.
+      await controller.setVolume(1);
       await controller.play();
       if (!mounted) {
         await controller.dispose();
@@ -783,9 +799,7 @@ class _LocalVideoPreviewState extends State<_LocalVideoPreview> {
     if (controller == null || !controller.value.isInitialized) {
       return const ColoredBox(
         color: Color(0xFF0D1B2A),
-        child: Center(
-          child: CircularProgressIndicator(color: Colors.white54),
-        ),
+        child: Center(child: CircularProgressIndicator(color: Colors.white54)),
       );
     }
     final size = controller.value.size;
@@ -856,10 +870,7 @@ class _SharedReelPreview extends StatelessWidget {
             ),
           ),
           Center(
-            child: AspectRatio(
-              aspectRatio: naturalAspect,
-              child: foreground(),
-            ),
+            child: AspectRatio(aspectRatio: naturalAspect, child: foreground()),
           ),
         ] else
           foreground(),
@@ -891,10 +902,7 @@ class _SharedReelPreview extends StatelessWidget {
                       ),
                     ),
                   ),
-                  const Icon(
-                    Icons.open_in_new_rounded,
-                    color: Colors.white70,
-                  ),
+                  const Icon(Icons.open_in_new_rounded, color: Colors.white70),
                 ],
               ),
             ),

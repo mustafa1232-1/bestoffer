@@ -3,6 +3,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:dio/dio.dart';
+import 'package:maslaki/core/navigation/app_route_observer.dart';
+import 'package:maslaki/l10n/app_localizations.dart';
 import 'package:maslaki/features/social/data/social_api.dart';
 import 'package:maslaki/features/social/state/social_controller.dart';
 import 'package:maslaki/features/social_v3/reels/reel_page_v3.dart';
@@ -31,6 +33,9 @@ Future<void> _pumpReels(WidgetTester tester, {bool rtl = false}) async {
         child: MediaQuery(
           data: const MediaQueryData(size: Size(393, 852)),
           child: MaterialApp(
+            locale: Locale(rtl ? 'ar' : 'en'),
+            localizationsDelegates: AppLocalizations.localizationsDelegates,
+            supportedLocales: AppLocalizations.supportedLocales,
             home: SocialReelsScreenV3(
               reels: fakeReels(3),
               coordinatorFactory: fakeCoordinator,
@@ -45,6 +50,59 @@ Future<void> _pumpReels(WidgetTester tester, {bool rtl = false}) async {
 
 void main() {
   group('Reels V3 hard-acceptance regression (§18)', () {
+    testWidgets(
+      'hidden shell tabs and modal routes pause then restore playback',
+      (tester) async {
+        final enabled = ValueNotifier(true);
+        addTearDown(enabled.dispose);
+        final coordinator = fakeCoordinator();
+        final navigator = GlobalKey<NavigatorState>();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [socialApiProvider.overrideWithValue(_FakeSocialApi())],
+            child: MaterialApp(
+              navigatorKey: navigator,
+              navigatorObservers: [appRouteObserver],
+              home: SocialReelsScreenV3(
+                reels: [fakeReel(withVideo: true)],
+                coordinatorFactory: () => coordinator,
+                playbackEnabledListenable: enabled,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+        final active = coordinator.controllerFor(0)!;
+        expect(active.value.isPlaying, isTrue);
+        enabled.value = false;
+        await tester.pump();
+        expect(active.value.isPlaying, isFalse);
+        enabled.value = true;
+        await tester.pump();
+        expect(active.value.isPlaying, isTrue);
+        final sheet = showModalBottomSheet<void>(
+          context: tester.element(find.byType(ReelPageV3).first),
+          builder: (_) => const SizedBox(height: 200, child: Text('Comments')),
+        );
+        await tester.pumpAndSettle();
+        expect(active.value.isPlaying, isFalse);
+        navigator.currentState!.pop();
+        await tester.pumpAndSettle();
+        await sheet;
+        expect(active.value.isPlaying, isTrue);
+        coordinator.togglePlay();
+        enabled.value = false;
+        enabled.value = true;
+        await tester.pump();
+        expect(
+          active.value.isPlaying,
+          isFalse,
+          reason: 'manual pause survives tab switches',
+        );
+      },
+    );
+
     testWidgets('Scaffold has NO AppBar and a black background', (
       tester,
     ) async {

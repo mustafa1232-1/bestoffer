@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 
+import '../../../core/files/local_image_file.dart';
 import '../../orders/models/order_revision_model.dart';
 
 class DeliveryOrderActionReason {
@@ -71,8 +72,14 @@ class DeliveryApi {
     await dio.patch('/api/delivery/orders/$orderId/arrived');
   }
 
-  Future<void> markDelivered(int orderId) async {
-    await dio.patch('/api/delivery/orders/$orderId/delivered');
+  Future<void> markDelivered(
+    int orderId, {
+    required double customerReceivedActual,
+  }) async {
+    await dio.patch(
+      '/api/delivery/orders/$orderId/delivered',
+      data: {'customerReceivedActual': customerReceivedActual},
+    );
   }
 
   Future<Map<String, dynamic>> orderDetailV2(int orderId) async {
@@ -194,10 +201,26 @@ class DeliveryApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> pickedUpV2(int orderId, {String? note}) async {
+  Future<Map<String, dynamic>> pickedUpV2(
+    int orderId, {
+    required double merchantPaidActual,
+    LocalImageFile? receiptFile,
+    bool withoutReceipt = false,
+    String? merchantPaymentNote,
+    String? note,
+  }) async {
+    final form = FormData.fromMap({
+      'merchantPaidActual': merchantPaidActual,
+      'withoutReceipt': withoutReceipt,
+      if (merchantPaymentNote != null && merchantPaymentNote.trim().isNotEmpty)
+        'merchantPaymentNote': merchantPaymentNote.trim(),
+      if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      if (receiptFile != null)
+        'receiptFile': await receiptFile.toMultipartFile(),
+    });
     final response = await dio.post(
       '/api/orders/$orderId/courier/picked-up',
-      data: {'note': note},
+      data: form,
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -210,10 +233,28 @@ class DeliveryApi {
     return Map<String, dynamic>.from(response.data as Map);
   }
 
-  Future<Map<String, dynamic>> deliveredV2(int orderId, {String? note}) async {
+  Future<Map<String, dynamic>> deliveredV2(
+    int orderId, {
+    required double customerReceivedActual,
+    String? note,
+  }) async {
     final response = await dio.post(
       '/api/orders/$orderId/courier/delivered',
-      data: {'note': note},
+      data: {
+        'customerReceivedActual': customerReceivedActual,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      },
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  Future<Map<String, dynamic>> reconciliationReport({
+    int limit = 100,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/courier/reconciliation',
+      queryParameters: {'limit': limit, 'offset': offset},
     );
     return Map<String, dynamic>.from(response.data as Map);
   }
@@ -585,11 +626,26 @@ class DeliveryApi {
     int id,
     int stopId, {
     int? expectedVersion,
-  }) => _jobAction(
-    id,
-    'stops/$stopId/collected',
-    expectedVersion: expectedVersion,
-  );
+    required double merchantPaidActual,
+    LocalImageFile? receiptFile,
+    bool withoutReceipt = false,
+    String? merchantPaymentNote,
+  }) async {
+    final form = FormData.fromMap({
+      'expectedVersion': ?expectedVersion,
+      'merchantPaidActual': merchantPaidActual,
+      'withoutReceipt': withoutReceipt,
+      if (merchantPaymentNote != null && merchantPaymentNote.trim().isNotEmpty)
+        'merchantPaymentNote': merchantPaymentNote.trim(),
+      if (receiptFile != null)
+        'receiptFile': await receiptFile.toMultipartFile(),
+    });
+    final response = await dio.post(
+      '/api/delivery/delivery-jobs/$id/stops/$stopId/collected',
+      data: form,
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
 
   Future<Map<String, dynamic>> headingToCustomer(
     int id, {
@@ -599,7 +655,13 @@ class DeliveryApi {
   Future<Map<String, dynamic>> markGroupedDelivered(
     int id, {
     int? expectedVersion,
-  }) => _jobAction(id, 'delivered', expectedVersion: expectedVersion);
+    required double customerReceivedActual,
+  }) => _jobAction(
+    id,
+    'delivered',
+    expectedVersion: expectedVersion,
+    extraBody: {'customerReceivedActual': customerReceivedActual},
+  );
 
   Future<Map<String, dynamic>> _getCourierMapWithFallback({
     required String courierPath,

@@ -14,8 +14,14 @@ import {
 } from "./modules/feed/feed.service.js";
 import { logStreamConfigStartup } from "./modules/feed/feed.stream-config.js";
 import { getStoryAudienceScopeFeatureState } from "./modules/feed/feed.capabilities.js";
-import { startOrderAttentionReminderWorker, stopOrderAttentionReminderWorker } from "./modules/notifications/order-attention.worker.js";
-import { startInventoryReservationWorker, stopInventoryReservationWorker } from "./modules/orders/inventory-reservation.worker.js";
+import {
+  startOrderAttentionReminderWorker,
+  stopOrderAttentionReminderWorker,
+} from "./modules/notifications/order-attention.worker.js";
+import {
+  startInventoryReservationWorker,
+  stopInventoryReservationWorker,
+} from "./modules/orders/inventory-reservation.worker.js";
 import {
   startDeliveryAssignmentRecoveryWorker,
   stopDeliveryAssignmentRecoveryWorker,
@@ -25,11 +31,20 @@ import {
   stopNotificationOutboxWorker,
 } from "./modules/delivery/notification-outbox.worker.js";
 import {
+  startMerchantHoursWorker,
+  stopMerchantHoursWorker,
+} from "./modules/merchants/merchant-hours.worker.js";
+import {
   startSupportSlaWorker,
   stopSupportSlaWorker,
 } from "./modules/support/support.sla.worker.js";
-import { startPaidUpgradeMaintenanceWorker, stopPaidUpgradeMaintenanceWorker } from "./modules/paid-upgrades/paid-upgrades.service.js";
+import {
+  startPaidUpgradeMaintenanceWorker,
+  stopPaidUpgradeMaintenanceWorker,
+} from "./modules/paid-upgrades/paid-upgrades.service.js";
 import { startTaxiLifecycleWorker } from "./modules/taxi/taxi.service.js";
+import { startKnowledgeWorker, stopKnowledgeWorker } from "./modules/games/knowledge-rounds.service.js";
+import { startMafiaWorker, stopMafiaWorker } from "./modules/games/mafia.worker.js";
 import { seedBuiltinStoreActivityDefinitions } from "./modules/merchants/store-activity.registry.js";
 import { seedOpsRunbooks } from "./ops/runbooksLoader.js";
 import { initDatadogTracing } from "./ops/tools/datadogTool.js";
@@ -145,7 +160,9 @@ async function ensureSuperAdminAccount() {
   const superUsername = buildSeedUsername("maslaki.admin", superPhone);
 
   if (!/^\d{8,20}$/.test(superPhone) || !/^\d{4,8}$/.test(superPin)) {
-    console.warn("[seed] skipped super admin seeding due to invalid phone/pin.");
+    console.warn(
+      "[seed] skipped super admin seeding due to invalid phone/pin.",
+    );
     return;
   }
 
@@ -158,7 +175,7 @@ async function ensureSuperAdminAccount() {
     await client.query(
       `UPDATE app_user
        SET is_super_admin = FALSE
-       WHERE is_super_admin = TRUE`
+       WHERE is_super_admin = TRUE`,
     );
 
     await client.query(
@@ -182,7 +199,6 @@ async function ensureSuperAdminAccount() {
        DO UPDATE SET
          full_name = EXCLUDED.full_name,
          username = COALESCE(NULLIF(app_user.username, ''), EXCLUDED.username),
-         pin_hash = EXCLUDED.pin_hash,
          role = 'admin',
          is_super_admin = TRUE,
          analytics_consent_granted = TRUE,
@@ -191,7 +207,7 @@ async function ensureSuperAdminAccount() {
            app_user.analytics_consent_granted_at,
            NOW()
          )`,
-      [superName, superUsername, superPhone, pinHash]
+      [superName, superUsername, superPhone, pinHash],
     );
 
     await client.query("COMMIT");
@@ -207,14 +223,12 @@ async function ensureSuperAdminAccount() {
      FROM app_user
      WHERE phone = $1
      LIMIT 1`,
-    [superPhone]
+    [superPhone],
   );
 
   const superAdminUserId = seeded.rows[0]?.id;
   if (superAdminUserId) {
-    console.log(
-      `[seed] Super admin ready -> phone: ${superPhone}, userId: ${superAdminUserId}`
-    );
+    console.log(`[seed] Super admin ready -> userId: ${superAdminUserId}`);
   }
 }
 
@@ -224,12 +238,199 @@ async function ensureSuperAdminAccount() {
  * الهدف منه تسريع QA المحلي عندما لا تكون قاعدة البيانات مهيأة مسبقاً.
  * أي تغيير في هذا المسار يجب أن يبقى محصوراً ببيئات غير production.
  */
+async function ensureMaslakiServicesOperatorAccount() {
+  const servicesPhone = String(env.servicesOperatorPhone || "").trim();
+  const servicesPin = String(env.servicesOperatorPin || "").trim();
+  const servicesName = String(
+    env.servicesOperatorName || "Maslaki Services Operations",
+  ).trim();
+  if (!/^\d{8,20}$/.test(servicesPhone) || !/^\d{4,8}$/.test(servicesPin)) {
+    console.warn(
+      "[seed] skipped services operator seeding due to invalid deployment secrets.",
+    );
+    return;
+  }
+  const servicesUsername = buildSeedUsername("maslaki.services", servicesPhone);
+  const pinHash = await hashPin(servicesPin);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`SELECT pg_advisory_xact_lock(9876543211)`);
+    const userResult = await client.query(
+      `INSERT INTO app_user
+        (
+          full_name,
+          username,
+          phone,
+          pin_hash,
+          block,
+          building_number,
+          apartment,
+          role,
+          analytics_consent_granted,
+          analytics_consent_version,
+          analytics_consent_granted_at
+        )
+       VALUES ($1,$2,$3,$4,'A','1','1','service_provider',TRUE,'services_ops_seed_v1',NOW())
+       ON CONFLICT (phone)
+       DO UPDATE SET
+         full_name = EXCLUDED.full_name,
+         username = COALESCE(NULLIF(app_user.username, ''), EXCLUDED.username),
+         pin_hash = EXCLUDED.pin_hash,
+         role = 'service_provider',
+         analytics_consent_granted = TRUE,
+         analytics_consent_version = 'services_ops_seed_v1',
+         analytics_consent_granted_at = COALESCE(app_user.analytics_consent_granted_at, NOW())
+       RETURNING id`,
+      [servicesName, servicesUsername, servicesPhone, pinHash],
+    );
+    const userId = Number(userResult.rows[0]?.id || 0);
+    if (!userId) {
+      throw new Error("Failed to seed Maslaki services operator user.");
+    }
+
+    const categoryResult = await client.query(
+      `SELECT id
+       FROM service_categories
+       WHERE level = 1
+         AND parent_id IS NULL
+         AND is_active = TRUE
+       ORDER BY
+         CASE
+           WHEN name ILIKE '%صيانة%' THEN 0
+           WHEN name ILIKE '%خدمات%' THEN 1
+           ELSE 2
+         END,
+         sort_order ASC,
+         id ASC
+       LIMIT 1`,
+    );
+    const mainCategoryId =
+      categoryResult.rows[0]?.id == null
+        ? null
+        : Number(categoryResult.rows[0].id);
+
+    await client.query(
+      `INSERT INTO service_provider_profiles (
+         user_id,
+         business_name,
+         main_category_id,
+         bio,
+         phone,
+         whatsapp_phone,
+         city,
+         area,
+         address_line,
+         serves_at_home,
+         serves_at_shop,
+         serves_remote,
+         has_emergency_service,
+         booking_policy,
+         pricing_mode,
+         provider_approval_status,
+         approval_note,
+         approved_at,
+         years_experience,
+         is_verified,
+         has_team,
+         team_size,
+         accepts_cash,
+         accepts_electronic,
+         average_response_minutes,
+         is_available_24_7,
+         provider_gender,
+         languages_json,
+         search_text,
+         is_active,
+         is_temporarily_paused,
+         created_at,
+         updated_at
+       )
+       VALUES (
+         $1,
+         'خدمات مسلكي',
+         $2,
+         'حساب تشغيل مركزي لاستقبال طلبات خدمات مسلكي وتوجيهها لمقدمي الخدمة المناسبين.',
+         $3,
+         $3,
+         'بسماية',
+         'بسماية',
+         'مكتب خدمات مسلكي',
+         TRUE,
+         TRUE,
+         TRUE,
+         TRUE,
+         'approval_required',
+         'mixed',
+         'approved',
+         'system_seed_services_operator',
+         NOW(),
+         1,
+         TRUE,
+         TRUE,
+         1,
+         TRUE,
+         FALSE,
+         5,
+         TRUE,
+         'mixed',
+         '["ar"]'::jsonb,
+         'خدمات مسلكي قانونية طبية صيانة تنظيف رفاهية طوارئ SOS',
+         TRUE,
+         FALSE,
+         NOW(),
+         NOW()
+       )
+       ON CONFLICT (user_id)
+       DO UPDATE SET
+         business_name = EXCLUDED.business_name,
+         main_category_id = COALESCE(service_provider_profiles.main_category_id, EXCLUDED.main_category_id),
+         bio = EXCLUDED.bio,
+         phone = EXCLUDED.phone,
+         whatsapp_phone = EXCLUDED.whatsapp_phone,
+         city = EXCLUDED.city,
+         area = EXCLUDED.area,
+         address_line = EXCLUDED.address_line,
+         serves_at_home = TRUE,
+         serves_at_shop = TRUE,
+         serves_remote = TRUE,
+         has_emergency_service = TRUE,
+         booking_policy = 'approval_required',
+         pricing_mode = 'mixed',
+         provider_approval_status = 'approved',
+         approval_note = 'system_seed_services_operator',
+         approved_at = COALESCE(service_provider_profiles.approved_at, NOW()),
+         is_verified = TRUE,
+         has_team = TRUE,
+         team_size = GREATEST(COALESCE(service_provider_profiles.team_size, 1), 1),
+         accepts_cash = TRUE,
+         accepts_electronic = FALSE,
+         average_response_minutes = 5,
+         is_available_24_7 = TRUE,
+         provider_gender = 'mixed',
+         languages_json = '["ar"]'::jsonb,
+         search_text = EXCLUDED.search_text,
+         is_active = TRUE,
+         is_temporarily_paused = FALSE,
+         updated_at = NOW()`,
+      [userId, mainCategoryId, servicesPhone],
+    );
+    await client.query("COMMIT");
+    console.log(`[seed] Maslaki services operator ready -> userId: ${userId}`);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 async function ensureDevAdmin() {
   if (process.env.NODE_ENV === "production") return;
   if (process.env.DEV_SEED_ADMIN === "false") return;
 
   const adminPhone = String(
-    process.env.DEV_ADMIN_PHONE || "07701234567"
+    process.env.DEV_ADMIN_PHONE || "07701234567",
   ).trim();
   const adminPin = String(process.env.DEV_ADMIN_PIN || "1234").trim();
   const adminName = String(process.env.DEV_ADMIN_NAME || "Admin").trim();
@@ -252,10 +453,12 @@ async function ensureDevAdmin() {
            username = COALESCE(NULLIF(app_user.username, ''), EXCLUDED.username),
            pin_hash = EXCLUDED.pin_hash,
            role = 'admin'`,
-    [adminName, adminUsername, adminPhone, pinHash]
+    [adminName, adminUsername, adminPhone, pinHash],
   );
 
-  console.log(`[seed] Dev admin ready -> phone: ${adminPhone}, pin: ${adminPin}`);
+  console.log(
+    `[seed] Dev admin ready -> phone: ${adminPhone}, pin: ${adminPin}`,
+  );
 }
 
 /**
@@ -279,11 +482,12 @@ async function start() {
     // Best-effort self-heal of the activity taxonomy; never block boot.
     console.warn(
       "[seed] built-in store activity seeding failed:",
-      error?.message || error
+      error?.message || error,
     );
   }
   await seedOpsRunbooks();
   await ensureSuperAdminAccount();
+  await ensureMaslakiServicesOperatorAccount();
   await ensureDevAdmin();
   await initLiveEventBus();
   startRealtimeOutboxPump();
@@ -295,18 +499,21 @@ async function start() {
     const s = getStoryAudienceScopeFeatureState();
     if (s.requestedEnabled && !s.implementationReady) {
       console.warn(
-        "Story audience scope requested by configuration but blocked because implementation is incomplete."
+        "Story audience scope requested by configuration but blocked because implementation is incomplete.",
       );
     }
     console.log(
-      `Social story audience scope: effectiveEnabled=${s.effectiveEnabled} reason=${s.reason}`
+      `Social story audience scope: effectiveEnabled=${s.effectiveEnabled} reason=${s.reason}`,
     );
   }
   startTaxiLifecycleWorker();
+  startKnowledgeWorker();
+  startMafiaWorker();
   startOrderAttentionReminderWorker();
   startInventoryReservationWorker();
   startDeliveryAssignmentRecoveryWorker();
   startNotificationOutboxWorker();
+  startMerchantHoursWorker();
   startSupportSlaWorker();
   startPaidUpgradeMaintenanceWorker();
 
@@ -314,10 +521,10 @@ async function start() {
     console.log(`Server running on http://${host}:${port}`);
     const dbTopology = getDbFailoverState();
     console.log(
-      `[db] strategy=${dbTopology.strategy} writeTarget=${dbTopology.writeTarget} readTarget=${dbTopology.readTarget}`
+      `[db] strategy=${dbTopology.strategy} writeTarget=${dbTopology.writeTarget} readTarget=${dbTopology.readTarget}`,
     );
     console.log(
-      `[runtime] workerSlot=${env.appWorkerSlot || 0} workersTotal=${env.appWorkersTotal || 1} pid=${process.pid}`
+      `[runtime] workerSlot=${env.appWorkerSlot || 0} workersTotal=${env.appWorkersTotal || 1} pid=${process.pid}`,
     );
 
     const ifaces = os.networkInterfaces();
@@ -360,9 +567,12 @@ async function shutdown(reason, exitCode = 0) {
 
   // Stop background workers first to prevent new DB activity
   stopOrderAttentionReminderWorker();
+  await stopKnowledgeWorker();
+  await stopMafiaWorker();
   stopInventoryReservationWorker();
   await stopDeliveryAssignmentRecoveryWorker();
   await stopNotificationOutboxWorker();
+  await stopMerchantHoursWorker();
   await stopSupportSlaWorker();
   stopSocialStreamReconciliationWorker();
   stopPaidUpgradeMaintenanceWorker();

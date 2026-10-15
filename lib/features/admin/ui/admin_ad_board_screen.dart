@@ -37,7 +37,7 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
   String _placementChipLabel(AdBoardItemModel item) {
     switch (item.placement) {
       case 'MARKETPLACE_HOME':
-        return 'السوق';
+        return 'صفحة السوق الرئيسي';
       case 'MARKETPLACE_CATEGORY':
         return 'تصنيف';
       case 'HOME_MAIN':
@@ -53,7 +53,7 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
       case _AdTab.home:
         return 'الرئيسية العامة';
       case _AdTab.marketplace:
-        return 'السوق';
+        return 'السوق الرئيسي';
       case _AdTab.categories:
         return 'التصنيفات';
       case _AdTab.active:
@@ -809,6 +809,42 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
           activityType: null,
         ),
         _AdCategoryTarget(
+          labelAr: 'سوق الأزياء - الصفحة الفرعية',
+          labelEn: 'Fashion market landing',
+          category: 'fashion',
+          activityType: null,
+        ),
+        _AdCategoryTarget(
+          labelAr: 'سوق الطعام - الصفحة الفرعية',
+          labelEn: 'Food market landing',
+          category: 'food',
+          activityType: null,
+        ),
+        _AdCategoryTarget(
+          labelAr: 'سوق المنزل - الصفحة الفرعية',
+          labelEn: 'Home shopping landing',
+          category: 'home',
+          activityType: null,
+        ),
+        _AdCategoryTarget(
+          labelAr: 'سوق الأثاث المنزلي - الصفحة الفرعية',
+          labelEn: 'Home furniture landing',
+          category: 'home_furniture',
+          activityType: null,
+        ),
+        _AdCategoryTarget(
+          labelAr: 'سوق الإلكترونيات - الصفحة الفرعية',
+          labelEn: 'Electronics landing',
+          category: 'electronics',
+          activityType: null,
+        ),
+        _AdCategoryTarget(
+          labelAr: 'سوق الهواتف - الصفحة الفرعية',
+          labelEn: 'Phones landing',
+          category: 'phones',
+          activityType: null,
+        ),
+        _AdCategoryTarget(
           labelAr: 'الألبسة - عام',
           labelEn: 'Fashion - all',
           category: null,
@@ -1214,7 +1250,7 @@ class _AdBoardSheetState extends ConsumerState<_AdBoardSheet> {
   String _placementLabel(String placement) {
     switch (placement) {
       case 'MARKETPLACE_HOME':
-        return context.lt(ar: 'واجهة السوق', en: 'Marketplace home');
+        return context.lt(ar: 'صفحة السوق الرئيسي', en: 'Main market page');
       case 'MARKETPLACE_CATEGORY':
         return context.lt(ar: 'صفحة تصنيف', en: 'Category page');
       case 'HOME_MAIN':

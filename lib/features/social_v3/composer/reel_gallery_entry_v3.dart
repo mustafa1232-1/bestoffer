@@ -3,7 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:social_core/local_media_file.dart';
 
 import '../../../core/auth/auth_guard.dart';
+import '../../../core/i18n/locale_text.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../orders/models/order_item_model.dart';
+import '../../orders/models/order_model.dart';
+import '../../orders/state/orders_controller.dart';
 import '../../social/state/social_controller.dart';
 import '../../social/models/social_story_document.dart';
 import '../capabilities/social_capabilities_controller.dart';
@@ -17,11 +21,12 @@ import '../upload/tus_upload_client.dart';
 import 'post_composer_v3.dart';
 import 'reel_composer_state.dart';
 import 'reel_composer_v3.dart';
+import 'reel_video_edits.dart';
 import 'story_composer_source.dart';
 import 'story_composer_v3.dart';
 import '../../social/state/social_story_draft_controller.dart';
 
-const int kMaxReelDurationMs = 3600 * 1000;
+const int kMaxReelDurationMs = reelMaximumDurationMs;
 int _reelIdempotencyCounter = 0;
 
 String createReelIdempotencyKey(PickedSocialMedia video) {
@@ -76,14 +81,20 @@ ReelComposerController buildProductionReelComposerController(
   return ReelComposerController(
     api: ReelUploadApiImpl(dio),
     idempotencyKey: idempotencyKey,
-    tusFactory: ({required uploadUrl, required totalBytes, required assetId}) {
-      return TusUploadClient(
-        transport: DioTusTransport(filePath: videoPath),
-        uploadUrl: uploadUrl,
-        totalBytes: totalBytes,
-        assetId: assetId,
-      );
-    },
+    tusFactory:
+        ({
+          required uploadUrl,
+          required totalBytes,
+          required assetId,
+          required video,
+        }) {
+          return TusUploadClient(
+            transport: DioTusTransport(filePath: video.path),
+            uploadUrl: uploadUrl,
+            totalBytes: totalBytes,
+            assetId: assetId,
+          );
+        },
   );
 }
 
@@ -131,15 +142,19 @@ Future<void> openReelComposerV3(
     videoPath: selectedVideo.path,
     idempotencyKey: createReelIdempotencyKey(selectedVideo),
   );
-  await Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (_) => ReelComposerV3(
-        video: selectedVideo,
-        controller: controller,
-        onPublished: onPublished,
+  try {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ReelComposerV3(
+          video: selectedVideo,
+          controller: controller,
+          onPublished: onPublished,
+        ),
       ),
-    ),
-  );
+    );
+  } finally {
+    controller.dispose();
+  }
 }
 
 /// Live "Create Story": native gallery → V3 story composer, publishing via the
@@ -363,6 +378,13 @@ Future<bool?> openPostComposerV3Review(
                 postKind: 'merchant_review',
                 merchantId: result.review?.merchantId,
                 reviewRating: result.rating,
+                orderId: result.review?.orderId,
+                productId: result.review?.productId,
+                linkTargetType: result.review?.productId == null
+                    ? null
+                    : 'product',
+                linkMerchantId: result.review?.merchantId,
+                linkProductId: result.review?.productId,
               );
           final err = container.read(socialControllerProvider).error;
           return err == null || err.trim().isEmpty;
@@ -370,6 +392,422 @@ Future<bool?> openPostComposerV3Review(
       ),
     ),
   );
+}
+
+/// Opens a real store picker, then starts the V3 merchant-review composer.
+Future<bool?> openPostComposerV3MerchantReview(BuildContext context) async {
+  if (!await requireAuthBeforeAction(
+    context,
+    featureArabic: 'نشر مراجعة متجر موثقة',
+    featureEnglish: 'creating a store review',
+  )) {
+    return null;
+  }
+  if (!context.mounted) return null;
+
+  final review = await _pickCompletedOrderForReview(context);
+  if (review == null || !context.mounted) return null;
+  return openPostComposerV3Review(context, review: review);
+}
+
+Future<MerchantReviewDraft?> _pickCompletedOrderForReview(
+  BuildContext context,
+) {
+  return showModalBottomSheet<MerchantReviewDraft>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (_) => const FractionallySizedBox(
+      heightFactor: 0.82,
+      child: _MerchantReviewPickerSheet(),
+    ),
+  );
+}
+
+class _MerchantReviewPickerSheet extends ConsumerStatefulWidget {
+  const _MerchantReviewPickerSheet();
+
+  @override
+  ConsumerState<_MerchantReviewPickerSheet> createState() =>
+      _MerchantReviewPickerSheetState();
+}
+
+class _MerchantReviewPickerSheetState
+    extends ConsumerState<_MerchantReviewPickerSheet> {
+  final _search = TextEditingController();
+  bool _loading = true;
+  String? _error;
+  List<_ReviewableOrder> _orders = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(_loadOrders);
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadOrders() async {
+    if (!mounted) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final query = _search.text.trim().toLowerCase();
+      final raw = await ref.read(ordersApiProvider).listMyOrders(limit: 120);
+      final orders = raw
+          .whereType<Map>()
+          .map((item) => OrderModel.fromJson(Map<String, dynamic>.from(item)))
+          .where(_isReviewableOrder)
+          .where((order) {
+            if (query.isEmpty) return true;
+            return order.merchantName.toLowerCase().contains(query) ||
+                order.items.any(
+                  (item) => item.productName.toLowerCase().contains(query),
+                ) ||
+                order.id.toString().contains(query);
+          })
+          .map(_ReviewableOrder.fromOrder)
+          .where((entry) => entry.merchantId > 0)
+          .take(80)
+          .toList(growable: false);
+      if (!mounted) return;
+      setState(() {
+        _orders = orders;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = context.lt(
+          ar: 'تعذر تحميل طلباتك السابقة. حاول مرة أخرى.',
+          en: 'Could not load your past orders. Please try again.',
+        );
+      });
+    }
+  }
+
+  bool _isReviewableOrder(OrderModel order) {
+    final status = order.status.trim().toLowerCase();
+    return order.merchantId > 0 &&
+        const {'delivered', 'completed'}.contains(status);
+  }
+
+  Future<void> _selectOrder(_ReviewableOrder order) async {
+    if (order.products.isEmpty) {
+      _finishSelection(order);
+      return;
+    }
+    final choice = await showModalBottomSheet<Object?>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          children: [
+            ListTile(
+              leading: const Icon(Icons.storefront_rounded),
+              title: Text(
+                context.lt(ar: 'مراجعة المتجر فقط', en: 'Review store only'),
+              ),
+              subtitle: Text(
+                context.lt(
+                  ar: 'بدون ربط المراجعة بمنتج محدد.',
+                  en: 'Do not attach a specific product.',
+                ),
+              ),
+              onTap: () => Navigator.of(sheetContext).pop('store'),
+            ),
+            const Divider(height: 1),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+              child: Text(
+                context.lt(
+                  ar: 'أو اختر منتجًا من نفس الطلب',
+                  en: 'Or choose a product from this order',
+                ),
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            for (final product in order.products)
+              ListTile(
+                leading: const Icon(Icons.inventory_2_rounded),
+                title: Text(product.name),
+                subtitle: Text(
+                  context.lt(
+                    ar: 'الكمية: ${product.quantity}',
+                    en: 'Quantity: ${product.quantity}',
+                  ),
+                ),
+                onTap: () => Navigator.of(sheetContext).pop(product),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (choice == null) return;
+    final product = choice is _ReviewableProduct ? choice : null;
+    _finishSelection(order, product: product);
+  }
+
+  void _finishSelection(_ReviewableOrder order, {_ReviewableProduct? product}) {
+    Navigator.of(context).pop(
+      MerchantReviewDraft(
+        merchantId: order.merchantId,
+        merchantName: order.merchantName,
+        orderId: order.orderId,
+        productId: product?.productId,
+        productName: product?.name,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    return Directionality(
+      textDirection: context.appTextDirection,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(18, 0, 18, 16 + bottomInset),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              context.lt(
+                ar: 'اختر طلبًا مكتملًا للمراجعة',
+                en: 'Choose a completed order',
+              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              context.lt(
+                ar: 'تستطيع مراجعة متجر طلبت منه سابقًا فقط. اختيار منتج من نفس الطلب اختياري.',
+                en: 'You can review stores you ordered from. Choosing a product from that order is optional.',
+              ),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _search,
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => _loadOrders(),
+              decoration: InputDecoration(
+                hintText: context.lt(
+                  ar: 'ابحث باسم المتجر...',
+                  en: 'Search store, product, or order...',
+                ),
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: IconButton(
+                  tooltip: context.lt(ar: 'بحث', en: 'Search'),
+                  onPressed: _loading ? null : _loadOrders,
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (_loading) const LinearProgressIndicator(minHeight: 2),
+            if (_error != null) ...[
+              const SizedBox(height: 10),
+              _ReviewPickerMessage(
+                icon: Icons.wifi_off_rounded,
+                message: _error!,
+                actionLabel: context.lt(ar: 'إعادة المحاولة', en: 'Retry'),
+                onAction: _loadOrders,
+              ),
+            ],
+            const SizedBox(height: 8),
+            Expanded(child: _buildOrderList(context)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderList(BuildContext context) {
+    if (_loading && _orders.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_orders.isEmpty && _error == null) {
+      return _ReviewPickerMessage(
+        icon: Icons.storefront_rounded,
+        message: context.lt(
+          ar: 'لا توجد طلبات مكتملة مؤهلة للمراجعة.',
+          en: 'No completed orders are eligible for review yet.',
+        ),
+        actionLabel: context.lt(ar: 'عرض كل الطلبات', en: 'Show all orders'),
+        onAction: () {
+          _search.clear();
+          _loadOrders();
+        },
+      );
+    }
+    return ListView.separated(
+      itemCount: _orders.length,
+      separatorBuilder: (_, _) => const Divider(height: 1),
+      itemBuilder: (context, index) {
+        final order = _orders[index];
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(vertical: 6),
+          leading: const _ReviewOrderAvatar(),
+          title: Text(
+            order.merchantName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w800),
+          ),
+          subtitle: Text(
+            _orderReviewSubtitle(context, order),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => _selectOrder(order),
+        );
+      },
+    );
+  }
+}
+
+class _ReviewOrderAvatar extends StatelessWidget {
+  const _ReviewOrderAvatar();
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: SizedBox(
+        width: 52,
+        height: 52,
+        child: ColoredBox(
+          color: colors.primaryContainer,
+          child: Icon(
+            Icons.receipt_long_rounded,
+            color: colors.onPrimaryContainer,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ReviewPickerMessage extends StatelessWidget {
+  const _ReviewPickerMessage({
+    required this.icon,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  final IconData icon;
+  final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: colors.primary, size: 34),
+          const SizedBox(height: 10),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton(onPressed: onAction, child: Text(actionLabel)),
+        ],
+      ),
+    );
+  }
+}
+
+String _orderReviewSubtitle(BuildContext context, _ReviewableOrder order) {
+  final parts = <String>[];
+  parts.add(
+    context.lt(ar: 'طلب #${order.orderId}', en: 'Order #${order.orderId}'),
+  );
+  if (order.products.isNotEmpty) {
+    parts.add(
+      context.lt(
+        ar: '${order.products.length} منتج قابل للربط',
+        en: '${order.products.length} products available',
+      ),
+    );
+  }
+  return parts.join(' - ');
+}
+
+class _ReviewableOrder {
+  const _ReviewableOrder({
+    required this.orderId,
+    required this.merchantId,
+    required this.merchantName,
+    required this.products,
+  });
+
+  final int orderId;
+  final int merchantId;
+  final String merchantName;
+  final List<_ReviewableProduct> products;
+
+  factory _ReviewableOrder.fromOrder(OrderModel order) {
+    final seen = <int>{};
+    final products = <_ReviewableProduct>[];
+    for (final item in order.items) {
+      final productId = item.productId;
+      if (productId == null || productId <= 0 || seen.contains(productId)) {
+        continue;
+      }
+      seen.add(productId);
+      products.add(_ReviewableProduct.fromItem(item));
+    }
+    return _ReviewableOrder(
+      orderId: order.id,
+      merchantId: order.merchantId,
+      merchantName: order.merchantName,
+      products: products,
+    );
+  }
+}
+
+class _ReviewableProduct {
+  const _ReviewableProduct({
+    required this.productId,
+    required this.name,
+    required this.quantity,
+  });
+
+  final int productId;
+  final String name;
+  final int quantity;
+
+  factory _ReviewableProduct.fromItem(OrderItemModel item) {
+    return _ReviewableProduct(
+      productId: item.productId!,
+      name: item.productName,
+      quantity: item.quantity,
+    );
+  }
 }
 
 /// Live "Create Post" (§2): native multi-select gallery → V3 post composer.

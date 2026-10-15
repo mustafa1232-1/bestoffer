@@ -35,6 +35,7 @@ class _NotificationsBellButtonState
   void initState() {
     super.initState();
     Future.microtask(() async {
+      ref.read(notificationsControllerProvider.notifier).startRealtime();
       final unread = switch (widget.mode) {
         NotificationInboxMode.general => ref.read(generalUnreadCountProvider),
         NotificationInboxMode.socialActivity => ref.read(
@@ -79,7 +80,8 @@ class _NotificationsBellButtonState
           onPressed: () async {
             await Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => widget.mode == NotificationInboxMode.socialActivity
+                builder: (_) =>
+                    widget.mode == NotificationInboxMode.socialActivity
                     ? const SocialActivityScreen()
                     : NotificationsScreen(mode: widget.mode),
               ),

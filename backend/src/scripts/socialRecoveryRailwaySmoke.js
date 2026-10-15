@@ -853,6 +853,7 @@ async function verifyMerchantReviewValidation(baseUrl, owner, runTag) {
     postKind: "merchant_review",
     merchantId: 1,
     reviewRating: 6,
+    orderId: 1,
   });
   assertApplicationError(
     invalidRating,

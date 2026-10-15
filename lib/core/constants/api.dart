@@ -9,17 +9,16 @@ class Api {
 
   static List<String> get fallbackBaseUrls {
     final envUrl = _baseUrlFromEnv.trim();
-    if (envUrl.isNotEmpty) {
-      if (!kReleaseMode || _isAllowedReleaseBaseUrl(envUrl)) {
-        return [envUrl];
-      }
-    }
-
     final prodUrl = _defaultProductionUrl.trim();
     final urls = <String>{};
+    // Keep an explicitly supplied URL first, but never let a stale or
+    // unreachable release build lose the canonical production fallback.
+    // Dio will try the next URL only for connection/timeout failures.
+    if (envUrl.isNotEmpty &&
+        (!kReleaseMode || _isAllowedReleaseBaseUrl(envUrl))) {
+      urls.add(envUrl);
+    }
     if (prodUrl.isNotEmpty) {
-      // Always keep production first so emulator and physical devices share
-      // one stable backend by default.
       urls.add(prodUrl);
     }
 

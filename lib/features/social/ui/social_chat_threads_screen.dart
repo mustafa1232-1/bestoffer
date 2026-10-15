@@ -50,8 +50,13 @@ final _socialThreadsLiveNotificationsApiProvider = Provider<NotificationsApi>((
 /// ???? inbox ?????? ???????? ???????? ????? ??? ????????? ?????? ???????? ?????.
 class SocialChatThreadsScreen extends ConsumerStatefulWidget {
   final int? initialThreadId;
+  final String? contextTypeFilter;
 
-  const SocialChatThreadsScreen({super.key, this.initialThreadId});
+  const SocialChatThreadsScreen({
+    super.key,
+    this.initialThreadId,
+    this.contextTypeFilter,
+  });
 
   @override
   ConsumerState<SocialChatThreadsScreen> createState() =>
@@ -271,6 +276,10 @@ class _SocialChatThreadsScreenState
           peerPhone: thread.peerPhone,
           peerUserId: thread.isGroup ? null : thread.peer.id,
           peerImageUrl: thread.displayImageUrl,
+          allowPeerProfile: !{
+            'real_estate_listing',
+            'car_listing',
+          }.contains(thread.contextType),
           readOnly:
               thread.state.requestStatus.trim().toLowerCase() == 'pending' ||
               thread.state.inboxBucket.trim().toLowerCase() == 'requests',
@@ -436,9 +445,9 @@ class _SocialChatThreadsScreenState
       await _refreshThreads(silent: true);
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر حذف المحادثة')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذّر حذف المحادثة')));
     }
   }
 
@@ -673,7 +682,12 @@ class _SocialChatThreadsScreenState
     });
 
     final threads = state.threads;
-    _tryOpenInitialThread(threads);
+    final scopedThreads = widget.contextTypeFilter == null
+        ? threads
+        : threads
+              .where((thread) => thread.contextType == widget.contextTypeFilter)
+              .toList(growable: false);
+    _tryOpenInitialThread(scopedThreads);
     final notificationsState = ref.watch(notificationsControllerProvider);
     final unreadByThread = _buildThreadUnreadCounts(
       notificationsState.notifications,
@@ -681,8 +695,8 @@ class _SocialChatThreadsScreenState
 
     final normalizedQuery = _query.toLowerCase();
     final searched = normalizedQuery.isEmpty
-        ? threads
-        : threads
+        ? scopedThreads
+        : scopedThreads
               .where((thread) {
                 final name = thread.displayTitle.toLowerCase();
                 final username = (thread.peer.username ?? '').toLowerCase();
@@ -709,7 +723,7 @@ class _SocialChatThreadsScreenState
     final isLtr = Directionality.of(context) == TextDirection.ltr;
 
     Widget buildListBody() {
-      if (state.loadingThreads && threads.isEmpty) {
+      if (state.loadingThreads && scopedThreads.isEmpty) {
         return ListView(
           physics: const AlwaysScrollableScrollPhysics(),
           children: const [
@@ -760,6 +774,9 @@ class _SocialChatThreadsScreenState
         separatorBuilder: (context, index) => const SizedBox(height: 10),
         itemBuilder: (_, index) {
           final thread = filtered[index];
+          final isMarketplaceThread =
+              thread.contextType == 'real_estate_listing' ||
+              thread.contextType == 'car_listing';
           final unreadCount = [
             unreadByThread[thread.id] ?? 0,
             thread.state.unreadCount,
@@ -807,7 +824,7 @@ class _SocialChatThreadsScreenState
                   child: Row(
                     children: [
                       InkWell(
-                        onTap: thread.isGroup
+                        onTap: thread.isGroup || isMarketplaceThread
                             ? null
                             : () => _openAvatar(thread.peer),
                         borderRadius: BorderRadius.circular(999),
@@ -890,7 +907,9 @@ class _SocialChatThreadsScreenState
                               )
                             else
                               InkWell(
-                                onTap: () => _openProfile(thread.peer),
+                                onTap: isMarketplaceThread
+                                    ? null
+                                    : () => _openProfile(thread.peer),
                                 borderRadius: BorderRadius.circular(8),
                                 child: SocialIdentityView(
                                   author: thread.peer,

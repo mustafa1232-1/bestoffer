@@ -8,6 +8,8 @@ import 'reel_action_rail_v3.dart';
 import 'reel_metadata_overlay_v3.dart';
 import 'reel_playback_coordinator.dart';
 import 'reel_video_surface_v3.dart';
+import 'reel_document_overlay.dart';
+import '../../../core/i18n/locale_text.dart';
 
 /// One full-viewport reel page.
 ///
@@ -193,10 +195,12 @@ class _ReelPageV3State extends State<ReelPageV3>
             child: ListenableBuilder(
               listenable: widget.coordinator,
               builder: (context, _) {
-                final controller =
-                    widget.coordinator.controllerFor(widget.index);
-                final isBuffering =
-                    widget.coordinator.isBuffering(widget.index);
+                final controller = widget.coordinator.controllerFor(
+                  widget.index,
+                );
+                final isBuffering = widget.coordinator.isBuffering(
+                  widget.index,
+                );
                 final failed = widget.coordinator.isFailed(widget.index);
                 final isPaused =
                     widget.index == widget.coordinator.activeIndex &&
@@ -230,6 +234,7 @@ class _ReelPageV3State extends State<ReelPageV3>
             ),
           ),
           const _EdgeScrims(),
+          ReelDocumentOverlay(style: widget.reel.storyStyle),
           if (_showHeart)
             Center(
               child: ScaleTransition(
@@ -262,13 +267,24 @@ class _ReelPageV3State extends State<ReelPageV3>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
-                  'ريلز',
-                  style: TextStyle(
+                if (Navigator.of(context).canPop())
+                  IconButton(
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).backButtonTooltip,
+                    onPressed: () => Navigator.of(context).maybePop(),
+                    icon: const BackButtonIcon(),
                     color: Colors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
+                  ),
+                Expanded(
+                  child: Text(
+                    context.lt(ar: 'ريلز', en: 'Reels'),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      shadows: [Shadow(color: Colors.black54, blurRadius: 8)],
+                    ),
                   ),
                 ),
                 Row(
@@ -302,7 +318,7 @@ class _ReelPageV3State extends State<ReelPageV3>
                 _handleLikeAction(desiredLiked: !widget.reel.isLiked),
               ),
               onComments: widget.onComments,
-              onShare: widget.onShare,
+              onShare: widget.reel.sharingEnabled ? widget.onShare : null,
               onSave: widget.onSave,
               onMore: widget.onMore,
               onAvatar: widget.onOpenAuthor,
@@ -324,6 +340,30 @@ class _ReelPageV3State extends State<ReelPageV3>
                   onOpenAuthor: widget.onOpenAuthor,
                 ),
               ),
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: padding.bottom,
+            child: ListenableBuilder(
+              listenable: widget.coordinator,
+              builder: (context, _) {
+                final controller = widget.coordinator.controllerFor(
+                  widget.index,
+                );
+                if (controller == null) return const SizedBox.shrink();
+                return VideoProgressIndicator(
+                  controller,
+                  allowScrubbing: true,
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  colors: const VideoProgressColors(
+                    playedColor: Color(0xFFC89B3C),
+                    bufferedColor: Colors.white38,
+                    backgroundColor: Colors.white12,
+                  ),
+                );
+              },
             ),
           ),
         ],

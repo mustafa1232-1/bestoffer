@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
+import '../../../core/platform/app_flavor.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/loading_skeletons.dart';
 import '../../../core/utils/parsers.dart';
 import '../../../core/utils/currency.dart';
@@ -18,7 +21,9 @@ import '../../merchants/state/customer_merchant_prefs_controller.dart';
 import '../../merchants/state/merchant_discovery_controller.dart';
 import '../../merchants/state/merchants_controller.dart';
 import '../../merchants/ui/merchant_products_screen.dart';
+import '../../notifications/state/notifications_controller.dart';
 import '../../notifications/ui/notifications_bell.dart';
+import '../../notifications/ui/notifications_screen.dart';
 import '../../orders/state/cart_controller.dart';
 import '../../orders/state/delivery_address_controller.dart';
 import '../../orders/ui/cart_screen.dart';
@@ -50,6 +55,7 @@ class MerchantsListScreen extends ConsumerStatefulWidget {
   /// pharmacy/restaurant/general store can never leak into e.g. the clothing
   /// page. The general "all stores" surface leaves this false.
   final bool strictCategoryMode;
+  final bool showShoppingCategoryCards;
 
   /// When false, the in-category "smart" discovery block (category intelligence
   /// panel + fastest / top-rated / best-price / offers rails) is hidden and not
@@ -69,6 +75,7 @@ class MerchantsListScreen extends ConsumerStatefulWidget {
     this.compactCustomerMode = false,
     this.applyInitialSearchQuery = true,
     this.strictCategoryMode = false,
+    this.showShoppingCategoryCards = false,
     this.showCategoryIntelligence = true,
   });
 
@@ -82,12 +89,14 @@ enum _CustomerMerchantSort { recommended, openFirst, offersFirst, alphabetical }
 enum _DiscoveryMode { quick, savings, favorites, surprise }
 
 class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
+  final _scaffoldKey = GlobalKey<ScaffoldState>();
   String? filterType;
   String? selectedActivityType;
   String? selectedDiscoverySubcategory;
   String searchQuery = '';
   bool openNowOnly = false;
   bool favoritesOnly = false;
+  String? selectedShoppingGroup;
   _CustomerMerchantSort sortBy = _CustomerMerchantSort.recommended;
   _DiscoveryMode? activeDiscoveryMode;
   bool surprisePicking = false;
@@ -140,6 +149,9 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
       final auth = ref.read(authControllerProvider);
       final userId = auth.user?.id;
 
+      unawaited(
+        ref.read(deliveryAddressControllerProvider.notifier).bootstrap(),
+      );
       await ref
           .read(merchantsControllerProvider.notifier)
           .loadWithFilters(
@@ -149,13 +161,9 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
             discoverySubcategory: selectedDiscoverySubcategory,
             department: widget.initialDepartment,
           );
-      await ref.read(deliveryAddressControllerProvider.notifier).bootstrap();
       await _loadDiscoveryForType(auth: auth, type: filterType);
       await _loadActivityFilters();
-      if (!auth.isBackoffice &&
-          !auth.isOwner &&
-          !auth.isDelivery &&
-          userId != null) {
+      if (_isCustomerView(auth) && userId != null) {
         await ref
             .read(customerMerchantPrefsProvider.notifier)
             .bootstrap(userId: userId);
@@ -180,6 +188,19 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     await Navigator.of(
       context,
     ).push(MaterialPageRoute(builder: (_) => const CustomerOrdersScreen()));
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            const NotificationsScreen(mode: NotificationInboxMode.general),
+      ),
+    );
+    if (!mounted) return;
+    await ref
+        .read(notificationsControllerProvider.notifier)
+        .refreshUnreadCount();
   }
 
   Future<void> _openTaxiTools(int tab) async {
@@ -313,6 +334,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
   }
 
   bool _isCustomerView(AuthState auth) {
+    if (ref.read(appFlavorProvider) == AppFlavor.user) return true;
     return !auth.isBackoffice && !auth.isOwner && !auth.isDelivery;
   }
 
@@ -460,7 +482,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
       selectedDiscoverySubcategory = null;
       _discoveryOptions = const <StoreDiscoveryOptionModel>[];
     });
-    await _loadDiscoveryOptionsForSelectedActivity(force: true);
+    await _loadActivityFilters(force: true);
     if (!mounted) return;
     await ref
         .read(merchantsControllerProvider.notifier)
@@ -488,6 +510,25 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     await _trackBrowseSurface();
   }
 
+  Future<void> _onSelectShoppingCategory(_ShoppingCategoryCardData item) async {
+    final nextGroup = _normalizeNullableToken(item.groupKey);
+    final isSame = selectedShoppingGroup == nextGroup;
+    if (isSame) return;
+
+    setState(() {
+      selectedShoppingGroup = nextGroup;
+      filterType = null;
+      selectedActivityType = null;
+      selectedDiscoverySubcategory = null;
+      searchQuery = '';
+      _serverSideSearch = null;
+      _discoveryOptions = const <StoreDiscoveryOptionModel>[];
+      searchCtrl.clear();
+    });
+
+    await _trackBrowseSurface();
+  }
+
   String _resolvedSearchHintText() {
     final l10n = context.l10n;
     final title = (widget.overrideTitle ?? '').trim();
@@ -509,9 +550,10 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
   ) {
     final q = normalizeText(searchQuery).trim().toLowerCase();
     final hasExplicitSearch = q.isNotEmpty;
-    var filtered = q.isEmpty
-        ? list
-        : list.where((merchant) {
+    var filtered = _applyShoppingGroupFilter(list);
+    filtered = q.isEmpty
+        ? filtered
+        : filtered.where((merchant) {
             final haystack = normalizeText(
               '${merchant.name} ${merchant.description ?? ''} '
               '${merchant.tagline ?? ''} ${merchant.phone ?? ''}',
@@ -554,6 +596,69 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     return [...matched, ...fallback];
   }
 
+  List<MerchantModel> _applyShoppingGroupFilter(List<MerchantModel> list) {
+    final group = selectedShoppingGroup;
+    if (group == null || group.isEmpty) return list;
+    return list
+        .where((merchant) {
+          final type = normalizeText(merchant.type).trim().toLowerCase();
+          final activity = normalizeText(
+            merchant.activityType,
+          ).trim().toLowerCase();
+          switch (group) {
+            case 'food':
+              return type == 'restaurant' ||
+                  {
+                    'restaurant',
+                    'sweets_bakery',
+                    'coffee_drinks',
+                    'bakery',
+                    'dessert',
+                  }.contains(activity);
+            case 'fashion':
+              return {
+                'fashion_clothing',
+                'kids_clothing',
+                'personal_care_beauty',
+              }.contains(activity);
+            case 'supermarket':
+              return type == 'market' &&
+                  {
+                    'market',
+                    'supermarket',
+                    'fruits_vegetables',
+                    'meat_poultry',
+                    'seafood',
+                    'nuts_snacks',
+                    'mineral_water',
+                  }.contains(activity);
+            case 'pharmacy':
+              return activity == 'pharmacy' ||
+                  activity == 'dietary_supplements' ||
+                  merchant.supportsPharmacyWorkflow;
+            case 'electronics':
+              return {
+                'electronics_mobile',
+                'electrical_lighting',
+                'phone_maintenance',
+                'phones_technology',
+                'home_kitchen',
+              }.contains(activity);
+            case 'home':
+              return {
+                'furnishings',
+                'home_furniture',
+                'home_kitchen',
+                'kitchens_decor',
+                'construction',
+              }.contains(activity);
+            default:
+              return true;
+          }
+        })
+        .toList(growable: false);
+  }
+
   void _clearCustomerFilters() {
     searchCtrl.clear();
     setState(() {
@@ -563,6 +668,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
       sortBy = _CustomerMerchantSort.recommended;
       activeDiscoveryMode = null;
       highlightedMerchantId = null;
+      selectedShoppingGroup = null;
       selectedActivityType = null;
       selectedDiscoverySubcategory = null;
       _discoveryOptions = const <StoreDiscoveryOptionModel>[];
@@ -912,6 +1018,59 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     }
   }
 
+  List<_ShoppingCategoryCardData> _shoppingCategoryCards(BuildContext context) {
+    return <_ShoppingCategoryCardData>[
+      _ShoppingCategoryCardData(
+        title: context.lt(ar: 'كل المتاجر', en: 'All stores'),
+        subtitle: context.lt(ar: 'السوق كامل', en: 'Full market'),
+        icon: Icons.storefront_rounded,
+        color: const Color(0xFF2F5D46),
+      ),
+      _ShoppingCategoryCardData(
+        title: context.lt(ar: 'أزياء', en: 'Fashion'),
+        subtitle: context.lt(ar: 'ملابس وإطلالات', en: 'Clothes & style'),
+        icon: Icons.checkroom_rounded,
+        groupKey: 'fashion',
+        color: const Color(0xFF7A5C8E),
+      ),
+      _ShoppingCategoryCardData(
+        title: context.lt(ar: 'مطاعم', en: 'Restaurants'),
+        subtitle: context.lt(ar: 'وجبات ومشروبات', en: 'Food & drinks'),
+        icon: Icons.restaurant_rounded,
+        groupKey: 'food',
+        color: const Color(0xFFB88A2D),
+      ),
+      _ShoppingCategoryCardData(
+        title: context.lt(ar: 'سوبرماركت', en: 'Supermarket'),
+        subtitle: context.lt(ar: 'احتياجات البيت', en: 'Daily needs'),
+        icon: Icons.local_grocery_store_rounded,
+        groupKey: 'supermarket',
+        color: const Color(0xFF4D7C5B),
+      ),
+      _ShoppingCategoryCardData(
+        title: context.lt(ar: 'صيدليات', en: 'Pharmacies'),
+        subtitle: context.lt(ar: 'صحة وعناية', en: 'Health care'),
+        icon: Icons.local_hospital_rounded,
+        groupKey: 'pharmacy',
+        color: const Color(0xFF3E9488),
+      ),
+      _ShoppingCategoryCardData(
+        title: context.lt(ar: 'إلكترونيات', en: 'Electronics'),
+        subtitle: context.lt(ar: 'أجهزة وتقنيات', en: 'Tech & devices'),
+        icon: Icons.devices_other_rounded,
+        groupKey: 'electronics',
+        color: const Color(0xFF3E6BA0),
+      ),
+      _ShoppingCategoryCardData(
+        title: context.lt(ar: 'المنزل', en: 'Home'),
+        subtitle: context.lt(ar: 'أثاث ومستلزمات', en: 'Furniture & decor'),
+        icon: Icons.chair_rounded,
+        groupKey: 'home',
+        color: const Color(0xFF7A5E3B),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -919,14 +1078,23 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     final merchants = ref.watch(merchantsControllerProvider);
     final discovery = ref.watch(merchantDiscoveryControllerProvider);
     final cart = ref.watch(cartControllerProvider);
+    final unreadNotifications = ref.watch(generalUnreadCountProvider);
     final prefs = ref.watch(customerMerchantPrefsProvider);
-    final showCustomerActions =
-        !auth.isBackoffice && !auth.isOwner && !auth.isDelivery;
+    final showCustomerActions = _isCustomerView(auth);
+    final showShoppingCards =
+        widget.showShoppingCategoryCards &&
+        widget.compactCustomerMode &&
+        !widget.strictCategoryMode;
     final showRichDiscovery =
-        showCustomerActions && !widget.compactCustomerMode;
+        showCustomerActions &&
+        !widget.compactCustomerMode &&
+        !showShoppingCards;
     final lockTypeSelection =
-        widget.compactCustomerMode && widget.initialType != null;
-    final showMerchantToolbar = showCustomerActions && !lockTypeSelection;
+        widget.compactCustomerMode &&
+        widget.initialType != null &&
+        !showShoppingCards;
+    final showMerchantToolbar =
+        showCustomerActions && (!lockTypeSelection || showShoppingCards);
     final hasInitialActivityContext = (widget.initialActivityType ?? '')
         .trim()
         .isNotEmpty;
@@ -936,7 +1104,8 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     final isRestaurantLanding = normalizedInitialType == 'restaurant';
     final isActivityLockedContext =
         hasInitialActivityContext || isRestaurantLanding;
-    final showActivityFilters = showCustomerActions && !isActivityLockedContext;
+    final showActivityFilters =
+        showCustomerActions && !isActivityLockedContext && !showShoppingCards;
     Future<void> runDrawerAction(Future<void> Function() action) async {
       Navigator.of(context).pop();
       await action();
@@ -1003,33 +1172,39 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     ];
 
     return Scaffold(
+      key: _scaffoldKey,
       endDrawer: MaslakiUserDrawer(extraSections: extraDrawerSections),
-      appBar: AppBar(
-        title: Text(
-          widget.overrideTitle ??
-              (showCustomerActions
-                  ? l10n.customerHomeTitle
-                  : l10n.adminBackofficeMerchantsTitle),
-        ),
-        actions: [
-          if (showCustomerActions)
-            IconButton(
-              tooltip: l10n.customerDiscoveryOrders,
-              onPressed: _openOrders,
-              icon: const Icon(Icons.receipt_long),
+      appBar: showShoppingCards
+          ? null
+          : AppBar(
+              title: Text(
+                widget.overrideTitle ??
+                    (showCustomerActions
+                        ? l10n.customerHomeTitle
+                        : l10n.adminBackofficeMerchantsTitle),
+              ),
+              actions: [
+                if (showCustomerActions)
+                  IconButton(
+                    tooltip: l10n.customerDiscoveryOrders,
+                    onPressed: _openOrders,
+                    icon: const Icon(Icons.receipt_long),
+                  ),
+                if (showCustomerActions)
+                  IconButton(
+                    tooltip: l10n.drawerAddresses,
+                    onPressed: _openAddresses,
+                    icon: const Icon(Icons.location_on_outlined),
+                  ),
+                if (showCustomerActions)
+                  _CartButton(
+                    totalItems: cart.totalItems,
+                    onPressed: _openCart,
+                  ),
+                if (showCustomerActions) const NotificationsBellButton(),
+                const MaslakiUserDrawerButton(),
+              ],
             ),
-          if (showCustomerActions)
-            IconButton(
-              tooltip: l10n.drawerAddresses,
-              onPressed: _openAddresses,
-              icon: const Icon(Icons.location_on_outlined),
-            ),
-          if (showCustomerActions)
-            _CartButton(totalItems: cart.totalItems, onPressed: _openCart),
-          if (showCustomerActions) const NotificationsBellButton(),
-          const MaslakiUserDrawerButton(),
-        ],
-      ),
       floatingActionButton: auth.isAdmin
           ? FloatingActionButton.extended(
               heroTag: null,
@@ -1103,6 +1278,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
           final categoryDiscoveryEnabled =
               widget.showCategoryIntelligence &&
               widget.compactCustomerMode &&
+              !showShoppingCards &&
               (filterType ?? widget.initialType) != null;
           final fastestMerchants = discoveryData == null
               ? const <MerchantModel>[]
@@ -1172,10 +1348,58 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
           return RefreshIndicator(
             onRefresh: _refresh,
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 22),
+              padding: EdgeInsets.fromLTRB(
+                12,
+                showShoppingCards ? 12 : 8,
+                12,
+                22,
+              ),
               children: [
-                _BasmayaLocationStrip(onOpenAddresses: _openAddresses),
-                const SizedBox(height: 12),
+                if (showShoppingCards) ...[
+                  _ShoppingMarketHeader(
+                    title:
+                        widget.overrideTitle ??
+                        context.lt(ar: 'السوق الرئيسي', en: 'Main Market'),
+                    onOpenDrawer: () =>
+                        _scaffoldKey.currentState?.openEndDrawer(),
+                    onOpenAddresses: _openAddresses,
+                    onOpenNotifications: _openNotifications,
+                    onOpenCart: _openCart,
+                    cartItems: cart.totalItems,
+                    notificationCount: unreadNotifications,
+                  ),
+                  MarketplaceAdCard(
+                    request: MarketplaceAdRequest(
+                      placement: marketplaceAdPlacement,
+                      type:
+                          (filterType ?? widget.initialType)
+                                  ?.trim()
+                                  .isNotEmpty ==
+                              true
+                          ? (filterType ?? widget.initialType)!.trim()
+                          : null,
+                      categoryKey:
+                          hasMarketplaceCategoryContext &&
+                              categoryAdKey?.isNotEmpty == true
+                          ? categoryAdKey
+                          : null,
+                      activityType:
+                          hasMarketplaceCategoryContext &&
+                              categoryAdActivityType?.isNotEmpty == true
+                          ? categoryAdActivityType
+                          : null,
+                    ),
+                    onTapAd: _handleCategoryAdTap,
+                    height: 178,
+                    margin: const EdgeInsets.only(top: 8, bottom: 16),
+                    showEmptyState: false,
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                if (!showShoppingCards) ...[
+                  _BasmayaLocationStrip(onOpenAddresses: _openAddresses),
+                  const SizedBox(height: 12),
+                ],
                 if (showRichDiscovery) ...[
                   _CityPulseCard(
                     greeting: _greetingByHour(context, DateTime.now().hour),
@@ -1190,16 +1414,18 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   ),
                   const SizedBox(height: 10),
                 ],
-                _CustomerQuickActions(
-                  openNowOnly: openNowOnly,
-                  onToggleOpenNowOnly: (value) =>
-                      setState(() => openNowOnly = value),
-                  onOpenAddresses: () => _openAddresses(),
-                  onOpenOrders: _openOrders,
-                  onOpenCart: _openCart,
-                  showOpenNowToggle: showRichDiscovery,
-                ),
-                const SizedBox(height: 10),
+                if (!showShoppingCards) ...[
+                  _CustomerQuickActions(
+                    openNowOnly: openNowOnly,
+                    onToggleOpenNowOnly: (value) =>
+                        setState(() => openNowOnly = value),
+                    onOpenAddresses: () => _openAddresses(),
+                    onOpenOrders: _openOrders,
+                    onOpenCart: _openCart,
+                    showOpenNowToggle: showRichDiscovery,
+                  ),
+                  const SizedBox(height: 10),
+                ],
                 if (showRichDiscovery) ...[
                   _DiscoveryModesPanel(
                     activeMode: activeDiscoveryMode,
@@ -1214,50 +1440,71 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                   ),
                   const SizedBox(height: 12),
                 ],
-                // Admin-managed marketplace ad only. It sits above search and
-                // collapses fully when the admin has not published one.
-                MarketplaceAdCard(
-                  request: MarketplaceAdRequest(
-                    placement: marketplaceAdPlacement,
-                    type:
-                        (filterType ?? widget.initialType)?.trim().isNotEmpty ==
-                            true
-                        ? (filterType ?? widget.initialType)!.trim()
-                        : null,
-                    categoryKey:
-                        hasMarketplaceCategoryContext &&
-                            categoryAdKey?.isNotEmpty == true
-                        ? categoryAdKey
-                        : null,
-                    activityType:
-                        hasMarketplaceCategoryContext &&
-                            categoryAdActivityType?.isNotEmpty == true
-                        ? categoryAdActivityType
-                        : null,
+                if (!showShoppingCards) ...[
+                  // Admin-managed marketplace ad only. It sits above search and
+                  // collapses fully when the admin has not published one.
+                  MarketplaceAdCard(
+                    request: MarketplaceAdRequest(
+                      placement: marketplaceAdPlacement,
+                      type:
+                          (filterType ?? widget.initialType)
+                                  ?.trim()
+                                  .isNotEmpty ==
+                              true
+                          ? (filterType ?? widget.initialType)!.trim()
+                          : null,
+                      categoryKey:
+                          hasMarketplaceCategoryContext &&
+                              categoryAdKey?.isNotEmpty == true
+                          ? categoryAdKey
+                          : null,
+                      activityType:
+                          hasMarketplaceCategoryContext &&
+                              categoryAdActivityType?.isNotEmpty == true
+                          ? categoryAdActivityType
+                          : null,
+                    ),
+                    onTapAd: _handleCategoryAdTap,
+                    showEmptyState: true,
                   ),
-                  onTapAd: _handleCategoryAdTap,
-                  showEmptyState: true,
-                ),
-                TextField(
+                ],
+                if (showShoppingCards) ...[
+                  _ShoppingCategoryCardsRail(
+                    items: _shoppingCategoryCards(context),
+                    activeGroup: selectedShoppingGroup,
+                    onSelect: _onSelectShoppingCategory,
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                _ShoppingSearchField(
                   controller: searchCtrl,
-                  textDirection: TextDirection.rtl,
+                  hintText: showShoppingCards
+                      ? context.lt(
+                          ar: 'ابحث عن المتاجر أو المنتجات في بسمّاية ...',
+                          en: 'Search stores or products in Basmaya ...',
+                        )
+                      : _resolvedSearchHintText(),
                   onChanged: (value) => setState(() => searchQuery = value),
-                  decoration: InputDecoration(
-                    hintText: _resolvedSearchHintText(),
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    suffixIcon: searchQuery.isEmpty
-                        ? null
-                        : IconButton(
-                            onPressed: () {
-                              searchCtrl.clear();
-                              setState(() => searchQuery = '');
-                            },
-                            icon: const Icon(Icons.close_rounded),
-                          ),
-                  ),
+                  onClear: searchQuery.isEmpty
+                      ? null
+                      : () {
+                          searchCtrl.clear();
+                          setState(() => searchQuery = '');
+                        },
                 ),
-                const SizedBox(height: 10),
-                if (showMerchantToolbar) ...[
+                if (showShoppingCards) ...[
+                  const SizedBox(height: 12),
+                  _ShoppingFilterRow(
+                    favoritesOnly: favoritesOnly,
+                    sortBy: sortBy,
+                    onToggleFavoritesOnly: (value) =>
+                        setState(() => favoritesOnly = value),
+                    onChangeSort: (value) => setState(() => sortBy = value),
+                    onOpenNearby: _openAddresses,
+                  ),
+                  const SizedBox(height: 18),
+                ] else if (showMerchantToolbar) ...[
+                  const SizedBox(height: 10),
                   _MerchantDiscoveryToolbar(
                     favoritesOnly: favoritesOnly,
                     sortBy: sortBy,
@@ -1485,6 +1732,7 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
                         child: _MerchantTalabatCard(
                           merchant: merchant,
                           isFavorite: isFavorite,
+                          compactMarketStyle: showShoppingCards,
                           highlightPulse: highlightedMerchantId == merchant.id,
                           onToggleFavorite:
                               !showCustomerActions || userId == null
@@ -1595,6 +1843,559 @@ class _BackofficeMerchantsView extends StatelessWidget {
                   ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ShoppingMarketHeader extends StatelessWidget {
+  final String title;
+  final VoidCallback onOpenDrawer;
+  final Future<void> Function() onOpenAddresses;
+  final Future<void> Function() onOpenNotifications;
+  final Future<void> Function() onOpenCart;
+  final int cartItems;
+  final int notificationCount;
+
+  const _ShoppingMarketHeader({
+    required this.title,
+    required this.onOpenDrawer,
+    required this.onOpenAddresses,
+    required this.onOpenNotifications,
+    required this.onOpenCart,
+    required this.cartItems,
+    required this.notificationCount,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return SafeArea(
+      bottom: false,
+      child: SizedBox(
+        height: 58,
+        child: Row(
+          textDirection: TextDirection.rtl,
+          children: [
+            _HeaderActionIcon(
+              key: const Key('shopping_market_drawer_button'),
+              icon: Icons.menu_rounded,
+              onTap: onOpenDrawer,
+              plain: true,
+            ),
+            const SizedBox(width: 10),
+            _LocationCapsule(
+              key: const Key('shopping_market_location_button'),
+              onTap: onOpenAddresses,
+            ),
+            const Spacer(),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Text(
+                  title,
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    color: tokens.textPrimary,
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                    height: 1,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  context.lt(
+                    ar: 'كل ما تحتاجه .. في مكان واحد',
+                    en: 'Everything you need in one place',
+                  ),
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    color: tokens.textMuted,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const Spacer(),
+            _HeaderActionIcon(
+              key: const Key('shopping_market_notifications_button'),
+              icon: Icons.notifications_none_rounded,
+              badge: notificationCount > 0 ? '$notificationCount' : null,
+              onTap: onOpenNotifications,
+            ),
+            const SizedBox(width: 10),
+            _HeaderActionIcon(
+              key: const Key('shopping_market_cart_button'),
+              icon: Icons.shopping_cart_outlined,
+              badge: cartItems > 0 ? '$cartItems' : null,
+              onTap: onOpenCart,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationCapsule extends StatelessWidget {
+  final Future<void> Function() onTap;
+
+  const _LocationCapsule({super.key, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 13),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          color: tokens.cardPrimary.withValues(alpha: 0.90),
+          border: Border.all(
+            color: tokens.secondaryAccent.withValues(alpha: 0.28),
+          ),
+        ),
+        child: Row(
+          textDirection: TextDirection.rtl,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: tokens.textPrimary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              context.lt(ar: 'بسمّاية', en: 'Basmaya'),
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(width: 7),
+            Icon(
+              Icons.location_on_rounded,
+              color: tokens.secondaryAccent,
+              size: 22,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderActionIcon extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+  final String? badge;
+  final bool plain;
+
+  const _HeaderActionIcon({
+    super.key,
+    required this.icon,
+    required this.onTap,
+    this.badge,
+    this.plain = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return InkWell(
+      onTap: onTap,
+      customBorder: const CircleBorder(),
+      child: SizedBox(
+        width: 38,
+        height: 38,
+        child: Stack(
+          clipBehavior: Clip.none,
+          alignment: Alignment.center,
+          children: [
+            Icon(
+              icon,
+              size: plain ? 29 : 28,
+              color: plain ? tokens.primaryAccent : tokens.textPrimary,
+            ),
+            if (badge != null)
+              PositionedDirectional(
+                top: 0,
+                end: -1,
+                child: Container(
+                  height: 18,
+                  constraints: const BoxConstraints(minWidth: 18),
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: icon == Icons.shopping_cart_outlined
+                        ? tokens.secondaryAccent
+                        : Colors.redAccent,
+                  ),
+                  child: Text(
+                    badge!,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ShoppingCategoryCardData {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final String? groupKey;
+  final Color color;
+
+  const _ShoppingCategoryCardData({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    this.groupKey,
+  });
+}
+
+class _ShoppingSearchField extends StatelessWidget {
+  final TextEditingController controller;
+  final String hintText;
+  final ValueChanged<String> onChanged;
+  final VoidCallback? onClear;
+
+  const _ShoppingSearchField({
+    required this.controller,
+    required this.hintText,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return Container(
+      height: 58,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: tokens.cardPrimary.withValues(alpha: 0.96),
+        border: Border.all(
+          color: tokens.secondaryAccent.withValues(alpha: 0.30),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: tokens.textPrimary.withValues(alpha: 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 7),
+          ),
+        ],
+      ),
+      child: TextField(
+        controller: controller,
+        textDirection: TextDirection.rtl,
+        onChanged: onChanged,
+        cursorColor: tokens.primaryAccent,
+        decoration: InputDecoration(
+          border: InputBorder.none,
+          hintText: hintText,
+          hintTextDirection: TextDirection.rtl,
+          hintStyle: TextStyle(
+            color: tokens.textMuted,
+            fontWeight: FontWeight.w700,
+            fontSize: 14,
+          ),
+          suffixIcon: Padding(
+            padding: const EdgeInsetsDirectional.only(end: 10),
+            child: Icon(
+              Icons.search_rounded,
+              color: tokens.primaryAccent,
+              size: 32,
+            ),
+          ),
+          prefixIcon: onClear == null
+              ? null
+              : IconButton(
+                  onPressed: onClear,
+                  icon: Icon(Icons.close_rounded, color: tokens.textMuted),
+                ),
+          contentPadding: const EdgeInsets.symmetric(
+            vertical: 18,
+            horizontal: 12,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShoppingFilterRow extends StatelessWidget {
+  final bool favoritesOnly;
+  final _CustomerMerchantSort sortBy;
+  final ValueChanged<bool> onToggleFavoritesOnly;
+  final ValueChanged<_CustomerMerchantSort> onChangeSort;
+  final Future<void> Function() onOpenNearby;
+
+  const _ShoppingFilterRow({
+    required this.favoritesOnly,
+    required this.sortBy,
+    required this.onToggleFavoritesOnly,
+    required this.onChangeSort,
+    required this.onOpenNearby,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      textDirection: TextDirection.rtl,
+      children: [
+        Expanded(
+          child: _ShoppingFilterButton(
+            label: context.lt(ar: 'المقترحة', en: 'Suggested'),
+            icon: Icons.menu_rounded,
+            selected: sortBy == _CustomerMerchantSort.recommended,
+            onTap: () => onChangeSort(_CustomerMerchantSort.recommended),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _ShoppingFilterButton(
+            label: context.lt(ar: 'المفضلة فقط', en: 'Favorites only'),
+            icon: Icons.favorite_rounded,
+            selected: favoritesOnly,
+            onTap: () => onToggleFavoritesOnly(!favoritesOnly),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: _ShoppingFilterButton(
+            label: context.lt(ar: 'الأقرب', en: 'Nearby'),
+            icon: Icons.location_on_outlined,
+            selected: sortBy == _CustomerMerchantSort.openFirst,
+            onTap: () => onOpenNearby(),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ShoppingFilterButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ShoppingFilterButton({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: Container(
+        height: 50,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          color: selected
+              ? tokens.primaryAccent
+              : tokens.cardPrimary.withValues(alpha: 0.88),
+          border: Border.all(
+            color: selected
+                ? tokens.primaryAccent
+                : tokens.secondaryAccent.withValues(alpha: 0.18),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          textDirection: TextDirection.rtl,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: selected ? Colors.white : tokens.textPrimary,
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+              ),
+            ),
+            const SizedBox(width: 7),
+            Icon(
+              icon,
+              color: selected ? Colors.white : tokens.primaryAccent,
+              size: 20,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ShoppingCategoryCardsRail extends StatelessWidget {
+  final List<_ShoppingCategoryCardData> items;
+  final String? activeGroup;
+  final ValueChanged<_ShoppingCategoryCardData> onSelect;
+
+  const _ShoppingCategoryCardsRail({
+    required this.items,
+    required this.activeGroup,
+    required this.onSelect,
+  });
+
+  bool _isActive(_ShoppingCategoryCardData item) {
+    final itemGroup = normalizeText(item.groupKey ?? '').trim().toLowerCase();
+    final currentGroup = normalizeText(activeGroup ?? '').trim().toLowerCase();
+    return itemGroup == currentGroup;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 118,
+      child: ListView.separated(
+        reverse: Directionality.of(context) == TextDirection.rtl,
+        scrollDirection: Axis.horizontal,
+        itemCount: items.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          return _ShoppingCategoryCard(
+            item: item,
+            selected: _isActive(item),
+            onTap: () => onSelect(item),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ShoppingCategoryCard extends StatelessWidget {
+  final _ShoppingCategoryCardData item;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ShoppingCategoryCard({
+    required this.item,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    final color = item.color;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 104,
+        padding: const EdgeInsets.all(9),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          gradient: LinearGradient(
+            begin: Alignment.topRight,
+            end: Alignment.bottomLeft,
+            colors: selected
+                ? [color, Color.alphaBlend(Colors.black26, color)]
+                : [
+                    Color.alphaBlend(
+                      color.withValues(alpha: 0.12),
+                      tokens.cardPrimary,
+                    ),
+                    Color.alphaBlend(
+                      color.withValues(alpha: 0.06),
+                      tokens.cardElevated,
+                    ),
+                  ],
+          ),
+          border: Border.all(
+            color: selected
+                ? Colors.white.withValues(alpha: 0.52)
+                : color.withValues(alpha: 0.24),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: selected ? 0.24 : 0.10),
+              blurRadius: selected ? 18 : 12,
+              offset: const Offset(0, 7),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: selected
+                    ? Colors.black.withValues(alpha: 0.14)
+                    : color.withValues(alpha: 0.12),
+                border: Border.all(
+                  color: selected
+                      ? Colors.white.withValues(alpha: 0.10)
+                      : color.withValues(alpha: 0.20),
+                ),
+              ),
+              child: Icon(
+                item.icon,
+                color: selected ? Colors.white : color,
+                size: 27,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              item.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textDirection: TextDirection.rtl,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: selected ? Colors.white : tokens.textPrimary,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              item.subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textDirection: TextDirection.rtl,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: selected
+                    ? Colors.white.withValues(alpha: 0.86)
+                    : tokens.textMuted,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1803,17 +2604,18 @@ class _PulseChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
-        color: Colors.white.withValues(alpha: 0.08),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.10)),
+        color: tokens.surfacePrimary.withValues(alpha: 0.80),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.72)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: Colors.white70),
+          Icon(icon, size: 14, color: tokens.primaryAccent),
           const SizedBox(width: 6),
           Text(
             '$value $label',
@@ -3064,6 +3866,7 @@ class _MerchantListEmptyState extends StatelessWidget {
 class _MerchantTalabatCard extends StatelessWidget {
   final MerchantModel merchant;
   final bool isFavorite;
+  final bool compactMarketStyle;
   final bool highlightPulse;
   final VoidCallback? onToggleFavorite;
   final VoidCallback onTap;
@@ -3071,6 +3874,7 @@ class _MerchantTalabatCard extends StatelessWidget {
   const _MerchantTalabatCard({
     required this.merchant,
     required this.isFavorite,
+    this.compactMarketStyle = false,
     required this.highlightPulse,
     required this.onToggleFavorite,
     required this.onTap,
@@ -3146,6 +3950,18 @@ class _MerchantTalabatCard extends StatelessWidget {
         : Icons.storefront_rounded;
     final etaLabel = _etaLabel(context);
     final feeLabel = _feeLabel(context);
+    if (compactMarketStyle) {
+      return _ShoppingMerchantRowCard(
+        merchant: merchant,
+        cover: cover,
+        storeIcon: storeIcon,
+        isFavorite: isFavorite,
+        highlightPulse: highlightPulse,
+        statusLabel: _statusLabel(context),
+        onToggleFavorite: onToggleFavorite,
+        onTap: onTap,
+      );
+    }
 
     return AnimatedScale(
       duration: const Duration(milliseconds: 260),
@@ -3209,80 +4025,127 @@ class _MerchantTalabatCard extends StatelessWidget {
                     child: Stack(
                       fit: StackFit.expand,
                       children: [
-                        if (cover != null)
-                          CachedAppImage(
-                            imageUrl: cover,
-                            cacheIdentity: 'store_cover_${merchant.id}',
-                            fit: BoxFit.cover,
-                            errorWidget: (context, error, stackTrace) =>
+                        ImageFiltered(
+                          imageFilter: merchant.isOpen
+                              ? ImageFilter.blur(sigmaX: 0, sigmaY: 0)
+                              : ImageFilter.blur(sigmaX: 5, sigmaY: 5),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (cover != null)
+                                CachedAppImage(
+                                  imageUrl: cover,
+                                  cacheIdentity: 'store_cover_${merchant.id}',
+                                  fit: BoxFit.cover,
+                                  errorWidget: (context, error, stackTrace) =>
+                                      _CoverPlaceholder(icon: storeIcon),
+                                )
+                              else
                                 _CoverPlaceholder(icon: storeIcon),
-                          )
-                        else
-                          _CoverPlaceholder(icon: storeIcon),
-                        // Legibility scrim.
-                        const DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Colors.transparent, Colors.black38],
-                            ),
+                              // Legibility scrim.
+                              const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.transparent,
+                                      Colors.black38,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              // Favorite (top-start).
+                              if (onToggleFavorite != null)
+                                PositionedDirectional(
+                                  top: 8,
+                                  start: 8,
+                                  child: Material(
+                                    color: Colors.black.withValues(alpha: 0.34),
+                                    shape: const CircleBorder(),
+                                    child: InkWell(
+                                      customBorder: const CircleBorder(),
+                                      onTap: onToggleFavorite,
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(6),
+                                        child: Icon(
+                                          isFavorite
+                                              ? Icons.favorite_rounded
+                                              : Icons.favorite_border_rounded,
+                                          size: 18,
+                                          color: isFavorite
+                                              ? Colors.redAccent
+                                              : Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              // Verified + offer badges (top-end).
+                              PositionedDirectional(
+                                top: 8,
+                                end: 8,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (merchant.hasActiveOffer)
+                                      _CoverBadge(
+                                        icon: Icons.local_offer_rounded,
+                                        label: context.lt(
+                                          ar: 'عرض',
+                                          en: 'Offer',
+                                        ),
+                                        color: const Color(0xFFE0752D),
+                                      ),
+                                    if (merchant.isVerified) ...[
+                                      if (merchant.hasActiveOffer)
+                                        const SizedBox(width: 6),
+                                      _CoverBadge(
+                                        icon: Icons.verified_rounded,
+                                        label: context.lt(
+                                          ar: 'موثّق',
+                                          en: 'Verified',
+                                        ),
+                                        color: const Color(0xFF2E7CD6),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                        // Favorite (top-start).
-                        if (onToggleFavorite != null)
-                          PositionedDirectional(
-                            top: 8,
-                            start: 8,
-                            child: Material(
-                              color: Colors.black.withValues(alpha: 0.34),
-                              shape: const CircleBorder(),
-                              child: InkWell(
-                                customBorder: const CircleBorder(),
-                                onTap: onToggleFavorite,
-                                child: Padding(
-                                  padding: const EdgeInsets.all(6),
-                                  child: Icon(
-                                    isFavorite
-                                        ? Icons.favorite_rounded
-                                        : Icons.favorite_border_rounded,
-                                    size: 18,
-                                    color: isFavorite
-                                        ? Colors.redAccent
-                                        : Colors.white,
+                        if (!merchant.isOpen)
+                          Positioned.fill(
+                            child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.34),
+                              ),
+                              child: Center(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.62),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Text(
+                                    context.lt(
+                                      ar: 'غير متوفر حاليًا',
+                                      en: 'Not available now',
+                                    ),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 13,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
                           ),
-                        // Verified + offer badges (top-end).
-                        PositionedDirectional(
-                          top: 8,
-                          end: 8,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (merchant.hasActiveOffer)
-                                _CoverBadge(
-                                  icon: Icons.local_offer_rounded,
-                                  label: context.lt(ar: 'عرض', en: 'Offer'),
-                                  color: const Color(0xFFE0752D),
-                                ),
-                              if (merchant.isVerified) ...[
-                                if (merchant.hasActiveOffer)
-                                  const SizedBox(width: 6),
-                                _CoverBadge(
-                                  icon: Icons.verified_rounded,
-                                  label: context.lt(
-                                    ar: 'موثّق',
-                                    en: 'Verified',
-                                  ),
-                                  color: const Color(0xFF2E7CD6),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -3374,6 +4237,269 @@ class _MerchantTalabatCard extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ShoppingMerchantRowCard extends StatelessWidget {
+  final MerchantModel merchant;
+  final String? cover;
+  final IconData storeIcon;
+  final bool isFavorite;
+  final bool highlightPulse;
+  final String statusLabel;
+  final VoidCallback? onToggleFavorite;
+  final VoidCallback onTap;
+
+  const _ShoppingMerchantRowCard({
+    required this.merchant,
+    required this.cover,
+    required this.storeIcon,
+    required this.isFavorite,
+    required this.highlightPulse,
+    required this.statusLabel,
+    required this.onToggleFavorite,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
+    return AnimatedScale(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      scale: highlightPulse ? 1.012 : 1,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          height: 146,
+          clipBehavior: Clip.antiAlias,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            color: tokens.cardPrimary.withValues(alpha: 0.96),
+            border: Border.all(
+              color: tokens.borderSubtle.withValues(alpha: 0.54),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: tokens.textPrimary.withValues(alpha: 0.06),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Row(
+            textDirection: TextDirection.ltr,
+            children: [
+              SizedBox(
+                width: 172,
+                height: double.infinity,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (cover != null)
+                      CachedAppImage(
+                        imageUrl: cover!,
+                        cacheIdentity: 'shopping_store_cover_${merchant.id}',
+                        fit: BoxFit.cover,
+                        errorWidget: (context, error, stackTrace) =>
+                            _CoverPlaceholder(icon: storeIcon),
+                      )
+                    else
+                      _CoverPlaceholder(icon: storeIcon),
+                    if (merchant.hasActiveOffer)
+                      PositionedDirectional(
+                        top: 12,
+                        start: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 7,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            color: tokens.secondaryAccent,
+                          ),
+                          child: Text(
+                            merchant.hasDiscountOffer
+                                ? context.lt(ar: 'خصم', en: 'Sale')
+                                : context.lt(ar: 'عرض خاص', en: 'Offer'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (onToggleFavorite != null)
+                      PositionedDirectional(
+                        top: 12,
+                        end: 12,
+                        child: InkWell(
+                          onTap: onToggleFavorite,
+                          customBorder: const CircleBorder(),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: Colors.white.withValues(alpha: 0.94),
+                            ),
+                            child: Icon(
+                              isFavorite
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              color: isFavorite
+                                  ? Colors.redAccent
+                                  : tokens.textPrimary,
+                              size: 24,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 14, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Row(
+                        textDirection: TextDirection.rtl,
+                        children: [
+                          Container(
+                            width: 34,
+                            height: 34,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: tokens.secondaryAccent.withValues(
+                                alpha: 0.12,
+                              ),
+                            ),
+                            child: Icon(
+                              storeIcon,
+                              color: tokens.secondaryAccent,
+                              size: 18,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              merchant.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textDirection: TextDirection.rtl,
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        merchant.description?.trim().isNotEmpty == true
+                            ? merchant.description!.trim()
+                            : context.lt(
+                                ar: 'متجر مميز في بسمّاية',
+                                en: 'Featured Basmaya store',
+                              ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        textDirection: TextDirection.rtl,
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          color: tokens.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          height: 1.35,
+                        ),
+                      ),
+                      const Spacer(),
+                      Row(
+                        textDirection: TextDirection.rtl,
+                        children: [
+                          _ShoppingStatusChip(
+                            label: statusLabel,
+                            isOpen: merchant.isOpen,
+                          ),
+                          const Spacer(),
+                          Icon(
+                            Icons.near_me_rounded,
+                            size: 18,
+                            color: tokens.textPrimary,
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            context.lt(ar: 'داخل بسمّاية', en: 'Basmaya'),
+                            style: TextStyle(
+                              color: tokens.textSecondary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Icon(
+                            Icons.location_on_outlined,
+                            size: 18,
+                            color: tokens.textPrimary,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ShoppingStatusChip extends StatelessWidget {
+  final String label;
+  final bool isOpen;
+
+  const _ShoppingStatusChip({required this.label, required this.isOpen});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isOpen ? const Color(0xFF1F9F62) : Colors.redAccent;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(999),
+        color: color.withValues(alpha: 0.13),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        textDirection: TextDirection.rtl,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     );
   }

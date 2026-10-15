@@ -147,6 +147,26 @@ export async function login(req, res, next) {
   }
 }
 
+export async function requestPinReset(req, res, next) {
+  try {
+    const phone = String(req.body?.phone || '').trim();
+    if (!phone) return res.status(400).json({ message: 'VALIDATION_ERROR', fields: ['phone'] });
+    res.json(await service.requestPinReset(phone));
+  } catch (e) { next(e); }
+}
+
+export async function completeTemporaryPinChange(req, res, next) {
+  try {
+    const out = await service.completeTemporaryPinChange(
+      req.userId,
+      req.body?.currentPin,
+      req.body?.newPin,
+      req.authSessionId || null,
+    );
+    res.json(out);
+  } catch (e) { next(e); }
+}
+
 export async function refreshSession(req, res, next) {
   try {
     const v = validateRefreshSession(req.body || {});

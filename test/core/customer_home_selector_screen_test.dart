@@ -11,10 +11,12 @@ import 'package:maslaki/features/customer/state/customer_ad_board_controller.dar
 import 'package:maslaki/features/customer/state/customer_smart_experience_provider.dart';
 import 'package:maslaki/features/customer/state/recent_activity_controller.dart';
 import 'package:maslaki/features/customer/ui/customer_home_selector_screen.dart';
+import 'package:maslaki/features/coupons/ui/customer_coupons_hub_screen.dart';
 import 'package:maslaki/features/merchants/data/merchants_api.dart';
 import 'package:maslaki/features/merchants/state/merchants_controller.dart';
 import 'package:maslaki/features/orders/models/delivery_address_model.dart';
 import 'package:maslaki/features/orders/state/delivery_address_controller.dart';
+import 'package:maslaki/features/services/ui/services_marketplace_screen.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
 
 class _FakeAuthController extends AuthController {
@@ -75,6 +77,8 @@ class _FakeMerchantsApi extends MerchantsApi {
     String? activityType,
     String? discoverySubcategory,
     String? department,
+    double? latitude,
+    double? longitude,
   }) async {
     return items;
   }
@@ -212,6 +216,12 @@ Future<void> _pumpHomeSelector(
         merchantsApiProvider.overrideWith(
           (ref) => _FakeMerchantsApi(items: merchants),
         ),
+        merchantBrowsePositionProvider.overrideWith(
+          (_) async => const MerchantBrowsePosition(
+            latitude: 33.19302,
+            longitude: 44.62071,
+          ),
+        ),
       ],
       child: MaterialApp(
         locale: const Locale('en'),
@@ -287,6 +297,44 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(observer.pushedRoutes.length, greaterThan(beforeTapPushes));
+  });
+
+  testWidgets('services promo card opens the services marketplace', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await _pumpHomeSelector(
+      tester,
+      user: _user(),
+      merchants: <Map<String, dynamic>>[
+        _merchantItem(id: 1, name: 'Open Store'),
+      ],
+    );
+
+    await tester.tap(find.text('خدمات مسلكي'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(ServicesMarketplaceScreen), findsOneWidget);
+  });
+
+  testWidgets('offers promo card opens the coupons hub', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1280, 2200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await _pumpHomeSelector(
+      tester,
+      user: _user(),
+      merchants: <Map<String, dynamic>>[
+        _merchantItem(id: 1, name: 'Open Store'),
+      ],
+    );
+
+    await tester.tap(find.text('العروض والكوبونات'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byType(CustomerCouponsHubScreen), findsOneWidget);
   });
 
   testWidgets('home header location uses selected address city', (

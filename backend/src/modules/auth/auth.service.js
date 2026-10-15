@@ -20,19 +20,20 @@ import {
   rotateUserSessionTokensTx,
   setCustomerDefaultAddress,
   touchRefreshSessionTx,
+  upsertUserResidenceInfo,
   withAuthTransaction,
   isUsernameTaken,
   updateCustomerAddress,
   updateUserAccount,
+  createPinResetRequest,
 } from "./auth.repo.js";
-import {
-  hashPin,
-  verifyPinDetailed,
-} from "../../shared/utils/hash.js";
+import { hashPin, verifyPinDetailed } from "../../shared/utils/hash.js";
 import { signAccessToken } from "../../shared/utils/jwt.js";
 import { env } from "../../config/env.js";
 import crypto from "crypto";
 import { AppError } from "../../shared/utils/errors.js";
+import { isDatabaseUniqueViolation } from "../../shared/utils/errors.js";
+import { assertPointInsideServiceArea } from "../../shared/utils/service-area.js";
 import {
   deactivatePushTokensForSession,
   deactivatePushTokensForUser,
@@ -46,6 +47,10 @@ import {
   invalidateSessionAccessCacheForUser,
   markSessionRevoked,
 } from "../../shared/middleware/access-auth.js";
+import { extractResidenceCardText } from "./residence-card/ocr.provider.js";
+import { parseResidenceCardText } from "./residence-card/parser.service.js";
+import { validateResidenceCardExtraction } from "./residence-card/validation.service.js";
+import { claimInfluencerCode } from "../coupons/coupons.service.js";
 
 const APP_USER_USERNAME_MAX_LENGTH = 24;
 const USERNAME_SUFFIX_LENGTH = 4;
@@ -107,7 +112,7 @@ function normalizeUsernameForConstraint(value) {
   if (out.length < APP_USER_USERNAME_MIN_LENGTH) {
     out = `${out}${"0".repeat(APP_USER_USERNAME_MIN_LENGTH)}`.slice(
       0,
-      APP_USER_USERNAME_MIN_LENGTH
+      APP_USER_USERNAME_MIN_LENGTH,
     );
   }
 
@@ -117,12 +122,16 @@ function normalizeUsernameForConstraint(value) {
     if (out.length < APP_USER_USERNAME_MIN_LENGTH) {
       out = `${out}${"0".repeat(APP_USER_USERNAME_MIN_LENGTH)}`.slice(
         0,
-        APP_USER_USERNAME_MIN_LENGTH
+        APP_USER_USERNAME_MIN_LENGTH,
       );
     }
   }
 
-  if (!APP_USER_USERNAME_FORMAT_RE.test(out) || out.includes("..") || out.includes("__")) {
+  if (
+    !APP_USER_USERNAME_FORMAT_RE.test(out) ||
+    out.includes("..") ||
+    out.includes("__")
+  ) {
     out = out
       .replace(/\.{2,}/g, ".")
       .replace(/_{2,}/g, "_")
@@ -142,14 +151,14 @@ function normalizeUsernameForConstraint(value) {
 function buildUsernameCandidate(fullName, phone) {
   const maxBaseLength = Math.max(
     1,
-    APP_USER_USERNAME_MAX_LENGTH - USERNAME_SUFFIX_LENGTH - 1
+    APP_USER_USERNAME_MAX_LENGTH - USERNAME_SUFFIX_LENGTH - 1,
   );
   const base = normalizeUsernameForConstraint(
-    normalizeUsernameBase(fullName, phone).slice(0, maxBaseLength)
+    normalizeUsernameBase(fullName, phone).slice(0, maxBaseLength),
   ).replace(/[._]+$/, "");
   const suffix = randomUsernameSuffix();
   return normalizeUsernameForConstraint(
-    `${base || "user"}_${suffix}`.slice(0, APP_USER_USERNAME_MAX_LENGTH)
+    `${base || "user"}_${suffix}`.slice(0, APP_USER_USERNAME_MAX_LENGTH),
   );
 }
 
@@ -177,22 +186,33 @@ function resolveSuperAdmin(user) {
   if (user.is_super_admin === true) return true;
 
   const envUserId = Number(env.superAdminUserId || 0);
-  if (Number.isFinite(envUserId) && envUserId > 0 && Number(user.id) === envUserId) {
+  if (
+    Number.isFinite(envUserId) &&
+    envUserId > 0 &&
+    Number(user.id) === envUserId
+  ) {
     return true;
   }
 
-  const envPhone = normalizeEnvPhone(env.superAdminPhone);
+  return false;
+}
+
+function resolveServicesOperator(user) {
+  if (!user) return false;
+  const configuredPhone = normalizeEnvPhone(env.servicesOperatorPhone);
   const userPhone = normalizeEnvPhone(user.phone);
-  return envPhone.length > 0 && userPhone === envPhone;
+  return configuredPhone.length > 0 && userPhone === configuredPhone;
 }
 
 function isRequestedSurfaceAllowedForUser(user, requestedSurface) {
   if (!requestedSurface) return true;
   if (requestedSurface === "user") {
-    // Only super-admin can bootstrap through the user app. Regular company
-    // back-office accounts must sign in through the company surface.
+    // Staff accounts temporarily use the user app shell until the dedicated
+    // employee app is released. They still land on the permission-gated
+    // staff dashboard, never on the customer workspace.
     return (
       resolveSuperAdmin(user) ||
+      user?.role === "staff" ||
       resolveRoleAppSurface(user?.role) === "user"
     );
   }
@@ -207,10 +227,12 @@ function mapUser(u) {
     preferredLocale: u.preferred_locale || "ar",
     role: u.role,
     isSuperAdmin: resolveSuperAdmin(u),
+    isServicesOperator: resolveServicesOperator(u),
     block: u.block,
     buildingNumber: u.building_number,
     apartment: u.apartment,
     imageUrl: u.image_url,
+    mustChangePin: u.must_change_pin === true,
   };
 }
 
@@ -237,7 +259,8 @@ function lockRetrySeconds(user) {
 function buildSessionTimestamps() {
   const now = new Date();
   const expiresAt = new Date(
-    now.getTime() + Math.max(1, Number(env.authSessionTtlDays || 30)) * 24 * 60 * 60 * 1000
+    now.getTime() +
+      Math.max(1, Number(env.authSessionTtlDays || 30)) * 24 * 60 * 60 * 1000,
   );
   return {
     createdAt: now,
@@ -326,17 +349,20 @@ async function issueSessionToken(user, deviceContext = {}) {
       sessionId: session?.id || null,
       tokenJti,
       deviceFingerprint: deviceContext.deviceFingerprint || null,
-    }
+    },
   );
 
   const pruned = await pruneUserSessions(user.id, {
     maxActive: env.authMaxActiveSessionsPerUser,
   });
-  if (Array.isArray(pruned?.revokedSessionIds) && pruned.revokedSessionIds.length > 0) {
+  if (
+    Array.isArray(pruned?.revokedSessionIds) &&
+    pruned.revokedSessionIds.length > 0
+  ) {
     await Promise.all(
       pruned.revokedSessionIds.map((revokedSessionId) =>
-        markSessionRevoked(revokedSessionId)
-      )
+        markSessionRevoked(revokedSessionId),
+      ),
     );
   }
 
@@ -360,13 +386,16 @@ export async function register(dto, deviceContext = {}) {
     throw err;
   }
   const analyticsConsentAccepted = normalizeConsentAccepted(
-    dto.analyticsConsentAccepted
+    dto.analyticsConsentAccepted,
   );
   const analyticsConsentVersion =
     typeof dto.analyticsConsentVersion === "string" &&
     dto.analyticsConsentVersion.trim().length > 0
       ? dto.analyticsConsentVersion.trim().slice(0, 32)
       : "analytics_v1";
+  const referralCode = String(dto.referralCode || "")
+    .trim()
+    .toUpperCase();
 
   const exists = await findUserByPhone(phone);
   if (exists) {
@@ -381,34 +410,79 @@ export async function register(dto, deviceContext = {}) {
     throw err;
   }
 
+  if (env.serviceAreaRegistrationEnforced === true) {
+    assertPointInsideServiceArea({
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+  } else if (dto.latitude != null || dto.longitude != null) {
+    assertPointInsideServiceArea({
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+  }
+
   const pinHash = await hashPin(pin);
-  const username = await allocateRegistrationUsername({
-    fullName,
-    phone,
-  });
+  let registration;
+  try {
+    registration = await runWithGeneratedAppUserUsername({
+      fullName,
+      phone,
+      execute: (username) =>
+        withAuthTransaction(async (client) => {
+          const created = await createUser({
+            fullName,
+            username,
+            phone,
+            pinHash,
+            block: dto.block.trim(),
+            buildingNumber: dto.buildingNumber.trim(),
+            apartment: dto.apartment.trim(),
+            imageUrl: dto.imageUrl || null,
+            workTitle: String(dto.workTitle || "").trim() || null,
+            workCompany: String(dto.workCompany || "").trim() || null,
+            analyticsConsentGranted: true,
+            analyticsConsentVersion,
+            analyticsConsentGrantedAt: new Date(),
+            transactionClient: client,
+          });
 
-  const created = await createUser({
-    fullName,
-    username,
-    phone,
-    pinHash,
-    block: dto.block.trim(),
-    buildingNumber: dto.buildingNumber.trim(),
-    apartment: dto.apartment.trim(),
-    imageUrl: dto.imageUrl || null,
-    analyticsConsentGranted: true,
-    analyticsConsentVersion,
-    analyticsConsentGrantedAt: new Date(),
-  });
+          await createCustomerAddress(
+            created.id,
+            {
+              label: "home",
+              city: "Basmaya",
+              block: dto.block.trim(),
+              buildingNumber: dto.buildingNumber.trim(),
+              apartment: dto.apartment.trim(),
+              latitude: dto.latitude == null ? null : Number(dto.latitude),
+              longitude: dto.longitude == null ? null : Number(dto.longitude),
+              isDefault: true,
+            },
+            client,
+          );
 
-  await createCustomerAddress(created.id, {
-    label: "home",
-    city: "Basmaya",
-    block: dto.block.trim(),
-    buildingNumber: dto.buildingNumber.trim(),
-    apartment: dto.apartment.trim(),
-    isDefault: true,
-  });
+          const referral = referralCode
+            ? await claimInfluencerCode({
+                code: referralCode,
+                userId: created.id,
+                deviceContext,
+                authSessionId: null,
+                transactionClient: client,
+              })
+            : null;
+
+          return { created, referral };
+        }),
+    });
+  } catch (error) {
+    if (isDatabaseUniqueViolation(error, "app_user_phone_key")) {
+      throw new AppError("PHONE_EXISTS", { status: 409 });
+    }
+    throw error;
+  }
+
+  const { created, referral } = registration;
 
   const session = await issueSessionToken(created, deviceContext);
 
@@ -419,7 +493,68 @@ export async function register(dto, deviceContext = {}) {
     deviceSessionId: session.deviceSessionId,
     deviceRecoverySecret: session.deviceRecoverySecret,
     user: mapUser(created),
+    referral: referral?.referral || null,
   };
+}
+
+export async function extractResidenceCard({
+  imageBuffer,
+  mimeType = null,
+  fileName = "",
+}) {
+  const rawText = await extractResidenceCardText({
+    imageBuffer,
+    mimeType,
+    fileName,
+  });
+  const parsed = parseResidenceCardText(rawText);
+  const validated = validateResidenceCardExtraction(parsed);
+  return {
+    ...validated,
+    rawText,
+  };
+}
+
+export async function registerWithResidenceCard(
+  dto,
+  { cardImageUrl = null } = {},
+  deviceContext = {}
+) {
+  const out = await register(dto, deviceContext);
+  const extracted =
+    dto.extractedPayload && typeof dto.extractedPayload === "object"
+      ? dto.extractedPayload
+      : {};
+  const extractedData =
+    extracted.extractedData && typeof extracted.extractedData === "object"
+      ? extracted.extractedData
+      : {};
+
+  await upsertUserResidenceInfo({
+    userId: out.user.id,
+    documentType: dto.documentType || extracted.documentType || "residence_card",
+    fullName: dto.full_name || dto.fullName || extractedData.full_name || null,
+    town: dto.town || extractedData.town || null,
+    buildingNumber:
+      dto.building_number || dto.buildingNumber || extractedData.building_number || null,
+    issueDate: dto.issue_date || dto.issueDate || extractedData.issue_date || null,
+    contractNumber:
+      dto.contract_number || dto.contractNumber || extractedData.contract_number || null,
+    floorNumber:
+      dto.floor_number || dto.floorNumber || extractedData.floor_number || null,
+    apartmentNumber:
+      dto.apartment_number || dto.apartmentNumber || extractedData.apartment_number || null,
+    visibleIdNumber:
+      dto.visible_id_number ||
+      dto.visibleIdNumber ||
+      extractedData.visible_id_number ||
+      null,
+    imageUrl: cardImageUrl || dto.cardImageUrl || null,
+    extractionConfidence: Number(dto.extractionConfidence || extracted.confidence || 0),
+    extractedPayload: extracted,
+  });
+
+  return out;
 }
 
 export async function login({ phone, pin }, deviceContext = {}) {
@@ -471,26 +606,23 @@ export async function login({ phone, pin }, deviceContext = {}) {
     }).catch(() => null);
   }
 
-  if (
-    user.role === "delivery" &&
-    user.delivery_account_approved !== true
-  ) {
+  if (user.role === "delivery" && user.delivery_account_approved !== true) {
     const err = new Error("DELIVERY_ACCOUNT_PENDING_APPROVAL");
     err.status = 403;
     throw err;
   }
 
-  if (
-    user.role === "taxi_captain" &&
-    user.taxi_account_approved !== true
-  ) {
+  if (user.role === "taxi_captain" && user.taxi_account_approved !== true) {
     const err = new Error("TAXI_CAPTAIN_ACCOUNT_PENDING_APPROVAL");
     err.status = 403;
     throw err;
   }
 
   const requestedSurface = deviceContext.appFlavor || null;
-  if (requestedSurface && !isRequestedSurfaceAllowedForUser(user, requestedSurface)) {
+  if (
+    requestedSurface &&
+    !isRequestedSurfaceAllowedForUser(user, requestedSurface)
+  ) {
     const err = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
     err.details = { appSurface: requestedSurface };
     throw err;
@@ -515,13 +647,72 @@ export async function login({ phone, pin }, deviceContext = {}) {
       buildingNumber: user.building_number,
       apartment: user.apartment,
       imageUrl: user.image_url,
+      mustChangePin: user.must_change_pin === true,
     },
   };
 }
 
+export async function requestPinReset(phone) {
+  const normalizedPhone = normalizePhone(phone);
+  const user = await findUserByPhone(normalizedPhone);
+  // Keep this response indistinguishable for unknown numbers.
+  if (!user || user.is_account_disabled === true) {
+    return { accepted: true };
+  }
+  await createPinResetRequest(user.id);
+  return { accepted: true };
+}
+
+export async function completeTemporaryPinChange(
+  userId,
+  currentPin,
+  nextPin,
+  currentSessionId = null,
+) {
+  const user = await findUserByIdWithAuthFields(userId);
+  if (!user || user.must_change_pin !== true) {
+    const err = new Error("PIN_CHANGE_NOT_REQUIRED");
+    err.status = 400;
+    throw err;
+  }
+  const current = normalizePin(currentPin);
+  const next = normalizePin(nextPin);
+  const verification = await verifyPinDetailed(current, user.pin_hash);
+  if (!verification.ok) {
+    const err = new Error("INVALID_TEMPORARY_PIN");
+    err.status = 401;
+    throw err;
+  }
+  if (!/^\d{4,8}$/.test(next) || next === "1234" || next === current) {
+    const err = new Error("INVALID_NEW_PIN");
+    err.status = 400;
+    throw err;
+  }
+  const updated = await updateUserAccount({
+    id: user.id,
+    pinHash: await hashPin(next),
+    mustChangePin: false,
+  });
+  const revoked = await revokeAllUserSessionsDetailed({
+    userId: user.id,
+    exceptSessionId: currentSessionId,
+    reason: "pin_reset_completed",
+  });
+  await markRevokedSessionsInCache(revoked.revokedSessionIds);
+  await deactivatePushTokensForUser(user.id);
+  invalidateSessionAccessCacheForUser({
+    userId: user.id,
+    exceptSessionId: currentSessionId,
+  });
+  return { user: mapUser(updated || user) };
+}
+
 export async function refreshSession(refreshToken, deviceContext = {}) {
   const normalizedRefreshToken = String(refreshToken || "").trim();
-  if (normalizedRefreshToken.length < 24 || normalizedRefreshToken.length > 256) {
+  if (
+    normalizedRefreshToken.length < 24 ||
+    normalizedRefreshToken.length > 256
+  ) {
     const err = new Error("SESSION_RECOVERY_REQUIRED");
     err.status = 401;
     throw err;
@@ -552,12 +743,20 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
     const expectedDevice = String(row.device_fingerprint || "").trim();
     const currentDevice = String(deviceContext.deviceFingerprint || "").trim();
     if (env.authDeviceBindingRequired) {
-      if (!expectedDevice || !currentDevice || expectedDevice !== currentDevice) {
+      if (
+        !expectedDevice ||
+        !currentDevice ||
+        expectedDevice !== currentDevice
+      ) {
         const err = new Error("SESSION_RECOVERY_REQUIRED");
         err.status = 401;
         throw err;
       }
-    } else if (expectedDevice && currentDevice && expectedDevice !== currentDevice) {
+    } else if (
+      expectedDevice &&
+      currentDevice &&
+      expectedDevice !== currentDevice
+    ) {
       const err = new Error("SESSION_RECOVERY_REQUIRED");
       err.status = 401;
       throw err;
@@ -582,9 +781,13 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
 
     const nextRefreshToken = createRefreshToken();
     const nextTokenJti = createTokenJti();
-    const needsRecoverySeed = !row.device_session_id || !row.recovery_secret_hash;
-    const nextDeviceSessionId = row.device_session_id || createDeviceSessionId();
-    const nextRecoverySecret = needsRecoverySeed ? createDeviceRecoverySecret() : null;
+    const needsRecoverySeed =
+      !row.device_session_id || !row.recovery_secret_hash;
+    const nextDeviceSessionId =
+      row.device_session_id || createDeviceSessionId();
+    const nextRecoverySecret = needsRecoverySeed
+      ? createDeviceRecoverySecret()
+      : null;
     const { expiresAt } = buildSessionTimestamps();
     const session = await rotateUserSessionTokensTx(client, {
       sessionId: row.session_id,
@@ -592,7 +795,9 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
       oldRefreshToken: normalizedRefreshToken,
       oldRefreshGeneration: row.refresh_generation,
       previousRefreshTokenHash: refreshTokenHash,
-      previousRefreshValidUntil: new Date(Date.now() + REFRESH_PREVIOUS_TOKEN_GRACE_MS),
+      previousRefreshValidUntil: new Date(
+        Date.now() + REFRESH_PREVIOUS_TOKEN_GRACE_MS,
+      ),
       refreshToken: nextRefreshToken,
       tokenJti: nextTokenJti,
       ipAddress: deviceContext.ipAddress || null,
@@ -659,7 +864,7 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
       sessionId: session.id,
       tokenJti,
       deviceFingerprint: outcome.deviceFingerprint || null,
-    }
+    },
   );
 
   return {
@@ -667,15 +872,19 @@ export async function refreshSession(refreshToken, deviceContext = {}) {
     refreshToken: outcome.refreshToken,
     sessionId: session.id,
     deviceSessionId: session.device_session_id || outcome.deviceSessionId,
-    ...(outcome.recoverySecret ? { deviceRecoverySecret: outcome.recoverySecret } : {}),
+    ...(outcome.recoverySecret
+      ? { deviceRecoverySecret: outcome.recoverySecret }
+      : {}),
     user: mapUser(user),
   };
 }
 
 export async function recoverSession(dto = {}, deviceContext = {}) {
-  const deviceSessionId = String(dto.deviceSessionId || dto.device_session_id || "").trim();
+  const deviceSessionId = String(
+    dto.deviceSessionId || dto.device_session_id || "",
+  ).trim();
   const deviceRecoverySecret = String(
-    dto.deviceRecoverySecret || dto.device_recovery_secret || ""
+    dto.deviceRecoverySecret || dto.device_recovery_secret || "",
   ).trim();
 
   if (
@@ -689,15 +898,19 @@ export async function recoverSession(dto = {}, deviceContext = {}) {
     throw err;
   }
 
-  const requestedSurface = String(
-    dto.appFlavor || dto.app_flavor || deviceContext.appFlavor || ""
-  ).trim() || null;
+  const requestedSurface =
+    String(
+      dto.appFlavor || dto.app_flavor || deviceContext.appFlavor || "",
+    ).trim() || null;
   const outcome = await withAuthTransaction(async (client) => {
     const row = await findRecoverableSessionByDeviceSessionForUpdate(
       client,
-      deviceSessionId
+      deviceSessionId,
     );
-    if (!row || !recoverySecretMatches(deviceRecoverySecret, row.recovery_secret_hash)) {
+    if (
+      !row ||
+      !recoverySecretMatches(deviceRecoverySecret, row.recovery_secret_hash)
+    ) {
       const err = new Error("SESSION_RECOVERY_REQUIRED");
       err.status = 401;
       throw err;
@@ -711,7 +924,10 @@ export async function recoverSession(dto = {}, deviceContext = {}) {
       throw err;
     }
 
-    if (requestedSurface && !isRequestedSurfaceAllowedForUser(row, requestedSurface)) {
+    if (
+      requestedSurface &&
+      !isRequestedSurfaceAllowedForUser(row, requestedSurface)
+    ) {
       const err = new AppError("FORBIDDEN_APP_SURFACE", { status: 403 });
       err.details = { appSurface: requestedSurface };
       throw err;
@@ -738,7 +954,8 @@ export async function recoverSession(dto = {}, deviceContext = {}) {
       tokenJti: row.token_jti ? null : nextTokenJti,
       ipAddress: deviceContext.ipAddress || null,
       userAgent: deviceContext.userAgent || null,
-      deviceFingerprint: !existingDevice && currentDevice ? currentDevice : null,
+      deviceFingerprint:
+        !existingDevice && currentDevice ? currentDevice : null,
       deviceFingerprintSet: !existingDevice && Boolean(currentDevice),
       appSurface,
     });
@@ -778,7 +995,7 @@ export async function recoverSession(dto = {}, deviceContext = {}) {
       sessionId: session.id,
       tokenJti,
       deviceFingerprint: outcome.deviceFingerprint || null,
-    }
+    },
   );
 
   return {
@@ -790,7 +1007,11 @@ export async function recoverSession(dto = {}, deviceContext = {}) {
   };
 }
 
-export async function updateAccount(userId, dto, { currentSessionId = null } = {}) {
+export async function updateAccount(
+  userId,
+  dto,
+  { currentSessionId = null } = {},
+) {
   const user = await findUserByIdWithAuthFields(userId);
   if (!user) {
     const err = new Error("USER_NOT_FOUND");
@@ -799,14 +1020,18 @@ export async function updateAccount(userId, dto, { currentSessionId = null } = {
   }
 
   const currentPin = normalizePin(dto.currentPin);
-  const currentPinVerification = await verifyPinDetailed(currentPin, user.pin_hash);
+  const currentPinVerification = await verifyPinDetailed(
+    currentPin,
+    user.pin_hash,
+  );
   if (!currentPinVerification.ok) {
     const err = new Error("INVALID_CURRENT_PIN");
     err.status = 401;
     throw err;
   }
 
-  const nextPhoneRaw = dto.newPhone == null ? null : normalizePhone(dto.newPhone);
+  const nextPhoneRaw =
+    dto.newPhone == null ? null : normalizePhone(dto.newPhone);
   const nextPinRaw = dto.newPin == null ? null : normalizePin(dto.newPin);
 
   const normalizedCurrentPhone = normalizePhone(user.phone);
@@ -905,6 +1130,8 @@ function mapAddress(a) {
     block: a.block,
     buildingNumber: a.building_number,
     apartment: a.apartment,
+    latitude: a.latitude == null ? null : Number(a.latitude),
+    longitude: a.longitude == null ? null : Number(a.longitude),
     isDefault: a.is_default,
     isActive: a.is_active,
     createdAt: a.created_at,
@@ -924,12 +1151,20 @@ export async function getAddresses(userId) {
 }
 
 export async function createAddress(userId, dto) {
+  if (dto.latitude != null || dto.longitude != null) {
+    assertPointInsideServiceArea({
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    });
+  }
   const created = await createCustomerAddress(userId, {
     label: dto.label.trim(),
     city: normalizeCity(dto.city),
     block: dto.block.trim(),
     buildingNumber: dto.buildingNumber.trim(),
     apartment: dto.apartment.trim(),
+    latitude: dto.latitude == null ? null : Number(dto.latitude),
+    longitude: dto.longitude == null ? null : Number(dto.longitude),
     isDefault: dto.isDefault === true,
   });
 
@@ -950,6 +1185,22 @@ export async function updateAddress(userId, addressId, dto) {
   if (dto.buildingNumber !== undefined)
     patch.buildingNumber = dto.buildingNumber.trim();
   if (dto.apartment !== undefined) patch.apartment = dto.apartment.trim();
+  if (dto.latitude !== undefined) {
+    patch.latitude =
+      dto.latitude == null || dto.latitude === "" ? null : Number(dto.latitude);
+  }
+  if (dto.longitude !== undefined) {
+    patch.longitude =
+      dto.longitude == null || dto.longitude === ""
+        ? null
+        : Number(dto.longitude);
+  }
+  if (patch.latitude != null || patch.longitude != null) {
+    assertPointInsideServiceArea({
+      latitude: patch.latitude,
+      longitude: patch.longitude,
+    });
+  }
   if (dto.isDefault !== undefined) patch.isDefault = dto.isDefault === true;
 
   const updated = await updateCustomerAddress(userId, Number(addressId), patch);
@@ -1041,12 +1292,12 @@ export async function allocateRegistrationUsername({
   const fallbackSuffix = Date.now().toString(36).slice(-4);
   const maxBaseLength = Math.max(
     1,
-    APP_USER_USERNAME_MAX_LENGTH - fallbackSuffix.length - 1
+    APP_USER_USERNAME_MAX_LENGTH - fallbackSuffix.length - 1,
   );
   return normalizeUsernameForConstraint(
     `${fallbackBase.slice(0, maxBaseLength)}_${fallbackSuffix}`.slice(
       0,
-      APP_USER_USERNAME_MAX_LENGTH
-    )
+      APP_USER_USERNAME_MAX_LENGTH,
+    ),
   );
 }

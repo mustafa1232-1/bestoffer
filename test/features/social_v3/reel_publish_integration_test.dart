@@ -118,7 +118,12 @@ void main() {
         api: api,
         idempotencyKey: 'integ-1',
         tusFactory:
-            ({required uploadUrl, required totalBytes, required assetId}) {
+            ({
+              required uploadUrl,
+              required totalBytes,
+              required assetId,
+              required video,
+            }) {
               return TusUploadClient(
                 transport: _OkTransport(totalBytes),
                 uploadUrl: uploadUrl,

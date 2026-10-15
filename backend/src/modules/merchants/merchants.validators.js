@@ -1,9 +1,15 @@
+import { isTrustedMerchantMediaUrl } from "../../shared/utils/merchant-media-url-policy.js";
+
 function isNonEmptyString(v, max = 200) {
   return typeof v === "string" && v.trim().length > 0 && v.trim().length <= max;
 }
 
 function isOptionalString(v, max = 500) {
   return v === undefined || v === null || (typeof v === "string" && v.trim().length <= max);
+}
+
+function isOptionalTrustedMerchantMediaUrl(v, max = 1000) {
+  return isOptionalString(v, max) && isTrustedMerchantMediaUrl(v);
 }
 
 function isPositiveInt(v) {
@@ -13,6 +19,16 @@ function isPositiveInt(v) {
 
 function isOptionalBool(v) {
   return v === undefined || v === null || typeof v === "boolean";
+}
+
+function hasCoordinateValue(v) {
+  return v !== undefined && v !== null && v !== "";
+}
+
+function isOptionalCoordinate(v, min, max) {
+  if (v === undefined || v === null || v === "") return true;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= min && n <= max;
 }
 
 function isOptionalObject(v) {
@@ -44,13 +60,22 @@ export function validateCreateMerchant(body) {
   }
   if (!isOptionalString(body.description, 1000)) errors.push("description");
   if (!isOptionalString(body.phone, 20)) errors.push("phone");
-  if (!isOptionalString(body.imageUrl, 1000)) errors.push("imageUrl");
+  if (!isOptionalTrustedMerchantMediaUrl(body.imageUrl, 1000)) errors.push("imageUrl");
+  if (!isOptionalTrustedMerchantMediaUrl(body.logoUrl, 1000)) errors.push("logoUrl");
+  if (!isOptionalTrustedMerchantMediaUrl(body.coverImageUrl, 1000)) {
+    errors.push("coverImageUrl");
+  }
   if (!isOptionalObject(body.serviceFlags)) errors.push("serviceFlags");
   if (!isOptionalStringArray(body.badges, 30, 80)) errors.push("badges");
   if (!isOptionalBool(body.supportsChat)) errors.push("supportsChat");
   if (!isOptionalBool(body.supportsAttachments)) errors.push("supportsAttachments");
   if (!isOptionalBool(body.supportsPharmacyWorkflow)) {
     errors.push("supportsPharmacyWorkflow");
+  }
+  if (!isOptionalCoordinate(body.latitude, -90, 90)) errors.push("latitude");
+  if (!isOptionalCoordinate(body.longitude, -180, 180)) errors.push("longitude");
+  if (hasCoordinateValue(body.latitude) !== hasCoordinateValue(body.longitude)) {
+    errors.push("coordinates");
   }
 
   const hasOwnerUserId = body.ownerUserId !== undefined && body.ownerUserId !== null && body.ownerUserId !== "";

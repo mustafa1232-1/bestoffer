@@ -8,6 +8,16 @@ function isOptionalString(v, max = 1000) {
   return v === undefined || v === null || (typeof v === "string" && v.trim().length <= max);
 }
 
+function hasCoordinateValue(v) {
+  return v !== undefined && v !== null && v !== "";
+}
+
+function isOptionalCoordinate(v, min, max) {
+  if (v === undefined || v === null || v === "") return true;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= min && n <= max;
+}
+
 function isExplicitTrue(value) {
   if (value === true) return true;
   if (typeof value !== "string") return false;
@@ -30,6 +40,11 @@ export function validateDeliveryRegister(body) {
   if (!isNonEmptyString(body.carModel, 80)) errors.push("carModel");
   if (!isNonEmptyString(body.vehicleType, 60)) errors.push("vehicleType");
   if (!isOptionalString(body.carColor, 40)) errors.push("carColor");
+  if (!isOptionalCoordinate(body.latitude, -90, 90)) errors.push("latitude");
+  if (!isOptionalCoordinate(body.longitude, -180, 180)) errors.push("longitude");
+  if (hasCoordinateValue(body.latitude) !== hasCoordinateValue(body.longitude)) {
+    errors.push("coordinates");
+  }
   if (!isNonEmptyString(body.plateNumber, 40)) errors.push("plateNumber");
   if (!isOptionalString(body.plateGovernorate, 80)) errors.push("plateGovernorate");
   if (!isOptionalString(body.plateCategory, 40)) errors.push("plateCategory");

@@ -676,7 +676,7 @@ test("store order notifications target the owner and permitted employees, and de
     );
     assert.equal(
       Number(assignedOrder.rows[0]?.delivery_user_id || 0),
-      Number(deliveryA.user.id)
+      Number(deliveryB.user.id)
     );
     assert.equal(
       String(assignedOrder.rows[0]?.delivery_assignment_status || ""),
@@ -688,19 +688,30 @@ test("store order notifications target the owner and permitted employees, and de
       type: "delivery_assigned_by_owner",
     });
     assert.equal(deliveryANotifications.length, 1);
-    assert.equal(deliveryANotifications[0].payload?.target, "delivery_orders");
+    assert.equal(
+      deliveryANotifications[0].payload?.target,
+      "courier_orders_current"
+    );
 
     const deliveryBAssignedNotifications = await latestNotificationsByType({
       userId: deliveryB.user.id,
       type: "delivery_assigned_by_owner",
     });
-    assert.equal(deliveryBAssignedNotifications.length, 0);
+    assert.equal(deliveryBAssignedNotifications.length, 1);
+    assert.equal(
+      deliveryBAssignedNotifications[0].payload?.target,
+      "courier_orders_current"
+    );
 
     const deliveryARemovedNotifications = await latestNotificationsByType({
       userId: deliveryA.user.id,
       type: "delivery_order_removed",
     });
-    assert.equal(deliveryARemovedNotifications.length, 0);
+    assert.equal(deliveryARemovedNotifications.length, 1);
+    assert.equal(
+      deliveryARemovedNotifications[0].payload?.target,
+      "courier_orders_current"
+    );
 
     const deliveryAReassignNotifications = await latestNotificationsByType({
       userId: deliveryA.user.id,

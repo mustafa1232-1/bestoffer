@@ -70,7 +70,14 @@ $userOnePhone = '079' + (($seed + 2).ToString().PadLeft(8,'0').Substring(0,8))
 $userTwoPhone = '079' + (($seed + 3).ToString().PadLeft(8,'0').Substring(0,8))
 
 try {
-  $superLogin = Invoke-Api 'POST' '/api/auth/login' $null @{ phone = '07746515247'; pin = '1998' }
+  if ([string]::IsNullOrWhiteSpace($env:SUPER_ADMIN_PHONE) -or
+      [string]::IsNullOrWhiteSpace($env:SUPER_ADMIN_PIN)) {
+    throw 'SUPER_ADMIN_PHONE and SUPER_ADMIN_PIN must be supplied through the environment.'
+  }
+  $superLogin = Invoke-Api 'POST' '/api/auth/login' $null @{
+    phone = $env:SUPER_ADMIN_PHONE
+    pin = $env:SUPER_ADMIN_PIN
+  }
   Assert-Status $superLogin @(200) 'super admin login'
   Log-Check 'super admin login' $superLogin
   $superToken = [string]$superLogin.data.token

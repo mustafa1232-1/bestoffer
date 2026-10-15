@@ -29,6 +29,21 @@ export async function recordContentImpression({
   return r.rows[0] || null;
 }
 
+// One feed page must occupy one pool slot, not one slot per impression.
+export async function recordContentImpressions({ items, viewerUserId = null, context = "feed" }) {
+  const valid = items.filter((item) =>
+    ["post", "reel"].includes(item.contentType) && asPositiveInt(item.contentId) != null);
+  if (!valid.length) return;
+  await q(
+    `INSERT INTO social_content_impression
+       (content_type, content_id, viewer_user_id, impression_context)
+     SELECT content_type, content_id, $3::bigint, $4
+     FROM UNNEST($1::text[], $2::bigint[]) AS items(content_type, content_id)`,
+    [valid.map((item) => item.contentType), valid.map((item) => item.contentId),
+      asPositiveInt(viewerUserId), String(context || "feed").trim().toLowerCase().slice(0, 32) || "feed"],
+  );
+}
+
 export async function recordReelViewEvent({
   postId,
   viewerUserId = null,

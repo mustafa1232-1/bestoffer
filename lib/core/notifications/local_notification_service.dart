@@ -123,14 +123,21 @@ class LocalNotificationService {
         playSound: true,
         enableVibration: true,
       );
-  static const AndroidNotificationChannel _callChannel =
+  // Channel sound settings are immutable on Android. The v2 id intentionally
+  // replaces the old channel that used Maslaki's short attention alarm.
+  static final AndroidNotificationChannel _callChannel =
       AndroidNotificationChannel(
-        'maslaki_calls_v1',
+        'maslaki_calls_v2_system_ringtone',
         'Maslaki Calls',
-        description: 'Incoming call alerts and ringing notifications',
+        description: 'Incoming calls using the phone ringtone',
         importance: Importance.max,
         playSound: true,
+        sound: const UriAndroidNotificationSound(
+          'content://settings/system/ringtone',
+        ),
         enableVibration: true,
+        vibrationPattern: Int64List.fromList(const [0, 800, 600, 800, 3000]),
+        audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
       );
   static const AndroidNotificationChannel _deliveryOrdersChannel =
       AndroidNotificationChannel(
@@ -169,8 +176,8 @@ class LocalNotificationService {
   // tap and the app opens without navigating. Flushed when the first listener attaches.
   late final StreamController<NotificationTapPayload> _tapController =
       StreamController<NotificationTapPayload>.broadcast(
-    onListen: _flushPendingTaps,
-  );
+        onListen: _flushPendingTaps,
+      );
 
   void _flushPendingTaps() {
     if (_pendingTaps.isEmpty) return;
@@ -279,7 +286,9 @@ class LocalNotificationService {
           appLocalizationsForCurrentLocale().notificationsGenericBody,
       requestId:
           int.tryParse('${notification.payload?['requestId'] ?? ''}') ??
-          int.tryParse('${notification.payload?['request_id'] ?? ''}'),
+          int.tryParse('${notification.payload?['request_id'] ?? ''}') ??
+          int.tryParse('${notification.payload?['ticketId'] ?? ''}') ??
+          int.tryParse('${notification.payload?['ticket_id'] ?? ''}'),
       orderId: orderId,
       rideId: rideId,
       offerId: offerId,
@@ -331,6 +340,8 @@ class LocalNotificationService {
       entityId:
           int.tryParse('${notification.payload?['entityId'] ?? ''}') ??
           int.tryParse('${notification.payload?['entity_id'] ?? ''}') ??
+          int.tryParse('${notification.payload?['ticketId'] ?? ''}') ??
+          int.tryParse('${notification.payload?['ticket_id'] ?? ''}') ??
           int.tryParse('${notification.payload?['listingId'] ?? ''}') ??
           int.tryParse('${notification.payload?['listing_id'] ?? ''}'),
       scopeType:
@@ -416,7 +427,21 @@ class LocalNotificationService {
       target: target,
       requiresAction: requiresAction,
     );
+    final customerOrderNotificationId =
+        appSurface == 'user' &&
+            orderId != null &&
+            orderId > 0 &&
+            (target == 'order_tracking' ||
+                (type ?? '').toLowerCase().contains('order'))
+        ? 0x40000000 + (orderId % 0x3fffffff)
+        : null;
+    final incomingCallNotificationId =
+        isCall && sessionId != null && sessionId > 0
+        ? _incomingCallNotificationId(sessionId)
+        : null;
     final id =
+        incomingCallNotificationId ??
+        customerOrderNotificationId ??
         actionId ??
         ((notificationId != null && notificationId > 0)
             ? notificationId
@@ -464,7 +489,7 @@ class LocalNotificationService {
               ? _deliveryUrgentChannel
               : (requiresAction ? _actionChannel : _channel));
     final useAttentionSound =
-        requiresAction || isCall || isUrgentRealtime || isDeliveryUrgent;
+        requiresAction || isUrgentRealtime || isDeliveryUrgent;
     final androidActions = _buildAndroidActions(
       requiresAction: requiresAction,
       isUrgentRealtime: isUrgentRealtime,
@@ -480,18 +505,26 @@ class LocalNotificationService {
             ? Priority.max
             : Priority.high,
         playSound: true,
-        sound: useAttentionSound
-            ? const RawResourceAndroidNotificationSound('maslaki_attention')
-            : null,
+        sound: isCall
+            ? const UriAndroidNotificationSound(
+                'content://settings/system/ringtone',
+              )
+            : (useAttentionSound
+                  ? const RawResourceAndroidNotificationSound(
+                      'maslaki_attention',
+                    )
+                  : null),
         audioAttributesUsage: isCall
             ? AudioAttributesUsage.notificationRingtone
             : (requiresAction || isDeliveryUrgent
                   ? AudioAttributesUsage.alarm
                   : AudioAttributesUsage.notification),
         enableVibration: true,
-        vibrationPattern: useAttentionSound
-            ? Int64List.fromList(const [0, 700, 250, 700, 250, 900])
-            : null,
+        vibrationPattern: isCall
+            ? Int64List.fromList(const [0, 800, 600, 800, 3000])
+            : (useAttentionSound
+                  ? Int64List.fromList(const [0, 700, 250, 700, 250, 900])
+                  : null),
         ticker: isCall
             ? 'maslaki_incoming_call'
             : (isDeliveryUrgent
@@ -546,6 +579,18 @@ class LocalNotificationService {
       _ActionReminderGroup.customerConfirmation,
       orderId,
     );
+  }
+
+  Future<void> cancelIncomingCall(int sessionId) async {
+    if (sessionId <= 0) return;
+    await cancelNotification(_incomingCallNotificationId(sessionId));
+  }
+
+  Future<void> cancelNotification(int notificationId) async {
+    if (notificationId <= 0) return;
+    await initialize();
+    if (!appSupportsLocalNotifications) return;
+    await _plugin.cancel(notificationId);
   }
 
   Future<void> _cancelActionReminder(
@@ -613,7 +658,9 @@ class LocalNotificationService {
       return NotificationTapPayload(
         requestId:
             int.tryParse('${map['requestId'] ?? ''}') ??
-            int.tryParse('${map['request_id'] ?? ''}'),
+            int.tryParse('${map['request_id'] ?? ''}') ??
+            int.tryParse('${map['ticketId'] ?? ''}') ??
+            int.tryParse('${map['ticket_id'] ?? ''}'),
         orderId: int.tryParse('${map['orderId'] ?? ''}'),
         rideId: int.tryParse('${map['rideId'] ?? ''}'),
         offerId:
@@ -660,6 +707,8 @@ class LocalNotificationService {
         entityId:
             int.tryParse('${map['entityId'] ?? ''}') ??
             int.tryParse('${map['entity_id'] ?? ''}') ??
+            int.tryParse('${map['ticketId'] ?? ''}') ??
+            int.tryParse('${map['ticket_id'] ?? ''}') ??
             int.tryParse('${map['listingId'] ?? ''}') ??
             int.tryParse('${map['listing_id'] ?? ''}'),
         scopeType: map['scopeType']?.toString(),
@@ -729,6 +778,11 @@ int _actionReminderNotificationId(_ActionReminderGroup group, int orderId) {
   }
 }
 
+int _incomingCallNotificationId(int sessionId) {
+  final safeSessionId = sessionId.clamp(1, 0x0fffffff);
+  return 0x50000000 + safeSessionId;
+}
+
 List<AndroidNotificationAction>? _buildAndroidActions({
   required bool requiresAction,
   required bool isUrgentRealtime,
@@ -786,6 +840,9 @@ bool _isDeliveryUrgentNotification({
       normalizedType == 'delivery_order_offer' ||
       normalizedType == 'courier_order_offer' ||
       normalizedType == 'delivery_order_assigned' ||
+      normalizedType == 'delivery_order_removed' ||
+      normalizedType == 'delivery_order_reassigned' ||
+      normalizedType == 'delivery_assigned_by_owner' ||
       normalizedType == 'delivery_order_ready_for_pickup' ||
       normalizedType == 'delivery_order_ready' ||
       normalizedType == 'delivery_order_cancelled' ||
@@ -822,6 +879,8 @@ bool _isUrgentRealtimeNotification({
   final normalizedType = (type ?? '').trim().toLowerCase();
   final normalizedTarget = (target ?? '').trim().toLowerCase();
   if (normalizedTarget == 'courier_orders_new' ||
+      normalizedTarget == 'admin_emergency_request' ||
+      normalizedTarget == 'customer_emergency_request' ||
       normalizedTarget == 'delivery_order_offer' ||
       normalizedTarget == 'courier_order_offer' ||
       normalizedTarget == 'taxi_new_request' ||
@@ -834,14 +893,17 @@ bool _isUrgentRealtimeNotification({
       normalizedTarget == 'taxi_ride_unavailable' ||
       normalizedTarget == 'taxi_captain_arrived' ||
       normalizedTarget == 'taxi_ride_started' ||
-      normalizedTarget == 'taxi_ride_completed' ||
-      normalizedTarget == 'taxi_ride_canceled' ||
       normalizedTarget == 'taxi_chat_message') {
     return true;
   }
   return normalizedType == 'delivery_order_available' ||
+      normalizedType.startsWith('services.central.sos.') ||
       normalizedType == 'delivery_order_offer' ||
       normalizedType == 'courier_order_offer' ||
+      normalizedType == 'delivery_order_assigned' ||
+      normalizedType == 'delivery_order_removed' ||
+      normalizedType == 'delivery_order_reassigned' ||
+      normalizedType == 'delivery_assigned_by_owner' ||
       normalizedType == 'taxi.request.new' ||
       normalizedType == 'taxi.ride.requested' ||
       normalizedType == 'taxi.offer.received' ||
@@ -852,7 +914,5 @@ bool _isUrgentRealtimeNotification({
       normalizedType == 'taxi.ride.unavailable' ||
       normalizedType == 'taxi.captain.arrived' ||
       normalizedType == 'taxi.ride.started' ||
-      normalizedType == 'taxi.ride.completed' ||
-      normalizedType == 'taxi.ride.canceled' ||
       normalizedType == 'taxi.chat.message';
 }

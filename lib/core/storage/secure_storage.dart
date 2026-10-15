@@ -164,6 +164,8 @@ class SecureStore {
 
   Future<void> saveGuestMode(bool enabled) async {
     if (enabled) {
+      _volatileTokens[flavor] = null;
+      AuthSessionTokenCache.clear(flavor: flavor);
       await writeBool(_guestModeKey, true);
     } else {
       await delete(_guestModeKey);

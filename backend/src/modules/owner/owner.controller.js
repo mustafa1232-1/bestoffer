@@ -7,6 +7,8 @@ import {
   validateOwnerCategoryUpdate,
   validateOwnerDeliveryAgentCreate,
   validateOwnerHrCreate,
+  validateOwnerInventoryItemUpdate,
+  validateOwnerDailyInventoryCheck,
   validateOwnerMerchantUpdate,
   validateOwnerOrderStatusUpdate,
   validateOwnerOfferCreate,
@@ -477,6 +479,69 @@ export async function updateProductAvailability(req, res, next) {
   }
 }
 
+export async function getDailyInventory(req, res, next) {
+  try {
+    const data = await service.getOwnerDailyInventory(req.userId);
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function updateInventoryItem(req, res, next) {
+  try {
+    const rawQuantity =
+      req.body?.quantity ??
+      req.body?.stockQuantity ??
+      req.body?.inventoryQuantity ??
+      req.body?.count;
+    const rawThreshold =
+      req.body?.reorderThreshold ?? req.body?.reorder_threshold;
+    const rawAvailable = req.body?.isAvailable ?? req.body?.available;
+    const body = {
+      quantity: normalizeStockQuantityInput(rawQuantity),
+      reorderThreshold: normalizeStockQuantityInput(rawThreshold),
+      isAvailable:
+        rawAvailable === undefined ? undefined : parseBooleanInput(rawAvailable),
+      note: req.body?.note,
+    };
+
+    const v = validateOwnerInventoryItemUpdate(body);
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const data = await service.updateOwnerDailyInventoryItem(
+      req.userId,
+      Number(req.params.productId),
+      body
+    );
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function confirmDailyInventoryCheck(req, res, next) {
+  try {
+    const body = {
+      note:
+        typeof req.body?.note === "string" && req.body.note.trim().length
+          ? req.body.note.trim()
+          : null,
+    };
+    const v = validateOwnerDailyInventoryCheck(body);
+    if (!v.ok) {
+      return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
+    }
+
+    const data = await service.confirmOwnerDailyInventoryCheck(req.userId, body);
+    res.json(data);
+  } catch (e) {
+    next(e);
+  }
+}
+
 export async function updateOffer(req, res, next) {
   try {
     const v = validateOwnerOfferUpdate(req.body || {});
@@ -679,14 +744,14 @@ export async function updateOrderStatus(req, res, next) {
       return res.status(400).json({ message: "VALIDATION_ERROR", fields: v.errors });
     }
 
-    await service.updateOrderStatus(
+    const order = await service.updateOrderStatus(
       req.userId,
       req.params.orderId,
       req.body.status,
       req.body.estimatedPrepMinutes,
       req.body.estimatedDeliveryMinutes
     );
-    res.status(204).send();
+    res.json({ order });
   } catch (e) {
     next(e);
   }

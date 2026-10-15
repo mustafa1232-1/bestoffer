@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:core_design_system/core_design_system.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,13 +31,16 @@ class MonitoringOperationsListScreen extends ConsumerStatefulWidget {
 class _MonitoringOperationsListScreenState
     extends ConsumerState<MonitoringOperationsListScreen> {
   static const int _pageSize = 25;
+  static const Duration _autoRefreshInterval = Duration(seconds: 15);
 
   String? _status;
   String _search = '';
   int _offset = 0;
   int _total = 0;
   bool _loading = false;
+  bool _loadInFlight = false;
   String? _error;
+  Timer? _autoRefreshTimer;
   List<Map<String, dynamic>> _items = const [];
 
   List<String> get _statuses {
@@ -91,13 +96,37 @@ class _MonitoringOperationsListScreenState
   void initState() {
     super.initState();
     _load();
+    if (_supportsAutoRefresh) {
+      _autoRefreshTimer = Timer.periodic(_autoRefreshInterval, (_) {
+        if (!mounted || _loadInFlight) return;
+        unawaited(_load(silent: true));
+      });
+    }
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  bool get _supportsAutoRefresh =>
+      widget.mode == MonitoringOperationsMode.orders ||
+      widget.mode == MonitoringOperationsMode.delivery;
+
+  Future<void> _load({bool silent = false}) async {
+    if (_loadInFlight) return;
+    _loadInFlight = true;
+    if (silent) {
+      if (_error != null && mounted) {
+        setState(() => _error = null);
+      }
+    } else {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       final api = ref.read(adminApiProvider);
       final data = switch (widget.mode) {
@@ -158,6 +187,7 @@ class _MonitoringOperationsListScreenState
       });
     } catch (_) {
       if (!mounted) return;
+      if (silent) return;
       setState(() {
         _error = context.lt(
           ar: 'تعذر تحميل البيانات.',
@@ -165,7 +195,8 @@ class _MonitoringOperationsListScreenState
         );
       });
     } finally {
-      if (mounted) setState(() => _loading = false);
+      _loadInFlight = false;
+      if (mounted && !silent) setState(() => _loading = false);
     }
   }
 
@@ -177,10 +208,10 @@ class _MonitoringOperationsListScreenState
     _load();
   }
 
-  void _openDetail(Map<String, dynamic> item) {
+  Future<void> _openDetail(Map<String, dynamic> item) async {
     final id = _detailId(item);
     if (id == null || id <= 0) return;
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => MonitoringDetailScreen(
           mode: _detailMode,
@@ -189,6 +220,7 @@ class _MonitoringOperationsListScreenState
         ),
       ),
     );
+    if (mounted) await _load(silent: true);
   }
 
   MonitoringDetailMode get _detailMode {
@@ -465,9 +497,23 @@ class _OrderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final assignmentStatus = '${item['delivery_assignment_status'] ?? ''}'
+        .toUpperCase();
+    final needsCourier = assignmentStatus == 'PENDING_NO_DRIVER';
+    final assigned = assignmentStatus == 'ASSIGNED';
     return MaslakiCard(
       child: ListTile(
         contentPadding: EdgeInsets.zero,
+        leading: Icon(
+          needsCourier
+              ? Icons.report_problem_rounded
+              : assigned
+              ? Icons.delivery_dining_rounded
+              : Icons.receipt_long_rounded,
+          color: needsCourier
+              ? Theme.of(context).colorScheme.error
+              : Theme.of(context).colorScheme.primary,
+        ),
         title: Text('${context.lt(ar: 'طلب', en: 'Order')} #${item['id']}'),
         subtitle: Text(
           '${item['status']} • ${item['merchant_name'] ?? '-'}\n'
@@ -478,6 +524,17 @@ class _OrderTile extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text('${item['total_amount'] ?? 0}'),
+            if (assignmentStatus.isNotEmpty)
+              SizedBox(
+                width: 96,
+                child: Text(
+                  assignmentStatus,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
             if (item['has_open_ticket'] == true)
               Icon(
                 Icons.support_agent_rounded,
@@ -499,9 +556,18 @@ class _CourierTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fresh =
-        item['is_online'] == true &&
-        DateTime.tryParse('${item['presence_updated_at'] ?? ''}') != null;
+    final online = item['is_online'] == true;
+    final fresh = item['presence_fresh'] == true;
+    final activeCount = int.tryParse('${item['active_order_count'] ?? 0}') ?? 0;
+    final ageSeconds =
+        int.tryParse('${item['presence_age_seconds'] ?? 0}') ?? 0;
+    final presence = !online
+        ? 'offline'
+        : fresh
+        ? 'fresh'
+        : ageSeconds > 0
+        ? 'stale ${ageSeconds ~/ 60}m'
+        : 'stale';
     return MaslakiCard(
       child: ListTile(
         contentPadding: EdgeInsets.zero,
@@ -512,15 +578,19 @@ class _CourierTile extends StatelessWidget {
         ),
         title: Text('${item['full_name'] ?? item['user_id']}'),
         subtitle: Text(
+          'active: $activeCount - $presence\n'
           '${item['availability_status'] ?? '-'} • ${item['coverage_block'] ?? '-'}\n'
           '${context.lt(ar: 'طلبات اليوم', en: 'Today')}: ${item['deliveries_today'] ?? 0} • '
           '${context.lt(ar: 'التقييم', en: 'Rating')}: ${item['rating'] ?? 0}',
         ),
-        trailing: Icon(
-          fresh ? Icons.wifi_tethering_rounded : Icons.wifi_off_rounded,
-          color: fresh
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.outline,
+        trailing: Tooltip(
+          message: 'active: $activeCount - $presence',
+          child: Icon(
+            fresh ? Icons.wifi_tethering_rounded : Icons.wifi_off_rounded,
+            color: fresh
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.outline,
+          ),
         ),
         isThreeLine: true,
       ),

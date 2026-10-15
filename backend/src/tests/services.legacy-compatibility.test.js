@@ -11,7 +11,9 @@ import {
   createProviderProfile,
   createQuoteForRequest,
   createServiceRequestByCustomer,
+  confirmServiceRequestPaymentByProvider,
   respondToQuoteByCustomer,
+  submitServiceRequestPayment,
   updateRequestStatusByCustomer,
   updateRequestStatusByProviderUser,
 } from '../modules/services/services.repo.js';
@@ -213,6 +215,48 @@ async function cleanupFixture(fixture, requestIds = []) {
     Number(fixture.approverUser.id),
   ]).catch(() => {});
 }
+
+test('replaying service offering creation returns the existing offering without changing it', async (t) => {
+  const fixture = await seedFixture();
+  t.after(async () => {
+    await cleanupFixture(fixture);
+  });
+
+  const before = await q(
+    `SELECT starts_from_price
+       FROM service_offerings
+      WHERE id = $1`,
+    [Number(fixture.offering.id)]
+  );
+  const replayed = await createOfferingForProvider({
+    userId: Number(fixture.providerUser.id),
+    dto: {
+      mainCategoryId: Number(fixture.offering.mainCategoryId),
+      subcategoryId: fixture.offering.subcategoryId || null,
+      name: fixture.offering.name,
+      description: 'must not replace the existing service',
+      executionMode: 'home',
+      startsFromPrice: 1,
+      pricingOptions: [],
+    },
+  });
+
+  assert.equal(Number(replayed.id), Number(fixture.offering.id));
+  const after = await q(
+    `SELECT COUNT(*)::int AS count, MAX(starts_from_price) AS starts_from_price
+       FROM service_offerings
+      WHERE provider_id = $1
+        AND normalized_name = (
+          SELECT normalized_name FROM service_offerings WHERE id = $2
+        )`,
+    [Number(fixture.provider.id), Number(fixture.offering.id)]
+  );
+  assert.equal(after.rows[0].count, 1);
+  assert.equal(
+    Number(after.rows[0].starts_from_price),
+    Number(before.rows[0].starts_from_price)
+  );
+});
 
 test('legacy V1 completed stays on the legacy quote path even with promotion snapshot metadata', async (t) => {
   const fixture = await seedFixture();
@@ -511,18 +555,24 @@ test('canonical booking_version=2 transitions succeed through the V2 state machi
   assert.ok(providerCompleted.bookingProviderCompletedAt);
   assert.ok(providerCompleted.bookingFinalizationDueAt);
 
-  const completed = await updateRequestStatusByCustomer({
+  const paymentSubmitted = await submitServiceRequestPayment({
     userId: Number(fixture.customerUser.id),
     requestId: Number(created.id),
-    dto: {
-      status: 'COMPLETED',
-      note: 'customer accepted',
-      expectedVersion: 5,
-      idempotencyKey: `${makeSeed('booking')}-customer-complete`,
-    },
+    paymentMethod: 'cash',
+    note: 'customer confirmed payment',
+  });
+  assert.equal(paymentSubmitted.bookingStatus, 'PROVIDER_COMPLETED');
+  assert.equal(paymentSubmitted.bookingVersion, 6);
+  assert.ok(paymentSubmitted.paymentSubmittedAt);
+
+  const completed = await confirmServiceRequestPaymentByProvider({
+    userId: Number(fixture.providerUser.id),
+    requestId: Number(created.id),
+    note: 'administration confirmed receipt',
   });
   assert.equal(completed.bookingStatus, 'COMPLETED');
-  assert.equal(completed.bookingVersion, 6);
+  assert.equal(completed.bookingVersion, 7);
+  assert.ok(completed.paymentConfirmedAt);
   assert.ok(completed.bookingFinalizedAt);
 });
 

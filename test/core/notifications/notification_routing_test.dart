@@ -45,6 +45,45 @@ void main() {
       expect(module, 'courier');
     });
 
+    test('Courier assignment changes resolve to current order details', () {
+      for (final type in <String>[
+        'delivery_order_assigned',
+        'delivery_order_removed',
+        'delivery_order_reassigned',
+        'delivery_assigned_by_owner',
+      ]) {
+        final target = NotificationNavigation.resolveTarget(
+          rawTarget: null,
+          type: type,
+          orderId: 44,
+        );
+        final module = NotificationNavigation.resolveModule(
+          rawModule: null,
+          roleScope: 'courier',
+          rawTarget: target,
+          type: type,
+        );
+        expect(target, 'courier_orders_current');
+        expect(module, 'courier');
+      }
+    });
+
+    test('Courier reconciliation opens the financial report', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: 'courier_reconciliation',
+        type: 'courier_reconciliation_rejected',
+        orderId: 44,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: 'courier',
+        roleScope: 'courier',
+        rawTarget: target,
+        type: 'courier_reconciliation_rejected',
+      );
+      expect(target, 'courier_reconciliation');
+      expect(module, 'courier');
+    });
+
     test('Taxi notifications resolve to taxi module only', () {
       final target = NotificationNavigation.resolveTarget(
         rawTarget: null,
@@ -476,6 +515,57 @@ void main() {
       expect(module, 'admin');
     });
 
+    test('Admin order notifications resolve to monitoring order details', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: null,
+        type: 'admin_order_created',
+        orderId: 731,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: null,
+        roleScope: 'admin',
+        rawTarget: target,
+        type: 'admin_order_created',
+      );
+      expect(target, 'admin_order_details');
+      expect(module, 'admin');
+    });
+
+    test('Legacy admin_orders target remains on the admin module', () {
+      final target = NotificationNavigation.resolveTarget(
+        rawTarget: 'admin_orders',
+        type: 'admin_courier_cancel_request',
+        orderId: 52,
+      );
+      final module = NotificationNavigation.resolveModule(
+        rawModule: null,
+        roleScope: 'admin',
+        rawTarget: target,
+        type: 'admin_courier_cancel_request',
+      );
+      expect(target, 'admin_orders');
+      expect(module, 'admin');
+    });
+
+    test(
+      'Admin taxi ride notifications resolve to monitoring ride details',
+      () {
+        final target = NotificationNavigation.resolveTarget(
+          rawTarget: null,
+          type: 'admin_taxi_ride_requested',
+          orderId: null,
+        );
+        final module = NotificationNavigation.resolveModule(
+          rawModule: null,
+          roleScope: 'admin',
+          rawTarget: target,
+          type: 'admin_taxi_ride_requested',
+        );
+        expect(target, 'admin_taxi_ride_details');
+        expect(module, 'admin');
+      },
+    );
+
     test('Customer order updates resolve to order tracking', () {
       final target = NotificationNavigation.resolveTarget(
         rawTarget: null,
@@ -491,6 +581,42 @@ void main() {
       expect(target, 'order_tracking');
       expect(module, 'customer');
     });
+
+    test(
+      'Emergency notifications preserve the correct admin and customer targets',
+      () {
+        final adminTarget = NotificationNavigation.resolveTarget(
+          rawTarget: 'admin_emergency_request',
+          type: 'services.central.sos.created',
+          orderId: null,
+        );
+        final customerTarget = NotificationNavigation.resolveTarget(
+          rawTarget: 'customer_emergency_request',
+          type: 'services.central.sos.message',
+          orderId: null,
+        );
+        expect(adminTarget, 'admin_emergency_request');
+        expect(
+          NotificationNavigation.resolveModule(
+            rawModule: null,
+            roleScope: 'admin',
+            rawTarget: adminTarget,
+            type: 'services.central.sos.created',
+          ),
+          'admin',
+        );
+        expect(customerTarget, 'customer_emergency_request');
+        expect(
+          NotificationNavigation.resolveModule(
+            rawModule: null,
+            roleScope: 'customer',
+            rawTarget: customerTarget,
+            type: 'services.central.sos.message',
+          ),
+          'customer',
+        );
+      },
+    );
 
     test(
       'Social post notifications resolve to social module and post target',

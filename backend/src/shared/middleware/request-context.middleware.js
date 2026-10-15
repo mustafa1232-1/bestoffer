@@ -21,6 +21,20 @@ export function withRequestContext(req, res, next) {
   req.requestId = requestId;
   req.requestStartAt = Date.now();
   res.setHeader("x-request-id", req.requestId);
+  const runtimeRegion = String(
+    process.env.RAILWAY_REPLICA_REGION || process.env.RAILWAY_REGION || ""
+  ).trim();
+  if (runtimeRegion) res.setHeader("x-app-region", runtimeRegion);
+
+  const originalWriteHead = res.writeHead;
+  res.writeHead = function writeHeadWithTiming(...args) {
+    if (!res.headersSent) {
+      const durationMs = Math.max(0, Date.now() - req.requestStartAt);
+      res.setHeader("server-timing", `app;dur=${durationMs}`);
+      res.setHeader("x-app-response-ms", String(durationMs));
+    }
+    return originalWriteHead.apply(this, args);
+  };
 
   next();
 }

@@ -4,16 +4,18 @@ import 'package:maslaki/features/notifications/data/notifications_api.dart';
 import 'package:maslaki/features/social/data/social_api.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../../core/calls/call_tone_service.dart';
 import '../../../core/calls/rtc_call_support.dart';
 import '../../../core/i18n/app_localizations_context.dart';
-import '../../../core/notifications/attention_alert_service.dart';
+import '../../../core/i18n/locale_text.dart';
+import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../../l10n/app_localizations.dart';
+import '../state/social_call_voice_controller.dart';
 
 /// Purpose: شاشة المكالمات الصوتية لمحادثات السوشال باستخدام WebRTC مع قناتين:
 /// API للحالة الأساسية وSSE للإشارات الفورية.
@@ -35,11 +37,18 @@ final socialCallLiveApiProvider = Provider<NotificationsApi>((ref) {
 });
 
 /// واجهة المكالمة الفعلية بين طرفي thread اجتماعي.
+final socialCallVoiceFactoryProvider =
+    Provider<SocialCallVoiceController Function()>(
+      (ref) => SocialCallVoiceController.new,
+    );
+
 class SocialCallScreen extends ConsumerStatefulWidget {
   final int threadId;
   final bool isCaller;
   final int? initialSessionId;
   final String? remoteDisplayName;
+  final String? initialAction;
+  final int? notificationId;
 
   const SocialCallScreen({
     super.key,
@@ -47,6 +56,8 @@ class SocialCallScreen extends ConsumerStatefulWidget {
     required this.isCaller,
     this.initialSessionId,
     this.remoteDisplayName,
+    this.initialAction,
+    this.notificationId,
   });
 
   @override
@@ -62,21 +73,34 @@ enum _SocialCallStatusTone { info, warning, error, success }
 
 /// حالة الشاشة التي تدير دورة حياة WebRTC كاملة:
 /// إنشاء الجلسة، استقبال/إرسال الإشارات، وإعادة الاتصال عند تقطع الشبكة.
-class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
+class _SocialCallScreenState extends ConsumerState<SocialCallScreen>
+    with WidgetsBindingObserver {
   SocialApi get _api => ref.read(socialCallApiProvider);
   NotificationsApi get _liveApi => ref.read(socialCallLiveApiProvider);
-  AttentionAlertService get _alertService =>
-      ref.read(attentionAlertServiceProvider);
+  late final CallToneService _callToneService;
+  late final LocalNotificationService _localNotifications;
 
   RTCPeerConnection? _pc;
+  late final SocialCallVoiceController _voice;
+  final RTCVideoRenderer _remoteAudio = RTCVideoRenderer();
+  bool _remoteAudioReady = false;
+  String _voiceTransport = 'webrtc';
+  bool _voiceConnecting = false;
   MediaStream? _localStream;
   MediaStream? _remoteStream;
   StreamSubscription<NotificationLiveEvent>? _streamSub;
   Timer? _ticker;
   Timer? _reconnectTimer;
-  Timer? _ringTimer;
   Timer? _iceRecoverTimer;
   Timer? _stateSyncTimer;
+  Timer? _legacyOfferTimer;
+  Timer? _voiceReconnectTimer;
+  Future<void>? _rtcWork;
+  bool _peerSupportsLiveKit = false;
+  bool _announcedLiveKit = false;
+  bool _legacyOfferSent = false;
+  bool _microphonePermissionDenied = false;
+  String? _sessionStatus;
 
   final Set<int> _handledSignalIds = <int>{};
   final Map<String, MediaStreamTrack> _boundRemoteAudioTracks =
@@ -84,17 +108,22 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   final List<RTCIceCandidate> _queuedRemoteCandidates = <RTCIceCandidate>[];
 
   int? _sessionId;
+  late bool _isCaller;
   bool _busy = true;
   bool _inCall = false;
   bool _muted = false;
-  bool _speakerOn = true;
+  bool _speakerOn = false;
   bool _pendingIncomingAccept = false;
   bool _acceptedIncoming = false;
+  bool _initialActionHandled = false;
+  bool _callNotificationCancelled = false;
   bool _disposed = false;
   bool _remoteDescriptionSet = false;
   bool _callEnded = false;
   bool _stateSyncInFlight = false;
+  Future<void>? _stateWork;
   int _reconnectAttempt = 0;
+  int _voiceReconnectAttempt = 0;
   int? _lastEventId;
   String? _statusText;
   _SocialCallStatusTone _statusTone = _SocialCallStatusTone.info;
@@ -105,12 +134,17 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
   /// يبدأ bootstrap الكامل للمكالمة.
   ///
-  /// الترتيب مقصود: تهيئة RTC أولاً، ثم stream الإشارات، ثم state snapshot،
-  /// وبعدها فقط يبدأ caller بإنشاء offer إذا لم تكن session موجودة مسبقاً.
+  /// تُقرأ الجلسة ويُحدد مسار الصوت قبل فتح الميكروفون.
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _callToneService = ref.read(callToneServiceProvider);
+    _localNotifications = ref.read(localNotificationsProvider);
+    _voice = ref.read(socialCallVoiceFactoryProvider)();
+    _voice.addListener(_onVoiceChanged);
     _sessionId = widget.initialSessionId;
+    _isCaller = widget.isCaller;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_disposed || !mounted) return;
       unawaited(_bootstrap());
@@ -127,52 +161,84 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
+    _voice.removeListener(_onVoiceChanged);
+    _voice.dispose();
+    if (_remoteAudioReady) unawaited(_remoteAudio.dispose());
     _ticker?.cancel();
     _streamSub?.cancel();
     _reconnectTimer?.cancel();
-    _ringTimer?.cancel();
     _iceRecoverTimer?.cancel();
     _stateSyncTimer?.cancel();
+    _legacyOfferTimer?.cancel();
+    _voiceReconnectTimer?.cancel();
     unawaited(_disposeRtc());
     super.dispose();
   }
 
   /// يهيئ الاتصال من الصفر ويربط الواجهة بحالة الجلسة الحالية.
   Future<void> _bootstrap() async {
-    if (!widget.isCaller) {
+    final api = _api;
+    if (_isCaller) {
+      // Give immediate feedback while the start-call request is in flight.
+      _startRinging(incoming: false);
+      _setStatus(_l10n.socialCallRinging, tone: _SocialCallStatusTone.warning);
+    } else {
       _startRinging(incoming: true);
       _setStatus(_l10n.socialCallIncoming, tone: _SocialCallStatusTone.warning);
     }
     try {
-      await _prepareRtc();
       await _connectSignalStream();
+      _startTicker();
+      _startStateSync();
       await _loadCallState();
+      if (_disposed || _callEnded) return;
+      await _applyInitialNotificationAction();
+      if (_disposed || _callEnded) return;
 
-      if (widget.isCaller && _sessionId == null) {
-        final out = await _api.startThreadCall(threadId: widget.threadId);
+      if (_isCaller && _sessionId == null) {
+        final out = await _api.startThreadCall(
+          threadId: widget.threadId,
+          preferLiveKit: true,
+        );
         final session = out['session'];
         if (session is Map) {
           _sessionId = _asInt(session['id']);
+          _readSession(session);
         }
-        _startRinging(incoming: false);
-        await _createAndSendOffer();
-        _setStatus(
-          _l10n.socialCallDialingPeer,
-          tone: _SocialCallStatusTone.info,
-        );
+        if (_disposed || _callEnded) {
+          if (_sessionId != null) {
+            await api.sendThreadCallSignal(
+              threadId: widget.threadId,
+              sessionId: _sessionId,
+              signalType: 'hangup',
+            );
+          }
+          return;
+        }
+        if (!_acceptedIncoming) {
+          _startRinging(incoming: false);
+          _setStatus(_l10n.socialCallRinging);
+        }
       }
 
-      _startTicker();
-      _startStateSync();
+      _scheduleLegacyOffer();
     } on _MicPermissionDenied {
+      _stopRinging();
+      _microphonePermissionDenied = true;
       _setStatus(
         _l10n.socialCallMicrophonePermissionRequired,
         tone: _SocialCallStatusTone.error,
       );
     } on DioException catch (e) {
+      _stopRinging();
       _setStatus(_mapCallError(e), tone: _SocialCallStatusTone.error);
     } catch (_) {
-      _setStatus(_l10n.socialCallStartFailed, tone: _SocialCallStatusTone.error);
+      _stopRinging();
+      _setStatus(
+        _l10n.socialCallStartFailed,
+        tone: _SocialCallStatusTone.error,
+      );
     } finally {
       if (!_disposed && mounted) {
         setState(() => _busy = false);
@@ -184,8 +250,30 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   ///
   /// إذا ظهرت مكالمة بدون صوت أو بدون remote track فابدأ التشخيص من هذا الجزء
   /// ثم تابع إلى `_consumeSignal` و`_bindRemoteTrack`.
-  Future<void> _prepareRtc() async {
+  Future<void> _prepareRtc() => _rtcWork ??= _initializeRtc()
+      .catchError((Object error, StackTrace stack) async {
+        await _disposeLegacyMedia();
+        Error.throwWithStackTrace(error, stack);
+      })
+      .whenComplete(() => _rtcWork = null);
+
+  bool get _legacyMediaAllowed =>
+      !_disposed &&
+      !_callEnded &&
+      _voiceTransport != 'livekit' &&
+      !(_voiceTransport == 'auto' && _peerSupportsLiveKit);
+
+  Future<void> _initializeRtc() async {
+    if (!_legacyMediaAllowed || _pc != null) return;
     await _ensureMicrophonePermission();
+    if (!_legacyMediaAllowed) return;
+    if (!_remoteAudioReady) await _remoteAudio.initialize();
+    if (!_legacyMediaAllowed) {
+      await _remoteAudio.dispose();
+      _remoteAudioReady = false;
+      return;
+    }
+    _remoteAudioReady = true;
     // Initialize the native WebRTC audio module before configuring routing or
     // creating the peer connection. Idempotent (guarded internally).
     try {
@@ -204,7 +292,17 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
         );
       } catch (_) {}
     }
-    _pc = await createPeerConnection(await resolveRtcCallConfig(_api.dio));
+    final config = await resolveRtcCallConfig(_api.dio).timeout(
+      const Duration(seconds: 4),
+      onTimeout: () => buildRtcCallConfig(),
+    );
+    if (!_legacyMediaAllowed) return;
+    final pc = await createPeerConnection(config);
+    if (!_legacyMediaAllowed) {
+      await pc.close();
+      return;
+    }
+    _pc = pc;
 
     _pc!.onTrack = (event) {
       _bindRemoteTrack(event.track);
@@ -221,7 +319,9 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     _pc!.onAddStream = _bindRemoteStream;
 
     _pc!.onConnectionState = (state) {
-      if (!mounted || _disposed) return;
+      if (!mounted || _disposed || _callEnded || _voiceTransport == 'livekit') {
+        return;
+      }
 
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _onConnected();
@@ -253,7 +353,9 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     };
 
     _pc!.onIceConnectionState = (state) {
-      if (!mounted || _disposed) return;
+      if (!mounted || _disposed || _callEnded || _voiceTransport == 'livekit') {
+        return;
+      }
       if (state == RTCIceConnectionState.RTCIceConnectionStateConnected ||
           state == RTCIceConnectionState.RTCIceConnectionStateCompleted) {
         _onConnected();
@@ -280,12 +382,20 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
       );
     };
 
-    _localStream = await navigator.mediaDevices.getUserMedia(
+    final local = await navigator.mediaDevices.getUserMedia(
       buildHighQualityAudioConstraints(),
     );
+    if (!_legacyMediaAllowed || !identical(_pc, pc)) {
+      for (final track in local.getTracks()) {
+        await track.stop();
+      }
+      await local.dispose();
+      return;
+    }
+    _localStream = local;
 
     for (final track in _localStream!.getAudioTracks()) {
-      await _pc!.addTrack(track, _localStream!);
+      await pc.addTrack(track, local);
     }
 
     await _applyAudioRoute();
@@ -299,9 +409,6 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
       status = await Permission.microphone.request();
     }
     if (!status.isGranted) {
-      if (status.isPermanentlyDenied || status.isRestricted) {
-        await openAppSettings();
-      }
       throw const _MicPermissionDenied();
     }
   }
@@ -323,7 +430,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
             if (event.event == 'resync_required') {
               _lastEventId = _asInt(event.data['latestEventId']);
-              unawaited(_loadCallState());
+              unawaited(_loadCallState().catchError((_) {}));
               return;
             }
 
@@ -333,7 +440,14 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
               event.data['threadId'] ?? event.data['thread_id'],
             );
             if (threadId != widget.threadId) return;
-            unawaited(_handleCallUpdateEvent(event.data));
+            unawaited(
+              _handleCallUpdateEvent(event.data).catchError((_) {
+                _setStatus(
+                  _l10n.socialCallRecoverFailed,
+                  tone: _SocialCallStatusTone.error,
+                );
+              }),
+            );
           },
           onError: (_) {
             _setStatus(
@@ -375,18 +489,102 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   }
 
   /// يسحب snapshot الخادم الحالي للجلسة والإشارات المعلقة لاستعادة التزامن بعد reconnect.
-  Future<void> _loadCallState() async {
-    final state = await _api.getThreadCallState(threadId: widget.threadId);
-    final session = state['session'];
-    if (session is Map) {
-      _sessionId = _asInt(session['id']) ?? _sessionId;
-      final status = _asString(session['status']) ?? '';
-      if (status == 'active') {
-        _onConnected();
-      } else if (status == 'ringing') {
-        _startRinging(incoming: !widget.isCaller);
+  Future<void> _loadCallState() =>
+      _stateWork ??= _fetchCallState().whenComplete(() => _stateWork = null);
+
+  // Transport selection is one-way for a session. Late ringing/ICE responses
+  // must not undo LiveKit negotiation after the peer has accepted.
+  void _readSession(Map session) {
+    if (session['isCaller'] is bool) _isCaller = session['isCaller'] as bool;
+    if (_voiceTransport != 'livekit') {
+      _voiceTransport = '${session['voiceTransport'] ?? _voiceTransport}';
+    }
+    final status = _asString(session['status']);
+    // Start/snapshot responses can arrive after the acceptance event.
+    if (status != 'ringing' || _sessionStatus != 'active') {
+      _sessionStatus = status ?? _sessionStatus;
+    }
+    if (_sessionStatus == 'active') _acceptedIncoming = true;
+  }
+
+  Future<void> _announceLiveKit() async {
+    if (_isCaller ||
+        _announcedLiveKit ||
+        _voiceTransport != 'auto' ||
+        _sessionStatus != 'ringing' ||
+        _callEnded) {
+      return;
+    }
+    _announcedLiveKit = true;
+    try {
+      // Capability acknowledgement only: never accepts or captures audio.
+      await _sendSignal(
+        signalType: 'ringing',
+        signalPayload: {'transport': 'livekit'},
+      );
+    } catch (_) {
+      _announcedLiveKit = false;
+    }
+  }
+
+  void _scheduleLegacyOffer() {
+    if (!_isCaller ||
+        !_legacyMediaAllowed ||
+        _legacyOfferSent ||
+        _sessionId == null ||
+        _legacyOfferTimer?.isActive == true) {
+      return;
+    }
+    // Older clients require SDP before showing Answer. Allow current clients
+    // to announce LiveKit first, without making either call setup depend on SDP.
+    _legacyOfferTimer = Timer(
+      _voiceTransport == 'auto' ? const Duration(seconds: 5) : Duration.zero,
+      () => unawaited(_startLegacyOffer()),
+    );
+  }
+
+  Future<void> _startLegacyOffer() async {
+    if (!_legacyMediaAllowed || _legacyOfferSent) return;
+    try {
+      await _prepareRtc();
+      if (!_legacyMediaAllowed) return;
+      await _createAndSendOffer();
+      _legacyOfferSent = true;
+    } catch (_) {
+      // LiveKit-capable recipients can still answer an auto session.
+      if (_legacyMediaAllowed && _voiceTransport == 'webrtc') {
         _setStatus(
-          widget.isCaller ? _l10n.socialCallRinging : _l10n.socialCallIncoming,
+          _l10n.socialCallStartFailed,
+          tone: _SocialCallStatusTone.error,
+        );
+      }
+    }
+  }
+
+  Future<void> _fetchCallState() async {
+    final requestedSessionId = _sessionId;
+    final state = await _api.getThreadCallState(threadId: widget.threadId);
+    if (_disposed || !mounted || _callEnded) return;
+    final session = state['session'];
+    if (session == null &&
+        requestedSessionId != null &&
+        _sessionId == requestedSessionId) {
+      await _remoteEndCall();
+      return;
+    }
+    if (session is Map) {
+      if (_sessionId != null && _asInt(session['id']) != _sessionId) return;
+      _sessionId = _asInt(session['id']) ?? _sessionId;
+      _readSession(session);
+      final status = _sessionStatus;
+      if (status == 'active') {
+        if (_voiceTransport == 'livekit') await _connectLiveKit();
+      } else if (status == 'ringing') {
+        unawaited(_announceLiveKit());
+        _scheduleLegacyOffer();
+        _startRinging(incoming: !_isCaller);
+        _setStatus(
+          _isCaller ? _l10n.socialCallRinging : _l10n.socialCallIncoming,
           tone: _SocialCallStatusTone.warning,
         );
       } else if (status == 'missed') {
@@ -418,7 +616,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
   /// ينشئ offer محسن للصوت ويرسله للطرف الآخر مع دعم ICE restart عند الحاجة.
   Future<void> _createAndSendOffer({bool iceRestart = false}) async {
-    if (_pc == null) return;
+    if (_pc == null || !_legacyMediaAllowed) return;
     final offer = optimizeVoiceDescription(
       await _pc!.createOffer({
         'offerToReceiveAudio': true,
@@ -441,6 +639,10 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     required String signalType,
     Map<String, dynamic>? signalPayload,
   }) async {
+    if (_voiceTransport == 'livekit' &&
+        ['offer', 'answer', 'ice'].contains(signalType)) {
+      return;
+    }
     final out = await _api.sendThreadCallSignal(
       threadId: widget.threadId,
       sessionId: _sessionId,
@@ -450,22 +652,30 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     final session = out['session'];
     if (session is Map) {
       _sessionId = _asInt(session['id']) ?? _sessionId;
+      _readSession(session);
     }
   }
 
   /// يفسر event الحي القادم من الخادم ويحوّله إلى إجراءات محلية على الجلسة.
   Future<void> _handleCallUpdateEvent(Map<String, dynamic> data) async {
+    if (_disposed || _callEnded) return;
     final session = data['session'];
     if (session is Map) {
+      if (_sessionId != null && _asInt(session['id']) != _sessionId) return;
       _sessionId = _asInt(session['id']) ?? _sessionId;
+      _readSession(session);
+      if (_sessionStatus == 'active' && _voiceTransport == 'livekit') {
+        await _connectLiveKit();
+      }
     }
 
     final eventType = _asString(data['eventType']) ?? '';
-    if (eventType == 'incoming_call') {
+    if (eventType == 'incoming_call' && _sessionStatus == 'ringing') {
+      unawaited(_announceLiveKit());
       _startRinging(incoming: true);
       _setStatus(_l10n.socialCallIncoming, tone: _SocialCallStatusTone.warning);
     }
-    if (eventType == 'outgoing_call') {
+    if (eventType == 'outgoing_call' && _sessionStatus == 'ringing') {
       _startRinging(incoming: false);
       _setStatus(_l10n.socialCallRinging, tone: _SocialCallStatusTone.warning);
     }
@@ -493,6 +703,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   /// إذا وصلت ICE قبل تثبيت remote description تُحفظ في queue ثم تُفرغ لاحقاً،
   /// وهذه النقطة هي أول ما يجب مراجعته عند ظهور `setRemoteDescription` races.
   Future<void> _consumeSignal(Map<String, dynamic> signal) async {
+    if (_disposed || _callEnded) return;
     final signalId = _asInt(signal['id']);
     if (signalId != null && _handledSignalIds.contains(signalId)) return;
     if (signalId != null) _handledSignalIds.add(signalId);
@@ -510,17 +721,29 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
               ? Map<String, dynamic>.from(signal['signal_payload'] as Map)
               : <String, dynamic>{});
 
+    if (_voiceTransport == 'livekit' &&
+        ['ringing', 'accept', 'offer', 'answer', 'ice'].contains(type)) {
+      return;
+    }
+
     if (type == 'ringing') {
-      _startRinging(incoming: !widget.isCaller);
+      if (_isCaller &&
+          payload['transport'] == 'livekit' &&
+          _voiceTransport == 'auto') {
+        _peerSupportsLiveKit = true;
+        _legacyOfferTimer?.cancel();
+      }
+      if (_sessionStatus == 'active' || _acceptedIncoming) return;
+      _startRinging(incoming: !_isCaller);
       _setStatus(
-        widget.isCaller ? _l10n.socialCallRinging : _l10n.socialCallIncoming,
+        _isCaller ? _l10n.socialCallRinging : _l10n.socialCallIncoming,
         tone: _SocialCallStatusTone.warning,
       );
       return;
     }
 
     if (type == 'offer') {
-      if (!widget.isCaller && !_acceptedIncoming) {
+      if (!_isCaller && !_acceptedIncoming) {
         _pendingOfferPayload = payload;
         _pendingIncomingAccept = false;
         _startRinging(incoming: true);
@@ -551,6 +774,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
         _l10n.socialCallAnsweredConnectingAudio,
         tone: _SocialCallStatusTone.info,
       );
+      if (_isCaller) _scheduleLegacyOffer();
       return;
     }
 
@@ -561,7 +785,8 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   }
 
   Future<void> _handleOffer(Map<String, dynamic> payload) async {
-    if (_pc == null) return;
+    await _prepareRtc();
+    if (_pc == null || !_legacyMediaAllowed) return;
     final sdp = _asString(payload['sdp']);
     final type = _asString(payload['type']) ?? 'offer';
     if (sdp == null || sdp.isEmpty) return;
@@ -580,11 +805,13 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
       signalPayload: {'sdp': answer.sdp, 'type': answer.type},
     );
 
-    _onConnected();
+    // SDP acceptance does not mean ICE/audio connected. Connection callbacks
+    // are authoritative for the connected indicator and duration.
   }
 
   Future<void> _handleAnswer(Map<String, dynamic> payload) async {
-    if (_pc == null) return;
+    await _prepareRtc();
+    if (_pc == null || !_legacyMediaAllowed) return;
     final sdp = _asString(payload['sdp']);
     final type = _asString(payload['type']) ?? 'answer';
     if (sdp == null || sdp.isEmpty) return;
@@ -593,11 +820,9 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     _remoteDescriptionSet = true;
     await _flushQueuedCandidates();
     await _syncRemoteReceivers();
-    _onConnected();
   }
 
   Future<void> _handleIce(Map<String, dynamic> payload) async {
-    if (_pc == null) return;
     final candidateText = _asString(payload['candidate']);
     if (candidateText == null || candidateText.isEmpty) return;
     final candidate = RTCIceCandidate(
@@ -606,7 +831,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
       _asInt(payload['sdpMLineIndex']),
     );
 
-    if (!_remoteDescriptionSet) {
+    if (_pc == null || !_remoteDescriptionSet) {
       _queuedRemoteCandidates.add(candidate);
       return;
     }
@@ -637,10 +862,16 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
   Future<void> _recoverIce() async {
     if (_pc == null) return;
-    if (!widget.isCaller) return;
+    if (!_isCaller) return;
     try {
       _setStatus(_l10n.socialCallRecovering, tone: _SocialCallStatusTone.info);
       await _createAndSendOffer(iceRestart: true);
+    } on _MicPermissionDenied {
+      _microphonePermissionDenied = true;
+      _setStatus(
+        _l10n.socialCallMicrophonePermissionRequired,
+        tone: _SocialCallStatusTone.error,
+      );
     } catch (_) {
       _setStatus(
         _l10n.socialCallRecoverFailed,
@@ -650,20 +881,57 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   }
 
   Future<void> _acceptIncoming() async {
-    if (_pendingOfferPayload == null || _pendingIncomingAccept) return;
+    if (_sessionId == null ||
+        _acceptedIncoming ||
+        _pendingIncomingAccept ||
+        _callEnded) {
+      return;
+    }
     setState(() => _pendingIncomingAccept = true);
     try {
-      await _sendSignal(signalType: 'accept');
+      if (_voiceTransport == 'webrtc') await _ensureMicrophonePermission();
+      if (_disposed || _callEnded) return;
+      await _sendSignal(
+        signalType: 'accept',
+        signalPayload: {if (_voiceTransport == 'auto') 'transport': 'livekit'},
+      );
+      if (_disposed || _callEnded) return;
       _acceptedIncoming = true;
       _stopRinging();
       final pending = _pendingOfferPayload;
       _pendingOfferPayload = null;
-      if (pending != null) {
+      if (_voiceTransport == 'livekit') {
+        await _connectLiveKit();
+      } else if (pending != null) {
         await _handleOffer(pending);
       }
       await _applyAudioRoute();
+    } on _MicPermissionDenied {
+      _microphonePermissionDenied = true;
+      _setStatus(
+        _l10n.socialCallMicrophonePermissionRequired,
+        tone: _SocialCallStatusTone.error,
+      );
+    } catch (_) {
+      _setStatus(
+        _l10n.socialCallRecoverFailed,
+        tone: _SocialCallStatusTone.error,
+      );
     } finally {
       if (mounted) setState(() => _pendingIncomingAccept = false);
+    }
+  }
+
+  Future<void> _applyInitialNotificationAction() async {
+    if (_initialActionHandled || _isCaller || _sessionId == null) return;
+    _initialActionHandled = true;
+    final action = (widget.initialAction ?? '').trim().toLowerCase();
+    if (action == 'accept' || action == 'answer') {
+      await _acceptIncoming();
+      return;
+    }
+    if (action == 'reject' || action == 'decline') {
+      await _declineIncoming();
     }
   }
 
@@ -677,9 +945,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     _stopRinging();
     _setStatus(_l10n.socialCallEnded, tone: _SocialCallStatusTone.info);
     await _disposeRtc();
-    if (mounted) {
-      Navigator.of(context).pop();
-    }
+    await _closeScreen();
   }
 
   Future<void> _endCall({
@@ -689,39 +955,52 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     if (_callEnded) return;
     _callEnded = true;
     _stopRinging();
-    // Notify the OTHER party over the signaling channel (which reliably delivers
-    // to them during the call — that's how offer/answer/ice arrive). endThreadCall
-    // alone does not push an end event to the peer, so their call screen stays
-    // open. A hangup/decline signal ends the session AND fans out to both parties.
-    try {
-      await _sendSignal(
-        signalType: status == 'declined' ? 'decline' : 'hangup',
-      );
-    } catch (_) {}
-    try {
-      await _api.endThreadCall(
-        threadId: widget.threadId,
-        status: status,
-        reason: reason,
-      );
-    } catch (_) {
-      // Ignore network errors at call end.
-    }
+    // Stop local capture immediately, even when the signaling network is slow.
+    // The session-scoped signal also ends the server session and informs peers.
     await _disposeRtc();
+    if (_sessionId != null) {
+      try {
+        await _sendSignal(
+          signalType: status == 'declined' ? 'decline' : 'hangup',
+        ).timeout(const Duration(seconds: 4));
+      } catch (_) {
+        // Never end a different, newer call through a thread-only fallback.
+      }
+    }
+    await _closeScreen();
+  }
+
+  Future<void> _closeScreen() async {
+    if (!mounted || _disposed) return;
+    setState(() {});
+    await WidgetsBinding.instance.endOfFrame;
     if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _disposeRtc() async {
+    _voiceReconnectTimer?.cancel();
+    _legacyOfferTimer?.cancel();
+    _stateSyncTimer?.cancel();
     _ticker?.cancel();
     _ticker = null;
     _stopRinging();
     _iceRecoverTimer?.cancel();
     _iceRecoverTimer = null;
+    await _voice.disconnect();
+    await _disposeLegacyMedia();
+  }
+
+  Future<void> _disposeLegacyMedia() async {
+    final hadLegacyMedia = _pc != null || _localStream != null;
+    if (_remoteAudioReady && !_disposed) _remoteAudio.srcObject = null;
     try {
       await _pc?.close();
     } catch (_) {}
     _pc = null;
     try {
+      for (final track in _localStream?.getTracks() ?? <MediaStreamTrack>[]) {
+        await track.stop();
+      }
       await _localStream?.dispose();
     } catch (_) {}
     _localStream = null;
@@ -732,16 +1011,169 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
     _remoteDescriptionSet = false;
     _boundRemoteAudioTracks.clear();
     _queuedRemoteCandidates.clear();
-    if (WebRTC.platformIsAndroid) {
+    if (hadLegacyMedia && WebRTC.platformIsAndroid) {
       try {
         await Helper.clearAndroidCommunicationDevice();
       } catch (_) {}
     }
   }
 
-  void _onConnected() {
+  Future<void> _connectLiveKit() async {
+    if (_disposed || _callEnded || _voiceConnecting || _sessionId == null) {
+      return;
+    }
+    if (_voice.connected || _voice.reconnecting) return;
+    _voiceConnecting = true;
+    _acceptedIncoming = true;
     _stopRinging();
-    unawaited(_applyAudioRoute());
+    _setStatus(_l10n.socialCallAnsweredConnectingAudio);
+    try {
+      _iceRecoverTimer?.cancel();
+      _legacyOfferTimer?.cancel();
+      // Finish a legacy capture already in flight before LiveKit owns the mic.
+      try {
+        await _rtcWork;
+      } catch (_) {}
+      await _disposeLegacyMedia();
+      if (_disposed || _callEnded) return;
+      await _voice.setMuted(_muted);
+      await _voice.setSpeaker(_speakerOn);
+      await _voice.connect(
+        () => _api.getThreadCallVoiceToken(
+          threadId: widget.threadId,
+          sessionId: _sessionId!,
+        ),
+      );
+      _onVoiceChanged();
+    } on _MicPermissionDenied {
+      _microphonePermissionDenied = true;
+      _setStatus(
+        _l10n.socialCallMicrophonePermissionRequired,
+        tone: _SocialCallStatusTone.error,
+      );
+    } on DioException catch (error) {
+      _setStatus(_mapCallError(error), tone: _SocialCallStatusTone.error);
+    } catch (_) {
+      _setStatus(
+        _l10n.socialCallRecoverFailed,
+        tone: _SocialCallStatusTone.error,
+      );
+    } finally {
+      _voiceConnecting = false;
+      if (!_voice.connected &&
+          _sessionStatus == 'active' &&
+          _voiceTransport == 'livekit' &&
+          !_microphonePermissionDenied) {
+        _scheduleVoiceReconnect();
+      }
+    }
+  }
+
+  void _onVoiceChanged() {
+    if (_disposed || !mounted || _callEnded) return;
+    if (_voice.mediaReady) {
+      _onConnected();
+    } else {
+      setState(() => _inCall = false);
+      _setStatus(
+        _voice.needsMicrophoneRetry
+            ? _l10n.socialCallMicrophonePermissionRequired
+            : _voice.connected && !_voice.peerPresent
+            ? context.lt(
+                ar: 'بانتظار اتصال الطرف الآخر بالصوت',
+                en: 'Waiting for the other participant to join audio',
+              )
+            : _l10n.socialCallAnsweredConnectingAudio,
+        tone: _SocialCallStatusTone.warning,
+      );
+      if (!_voice.connected && !_voice.reconnecting) {
+        _scheduleVoiceReconnect();
+      }
+    }
+  }
+
+  void _scheduleVoiceReconnect() {
+    if (_disposed ||
+        _callEnded ||
+        _sessionStatus != 'active' ||
+        _voiceTransport != 'livekit' ||
+        _voice.connected ||
+        _voice.reconnecting ||
+        _voiceReconnectTimer?.isActive == true) {
+      return;
+    }
+    _voiceReconnectAttempt = (_voiceReconnectAttempt + 1).clamp(1, 6);
+    final delay = switch (_voiceReconnectAttempt) {
+      1 => const Duration(seconds: 1),
+      2 => const Duration(seconds: 2),
+      3 => const Duration(seconds: 4),
+      4 => const Duration(seconds: 8),
+      _ => const Duration(seconds: 15),
+    };
+    _voiceReconnectTimer = Timer(delay, () {
+      if (_disposed || _callEnded) return;
+      unawaited(_connectLiveKit());
+    });
+  }
+
+  Future<void> _retryCallAudio() async {
+    try {
+      if (_microphonePermissionDenied) {
+        final permission = await Permission.microphone.status;
+        if (permission.isPermanentlyDenied || permission.isRestricted) {
+          await openAppSettings();
+          return;
+        }
+        _microphonePermissionDenied = false;
+      }
+      if (_sessionId == null) {
+        await _bootstrap();
+        return;
+      }
+      if (_voice.needsMicrophoneRetry) {
+        await _ensureMicrophonePermission();
+        if (_disposed || _callEnded) return;
+        await _voice.setMuted(_muted);
+      }
+      if (_voice.needsAudioStart) await _voice.startAudio();
+      if (!_voice.connected) await _loadCallState();
+      if (!_isCaller && !_acceptedIncoming) return;
+      _scheduleLegacyOffer();
+      if (_voiceTransport == 'livekit') _onVoiceChanged();
+    } on _MicPermissionDenied {
+      _microphonePermissionDenied = true;
+      _setStatus(
+        _l10n.socialCallMicrophonePermissionRequired,
+        tone: _SocialCallStatusTone.error,
+      );
+    } catch (_) {
+      _setStatus(
+        _l10n.socialCallRecoverFailed,
+        tone: _SocialCallStatusTone.error,
+      );
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !_callEnded) {
+      unawaited(
+        _loadCallState().catchError((_) {
+          _setStatus(
+            _l10n.socialCallRecoverFailed,
+            tone: _SocialCallStatusTone.error,
+          );
+        }),
+      );
+    }
+  }
+
+  void _onConnected() {
+    if (_disposed || _callEnded) return;
+    _voiceReconnectTimer?.cancel();
+    _voiceReconnectAttempt = 0;
+    _stopRinging();
+    unawaited(_applyAudioRoute().catchError((_) {}));
     if (mounted) {
       setState(() {
         _inCall = true;
@@ -775,7 +1207,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
   void _startStateSync() {
     _stateSyncTimer?.cancel();
-    _stateSyncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    _stateSyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (!mounted || _disposed || _callEnded || _stateSyncInFlight) return;
       _stateSyncInFlight = true;
       _loadCallState().catchError((_) {}).whenComplete(() {
@@ -785,30 +1217,46 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   }
 
   void _startRinging({required bool incoming}) {
-    if (_inCall) return;
-    if (_ringTimer?.isActive == true) return;
-    final interval = incoming
-        ? const Duration(milliseconds: 1450)
-        : const Duration(milliseconds: 1900);
-    unawaited(_alertService.play());
-    SystemSound.play(SystemSoundType.alert);
-    _ringTimer = Timer.periodic(interval, (_) {
-      if (_disposed || _inCall) return;
-      unawaited(_alertService.play());
-      SystemSound.play(SystemSoundType.alert);
-      if (incoming) {
-        HapticFeedback.mediumImpact();
-      }
-    });
+    if (_disposed || _callEnded || _inCall) return;
+    unawaited(
+      incoming
+          ? _callToneService.startIncoming()
+          : _callToneService.startOutgoing(),
+    );
   }
 
   void _stopRinging() {
-    _ringTimer?.cancel();
-    _ringTimer = null;
-    unawaited(_alertService.stop());
+    unawaited(_callToneService.stop());
+    if (_callNotificationCancelled) return;
+    final sessionId = _sessionId;
+    final notificationId = widget.notificationId;
+    if ((sessionId == null || sessionId <= 0) &&
+        (notificationId == null || notificationId <= 0)) {
+      return;
+    }
+    _callNotificationCancelled = true;
+    if (sessionId != null && sessionId > 0) {
+      unawaited(_localNotifications.cancelIncomingCall(sessionId));
+    }
+    if (notificationId != null && notificationId > 0) {
+      unawaited(_localNotifications.cancelNotification(notificationId));
+    }
   }
 
   Future<void> _toggleMute() async {
+    if (_voiceTransport == 'livekit') {
+      final next = !_muted;
+      setState(() => _muted = next);
+      try {
+        await _voice.setMuted(next);
+      } catch (_) {
+        _setStatus(
+          _l10n.socialCallMicrophonePermissionRequired,
+          tone: _SocialCallStatusTone.error,
+        );
+      }
+      return;
+    }
     final local = _localStream;
     if (local == null) return;
     final next = !_muted;
@@ -824,13 +1272,24 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   Future<void> _toggleSpeaker() async {
     final next = !_speakerOn;
     _speakerOn = next;
-    await _applyAudioRoute();
+    try {
+      await _applyAudioRoute();
+    } catch (_) {
+      _setStatus(
+        _l10n.socialCallRecoverFailed,
+        tone: _SocialCallStatusTone.error,
+      );
+    }
     if (mounted) {
       setState(() {});
     }
   }
 
   Future<void> _applyAudioRoute() async {
+    if (_voiceTransport == 'livekit') {
+      await _voice.setSpeaker(_speakerOn);
+      return;
+    }
     final local = _localStream;
     if (local != null) {
       for (final track in local.getAudioTracks()) {
@@ -870,6 +1329,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
 
   void _bindRemoteStream(MediaStream stream) {
     _remoteStream = stream;
+    if (_remoteAudioReady && !_disposed) _remoteAudio.srcObject = stream;
     for (final track in stream.getAudioTracks()) {
       _bindRemoteTrack(track);
     }
@@ -883,7 +1343,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
         : normalizedTrackId;
     _boundRemoteAudioTracks[trackId] = track;
     track.enabled = true;
-    unawaited(_applyAudioRoute());
+    unawaited(_applyAudioRoute().catchError((_) {}));
     unawaited(Helper.setVolume(1.0, track).catchError((_) {}));
   }
 
@@ -934,6 +1394,16 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
           return _l10n.socialCallSessionNotFound;
         case 'SOCIAL_CALL_FORBIDDEN':
           return _l10n.socialCallForbidden;
+        case 'SOCIAL_CALL_NOT_ACTIVE':
+          return context.lt(
+            ar: 'انتهت هذه المكالمة. ابدأ مكالمة جديدة.',
+            en: 'This call has ended. Start a new call.',
+          );
+        case 'SOCIAL_VOICE_UNAVAILABLE':
+          return context.lt(
+            ar: 'خدمة صوت المكالمات غير متاحة الآن. حاول مجددًا.',
+            en: 'Call audio is unavailable right now. Try again.',
+          );
       }
     }
     return _l10n.socialCallGenericError;
@@ -956,7 +1426,7 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
   Widget build(BuildContext context) {
     final l10n = _l10n;
     final incomingAwaitingAccept =
-        !widget.isCaller && _pendingOfferPayload != null && !_acceptedIncoming;
+        !_isCaller && _sessionId != null && !_acceptedIncoming && !_callEnded;
     final statusColor = _statusColor();
     final headline = incomingAwaitingAccept
         ? l10n.socialCallIncomingHeadline(
@@ -964,149 +1434,216 @@ class _SocialCallScreenState extends ConsumerState<SocialCallScreen> {
           )
         : (widget.remoteDisplayName ?? l10n.socialCallOtherParticipant);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.socialCallTitle),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => _endCall(),
-        ),
-      ),
-      body: Directionality(
-        textDirection: Directionality.of(context),
-        child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFF102E4D), Color(0xFF081528)],
-            ),
+    return PopScope(
+      canPop: _callEnded,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) unawaited(_endCall());
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(l10n.socialCallTitle),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () => _endCall(),
           ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  const SizedBox(height: 20),
-                  TweenAnimationBuilder<double>(
-                    duration: const Duration(milliseconds: 900),
-                    tween: Tween<double>(begin: 0.96, end: _inCall ? 1 : 0.98),
-                    curve: Curves.easeOutCubic,
-                    builder: (context, scale, child) =>
-                        Transform.scale(scale: scale, child: child),
-                    child: Container(
+        ),
+        body: Directionality(
+          textDirection: Directionality.of(context),
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF102E4D), Color(0xFF081528)],
+              ),
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    if (_remoteAudioReady && _voiceTransport != 'livekit')
+                      SizedBox(
+                        width: 1,
+                        height: 1,
+                        child: RTCVideoView(_remoteAudio),
+                      ),
+                    if (_voice.needsAudioStart)
+                      TextButton.icon(
+                        onPressed: _retryCallAudio,
+                        icon: const Icon(Icons.volume_up, color: Colors.white),
+                        label: Text(
+                          context.lt(
+                            ar: 'تشغيل صوت المكالمة',
+                            en: 'Play call audio',
+                          ),
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    if (_voice.needsMicrophoneRetry ||
+                        (!_voice.connected &&
+                            _statusTone == _SocialCallStatusTone.error))
+                      TextButton.icon(
+                        onPressed: _retryCallAudio,
+                        icon: const Icon(Icons.refresh, color: Colors.white),
+                        label: Text(
+                          context.lt(
+                            ar: 'إعادة محاولة الاتصال والصوت',
+                            en: 'Retry connection and audio',
+                          ),
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                    const SizedBox(height: 20),
+                    TweenAnimationBuilder<double>(
+                      duration: const Duration(milliseconds: 900),
+                      tween: Tween<double>(
+                        begin: 0.96,
+                        end: _inCall ? 1 : 0.98,
+                      ),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, scale, child) =>
+                          Transform.scale(scale: scale, child: child),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: statusColor.withValues(alpha: 0.22),
+                              blurRadius: 24,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: CircleAvatar(
+                          radius: 52,
+                          backgroundColor: Colors.white.withValues(alpha: 0.12),
+                          child: const Icon(Icons.person_rounded, size: 56),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      headline,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      context.lt(
+                        ar: 'مكالمة صوتية خاصة',
+                        en: 'Private voice call',
+                      ),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white.withValues(alpha: 0.68),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
                       decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: statusColor.withValues(alpha: 0.22),
-                            blurRadius: 24,
-                            spreadRadius: 2,
+                        borderRadius: BorderRadius.circular(999),
+                        color: statusColor.withValues(alpha: 0.16),
+                        border: Border.all(
+                          color: statusColor.withValues(alpha: 0.65),
+                        ),
+                      ),
+                      child: Text(
+                        _statusText ??
+                            (_busy
+                                ? l10n.commonLoading
+                                : l10n.socialCallInitializing),
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: statusColor,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _inCall ? _durationText() : '00:00',
+                      style: const TextStyle(
+                        fontSize: 26,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const Spacer(),
+                    if (incomingAwaitingAccept)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FilledButton.tonalIcon(
+                              onPressed: _pendingIncomingAccept
+                                  ? null
+                                  : _declineIncoming,
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size.fromHeight(56),
+                                backgroundColor: const Color(0xFF7D2635),
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: const Icon(Icons.call_end_rounded),
+                              label: Text(l10n.socialCallDecline),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: FilledButton.icon(
+                              onPressed: _pendingIncomingAccept
+                                  ? null
+                                  : _acceptIncoming,
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size.fromHeight(56),
+                                backgroundColor: const Color(0xFF198754),
+                                foregroundColor: Colors.white,
+                              ),
+                              icon: const Icon(Icons.call_rounded),
+                              label: Text(l10n.socialCallAnswer),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _RoundActionButton(
+                            icon: _muted
+                                ? Icons.mic_off_rounded
+                                : Icons.mic_rounded,
+                            label: _muted
+                                ? l10n.socialCallUnmute
+                                : l10n.socialCallMute,
+                            onTap: _toggleMute,
+                          ),
+                          _RoundActionButton(
+                            icon: _speakerOn
+                                ? Icons.volume_up_rounded
+                                : Icons.hearing_disabled_rounded,
+                            label: _speakerOn
+                                ? l10n.socialCallSpeaker
+                                : l10n.socialCallEarpiece,
+                            onTap: _toggleSpeaker,
+                          ),
+                          _RoundActionButton(
+                            icon: Icons.call_end_rounded,
+                            label: l10n.socialCallHangup,
+                            color: Colors.redAccent,
+                            onTap: _endCall,
                           ),
                         ],
                       ),
-                      child: CircleAvatar(
-                        radius: 52,
-                        backgroundColor: Colors.white.withValues(alpha: 0.12),
-                        child: const Icon(Icons.person_rounded, size: 56),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    headline,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 7,
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(999),
-                      color: statusColor.withValues(alpha: 0.16),
-                      border: Border.all(
-                        color: statusColor.withValues(alpha: 0.65),
-                      ),
-                    ),
-                    child: Text(
-                      _busy ? l10n.commonLoading : (_statusText ?? l10n.socialCallInitializing),
-                      style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
-                        color: statusColor,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    _inCall ? _durationText() : '00:00',
-                    style: const TextStyle(
-                      fontSize: 26,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (incomingAwaitingAccept)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.tonalIcon(
-                            onPressed: _pendingIncomingAccept
-                                ? null
-                                : _declineIncoming,
-                            icon: const Icon(Icons.call_end_rounded),
-                            label: Text(l10n.socialCallDecline),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: FilledButton.icon(
-                            onPressed: _pendingIncomingAccept
-                                ? null
-                                : _acceptIncoming,
-                            icon: const Icon(Icons.call_rounded),
-                            label: Text(l10n.socialCallAnswer),
-                          ),
-                        ),
-                      ],
-                    )
-                  else
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _RoundActionButton(
-                          icon: _muted
-                              ? Icons.mic_off_rounded
-                              : Icons.mic_rounded,
-                          label: _muted
-                              ? l10n.socialCallUnmute
-                              : l10n.socialCallMute,
-                          onTap: _toggleMute,
-                        ),
-                        _RoundActionButton(
-                          icon: _speakerOn
-                              ? Icons.volume_up_rounded
-                              : Icons.hearing_disabled_rounded,
-                          label: _speakerOn
-                              ? l10n.socialCallSpeaker
-                              : l10n.socialCallEarpiece,
-                          onTap: _toggleSpeaker,
-                        ),
-                        _RoundActionButton(
-                          icon: Icons.call_end_rounded,
-                          label: l10n.socialCallHangup,
-                          color: Colors.redAccent,
-                          onTap: _endCall,
-                        ),
-                      ],
-                    ),
-                  const SizedBox(height: 18),
-                ],
+                    const SizedBox(height: 18),
+                  ],
+                ),
               ),
             ),
           ),

@@ -18,6 +18,7 @@ $targets = @(
     Dir = ".";
     PackageId = "com.maslaki.user";
     Target = "lib/main.dart";
+    Flavor = "user";
     AppId = "com.maslaki.user";
     AppLabel = "Maslaki"
   },
@@ -26,6 +27,7 @@ $targets = @(
     Dir = ".";
     PackageId = "com.maslaki.store";
     Target = "lib/main_store.dart";
+    Flavor = "store";
     AppId = "com.maslaki.store";
     AppLabel = "Maslaki Store"
   },
@@ -34,6 +36,7 @@ $targets = @(
     Dir = ".";
     PackageId = "com.maslaki.delivery";
     Target = "lib/main_delivery.dart";
+    Flavor = "delivery";
     AppId = "com.maslaki.delivery";
     AppLabel = "Maslaki Delivery"
   },
@@ -42,6 +45,7 @@ $targets = @(
     Dir = ".";
     PackageId = "com.maslaki.captain";
     Target = "lib/main_captain.dart";
+    Flavor = "captain";
     AppId = "com.maslaki.captain";
     AppLabel = "Maslaki Captain"
   },
@@ -212,10 +216,17 @@ foreach ($target in $targets) {
     if (Test-Path $buildOutputRoot) {
       Remove-Item -Recurse -Force (Join-Path $buildOutputRoot "flutter-apk") -ErrorAction SilentlyContinue
       Remove-Item -Recurse -Force (Join-Path $buildOutputRoot "bundle/release") -ErrorAction SilentlyContinue
+      if ($target.ContainsKey("Flavor") -and -not [string]::IsNullOrWhiteSpace($target.Flavor)) {
+        Remove-Item -Recurse -Force (Join-Path $buildOutputRoot "apk/$($target.Flavor)/release") -ErrorAction SilentlyContinue
+        Remove-Item -Recurse -Force (Join-Path $buildOutputRoot "bundle/$($target.Flavor)Release") -ErrorAction SilentlyContinue
+      }
     }
     $targetArgs = @()
     if ($target.ContainsKey("Target") -and -not [string]::IsNullOrWhiteSpace($target.Target)) {
       $targetArgs = @("-t", $target.Target)
+    }
+    if ($target.ContainsKey("Flavor") -and -not [string]::IsNullOrWhiteSpace($target.Flavor)) {
+      $targetArgs += @("--flavor", $target.Flavor)
     }
     Invoke-CheckedCommand -Command "flutter" -Arguments @("pub", "get")
     Invoke-CheckedCommand -Command "flutter" -Arguments (@("build", "apk", "--release") + $targetArgs)
@@ -233,8 +244,13 @@ foreach ($target in $targets) {
     Pop-Location
   }
 
-  $apkPath = Join-Path $dir "build/app/outputs/flutter-apk/app-release.apk"
-  $aabPath = Join-Path $dir "build/app/outputs/bundle/release/app-release.aab"
+  if ($target.ContainsKey("Flavor") -and -not [string]::IsNullOrWhiteSpace($target.Flavor)) {
+    $apkPath = Join-Path $dir "build/app/outputs/apk/$($target.Flavor)/release/app-$($target.Flavor)-release.apk"
+    $aabPath = Join-Path $dir "build/app/outputs/bundle/$($target.Flavor)Release/app-$($target.Flavor)-release.aab"
+  } else {
+    $apkPath = Join-Path $dir "build/app/outputs/flutter-apk/app-release.apk"
+    $aabPath = Join-Path $dir "build/app/outputs/bundle/release/app-release.aab"
+  }
   $apkInfo = Get-ArtifactInfo $apkPath
   $aabInfo = Get-ArtifactInfo $aabPath
 

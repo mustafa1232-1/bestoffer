@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 
-import { q } from "../config/db.js";
+import { pool, q } from "../config/db.js";
 import {
+  listCustomerCoupons,
   validateCouponByCode,
   validateCouponByIdOrCode,
 } from "../modules/coupons/coupons.repo.js";
+import { consumeCouponRedemptionByOrderTx } from "../modules/orders/order-incentives.repo.js";
 
 const MARK = `cv_${randomUUID().replaceAll("-", "").slice(0, 6)}`;
 
@@ -30,6 +32,11 @@ async function cleanup({ ownerId, merchantId, customerId, couponId }) {
     await q(`DELETE FROM coupon WHERE id = $1`, [couponId]).catch(() => {});
   }
   if (merchantId) {
+    await q(`DELETE FROM customer_order WHERE merchant_id = $1`, [merchantId]).catch(
+      () => {}
+    );
+  }
+  if (merchantId) {
     await q(`DELETE FROM merchant WHERE id = $1`, [merchantId]).catch(() => {});
   }
   if (customerId) {
@@ -38,6 +45,37 @@ async function cleanup({ ownerId, merchantId, customerId, couponId }) {
   if (ownerId) {
     await q(`DELETE FROM app_user WHERE id = $1`, [ownerId]).catch(() => {});
   }
+}
+
+async function createCouponTestOrder({ merchantId, customerId, couponId, couponCode }) {
+  const row = await q(
+    `INSERT INTO customer_order
+       (
+         merchant_id,
+         customer_user_id,
+         customer_full_name,
+         customer_phone,
+         customer_block,
+         customer_building_number,
+         customer_apartment,
+         subtotal,
+         coupon_id,
+         coupon_code,
+         coupon_discount_total,
+         total_amount
+       )
+     VALUES ($1,$2,$3,$4,'A','1','1',10000,$5,$6,1000,9500)
+     RETURNING id`,
+    [
+      Number(merchantId),
+      Number(customerId),
+      `${MARK} customer`,
+      `078${numericSuffix(`${MARK}_order`, 7)}`,
+      Number(couponId),
+      couponCode,
+    ]
+  );
+  return Number(row.rows[0].id);
 }
 
 async function seedFixture() {
@@ -110,4 +148,114 @@ test("coupon validation resolves merchant coupon without SQL parameter errors", 
   assert.ok(byId.coupon);
   assert.equal(byId.reasonCode, null);
   assert.equal(Number(byId.coupon.id), fixture.couponId);
+});
+
+test("coupon consumption allows the same customer until max uses is reached", async (t) => {
+  const fixture = await seedFixture();
+  t.after(async () => {
+    await cleanup(fixture).catch(() => {});
+  });
+  await q(`UPDATE coupon SET max_uses = 10 WHERE id = $1`, [fixture.couponId]);
+
+  for (let i = 0; i < 10; i += 1) {
+    const orderId = await createCouponTestOrder(fixture);
+    const client = await pool.connect();
+    try {
+      await client.query(`BEGIN`);
+      await consumeCouponRedemptionByOrderTx(client, {
+        couponId: fixture.couponId,
+        customerId: fixture.customerId,
+        orderId,
+        discountAmount: 1000,
+      });
+      await client.query(`COMMIT`);
+    } catch (error) {
+      await client.query(`ROLLBACK`);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  const eleventhOrderId = await createCouponTestOrder(fixture);
+  const client = await pool.connect();
+  try {
+    await client.query(`BEGIN`);
+    await assert.rejects(
+      () =>
+        consumeCouponRedemptionByOrderTx(client, {
+          couponId: fixture.couponId,
+          customerId: fixture.customerId,
+          orderId: eleventhOrderId,
+          discountAmount: 1000,
+        }),
+      /COUPON_INVALID_OR_EXPIRED/
+    );
+    await client.query(`ROLLBACK`);
+  } catch (error) {
+    await client.query(`ROLLBACK`);
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  const counts = await q(
+    `SELECT
+       c.uses_count,
+       COUNT(cr.id)::int AS redemptions
+     FROM coupon c
+     LEFT JOIN coupon_redemption cr
+       ON cr.coupon_id = c.id
+      AND COALESCE(cr.is_void, FALSE) = FALSE
+     WHERE c.id = $1
+     GROUP BY c.id`,
+    [fixture.couponId]
+  );
+  assert.equal(Number(counts.rows[0].uses_count), 10);
+  assert.equal(Number(counts.rows[0].redemptions), 10);
+});
+
+test("coupon validation remains usable after one redemption until the total limit", async (t) => {
+  const fixture = await seedFixture();
+  t.after(async () => {
+    await cleanup(fixture).catch(() => {});
+  });
+  await q(`UPDATE coupon SET max_uses = 10 WHERE id = $1`, [fixture.couponId]);
+
+  const orderId = await createCouponTestOrder(fixture);
+  const client = await pool.connect();
+  try {
+    await client.query(`BEGIN`);
+    await consumeCouponRedemptionByOrderTx(client, {
+      couponId: fixture.couponId,
+      customerId: fixture.customerId,
+      orderId,
+      discountAmount: 1000,
+    });
+    await client.query(`COMMIT`);
+  } catch (error) {
+    await client.query(`ROLLBACK`);
+    throw error;
+  } finally {
+    client.release();
+  }
+
+  const validated = await validateCouponByCode(fixture.couponCode, {
+    customerId: fixture.customerId,
+    merchantId: fixture.merchantId,
+    orderTotal: 15000,
+  });
+  assert.ok(validated.coupon);
+  assert.equal(validated.reasonCode, null);
+  assert.equal(Number(validated.coupon.uses_count), 1);
+  assert.equal(Number(validated.coupon.max_uses), 10);
+
+  const visibleCoupons = await listCustomerCoupons({
+    customerId: fixture.customerId,
+    merchantId: fixture.merchantId,
+    limit: 20,
+  });
+  assert.ok(
+    visibleCoupons.some((coupon) => Number(coupon.id) === fixture.couponId)
+  );
 });

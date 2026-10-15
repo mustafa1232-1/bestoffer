@@ -1,4 +1,5 @@
 import { pool, q } from '../../config/db.js';
+import { env } from '../../config/env.js';
 import { AppError } from '../../shared/utils/errors.js';
 import { hasPermission } from '../../shared/workspaces/employee-permissions.js';
 import {
@@ -7,6 +8,7 @@ import {
   normalizeServiceBookingState,
 } from './services.booking.core.js';
 import { normalizeServicePromotionType } from './services.booking.constants.js';
+import { getCentralServiceCatalogItem } from './services.catalog.js';
 
 function toInt(value) {
   const parsed = Number(value);
@@ -43,6 +45,17 @@ function safeJson(value) {
   if (!value || typeof value !== 'object') return {};
   if (Array.isArray(value)) return [...value];
   return { ...value };
+}
+
+function normalizeMediaItem(item) {
+  if (typeof item === 'string') {
+    return { mediaUrl: item, mediaKind: 'image' };
+  }
+  const mediaUrl = String(item?.mediaUrl || item?.url || '').trim();
+  const mediaKind = String(item?.mediaKind || '').toLowerCase() === 'video'
+    ? 'video'
+    : 'image';
+  return { mediaUrl, mediaKind };
 }
 
 const SERVICE_BOOKING_SLOT_ACTIVE_STATUSES = [
@@ -262,6 +275,7 @@ function legacyServiceRequestStatus(value, row = null) {
     case 'IN_PROGRESS':
       return 'in_progress';
     case 'PROVIDER_COMPLETED':
+      return 'provider_completed';
     case 'COMPLETED':
       return 'completed';
     case 'REJECTED_BY_PROVIDER':
@@ -283,6 +297,7 @@ function mapOffering(row) {
   if (!row) return null;
   return {
     id: Number(row.id),
+    serviceKey: row.service_key || null,
     providerId: Number(row.provider_id),
     mainCategoryId: row.main_category_id == null ? null : Number(row.main_category_id),
     mainCategoryName: row.main_category_name || null,
@@ -377,6 +392,29 @@ function mapRequest(row) {
     offeringId: Number(row.offering_id),
     pricingOptionId: row.pricing_option_id == null ? null : Number(row.pricing_option_id),
     status: legacyServiceRequestStatus(row.status, row),
+    serviceKey: row.service_key || null,
+    serviceTitle: row.service_title || null,
+    urgency: row.urgency || 'normal',
+    intakeAnswers:
+      row.intake_answers && typeof row.intake_answers === 'object'
+        ? row.intake_answers
+        : {},
+    routingStatus: row.routing_status || null,
+    assignedProfessionalName: row.assigned_professional_name || null,
+    assignedProfessionalPhone: row.assigned_professional_phone || null,
+    assignmentNote: row.assignment_note || null,
+    assignedByUserId:
+      row.assigned_by_user_id == null ? null : Number(row.assigned_by_user_id),
+    assignedAt: row.assigned_at || null,
+    emergencyTarget: row.emergency_target || null,
+    emergencyContactedAt: row.emergency_contacted_at || null,
+    preferredContact: row.preferred_contact || 'phone',
+    contactPhone: row.contact_phone || null,
+    medicalInfo:
+      row.medical_info && typeof row.medical_info === 'object'
+        ? row.medical_info
+        : {},
+    customerCancelAvailableAt: row.customer_cancel_available_at || null,
     requestedExecutionMode: row.requested_execution_mode || null,
     requestedDate: row.requested_date || null,
     requestedTime: row.requested_time || null,
@@ -423,6 +461,17 @@ function mapRequest(row) {
       row.booking_service_fee_iqd == null ? null : Number(row.booking_service_fee_iqd),
     bookingTotalIqd:
       row.booking_total_iqd == null ? null : Number(row.booking_total_iqd),
+    invoiceAdminDiscountIqd: Number(row.invoice_admin_discount_iqd || 0),
+    invoiceAdminDiscountNote: row.invoice_admin_discount_note || null,
+    invoiceCouponId:
+      row.invoice_coupon_id == null ? null : Number(row.invoice_coupon_id),
+    invoiceCouponCode: row.invoice_coupon_code || null,
+    invoiceCouponDiscountIqd: Number(row.invoice_coupon_discount_iqd || 0),
+    invoiceTotalIqd:
+      row.invoice_total_iqd == null ? null : Number(row.invoice_total_iqd),
+    paymentMethod: row.payment_method || 'cash',
+    paymentSubmittedAt: row.payment_submitted_at || null,
+    paymentConfirmedAt: row.payment_confirmed_at || null,
     bookingPromotionSnapshot:
       bookingPromotionSnapshot && typeof bookingPromotionSnapshot === 'object'
         ? bookingPromotionSnapshot
@@ -727,25 +776,27 @@ async function fetchMediaMap(client, offeringIds = []) {
   return map;
 }
 
-async function fetchActivePromotionMap(client, providerIds = []) {
-  const ids = providerIds
+async function fetchActivePromotionMap(client, offeringIds = []) {
+  const ids = offeringIds
     .map((id) => Number(id))
     .filter((id) => Number.isInteger(id) && id > 0);
   if (!ids.length) return new Map();
   const r = await client.query(
-    `SELECT *
-     FROM service_promotions
-     WHERE provider_id = ANY($1::bigint[])
-       AND is_active = TRUE
-       AND starts_at <= NOW()
-       AND ends_at >= NOW()
-     ORDER BY provider_id ASC, starts_at DESC`,
+    `SELECT p.*, t.offering_id
+     FROM service_promotions p
+     JOIN service_promotion_targets t ON t.promotion_id = p.id
+     WHERE t.offering_id = ANY($1::bigint[])
+       AND p.is_active = TRUE
+       AND p.starts_at <= NOW()
+       AND p.ends_at >= NOW()
+     ORDER BY t.offering_id ASC, p.starts_at DESC, p.id DESC`,
     [ids]
   );
   const map = new Map();
   for (const row of r.rows) {
+    const offeringId = Number(row.offering_id);
     const providerId = Number(row.provider_id);
-    const list = map.get(providerId) || [];
+    const list = map.get(offeringId) || [];
     list.push({
       id: Number(row.id),
       providerId,
@@ -759,7 +810,7 @@ async function fetchActivePromotionMap(client, providerIds = []) {
       badgeColor: row.badge_color || null,
       isActive: row.is_active === true,
     });
-    map.set(providerId, list);
+    map.set(offeringId, list);
   }
   return map;
 }
@@ -1102,17 +1153,16 @@ export async function searchPublicOfferings(query = {}, { viewerUserId = null } 
 
     const offerings = r.rows.map(mapOffering);
     const offeringIds = offerings.map((x) => x.id);
-    const providerIds = offerings.map((x) => x.providerId);
     const pricingMap = await fetchPricingMap(client, offeringIds);
     const mediaMap = await fetchMediaMap(client, offeringIds);
-    const promoMap = await fetchActivePromotionMap(client, providerIds);
+    const promoMap = await fetchActivePromotionMap(client, offeringIds);
 
     return offerings.map((offering) => ({
       ...offering,
       pricingOptions: pricingMap.get(offering.id) || [],
       media: mediaMap.get(offering.id) || [],
-      activePromotions: promoMap.get(offering.providerId) || [],
-      hasActivePromotion: (promoMap.get(offering.providerId) || []).length > 0,
+      activePromotions: promoMap.get(offering.id) || [],
+      hasActivePromotion: (promoMap.get(offering.id) || []).length > 0,
       isSavedOffering: false,
       isSavedProvider: false,
       _viewerUserId: viewerUserId || null,
@@ -1309,7 +1359,7 @@ export async function getPublicOfferingById(offeringId) {
 
     const pricingMap = await fetchPricingMap(client, [offering.id]);
     const mediaMap = await fetchMediaMap(client, [offering.id]);
-    const promoMap = await fetchActivePromotionMap(client, [offering.providerId]);
+    const promoMap = await fetchActivePromotionMap(client, [offering.id]);
     const reviewsR = await client.query(
       `SELECT
          r.*,
@@ -1327,7 +1377,7 @@ export async function getPublicOfferingById(offeringId) {
       ...offering,
       pricingOptions: pricingMap.get(offering.id) || [],
       media: mediaMap.get(offering.id) || [],
-      activePromotions: promoMap.get(offering.providerId) || [],
+      activePromotions: promoMap.get(offering.id) || [],
       reviews: reviewsR.rows.map(mapReview),
     };
   } finally {
@@ -1643,6 +1693,76 @@ export async function createProviderProfile({
   }
 }
 
+function appendServiceRequestStatusFilter(params, filters, value) {
+  const requested = String(value || '').trim();
+  if (!requested) return;
+  const normalized = requested.toLowerCase();
+  const canonical = normalizeServiceBookingState(requested);
+
+  if (normalized === 'pending') {
+    params.push(['pending']);
+    const legacyIndex = params.length;
+    filters.push(
+      `(sr.status = ANY($${legacyIndex}::text[]) OR (` +
+        `sr.status = 'PENDING_PROVIDER_CONFIRMATION' AND ` +
+        `COALESCE(sr.requires_quote, FALSE) = FALSE))`
+    );
+    return;
+  }
+  if (normalized === 'awaiting_provider') {
+    params.push(['awaiting_provider']);
+    const legacyIndex = params.length;
+    filters.push(
+      `(sr.status = ANY($${legacyIndex}::text[]) OR (` +
+        `sr.status = 'PENDING_PROVIDER_CONFIRMATION' AND ` +
+        `COALESCE(sr.requires_quote, FALSE) = TRUE))`
+    );
+    return;
+  }
+
+  const variantsByCanonical = {
+    PENDING_PROVIDER_CONFIRMATION: [
+      'pending',
+      'awaiting_provider',
+      'PENDING_PROVIDER_CONFIRMATION',
+    ],
+    CONFIRMED: ['accepted', 'scheduled', 'CONFIRMED'],
+    IN_PROGRESS: ['in_progress', 'IN_PROGRESS'],
+    PROVIDER_COMPLETED: ['provider_completed', 'PROVIDER_COMPLETED'],
+    COMPLETED: ['completed', 'COMPLETED'],
+    REJECTED_BY_PROVIDER: ['rejected', 'rejected_by_provider', 'REJECTED_BY_PROVIDER'],
+    CANCELLED_BY_CUSTOMER: [
+      'cancelled',
+      'cancelled_by_customer',
+      'CANCELLED_BY_CUSTOMER',
+    ],
+    CANCELLED_BY_PROVIDER: [
+      'cancelled',
+      'cancelled_by_provider',
+      'CANCELLED_BY_PROVIDER',
+    ],
+    CANCELLED_BY_ADMIN: ['cancelled', 'cancelled_by_admin', 'CANCELLED_BY_ADMIN'],
+    EXPIRED: ['expired', 'EXPIRED'],
+    DISPUTED: ['disputed', 'DISPUTED'],
+  };
+  let variants = canonical ? variantsByCanonical[canonical] : null;
+  if (normalized === 'cancelled') {
+    variants = [
+      'cancelled',
+      'cancelled_by_customer',
+      'cancelled_by_provider',
+      'cancelled_by_admin',
+      'CANCELLED_BY_CUSTOMER',
+      'CANCELLED_BY_PROVIDER',
+      'CANCELLED_BY_ADMIN',
+    ];
+  }
+  params.push(
+    Array.from(new Set([requested, ...(variants || []), ...(canonical ? [canonical] : [])]))
+  );
+  filters.push(`sr.status = ANY($${params.length}::text[])`);
+}
+
 export async function normalizeProviderFreeCommissionPolicyByUserId({
   userId,
   approvalNote,
@@ -1918,6 +2038,7 @@ export async function createOfferingForProvider({ userId, dto, mediaUrls = [] })
        VALUES (
          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,'approved',NOW(),NOW()
        )
+       ON CONFLICT DO NOTHING
        RETURNING id`,
       [
         Number(provider.id),
@@ -1945,14 +2066,43 @@ export async function createOfferingForProvider({ userId, dto, mediaUrls = [] })
         dto.searchText || dto.name,
       ]
     );
-    const offeringId = Number(r.rows[0].id);
+    let offeringId = Number(r.rows[0]?.id || 0);
+    const createdOffering = offeringId > 0;
+    if (!createdOffering) {
+      const existing = await client.query(
+        `SELECT id
+          FROM service_offerings
+         WHERE provider_id = $1
+            AND subcategory_id_resolved = COALESCE($2::bigint, 0)
+            AND (
+              lower(name) = lower($3::text)
+              OR lower(regexp_replace(name, '[[:space:]]+', '', 'g')) =
+                 lower(regexp_replace($3::text, '[[:space:]]+', '', 'g'))
+            )
+          ORDER BY CASE WHEN lower(name) = lower($3::text) THEN 0 ELSE 1 END,
+                   id ASC
+          LIMIT 1`,
+        [Number(provider.id), dto.subcategoryId || null, dto.name]
+      );
+      offeringId = Number(existing.rows[0]?.id || 0);
+      if (!offeringId) {
+        throw new AppError('SERVICE_OFFERING_CREATE_CONFLICT', { status: 409 });
+      }
+    }
+
+    if (!createdOffering) {
+      await client.query('COMMIT');
+      return await getOfferingForProvider(client, provider.id, offeringId);
+    }
+
     let order = 0;
-    for (const url of mediaUrls) {
-      if (!url) continue;
+    for (const rawItem of mediaUrls) {
+      const item = normalizeMediaItem(rawItem);
+      if (!item.mediaUrl) continue;
       await client.query(
         `INSERT INTO service_offering_media (offering_id, media_url, media_kind, sort_order)
-         VALUES ($1,$2,'image',$3)`,
-        [offeringId, url, order]
+         VALUES ($1,$2,$3,$4)`,
+        [offeringId, item.mediaUrl, item.mediaKind, order]
       );
       order += 1;
     }
@@ -2069,12 +2219,13 @@ export async function updateOfferingForProvider({
         oid,
       ]);
       let start = 0;
-      for (const url of mediaUrls) {
-        if (!url) continue;
+      for (const rawItem of mediaUrls) {
+        const item = normalizeMediaItem(rawItem);
+        if (!item.mediaUrl) continue;
         await client.query(
           `INSERT INTO service_offering_media (offering_id, media_url, media_kind, sort_order)
-           VALUES ($1,$2,'image',$3)`,
-          [oid, url, start]
+           VALUES ($1,$2,$3,$4)`,
+          [oid, item.mediaUrl, item.mediaKind, start]
         );
         start += 1;
       }
@@ -2684,11 +2835,16 @@ async function createServiceBookingByCustomer({
        booking_promotion_snapshot,
        booking_expires_at,
        booking_transition_note,
+       preferred_contact,
+       contact_phone,
+       medical_info,
+       customer_cancel_available_at,
+       invoice_total_iqd,
        created_at,
        updated_at
      )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,2,'V2',$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,NOW(),NOW()
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,2,'V2',$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39::jsonb,NOW() + INTERVAL '15 minutes',$40,NOW(),NOW()
       )
      RETURNING *`,
     [
@@ -2728,6 +2884,10 @@ async function createServiceBookingByCustomer({
        JSON.stringify(currentPreview.promotionSnapshot || {}),
        currentPreview.expiresAt,
        'booking_created',
+       dto.preferredContact || 'in_app',
+       dto.contactPhone || null,
+       JSON.stringify(dto.medicalInfo || {}),
+       currentPreview.totalIqd,
     ]
   );
 
@@ -2833,6 +2993,23 @@ async function transitionServiceBookingByProviderUser({
         rejected_reason = CASE WHEN $2::text = 'REJECTED_BY_PROVIDER' THEN COALESCE($4, rejected_reason) ELSE rejected_reason END,
         cancel_reason = CASE WHEN $2::text IN ('CANCELLED_BY_CUSTOMER', 'CANCELLED_BY_PROVIDER', 'CANCELLED_BY_ADMIN') THEN COALESCE($4, cancel_reason) ELSE cancel_reason END,
         completed_at = CASE WHEN $2::text = 'COMPLETED' THEN NOW() ELSE completed_at END,
+       invoice_total_iqd = CASE
+         WHEN $2::text = 'CONFIRMED' THEN COALESCE(
+           invoice_total_iqd,
+           GREATEST(0, COALESCE(final_price, booking_total_iqd, 0)
+             - COALESCE(invoice_admin_discount_iqd, 0)
+             - COALESCE(invoice_coupon_discount_iqd, 0))
+         )
+         ELSE invoice_total_iqd
+       END,
+       routing_status = CASE
+         WHEN service_key IS NULL THEN routing_status
+         WHEN $2::text = 'CONFIRMED' THEN 'contacted'
+         WHEN $2::text = 'IN_PROGRESS' THEN 'en_route'
+         WHEN $2::text = 'PROVIDER_COMPLETED' THEN 'resolved'
+         WHEN $2::text IN ('CANCELLED_BY_PROVIDER','CANCELLED_BY_ADMIN') THEN 'cancelled'
+         ELSE routing_status
+       END,
        booking_provider_completed_at = COALESCE($7::timestamptz, booking_provider_completed_at),
        booking_finalization_due_at = COALESCE($8::timestamptz, booking_finalization_due_at),
        booking_finalized_at = COALESCE($9::timestamptz, booking_finalized_at),
@@ -2887,7 +3064,7 @@ async function transitionServiceBookingByCustomer({
   const currentStatus = normalizeServiceBookingState(request.status);
   const nextStatus = normalizeServiceBookingState(status);
   const customerAllowed = new Map([
-    ['PROVIDER_COMPLETED', new Set(['COMPLETED', 'DISPUTED'])],
+    ['PROVIDER_COMPLETED', new Set(['DISPUTED'])],
     ['PENDING_PROVIDER_CONFIRMATION', new Set(['CANCELLED_BY_CUSTOMER'])],
     ['CONFIRMED', new Set(['CANCELLED_BY_CUSTOMER'])],
     ['IN_PROGRESS', new Set(['CANCELLED_BY_CUSTOMER'])],
@@ -2895,6 +3072,16 @@ async function transitionServiceBookingByCustomer({
   const allowed = customerAllowed.get(currentStatus) || new Set();
   if (!allowed.has(nextStatus) && currentStatus !== nextStatus) {
     throw new AppError('SERVICE_BOOKING_INVALID_TRANSITION', { status: 409 });
+  }
+  if (
+    nextStatus === 'CANCELLED_BY_CUSTOMER' &&
+    request.customer_cancel_available_at &&
+    new Date(request.customer_cancel_available_at).getTime() > Date.now()
+  ) {
+    throw new AppError('SERVICE_CANCELLATION_AVAILABLE_AFTER_15_MINUTES', {
+      status: 409,
+      details: { availableAt: request.customer_cancel_available_at },
+    });
   }
 
   const history = await client.query(
@@ -2920,7 +3107,7 @@ async function transitionServiceBookingByCustomer({
 
   const bookingSnapshot = safeJson(request.booking_promotion_snapshot || {});
   let bookingFinalizedAt = request.booking_finalized_at || null;
-  if (nextStatus === 'COMPLETED' || nextStatus === 'DISPUTED') {
+  if (nextStatus === 'DISPUTED') {
     bookingFinalizedAt = new Date().toISOString();
   }
 
@@ -2932,7 +3119,7 @@ async function transitionServiceBookingByCustomer({
        booking_idempotency_key = $3,
        booking_transition_note = $4,
         cancel_reason = CASE WHEN $2::text = 'CANCELLED_BY_CUSTOMER' THEN COALESCE($4, cancel_reason) ELSE cancel_reason END,
-        completed_at = CASE WHEN $2::text = 'COMPLETED' THEN NOW() ELSE completed_at END,
+        completed_at = completed_at,
        booking_finalized_at = COALESCE($5::timestamptz, booking_finalized_at),
        updated_at = NOW()
      WHERE id = $1`,
@@ -3088,14 +3275,349 @@ export async function createServiceRequestByCustomer({
   }
 }
 
+export async function createCentralServiceRequestByCustomer({
+  customerUserId,
+  dto,
+  attachments = [],
+}) {
+  await ensureServiceBookingSchema();
+  const catalogItem = getCentralServiceCatalogItem(dto.serviceKey);
+  if (!catalogItem) return null;
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    if (dto.idempotencyKey) {
+      const existingR = await client.query(
+        `SELECT id
+         FROM service_requests
+         WHERE customer_user_id = $1
+           AND booking_idempotency_key = $2
+         ORDER BY id DESC
+         LIMIT 1`,
+        [Number(customerUserId), dto.idempotencyKey]
+      );
+      if (existingR.rows[0]?.id) {
+        const existing = await getRequestRaw(client, existingR.rows[0].id);
+        await client.query('COMMIT');
+        const hydrated = await hydrateRequests(client, [existing]);
+        return hydrated[0] || null;
+      }
+    }
+
+    const providerR = await client.query(
+      `SELECT p.id, p.user_id, p.main_category_id
+       FROM service_provider_profiles p
+       JOIN app_user u ON u.id = p.user_id
+       WHERE p.is_active = TRUE
+         AND p.provider_approval_status = 'approved'
+         AND (u.phone = $1 OR p.approval_note = 'system_seed_services_operator')
+       ORDER BY CASE WHEN u.phone = $1 THEN 0 ELSE 1 END, p.id ASC
+       LIMIT 1`,
+      [env.servicesOperatorPhone]
+    );
+    const provider = providerR.rows[0] || null;
+    if (!provider) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const offeringR = await client.query(
+      `INSERT INTO service_offerings (
+         provider_id,
+         main_category_id,
+         name,
+         description,
+         execution_mode,
+         requires_schedule,
+         requires_provider_approval,
+         inspection_required,
+         custom_quote_only,
+         supports_visit_booking,
+         search_text,
+         moderation_status,
+         is_active,
+         service_key,
+         created_at,
+         updated_at
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,TRUE,TRUE,TRUE,TRUE,$7,'approved',TRUE,$8,NOW(),NOW())
+       ON CONFLICT (provider_id, service_key) WHERE service_key IS NOT NULL
+       DO UPDATE SET
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         execution_mode = EXCLUDED.execution_mode,
+         search_text = EXCLUDED.search_text,
+         moderation_status = 'approved',
+         is_active = TRUE,
+         updated_at = NOW()
+       RETURNING id`,
+      [
+        Number(provider.id),
+        provider.main_category_id == null ? null : Number(provider.main_category_id),
+        catalogItem.title,
+        catalogItem.subtitle,
+        dto.requestedExecutionMode || catalogItem.executionModes[0] || 'home',
+        catalogItem.emergency !== true,
+        `${catalogItem.title} ${catalogItem.subtitle} ${catalogItem.quickIssues.join(' ')}`,
+        catalogItem.key,
+      ]
+    );
+    const offeringId = Number(offeringR.rows[0]?.id || 0);
+    if (!offeringId) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const requestCodePrefix = catalogItem.emergency ? 'SOS' : 'MS';
+    const requestCode = `${requestCodePrefix}-${Date.now()
+      .toString(36)
+      .toUpperCase()
+      .slice(-7)}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+    const noteParts = [dto.quickIssue, dto.description].filter(Boolean);
+    const insertR = await client.query(
+      `INSERT INTO service_requests (
+         request_code,
+         customer_user_id,
+         provider_id,
+         offering_id,
+         status,
+         requested_execution_mode,
+         requested_date,
+         requested_time,
+         notes,
+         address_line,
+         city,
+         area,
+         latitude,
+         longitude,
+         requires_home_service,
+         requires_quote,
+         booking_version,
+         booking_flow_kind,
+         booking_idempotency_key,
+         service_key,
+         service_title,
+         urgency,
+         intake_answers,
+         routing_status,
+         emergency_target,
+         preferred_contact,
+         contact_phone,
+         medical_info,
+         customer_cancel_available_at,
+         booking_pricing_type,
+         booking_transition_note,
+         created_at,
+         updated_at
+       )
+       VALUES (
+         $1,$2,$3,$4,'PENDING_PROVIDER_CONFIRMATION',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,TRUE,
+         2,'V2',$15,$16,$17,$18,$19,'new',$20,$21,$22,$23::jsonb,NOW() + INTERVAL '15 minutes',
+         'INSPECTION_REQUIRED','central_booking_created',NOW(),NOW()
+       )
+       RETURNING id`,
+      [
+        requestCode,
+        Number(customerUserId),
+        Number(provider.id),
+        offeringId,
+        dto.requestedExecutionMode || catalogItem.executionModes[0] || null,
+        dto.requestedDate || null,
+        dto.requestedTime || null,
+        noteParts.join(' - ') || catalogItem.title,
+        dto.addressLine || null,
+        dto.city || null,
+        dto.area || null,
+        dto.latitude == null ? null : Number(dto.latitude),
+        dto.longitude == null ? null : Number(dto.longitude),
+        dto.requestedExecutionMode === 'home' || catalogItem.emergency === true,
+        dto.idempotencyKey || null,
+        catalogItem.key,
+        catalogItem.title,
+        catalogItem.emergency ? 'emergency' : dto.urgency || 'normal',
+        dto.intakeAnswers && typeof dto.intakeAnswers === 'object'
+          ? dto.intakeAnswers
+          : {},
+        dto.emergencyTarget || null,
+        dto.preferredContact || 'phone',
+        dto.contactPhone || null,
+        JSON.stringify(dto.intakeAnswers || {}),
+      ]
+    );
+    const requestId = Number(insertR.rows[0]?.id || 0);
+    if (
+      catalogItem.emergency === true &&
+      dto.latitude != null &&
+      dto.longitude != null
+    ) {
+      await client.query(
+        `INSERT INTO service_emergency_location_updates (
+           request_id, customer_user_id, latitude, longitude, captured_at
+         )
+         VALUES ($1,$2,$3,$4,NOW())`,
+        [
+          requestId,
+          Number(customerUserId),
+          Number(dto.latitude),
+          Number(dto.longitude),
+        ]
+      );
+    }
+    for (const item of attachments) {
+      if (!item?.mediaUrl) continue;
+      await client.query(
+        `INSERT INTO service_request_attachments (request_id, media_url, media_kind)
+         VALUES ($1,$2,$3)`,
+        [requestId, item.mediaUrl, item.mediaKind || 'image']
+      );
+    }
+    await writeRequestHistory(client, {
+      requestId,
+      previousStatus: null,
+      nextStatus: 'PENDING_PROVIDER_CONFIRMATION',
+      changedByUserId: Number(customerUserId),
+      note: catalogItem.emergency
+        ? 'central_emergency_request_created'
+        : 'central_service_request_created',
+      bookingVersion: 2,
+      idempotencyKey: dto.idempotencyKey || null,
+    });
+
+    await client.query('COMMIT');
+    const row = await getRequestRaw(client, requestId);
+    const hydrated = await hydrateRequests(client, [row]);
+    return hydrated[0] || null;
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // ignore
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function routeCentralServiceRequestByOperator({
+  userId,
+  requestId,
+  dto,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const provider = await getProviderByUserId(client, userId);
+    const request = await getRequestRaw(client, requestId);
+    if (
+      !provider ||
+      !request ||
+      !request.service_key ||
+      Number(request.provider_id) !== Number(provider.id)
+    ) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+
+    const routeStatus = dto.routingStatus;
+    let nextStatus = request.status;
+    if (['assigned', 'contacted'].includes(routeStatus)) {
+      if (['pending', 'awaiting_provider'].includes(String(request.status))) {
+        nextStatus = 'accepted';
+      }
+    } else if (routeStatus === 'en_route') {
+      nextStatus = 'in_progress';
+    } else if (routeStatus === 'resolved') {
+      nextStatus = 'completed';
+    } else if (routeStatus === 'cancelled') {
+      nextStatus = 'cancelled';
+    }
+
+    await client.query(
+      `UPDATE service_requests
+       SET
+         routing_status = $2::varchar,
+         status = $3::varchar,
+         assigned_professional_name = COALESCE($4, assigned_professional_name),
+         assigned_professional_phone = COALESCE($5, assigned_professional_phone),
+         assignment_note = COALESCE($6, assignment_note),
+         assigned_by_user_id = $7,
+         assigned_at = CASE
+           WHEN $2::text IN ('assigned','contacted','en_route') THEN COALESCE(assigned_at, NOW())
+           ELSE assigned_at
+         END,
+         emergency_contacted_at = CASE
+           WHEN urgency = 'emergency' AND $2::text IN ('contacted','en_route','resolved')
+             THEN COALESCE(emergency_contacted_at, NOW())
+           ELSE emergency_contacted_at
+         END,
+         completed_at = CASE WHEN $2::text = 'resolved' THEN COALESCE(completed_at, NOW()) ELSE completed_at END,
+         cancel_reason = CASE WHEN $2::text = 'cancelled' THEN COALESCE($6, cancel_reason) ELSE cancel_reason END,
+         booking_version = COALESCE(booking_version, 0) + 1,
+         updated_at = NOW()
+       WHERE id = $1`,
+      [
+        Number(requestId),
+        routeStatus,
+        nextStatus,
+        dto.professionalName || null,
+        dto.professionalPhone || null,
+        dto.note || null,
+        Number(userId),
+      ]
+    );
+    await client.query(
+      `INSERT INTO service_request_assignments (
+         request_id,
+         professional_name,
+         professional_phone,
+         routing_status,
+         note,
+         assigned_by_user_id
+       ) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [
+        Number(requestId),
+        dto.professionalName || request.assigned_professional_name || null,
+        dto.professionalPhone || request.assigned_professional_phone || null,
+        routeStatus,
+        dto.note || null,
+        Number(userId),
+      ]
+    );
+    await writeRequestHistory(client, {
+      requestId: Number(requestId),
+      previousStatus: request.status,
+      nextStatus,
+      changedByUserId: Number(userId),
+      note: `central_route:${routeStatus}${dto.note ? ` - ${dto.note}` : ''}`,
+      bookingVersion: Number(request.booking_version || 0) + 1,
+    });
+    await client.query('COMMIT');
+
+    const row = await getRequestRaw(client, requestId);
+    const hydrated = await hydrateRequests(client, [row]);
+    return hydrated[0] || null;
+  } catch (error) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {
+      // ignore
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export async function listCustomerRequests({ userId, query = {} }) {
   const client = await pool.connect();
   try {
     const params = [Number(userId)];
     const filters = [`sr.customer_user_id = $1`];
     if (query.status) {
-      params.push(query.status);
-      filters.push(`sr.status = $${params.length}`);
+      appendServiceRequestStatusFilter(params, filters, query.status);
     }
     params.push(Math.max(1, Math.min(100, Number(query.limit) || 20)));
     params.push(Math.max(0, Number(query.offset) || 0));
@@ -3129,8 +3651,7 @@ export async function listProviderRequestsByUser({ userId, query = {} }) {
     const params = [Number(provider.id)];
     const filters = [`sr.provider_id = $1`];
     if (query.status) {
-      params.push(query.status);
-      filters.push(`sr.status = $${params.length}`);
+      appendServiceRequestStatusFilter(params, filters, query.status);
     }
     params.push(Math.max(1, Math.min(100, Number(query.limit) || 20)));
     params.push(Math.max(0, Number(query.offset) || 0));
@@ -3240,16 +3761,19 @@ export async function createQuoteForRequest({ userId, requestId, dto }) {
         toIsoOrNull(dto.expiresAt),
       ]
     );
+    const targetRequestStatus = isDirectBookingV2(request)
+      ? 'PENDING_PROVIDER_CONFIRMATION'
+      : 'awaiting_provider';
     await client.query(
       `UPDATE service_requests
-       SET status = 'awaiting_provider', updated_at = NOW()
+       SET status = $2, updated_at = NOW()
        WHERE id = $1`,
-      [Number(requestId)]
+      [Number(requestId), targetRequestStatus]
     );
     await writeRequestHistory(client, {
       requestId: Number(requestId),
       previousStatus: request.status,
-      nextStatus: 'awaiting_provider',
+      nextStatus: targetRequestStatus,
       changedByUserId: Number(userId),
       note: `quote_round_${roundNo}`,
     });
@@ -3297,7 +3821,10 @@ export async function respondToQuoteByCustomer({
       return null;
     }
     const quoteStatus = action === 'accepted' ? 'accepted' : 'rejected';
-    const targetRequestStatus = action === 'accepted' ? 'accepted' : 'awaiting_provider';
+    const directBooking = isDirectBookingV2(request);
+    const targetRequestStatus = action === 'accepted'
+      ? (directBooking ? 'CONFIRMED' : 'accepted')
+      : (directBooking ? 'PENDING_PROVIDER_CONFIRMATION' : 'awaiting_provider');
     if (
       String(quote.quote_status || '').trim() === quoteStatus &&
       String(request.status || '').trim() === targetRequestStatus
@@ -3331,7 +3858,10 @@ export async function respondToQuoteByCustomer({
            final_pricing_model = COALESCE($5, final_pricing_model),
            final_pricing_unit = COALESCE($6, final_pricing_unit),
            booking_version = COALESCE(booking_version, 0) + 1,
-           status = 'accepted',
+           booking_subtotal_iqd = COALESCE($3, booking_subtotal_iqd),
+           booking_total_iqd = COALESCE($3, booking_total_iqd),
+           invoice_total_iqd = COALESCE($3, invoice_total_iqd),
+           status = $7,
            updated_at = NOW()
          WHERE id = $1`,
         [
@@ -3341,12 +3871,13 @@ export async function respondToQuoteByCustomer({
           quote.currency || null,
           quote.pricing_model || null,
           quote.pricing_unit || null,
+          targetRequestStatus,
         ]
       );
       await writeRequestHistory(client, {
         requestId: Number(requestId),
         previousStatus: request.status,
-        nextStatus: 'accepted',
+        nextStatus: targetRequestStatus,
         changedByUserId: Number(userId),
         note: 'quote_accepted',
         bookingVersion: nextBookingVersion,
@@ -3356,15 +3887,15 @@ export async function respondToQuoteByCustomer({
         `UPDATE service_requests
          SET
            booking_version = COALESCE(booking_version, 0) + 1,
-           status = 'awaiting_provider',
+           status = $2,
            updated_at = NOW()
          WHERE id = $1`,
-        [Number(requestId)]
+        [Number(requestId), targetRequestStatus]
       );
       await writeRequestHistory(client, {
         requestId: Number(requestId),
         previousStatus: request.status,
-        nextStatus: 'awaiting_provider',
+        nextStatus: targetRequestStatus,
         changedByUserId: Number(userId),
         note: 'quote_rejected',
         bookingVersion: nextBookingVersion,
@@ -3625,7 +4156,10 @@ export async function createReviewByCustomer({ userId, dto }) {
       await client.query('ROLLBACK');
       return { error: 'REQUEST_NOT_FOUND' };
     }
-    if (String(request.status) !== 'completed') {
+    const completedStatus = String(
+      request.booking_status || request.status || '',
+    ).toLowerCase();
+    if (!['completed', 'payment_confirmed'].includes(completedStatus)) {
       await client.query('ROLLBACK');
       return { error: 'REQUEST_NOT_COMPLETED' };
     }
@@ -5254,6 +5788,7 @@ export async function listOfferingsForAdmin({ status = 'pending', limit = 40, of
       normalizedStatus === 'pending' || normalizedStatus === 'pending_review'
         ? ['pending', 'changes_requested']
         : [normalizedStatus];
+    const includeAll = normalizedStatus === 'all';
     const r = await client.query(
       `SELECT
          o.*,
@@ -5275,10 +5810,11 @@ export async function listOfferingsForAdmin({ status = 'pending', limit = 40, of
        JOIN service_provider_profiles p ON p.id = o.provider_id
        LEFT JOIN service_categories mc ON mc.id = o.main_category_id
        LEFT JOIN service_categories sc ON sc.id = o.subcategory_id
-       WHERE o.moderation_status = ANY($1::text[])
+       WHERE ($1::boolean = TRUE OR o.moderation_status = ANY($2::text[]))
        ORDER BY o.created_at DESC
-       LIMIT $2 OFFSET $3`,
+       LIMIT $3 OFFSET $4`,
       [
+        includeAll,
         statuses,
         Math.max(1, Math.min(100, Number(limit) || 40)),
         Math.max(0, Number(offset) || 0),
@@ -5296,6 +5832,38 @@ export async function listOfferingsForAdmin({ status = 'pending', limit = 40, of
   } finally {
     client.release();
   }
+}
+
+export async function listCategoriesForAdmin() {
+  const r = await q(
+    `SELECT *
+     FROM service_categories
+     ORDER BY level ASC, sort_order ASC, name ASC`
+  );
+  return buildCategoryTree(r.rows);
+}
+
+export async function adminUpdateOfferingDetails({
+  offeringId,
+  dto,
+  adminUserId: _adminUserId,
+}) {
+  const ownerR = await q(
+    `SELECT p.user_id
+     FROM service_offerings o
+     JOIN service_provider_profiles p ON p.id = o.provider_id
+     WHERE o.id = $1
+     LIMIT 1`,
+    [Number(offeringId)]
+  );
+  const ownerUserId = Number(ownerR.rows[0]?.user_id || 0);
+  if (!ownerUserId) return null;
+  return updateOfferingForProvider({
+    userId: ownerUserId,
+    offeringId,
+    dto,
+    mediaUrls: [],
+  });
 }
 
 export async function adminUpdateOfferingStatus({
@@ -5499,6 +6067,538 @@ export async function listServiceRequestsForAdmin({ status = null, limit = 60, o
     params
   );
   return r.rows.map(mapRequest);
+}
+
+async function assertRequestParticipant(client, { userId, requestId }) {
+  const request = await getRequestRaw(client, requestId);
+  if (!request) return null;
+  if (Number(request.customer_user_id) === Number(userId)) {
+    const provider = await getProviderById(client, request.provider_id);
+    return { request, role: 'customer', provider };
+  }
+  const provider = await getProviderByUserId(client, userId);
+  if (provider && Number(request.provider_id) === Number(provider.id)) {
+    return { request, role: 'provider', provider };
+  }
+  return null;
+}
+
+export async function adjustServiceRequestPriceByProvider({
+  userId,
+  requestId,
+  totalIqd,
+  discountIqd = 0,
+  note = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const provider = await getProviderByUserId(client, userId);
+    const request = await getRequestRaw(client, requestId);
+    if (!provider || !request || Number(request.provider_id) !== Number(provider.id)) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const status = normalizeServiceBookingState(request.status);
+    if (!['CONFIRMED', 'IN_PROGRESS', 'PROVIDER_COMPLETED'].includes(status)) {
+      throw new AppError('SERVICE_PRICE_ADJUSTMENT_NOT_ALLOWED', { status: 409 });
+    }
+    if (request.payment_confirmed_at) {
+      throw new AppError('SERVICE_PAYMENT_ALREADY_CONFIRMED', { status: 409 });
+    }
+    const base = Math.max(0, Number(totalIqd || 0));
+    const adminDiscount = Math.min(base, Math.max(0, Number(discountIqd || 0)));
+    const couponDiscount = Math.min(
+      Math.max(0, base - adminDiscount),
+      Math.max(0, Number(request.invoice_coupon_discount_iqd || 0)),
+    );
+    const invoiceTotal = Math.max(0, base - adminDiscount - couponDiscount);
+    await client.query(
+      `UPDATE service_requests
+       SET final_price = $2,
+           final_currency = 'IQD',
+           booking_subtotal_iqd = $2,
+           booking_total_iqd = $2,
+           invoice_admin_discount_iqd = $3,
+           invoice_admin_discount_note = $4,
+           invoice_total_iqd = $5,
+           booking_version = COALESCE(booking_version, 0) + 1,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [Number(requestId), base, adminDiscount, note || null, invoiceTotal],
+    );
+    await writeRequestHistory(client, {
+      requestId: Number(requestId),
+      previousStatus: request.status,
+      nextStatus: request.status,
+      changedByUserId: Number(userId),
+      note: `price_adjusted:${base}:${adminDiscount}${note ? `:${note}` : ''}`,
+      bookingVersion: Number(request.booking_version || 0) + 1,
+    });
+    await client.query('COMMIT');
+    const row = await getRequestRaw(client, requestId);
+    const hydrated = await hydrateRequests(client, [row]);
+    return hydrated[0] || null;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function applyCouponToServiceRequest({ userId, requestId, code }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const request = await getRequestRaw(client, requestId);
+    if (!request || Number(request.customer_user_id) !== Number(userId)) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    const status = normalizeServiceBookingState(request.status);
+    if (!['CONFIRMED', 'IN_PROGRESS', 'PROVIDER_COMPLETED'].includes(status)) {
+      throw new AppError('SERVICE_COUPON_NOT_ALLOWED', { status: 409 });
+    }
+    if (request.payment_submitted_at || request.payment_confirmed_at) {
+      throw new AppError('SERVICE_PAYMENT_ALREADY_SUBMITTED', { status: 409 });
+    }
+    const base = Number(
+      request.final_price ?? request.booking_total_iqd ?? request.booking_subtotal_iqd ?? 0,
+    );
+    const couponR = await client.query(
+      `SELECT c.*,
+              EXISTS (
+                SELECT 1 FROM coupon_redemption cr
+                WHERE cr.coupon_id = c.id
+                  AND cr.customer_id = $2
+                  AND COALESCE(cr.is_void, FALSE) = FALSE
+              ) AS customer_redeemed
+       FROM coupon c
+       JOIN app_user coupon_customer ON coupon_customer.id = $2
+       WHERE UPPER(c.code) = UPPER($1)
+         AND c.is_active = TRUE
+         AND (c.valid_from IS NULL OR c.valid_from <= NOW())
+         AND (c.valid_until IS NULL OR c.valid_until >= NOW())
+         AND (c.max_uses IS NULL OR c.max_uses <= 0 OR COALESCE(c.uses_count, 0) < c.max_uses)
+         AND COALESCE(c.scope_kind, 'global') = 'global'
+         AND COALESCE(c.surface_scope, 'shopping') IN ('services', 'all')
+         AND (c.target_user_id IS NULL OR c.target_user_id = $2)
+         AND (c.new_customers_only = FALSE OR coupon_customer.created_at >= COALESCE(c.valid_from, c.created_at))
+       LIMIT 1
+       FOR UPDATE`,
+      [code, Number(userId)],
+    );
+    const coupon = couponR.rows[0] || null;
+    if (!coupon || coupon.customer_redeemed === true) {
+      throw new AppError('COUPON_INVALID_OR_USED', { status: 409 });
+    }
+    if (base < Number(coupon.min_order_total || 0)) {
+      throw new AppError('COUPON_MINIMUM_NOT_MET', { status: 409 });
+    }
+    const adminDiscount = Math.min(base, Number(request.invoice_admin_discount_iqd || 0));
+    const eligible = Math.max(0, base - adminDiscount);
+    const couponDiscount = coupon.discount_type === 'percent'
+      ? Math.round(eligible * Number(coupon.discount_value || 0) / 100)
+      : Math.min(eligible, Number(coupon.discount_value || 0));
+    const invoiceTotal = Math.max(0, eligible - couponDiscount);
+    await client.query(
+      `UPDATE service_requests
+       SET invoice_coupon_id = $2,
+           invoice_coupon_code = $3,
+           invoice_coupon_discount_iqd = $4,
+           invoice_total_iqd = $5,
+           booking_version = COALESCE(booking_version, 0) + 1,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [Number(requestId), Number(coupon.id), coupon.code, couponDiscount, invoiceTotal],
+    );
+    await client.query('COMMIT');
+    const row = await getRequestRaw(client, requestId);
+    const hydrated = await hydrateRequests(client, [row]);
+    return hydrated[0] || null;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function submitServiceRequestPayment({
+  userId,
+  requestId,
+  paymentMethod = 'cash',
+  note = null,
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const request = await getRequestRaw(client, requestId);
+    if (!request || Number(request.customer_user_id) !== Number(userId)) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    if (normalizeServiceBookingState(request.status) !== 'PROVIDER_COMPLETED') {
+      throw new AppError('SERVICE_NOT_READY_FOR_PAYMENT', { status: 409 });
+    }
+    if (request.payment_confirmed_at) {
+      throw new AppError('SERVICE_PAYMENT_ALREADY_CONFIRMED', { status: 409 });
+    }
+    await client.query(
+      `UPDATE service_requests
+       SET payment_method = $2,
+           payment_submitted_at = COALESCE(payment_submitted_at, NOW()),
+           booking_transition_note = COALESCE($3, booking_transition_note),
+           booking_version = COALESCE(booking_version, 0) + 1,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [Number(requestId), paymentMethod, note || null],
+    );
+    await writeRequestHistory(client, {
+      requestId: Number(requestId),
+      previousStatus: request.status,
+      nextStatus: request.status,
+      changedByUserId: Number(userId),
+      note: `payment_submitted:${paymentMethod}${note ? `:${note}` : ''}`,
+      bookingVersion: Number(request.booking_version || 0) + 1,
+    });
+    await client.query('COMMIT');
+    const row = await getRequestRaw(client, requestId);
+    const hydrated = await hydrateRequests(client, [row]);
+    return hydrated[0] || null;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function confirmServiceRequestPaymentByProvider({ userId, requestId, note = null }) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const provider = await getProviderByUserId(client, userId);
+    const request = await getRequestRaw(client, requestId);
+    if (!provider || !request || Number(request.provider_id) !== Number(provider.id)) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    if (normalizeServiceBookingState(request.status) !== 'PROVIDER_COMPLETED') {
+      throw new AppError('SERVICE_NOT_READY_FOR_PAYMENT_CONFIRMATION', { status: 409 });
+    }
+    if (!request.payment_submitted_at) {
+      throw new AppError('SERVICE_PAYMENT_NOT_SUBMITTED', { status: 409 });
+    }
+    if (request.invoice_coupon_id) {
+      const redemptionR = await client.query(
+        `INSERT INTO coupon_redemption (
+           coupon_id, customer_id, order_id, service_request_id, discount_amount, is_void
+         ) VALUES ($1,$2,NULL,$3,$4,FALSE)
+         ON CONFLICT (coupon_id, customer_id)
+         WHERE COALESCE(is_void, FALSE) = FALSE
+         DO NOTHING
+         RETURNING id`,
+        [
+          Number(request.invoice_coupon_id),
+          Number(request.customer_user_id),
+          Number(requestId),
+          Number(request.invoice_coupon_discount_iqd || 0),
+        ],
+      );
+      if (!redemptionR.rows[0]) {
+        throw new AppError('COUPON_INVALID_OR_USED', { status: 409 });
+      }
+      await client.query(
+        `UPDATE coupon SET uses_count = COALESCE(uses_count, 0) + 1 WHERE id = $1`,
+        [Number(request.invoice_coupon_id)],
+      );
+    }
+    const nextVersion = Number(request.booking_version || 0) + 1;
+    await client.query(
+      `UPDATE service_requests
+       SET status = 'COMPLETED',
+           payment_confirmed_at = NOW(),
+           payment_confirmed_by_user_id = $2,
+           completed_at = NOW(),
+           booking_finalized_at = NOW(),
+           booking_transition_note = COALESCE($3, 'payment_confirmed'),
+           booking_version = COALESCE(booking_version, 0) + 1,
+           routing_status = CASE WHEN service_key IS NULL THEN routing_status ELSE 'resolved' END,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [Number(requestId), Number(userId), note || null],
+    );
+    await writeRequestHistory(client, {
+      requestId: Number(requestId),
+      previousStatus: request.status,
+      nextStatus: 'COMPLETED',
+      changedByUserId: Number(userId),
+      note: note || 'payment_confirmed',
+      bookingVersion: nextVersion,
+    });
+    await client.query('COMMIT');
+    const row = await getRequestRaw(client, requestId);
+    const hydrated = await hydrateRequests(client, [row]);
+    return hydrated[0] || null;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function listServiceRequestMessages({ userId, requestId }) {
+  const client = await pool.connect();
+  try {
+    const access = await assertRequestParticipant(client, { userId, requestId });
+    if (!access) return null;
+    const result = await client.query(
+      `SELECT m.id, m.request_id, m.sender_user_id, m.message, m.created_at,
+              u.full_name AS sender_name
+       FROM service_request_messages m
+       JOIN app_user u ON u.id = m.sender_user_id
+       WHERE m.request_id = $1
+       ORDER BY m.created_at ASC, m.id ASC
+       LIMIT 500`,
+      [Number(requestId)],
+    );
+    return result.rows.map((row) => ({
+      id: Number(row.id),
+      requestId: Number(row.request_id),
+      senderUserId: Number(row.sender_user_id),
+      senderName: row.sender_name || null,
+      message: row.message,
+      createdAt: row.created_at,
+    }));
+  } finally {
+    client.release();
+  }
+}
+
+export async function appendServiceRequestMessage({ userId, requestId, message }) {
+  const client = await pool.connect();
+  try {
+    const access = await assertRequestParticipant(client, { userId, requestId });
+    if (!access) return null;
+    const result = await client.query(
+      `INSERT INTO service_request_messages (request_id, sender_user_id, message)
+       VALUES ($1,$2,$3)
+       RETURNING id, request_id, sender_user_id, message, created_at`,
+      [Number(requestId), Number(userId), message],
+    );
+    const row = result.rows[0];
+    return {
+      id: Number(row.id),
+      requestId: Number(row.request_id),
+      senderUserId: Number(row.sender_user_id),
+      message: row.message,
+      createdAt: row.created_at,
+      recipientUserId:
+        access.role === 'customer'
+          ? Number(access.provider.userId)
+          : Number(access.request.customer_user_id),
+    };
+  } finally {
+    client.release();
+  }
+}
+
+function mapEmergencyLocation(row) {
+  if (!row) return null;
+  return {
+    id: Number(row.id),
+    requestId: Number(row.request_id),
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    accuracyMeters:
+      row.accuracy_meters == null ? null : Number(row.accuracy_meters),
+    speedMps: row.speed_mps == null ? null : Number(row.speed_mps),
+    headingDegrees:
+      row.heading_degrees == null ? null : Number(row.heading_degrees),
+    capturedAt: row.captured_at || row.created_at || null,
+  };
+}
+
+function mapEmergencyMessage(row) {
+  return {
+    id: Number(row.id),
+    requestId: Number(row.request_id),
+    senderUserId: Number(row.sender_user_id),
+    senderRole: row.sender_role,
+    senderName: row.sender_name || null,
+    message: row.message,
+    createdAt: row.created_at || null,
+  };
+}
+
+async function emergencyRequestForAccess({ requestId, userId = null, admin = false }) {
+  const params = [Number(requestId)];
+  const customerFilter = admin ? '' : 'AND sr.customer_user_id = $2';
+  if (!admin) params.push(Number(userId));
+  const result = await q(
+    `SELECT sr.*, au.full_name AS customer_full_name, au.phone AS customer_phone
+     FROM service_requests sr
+     JOIN app_user au ON au.id = sr.customer_user_id
+     WHERE sr.id = $1
+       AND sr.urgency = 'emergency'
+       ${customerFilter}
+     LIMIT 1`,
+    params
+  );
+  return result.rows[0] || null;
+}
+
+export async function appendEmergencyLocation({ userId, requestId, dto }) {
+  const request = await emergencyRequestForAccess({ requestId, userId });
+  if (!request) return null;
+  const result = await q(
+    `INSERT INTO service_emergency_location_updates (
+       request_id, customer_user_id, latitude, longitude, accuracy_meters,
+       speed_mps, heading_degrees, captured_at
+     )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8::timestamptz,NOW()))
+     RETURNING *`,
+    [
+      Number(requestId),
+      Number(userId),
+      dto.latitude,
+      dto.longitude,
+      dto.accuracyMeters,
+      dto.speedMps,
+      dto.headingDegrees,
+      dto.capturedAt || null,
+    ]
+  );
+  await q(
+    `UPDATE service_requests
+     SET latitude = $2, longitude = $3, updated_at = NOW()
+     WHERE id = $1`,
+    [Number(requestId), dto.latitude, dto.longitude]
+  );
+  return mapEmergencyLocation(result.rows[0]);
+}
+
+export async function getEmergencyThread({ requestId, userId = null, admin = false }) {
+  const request = await emergencyRequestForAccess({ requestId, userId, admin });
+  if (!request) return null;
+  const [locations, messages] = await Promise.all([
+    q(
+      `SELECT *
+       FROM service_emergency_location_updates
+       WHERE request_id = $1
+       ORDER BY captured_at DESC, id DESC
+       LIMIT 120`,
+      [Number(requestId)]
+    ),
+    q(
+      `SELECT m.*, u.full_name AS sender_name
+       FROM service_emergency_messages m
+       JOIN app_user u ON u.id = m.sender_user_id
+       WHERE m.request_id = $1
+       ORDER BY m.created_at ASC, m.id ASC
+       LIMIT 300`,
+      [Number(requestId)]
+    ),
+  ]);
+  return {
+    request: {
+      ...mapRequest(request),
+      customerFullName: request.customer_full_name || null,
+      customerPhone: request.customer_phone || null,
+    },
+    locations: locations.rows.map(mapEmergencyLocation),
+    messages: messages.rows.map(mapEmergencyMessage),
+  };
+}
+
+export async function appendEmergencyMessage({
+  userId,
+  requestId,
+  message,
+  admin = false,
+}) {
+  const request = await emergencyRequestForAccess({ requestId, userId, admin });
+  if (!request) return null;
+  const result = await q(
+    `INSERT INTO service_emergency_messages (
+       request_id, sender_user_id, sender_role, message
+     )
+     VALUES ($1,$2,$3,$4)
+     RETURNING *`,
+    [Number(requestId), Number(userId), admin ? 'super_admin' : 'customer', message]
+  );
+  const sender = await q(
+    `SELECT full_name FROM app_user WHERE id = $1 LIMIT 1`,
+    [Number(userId)]
+  );
+  return mapEmergencyMessage({
+    ...result.rows[0],
+    sender_name: sender.rows[0]?.full_name || null,
+  });
+}
+
+export async function listEmergencyRequestsForAdmin({ limit = 60, offset = 0 }) {
+  const result = await q(
+    `SELECT
+       sr.*,
+       au.full_name AS customer_full_name,
+       au.phone AS customer_phone,
+       latest.latitude AS latest_latitude,
+       latest.longitude AS latest_longitude,
+       latest.captured_at AS latest_location_at,
+       COALESCE(message_counts.message_count, 0)::int AS message_count
+     FROM service_requests sr
+     JOIN app_user au ON au.id = sr.customer_user_id
+     LEFT JOIN LATERAL (
+       SELECT latitude, longitude, captured_at
+       FROM service_emergency_location_updates l
+       WHERE l.request_id = sr.id
+       ORDER BY captured_at DESC, id DESC
+       LIMIT 1
+     ) latest ON TRUE
+     LEFT JOIN LATERAL (
+       SELECT COUNT(*) AS message_count
+       FROM service_emergency_messages m
+       WHERE m.request_id = sr.id
+     ) message_counts ON TRUE
+     WHERE sr.urgency = 'emergency'
+     ORDER BY
+       CASE WHEN sr.status IN ('completed','cancelled','rejected','expired') THEN 1 ELSE 0 END,
+       sr.created_at DESC,
+       sr.id DESC
+     LIMIT $1 OFFSET $2`,
+    [
+      Math.max(1, Math.min(100, Number(limit) || 60)),
+      Math.max(0, Number(offset) || 0),
+    ]
+  );
+  return {
+    items: result.rows.map((row) => ({
+      ...mapRequest(row),
+      customerFullName: row.customer_full_name || null,
+      customerPhone: row.customer_phone || null,
+      latestLatitude:
+        row.latest_latitude == null ? null : Number(row.latest_latitude),
+      latestLongitude:
+        row.latest_longitude == null ? null : Number(row.latest_longitude),
+      latestLocationAt: row.latest_location_at || null,
+      messageCount: Number(row.message_count || 0),
+    })),
+  };
+}
+
+export async function listSuperAdminUserIds() {
+  const result = await q(
+    `SELECT id
+     FROM app_user
+     WHERE COALESCE(is_super_admin, FALSE) = TRUE
+       AND COALESCE(is_account_disabled, FALSE) = FALSE
+     ORDER BY id ASC`
+  );
+  return result.rows.map((row) => Number(row.id));
 }
 
 export async function listServiceReportsForAdmin({ status = 'pending', limit = 60, offset = 0 }) {

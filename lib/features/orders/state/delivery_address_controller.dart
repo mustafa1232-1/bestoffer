@@ -69,11 +69,7 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
 
   Future<void> bootstrap({bool silent = false}) async {
     if (!silent) {
-      state = state.copyWith(
-        loading: true,
-        error: null,
-        validationError: null,
-      );
+      state = state.copyWith(loading: true, error: null, validationError: null);
     }
     try {
       var raw = await ref.read(ordersApiProvider).listDeliveryAddresses();
@@ -125,9 +121,7 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
     } catch (_) {
       state = state.copyWith(
         loading: false,
-        error: resolveLocalizedText(
-          (l10n) => l10n.deliveryAddressesLoadFailed,
-        ),
+        error: resolveLocalizedText((l10n) => l10n.deliveryAddressesLoadFailed),
         validationError: null,
       );
     }
@@ -181,13 +175,11 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
     required String block,
     required String buildingNumber,
     required String apartment,
+    double? latitude,
+    double? longitude,
     bool isDefault = false,
   }) async {
-    state = state.copyWith(
-      saving: true,
-      error: null,
-      validationError: null,
-    );
+    state = state.copyWith(saving: true, error: null, validationError: null);
     try {
       await ref.read(ordersApiProvider).createDeliveryAddress({
         'label': label.trim(),
@@ -195,14 +187,12 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
         'block': block.trim(),
         'buildingNumber': buildingNumber.trim(),
         'apartment': apartment.trim(),
+        'latitude': ?latitude,
+        'longitude': ?longitude,
         'isDefault': isDefault,
       });
       await bootstrap(silent: true);
-      state = state.copyWith(
-        saving: false,
-        error: null,
-        validationError: null,
-      );
+      state = state.copyWith(saving: false, error: null, validationError: null);
     } on DioException catch (e) {
       state = state.copyWith(
         saving: false,
@@ -227,13 +217,11 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
     required String block,
     required String buildingNumber,
     required String apartment,
+    double? latitude,
+    double? longitude,
     bool isDefault = false,
   }) async {
-    state = state.copyWith(
-      saving: true,
-      error: null,
-      validationError: null,
-    );
+    state = state.copyWith(saving: true, error: null, validationError: null);
     try {
       await ref.read(ordersApiProvider).updateDeliveryAddress(addressId, {
         'label': label.trim(),
@@ -241,14 +229,12 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
         'block': block.trim(),
         'buildingNumber': buildingNumber.trim(),
         'apartment': apartment.trim(),
+        'latitude': ?latitude,
+        'longitude': ?longitude,
         'isDefault': isDefault,
       });
       await bootstrap(silent: true);
-      state = state.copyWith(
-        saving: false,
-        error: null,
-        validationError: null,
-      );
+      state = state.copyWith(saving: false, error: null, validationError: null);
     } on DioException catch (e) {
       state = state.copyWith(
         saving: false,
@@ -267,11 +253,7 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
   }
 
   Future<void> setDefaultAddress(int addressId) async {
-    state = state.copyWith(
-      saving: true,
-      error: null,
-      validationError: null,
-    );
+    state = state.copyWith(saving: true, error: null, validationError: null);
     try {
       await ref.read(ordersApiProvider).setDefaultDeliveryAddress(addressId);
       await bootstrap(silent: true);
@@ -299,19 +281,11 @@ class DeliveryAddressController extends StateNotifier<DeliveryAddressState> {
   }
 
   Future<void> deleteAddress(int addressId) async {
-    state = state.copyWith(
-      saving: true,
-      error: null,
-      validationError: null,
-    );
+    state = state.copyWith(saving: true, error: null, validationError: null);
     try {
       await ref.read(ordersApiProvider).deleteDeliveryAddress(addressId);
       await bootstrap(silent: true);
-      state = state.copyWith(
-        saving: false,
-        error: null,
-        validationError: null,
-      );
+      state = state.copyWith(saving: false, error: null, validationError: null);
     } on DioException catch (e) {
       state = state.copyWith(
         saving: false,

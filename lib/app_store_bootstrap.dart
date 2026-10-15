@@ -19,6 +19,7 @@ import 'core/widgets/maslaki_brand_mark.dart';
 import 'core/widgets/maslaki_wordmark.dart';
 import 'features/auth/presentation/role_login_screen.dart';
 import 'features/auth/state/auth_controller.dart';
+import 'features/notifications/state/notifications_controller.dart';
 import 'features/owner/ui/owner_dashboard_screen.dart';
 import 'l10n/app_localizations.dart';
 
@@ -83,7 +84,17 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
     });
     Future.microtask(() async {
       await ref.read(mediaCacheServiceProvider).scheduleMaintenance();
-      await ref.read(authControllerProvider.notifier).bootstrap();
+      // Do not keep the Android window on a non-interactive splash while a
+      // slow/unavailable API restores the session. Auth state still updates
+      // asynchronously and the correct home screen will be selected then.
+      final authBootstrap = ref
+          .read(authControllerProvider.notifier)
+          .bootstrap();
+      unawaited(authBootstrap.catchError((_) {}));
+
+      if (mounted) {
+        setState(() => _bootstrapped = true);
+      }
 
       if (!mounted) return;
       final localNotifications = ref.read(localNotificationsProvider);
@@ -99,9 +110,6 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
         await _ensurePushReadyAndSync(auth);
       }
       if (!mounted) return;
-      setState(() {
-        _bootstrapped = true;
-      });
       _consumePendingTapIfAny();
     });
   }
@@ -152,6 +160,7 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
       return;
     }
 
+    ref.read(notificationsControllerProvider.notifier).startRealtime();
     final push = ref.read(pushNotificationsProvider);
     await push.initialize();
     await push.requestPermissionIfNeeded();
@@ -163,8 +172,8 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
     if (_pushSyncInFlight || _pushSyncedUserId == userId) return;
     _pushSyncInFlight = true;
     try {
-      await push.syncToken(userId: userId);
-      _pushSyncedUserId = userId;
+      final synced = await push.syncToken(userId: userId);
+      if (synced) _pushSyncedUserId = userId;
     } finally {
       _pushSyncInFlight = false;
     }
@@ -240,7 +249,7 @@ class _MaslakiStoreAppState extends ConsumerState<MaslakiStoreApp>
           ),
         );
       },
-      home: !_bootstrapped
+      home: !_bootstrapped || auth.isSessionRecoveryInProgress
           ? const _StoreSplashScreen()
           : _hasVerifiedSession(auth) && auth.isOwner
           ? const OwnerDashboardScreen()

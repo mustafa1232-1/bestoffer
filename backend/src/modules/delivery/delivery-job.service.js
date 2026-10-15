@@ -1,5 +1,8 @@
 import { AppError } from "../../shared/utils/errors.js";
 import { pool } from "../../config/db.js";
+import { calculateCourierOrderReconciliation } from "../commerce/courier-reconciliation.logic.js";
+import { ensureOrderReceivablesSeededTx } from "../commerce/commerce.repo.js";
+import { onOrderFinallyCompletedTx } from "../commerce/competition.engine.js";
 
 /**
  * Grouped multi-store delivery service (delivery closure §3–§10).
@@ -320,7 +323,6 @@ export async function assertCourierEligibleForAssignment(
     )
   ).rows[0];
   if (!presence || presence.is_online !== true) fail("offline");
-  if (Number(presence.presence_age) > presenceFreshnessSec) fail("presence_stale");
 
   // Busy in ANOTHER active grouped job (ignoring the job under reassignment).
   const groupedBusy = (
@@ -388,6 +390,10 @@ export async function selectEligibleCourier(
               cp.is_app_courier, cp.active_status, cp.availability_status,
               p.is_online,
               EXTRACT(EPOCH FROM (NOW()-p.recorded_at)) AS presence_age,
+              CASE
+                WHEN EXTRACT(EPOCH FROM (NOW()-p.recorded_at)) <= $${scoped ? 2 : 1}::int
+                THEN 1 ELSE 0
+              END AS presence_is_fresh,
               u.role AS role,
               u.delivery_account_approved,
               u.is_account_disabled,
@@ -396,8 +402,8 @@ export async function selectEligibleCourier(
          JOIN courier_profile cp ON cp.user_id=p.courier_user_id
          JOIN app_user u ON u.id=p.courier_user_id
         ${scoped ? "WHERE p.courier_user_id = ANY($1)" : ""}
-        ORDER BY p.recorded_at DESC`,
-      scoped ? [scoped] : []
+        ORDER BY presence_is_fresh DESC, p.recorded_at DESC`,
+      scoped ? [scoped, Number(presenceFreshnessSec) || DEFAULT_PRESENCE_FRESHNESS_SEC] : [Number(presenceFreshnessSec) || DEFAULT_PRESENCE_FRESHNESS_SEC]
     )
   ).rows;
 
@@ -440,10 +446,6 @@ export async function selectEligibleCourier(
       r.is_online !== true
     ) {
       excluded.push({ courierUserId: uid, reason: "offline" });
-      continue;
-    }
-    if (Number(r.presence_age) > presenceFreshnessSec) {
-      excluded.push({ courierUserId: uid, reason: "presence_stale" });
       continue;
     }
     // Busy in an active GROUPED job.
@@ -821,9 +823,11 @@ export async function listCourierGroupedJobs(
     j.pickupStops = (
       await client.query(
         `SELECT s.id, s.child_order_id, s.store_id, s.sequence_number,
-                s.pickup_status, s.preparation_status, m.name AS store_name
+                s.pickup_status, s.preparation_status, m.name AS store_name,
+                o.subtotal AS expected_store_amount
            FROM delivery_pickup_stop s
            LEFT JOIN merchant m ON m.id=s.store_id
+           LEFT JOIN customer_order o ON o.id=s.child_order_id
           WHERE s.delivery_job_id=$1 AND s.pickup_status<>'CANCELLED'
           ORDER BY s.sequence_number`,
         [j.delivery_job_id]
@@ -1044,7 +1048,16 @@ export const markStopArrived = withTx(async (client, { courierUserId, deliveryJo
   return { stopId: Number(stop.id), pickupStatus: "COURIER_ARRIVED" };
 });
 
-export const markStopCollected = withTx(async (client, { courierUserId, deliveryJobId, stopId, expectedVersion }) => {
+export const markStopCollected = withTx(async (client, {
+  courierUserId,
+  deliveryJobId,
+  stopId,
+  expectedVersion,
+  merchantPaidActual,
+  receiptUrl = null,
+  withoutReceipt = false,
+  merchantPaymentNote = null,
+}) => {
   const job = await loadOwnedJobForUpdate(client, courierUserId, deliveryJobId, expectedVersion);
   const stop = (
     await client.query(
@@ -1058,7 +1071,7 @@ export const markStopCollected = withTx(async (client, { courierUserId, delivery
   if (stop.pickup_status !== "COLLECTED") {
     const child = (
       await client.query(
-        `SELECT id, status FROM customer_order WHERE id=$1 FOR UPDATE`,
+        `SELECT * FROM customer_order WHERE id=$1 FOR UPDATE`,
         [Number(stop.child_order_id)]
       )
     ).rows[0];
@@ -1073,6 +1086,60 @@ export const markStopCollected = withTx(async (client, { courierUserId, delivery
         },
       });
     }
+    const paid = Number(merchantPaidActual);
+    if (!Number.isFinite(paid) || paid < 0) {
+      throw new AppError('MERCHANT_PAYMENT_REQUIRED', { status: 400 });
+    }
+    if (!receiptUrl && withoutReceipt !== true) {
+      throw new AppError('MERCHANT_PAYMENT_EVIDENCE_REQUIRED', { status: 400 });
+    }
+    const reconciliation = calculateCourierOrderReconciliation({
+      totalAmount: child.total_amount,
+      productSubtotal: child.subtotal,
+      couponDiscountTotal: child.coupon_discount_total,
+      serviceFee: child.service_fee,
+      deliveryFee: child.delivery_fee,
+      merchantPaidActual: paid,
+      customerReceivedActual: child.total_amount,
+    });
+    await client.query(
+      `UPDATE customer_order
+       SET merchant_paid_actual=$2,
+           merchant_payment_receipt_url=$3,
+           merchant_payment_without_receipt=$4,
+           merchant_payment_note=$5,
+           merchant_payment_recorded_at=NOW(),
+           merchant_payment_recorded_by_user_id=$6,
+           purchase_difference_amount=$7,
+           collection_difference_amount=0,
+           app_due_from_delivery=$8,
+           courier_due_from_app=$9,
+           reconciliation_review_status=$10,
+           difference_amount=$7,
+           difference_reason=CASE
+             WHEN $4::boolean THEN 'courier_reported_without_receipt'
+             WHEN $7::numeric <> 0 THEN 'merchant_payment_difference'
+             ELSE NULL
+           END,
+           settlement_status=CASE
+             WHEN $4::boolean OR $7::numeric <> 0 THEN 'difference_review'
+             ELSE 'received'
+           END,
+           updated_at=NOW()
+       WHERE id=$1`,
+      [
+        Number(child.id),
+        reconciliation.merchantPaidActual,
+        receiptUrl,
+        withoutReceipt === true,
+        merchantPaymentNote,
+        Number(courierUserId),
+        reconciliation.purchaseDifference,
+        reconciliation.appDueFromDelivery,
+        reconciliation.courierDueFromApp,
+        withoutReceipt === true ? 'needs_review' : 'pending',
+      ],
+    );
     await client.query(
       `UPDATE delivery_pickup_stop SET pickup_status='COLLECTED', collected_at=COALESCE(collected_at,NOW()), updated_at=NOW() WHERE id=$1`,
       [stop.id]
@@ -1111,13 +1178,98 @@ export const headingToCustomer = withTx(async (client, { courierUserId, delivery
   return { deliveryJobId: Number(job.id), lifecycleStatus: "HEADING_TO_CUSTOMER" };
 });
 
-export const markGroupedDelivered = withTx(async (client, { courierUserId, deliveryJobId, expectedVersion }) => {
+export const markGroupedDelivered = withTx(async (client, {
+  courierUserId,
+  deliveryJobId,
+  expectedVersion,
+  customerReceivedActual,
+}) => {
   const job = await loadOwnedJobForUpdate(client, courierUserId, deliveryJobId, expectedVersion);
   if (job.lifecycle_status === "DELIVERED") {
     return { deliveryJobId: Number(job.id), lifecycleStatus: "DELIVERED" }; // idempotent
   }
   if (job.lifecycle_status !== "HEADING_TO_CUSTOMER") {
     throw new AppError("MUST_HEAD_TO_CUSTOMER_FIRST", { status: 409, details: { from: job.lifecycle_status } });
+  }
+  const received = Number(customerReceivedActual);
+  if (!Number.isFinite(received) || received < 0) {
+    throw new AppError('CUSTOMER_COLLECTION_REQUIRED', { status: 400 });
+  }
+  const childOrders = (
+    await client.query(
+      `SELECT *
+       FROM customer_order
+       WHERE order_group_id=$1
+         AND status NOT IN ('cancelled','cancelled_by_store','cancelled_by_customer','cancelled_by_admin')
+       ORDER BY id
+       FOR UPDATE`,
+      [Number(job.order_group_id)],
+    )
+  ).rows;
+  if (childOrders.some((order) => order.merchant_paid_actual == null)) {
+    throw new AppError('MERCHANT_PAYMENT_REQUIRED', { status: 409 });
+  }
+  const invoiceTotal = childOrders.reduce(
+    (sum, order) => sum + Number(order.total_amount || 0),
+    0,
+  );
+  let allocatedReceived = 0;
+  for (let index = 0; index < childOrders.length; index += 1) {
+    const order = childOrders[index];
+    const childReceived = index === childOrders.length - 1
+      ? Math.max(0, received - allocatedReceived)
+      : Math.max(
+          0,
+          Math.round(
+            (invoiceTotal > 0
+              ? received * (Number(order.total_amount || 0) / invoiceTotal)
+              : received / Math.max(1, childOrders.length)) * 100,
+          ) / 100,
+        );
+    allocatedReceived += childReceived;
+    const reconciliation = calculateCourierOrderReconciliation({
+      totalAmount: order.total_amount,
+      productSubtotal: order.subtotal,
+      couponDiscountTotal: order.coupon_discount_total,
+      serviceFee: order.service_fee,
+      deliveryFee: order.delivery_fee,
+      merchantPaidActual: order.merchant_paid_actual,
+      customerReceivedActual: childReceived,
+    });
+    await client.query(
+      `UPDATE customer_order
+       SET customer_cash_received_actual=$2,
+           amount_received_actual=$2,
+           customer_cash_recorded_at=NOW(),
+           purchase_difference_amount=$3,
+           collection_difference_amount=$4,
+           app_due_from_delivery=$5,
+           courier_due_from_app=$6,
+           difference_amount=$3,
+           reconciliation_review_status=CASE
+             WHEN merchant_payment_without_receipt=TRUE OR $4::numeric < 0
+               THEN 'needs_review'
+             ELSE 'pending'
+           END,
+           reconciliation_review_note=NULL,
+           reconciliation_reviewed_at=NULL,
+           reconciliation_reviewed_by_user_id=NULL,
+           settlement_status=CASE
+             WHEN merchant_payment_without_receipt=TRUE OR $3::numeric <> 0 OR $4::numeric <> 0
+               THEN 'difference_review'
+             ELSE 'received'
+           END,
+           updated_at=NOW()
+       WHERE id=$1`,
+      [
+        Number(order.id),
+        reconciliation.customerReceivedActual,
+        reconciliation.purchaseDifference,
+        reconciliation.collectionDifference,
+        reconciliation.appDueFromDelivery,
+        reconciliation.courierDueFromApp,
+      ],
+    );
   }
   await client.query(
     `UPDATE delivery_job
@@ -1134,11 +1286,42 @@ export const markGroupedDelivered = withTx(async (client, { courierUserId, deliv
        WHERE delivery_job_id=$1 AND ended_at IS NULL`,
     [job.id]
   );
-  await client.query(
-    `UPDATE customer_order SET status='delivered', delivered_at=COALESCE(delivered_at,NOW()), delivery_assignment_status='COMPLETED', updated_at=NOW()
-      WHERE order_group_id=$1 AND status NOT IN ('cancelled','delivered')`,
+  const completedOrders = await client.query(
+    `UPDATE customer_order
+        SET status='delivered',
+            delivered_at=COALESCE(delivered_at,NOW()),
+            completed_at=COALESCE(completed_at,NOW()),
+            delivery_assignment_status='COMPLETED',
+            updated_at=NOW()
+      WHERE order_group_id=$1
+        AND status NOT IN ('cancelled','cancelled_by_store','cancelled_by_customer','cancelled_by_admin','delivered','completed')
+      RETURNING *`,
     [Number(job.order_group_id)]
   );
+  for (const order of completedOrders.rows) {
+    await ensureOrderReceivablesSeededTx(client, order);
+    await onOrderFinallyCompletedTx(client, { orderRow: order });
+  }
+  if (completedOrders.rowCount > 0) {
+    await client.query(
+      `UPDATE courier_profile
+          SET total_completed_orders = total_completed_orders + $2,
+              updated_at = NOW()
+        WHERE user_id = $1`,
+      [Number(courierUserId), completedOrders.rowCount],
+    );
+  }
+  const completionRecipients = completedOrders.rowCount > 0
+    ? (
+        await client.query(
+          `SELECT o.id, o.customer_user_id, o.merchant_id, m.owner_user_id
+             FROM customer_order o
+             JOIN merchant m ON m.id=o.merchant_id
+            WHERE o.id=ANY($1::bigint[])`,
+          [completedOrders.rows.map((order) => Number(order.id))],
+        )
+      ).rows
+    : [];
   await client.query(
     `UPDATE order_group
         SET status='completed', updated_at=NOW()
@@ -1169,7 +1352,11 @@ export const markGroupedDelivered = withTx(async (client, { courierUserId, deliv
         AND s.order_group_id=$1`,
     [Number(job.order_group_id)]
   );
-  return { deliveryJobId: Number(job.id), lifecycleStatus: "DELIVERED" };
+  return {
+    deliveryJobId: Number(job.id),
+    lifecycleStatus: "DELIVERED",
+    completedOrders: completionRecipients,
+  };
 });
 
 /**
@@ -1325,9 +1512,11 @@ export async function getCourierGroupedJobDetails(courierUserId, deliveryJobId) 
         `SELECT s.id, s.child_order_id, s.store_id, s.sequence_number, s.pickup_status,
                 s.preparation_status, s.arrived_at, s.collected_at,
                 m.name AS store_name, m.image_url AS store_photo, m.phone AS store_phone,
-                m.latitude AS store_lat, m.longitude AS store_lng
+                m.latitude AS store_lat, m.longitude AS store_lng,
+                o.subtotal AS expected_store_amount
            FROM delivery_pickup_stop s
            LEFT JOIN merchant m ON m.id=s.store_id
+           LEFT JOIN customer_order o ON o.id=s.child_order_id
           WHERE s.delivery_job_id=$1 AND s.pickup_status<>'CANCELLED'
           ORDER BY s.sequence_number`,
         [Number(deliveryJobId)]
@@ -1415,6 +1604,7 @@ export async function getCourierGroupedJobDetails(courierUserId, deliveryJobId) 
         pickupStatus: s.pickup_status,
         arrivedAt: s.arrived_at,
         collectedAt: s.collected_at,
+        expectedStoreAmount: Number(s.expected_store_amount || 0),
       })),
     };
   } finally {

@@ -145,3 +145,42 @@ test("coupon validation reason matches lifecycle and target restrictions", () =>
     "COUPON_TOTAL_LIMIT_REACHED"
   );
 });
+
+test("coupon validation allows repeated use by the same customer until total limit", () => {
+  assert.equal(
+    resolveCouponValidationReason(
+      {
+        is_active: true,
+        valid_from: null,
+        valid_until: null,
+        uses_count: 1,
+        max_uses: 10,
+        customer_redeemed: true,
+        scope_kind: "global",
+      },
+      { customerId: 7, orderTotal: 10000 }
+    ),
+    null
+  );
+});
+
+test("new-customer welcome coupon is limited to one redemption per customer", () => {
+  assert.equal(
+    resolveCouponValidationReason(
+      {
+        is_active: true,
+        valid_from: new Date(Date.now() - 60_000).toISOString(),
+        valid_until: null,
+        uses_count: 1,
+        max_uses: null,
+        customer_redeemed: true,
+        customer_created_at: new Date().toISOString(),
+        new_customers_only: true,
+        scope_kind: "global",
+        surface_scope: "shopping",
+      },
+      { customerId: 7, orderTotal: 10000 }
+    ),
+    "COUPON_ALREADY_USED"
+  );
+});

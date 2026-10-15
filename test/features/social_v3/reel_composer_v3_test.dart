@@ -9,6 +9,9 @@ import 'package:maslaki/features/social_v3/pickers/social_media_picker_v3.dart';
 import 'package:maslaki/features/social_v3/upload/reel_map_normalizer.dart';
 import 'package:maslaki/features/social/ui/widgets/social_story_canvas.dart';
 import 'package:maslaki/features/social/ui/widgets/social_story_tool_panels.dart';
+import 'package:maslaki/features/social_v3/composer/reel_publish_screen.dart';
+
+import 'reels_v3_fixtures.dart';
 
 class _NoopApi implements ReelUploadApi {
   @override
@@ -45,8 +48,12 @@ class _SpyController extends ReelComposerController {
     : super(
         api: _NoopApi(),
         tusFactory:
-            ({required uploadUrl, required totalBytes, required assetId}) =>
-                throw UnimplementedError(),
+            ({
+              required uploadUrl,
+              required totalBytes,
+              required assetId,
+              required video,
+            }) => throw UnimplementedError(),
         idempotencyKey: 'spy-reel',
       );
 
@@ -61,6 +68,7 @@ class _SpyController extends ReelComposerController {
     bool commentsEnabled = true,
     bool sharingEnabled = true,
     Object? reelStyle,
+    ReelVideoPreparer? prepareVideo,
   }) async {
     capturedCaption = caption;
     capturedStyle = normalizeOptionalMap(reelStyle);
@@ -93,17 +101,34 @@ const _video = PickedSocialMedia(
   type: PickedMediaType.video,
 );
 
-Future<_SpyController> _pumpComposer(WidgetTester tester) async {
+Future<_SpyController> _pumpComposer(
+  WidgetTester tester, {
+  Size size = const Size(393, 852),
+  String locale = 'ar',
+  double textScale = 1,
+}) async {
+  tester.view.physicalSize = size;
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.resetPhysicalSize);
+  addTearDown(tester.view.resetDevicePixelRatio);
+  addTearDown(tester.view.resetViewInsets);
   final controller = _SpyController();
   await tester.pumpWidget(
     ProviderScope(
       child: MaterialApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
         supportedLocales: AppLocalizations.supportedLocales,
-        locale: const Locale('ar'),
-        home: MediaQuery(
-          data: const MediaQueryData(size: Size(393, 852)),
-          child: ReelComposerV3(video: _video, controller: controller),
+        locale: Locale(locale),
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
+        home: ReelComposerV3(
+          video: _video,
+          controller: controller,
+          videoControllerFactory: FakeVideoPlayerController.new,
         ),
       ),
     ),
@@ -114,15 +139,74 @@ Future<_SpyController> _pumpComposer(WidgetTester tester) async {
 }
 
 void main() {
+  for (final size in [
+    const Size(320, 640),
+    const Size(360, 800),
+    const Size(390, 844),
+    const Size(412, 915),
+    const Size(430, 932),
+    const Size(768, 1024),
+  ]) {
+    for (final locale in ['ar', 'en']) {
+      testWidgets(
+        'editor and publishing fit $size $locale with enlarged text',
+        (tester) async {
+          final controller = await _pumpComposer(
+            tester,
+            size: size,
+            locale: locale,
+            textScale: 1.4,
+          );
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          for (final tooltip
+              in locale == 'ar'
+                  ? ['قص', 'السرعة', 'الصوت', 'الفلاتر']
+                  : ['Trim', 'Speed', 'Audio', 'Filters']) {
+            await tester.tap(find.byTooltip(tooltip));
+            await tester.pumpAndSettle();
+            expect(tester.takeException(), isNull, reason: tooltip);
+          }
+          await tester.tap(find.byIcon(Icons.text_fields));
+          await tester.pumpAndSettle();
+          tester.view.viewInsets = const FakeViewPadding(bottom: 280);
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull, reason: 'Keyboard');
+          tester.view.resetViewInsets();
+          await tester.pumpAndSettle();
+          await tester.tap(find.byTooltip(locale == 'ar' ? 'تم' : 'Done'));
+          await tester.pumpAndSettle();
+          await tester.tap(
+            find.text(
+              locale == 'ar' ? 'معاينة ومتابعة' : 'Preview and continue',
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull, reason: 'Preview');
+          await tester.tap(find.text(locale == 'ar' ? 'التالي' : 'Next'));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull, reason: 'Publish');
+          expect(
+            find
+                .text(locale == 'ar' ? 'نشر الآن' : 'Publish now')
+                .hitTestable(),
+            findsOneWidget,
+          );
+          await tester.pumpWidget(const SizedBox());
+          controller.dispose();
+        },
+      );
+    }
+  }
   testWidgets('reel composer renders preview canvas and tool rail', (
     tester,
   ) async {
     final controller = await _pumpComposer(tester);
     expect(find.byType(SocialStoryCanvas), findsOneWidget);
-    expect(find.byIcon(Icons.text_fields_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.alternate_email_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.text_fields), findsOneWidget);
+    expect(find.byIcon(Icons.alternate_email), findsOneWidget);
     expect(find.byIcon(Icons.emoji_emotions_outlined), findsOneWidget);
-    expect(find.byIcon(Icons.brush_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.draw_outlined), findsOneWidget);
     controller.dispose();
   });
 
@@ -131,24 +215,36 @@ void main() {
   ) async {
     final controller = await _pumpComposer(tester);
 
-    await tester.tap(find.byIcon(Icons.text_fields_rounded));
+    await tester.tap(find.byIcon(Icons.text_fields));
     await tester.pump();
 
     expect(find.byType(SocialStoryToolPanels), findsOneWidget);
 
     final textFields = find.byType(TextField);
-    expect(textFields, findsAtLeastNWidgets(2));
-    await tester.enterText(textFields.at(1), 'Hello reel');
+    expect(textFields, findsOneWidget);
+    await tester.enterText(textFields.first, 'Hello reel overlay');
     await tester.pump();
 
-    await tester.tap(find.text('نشر'));
+    await tester.tap(find.byTooltip('تم'));
+    await tester.pump();
+    await tester.tap(find.text('معاينة ومتابعة'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('التالي'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ReelPublishScreen), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, 'A separate caption');
+    await tester.tap(find.text('نشر الآن'));
     await tester.pump();
 
-    expect(controller.capturedCaption, 'Hello reel');
+    expect(controller.capturedCaption, 'A separate caption');
     expect(controller.capturedStyle, isNotNull);
-    expect(controller.capturedStyle?['caption'], 'Hello reel');
     expect(controller.capturedStyle?['layers'], isA<List<dynamic>>());
     expect((controller.capturedStyle?['layers'] as List).isNotEmpty, isTrue);
+    expect(
+      (controller.capturedStyle?['layers'] as List).first['text'],
+      'Hello reel overlay',
+    );
+    await tester.pumpWidget(const SizedBox());
     controller.dispose();
   });
 
@@ -173,6 +269,7 @@ void main() {
                         child: ReelComposerV3(
                           video: _video,
                           controller: controller,
+                          videoControllerFactory: FakeVideoPlayerController.new,
                           onPublished: (_) => published++,
                         ),
                       ),
@@ -191,8 +288,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     expect(find.byType(ReelComposerV3), findsOneWidget);
 
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('معاينة ومتابعة'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('التالي'));
+    await tester.pumpAndSettle();
     controller.markPublished(77);
     await tester.pump();
+    expect(published, 0);
+    await tester.tap(find.text('تم'));
     await tester.pump(const Duration(milliseconds: 900));
     await tester.pumpAndSettle();
 

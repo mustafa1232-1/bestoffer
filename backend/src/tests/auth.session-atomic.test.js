@@ -133,6 +133,29 @@ test("company admin can log in only from the company surface", async () => {
   }
 });
 
+test("staff can log in from the user app shell", async () => {
+  const fx = await createLoginFixture("staff_user_surface", {
+    role: "staff",
+  });
+  try {
+    const userShellLogin = await authService.login(
+      { phone: fx.phone, pin: fx.pin },
+      {
+        deviceFingerprint: "staff-user-surface-device",
+        appFlavor: "user",
+        userAgent: "auth-session-test",
+        ipAddress: "127.0.0.1",
+      }
+    );
+
+    assert.ok(userShellLogin.token);
+    assert.equal(userShellLogin.user.role, "staff");
+    assert.equal(decodeClaims(userShellLogin.token).appSurface, "company");
+  } finally {
+    await cleanupFixture(fx);
+  }
+});
+
 test("atomic refresh burst rotates one generation and shares the current bundle", async () => {
   const fx = await createSessionFixture("refresh");
   try {

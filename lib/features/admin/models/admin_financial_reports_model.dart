@@ -55,6 +55,7 @@ class AdminFinancialMerchantSummaryRow {
   final int ordersCount;
   final int operationsCount;
   final double totalSales;
+  final double totalCommission;
   final double totalCollected;
   final double netReceivables;
   final double outstandingToCollect;
@@ -67,6 +68,7 @@ class AdminFinancialMerchantSummaryRow {
     this.ordersCount = 0,
     this.operationsCount = 0,
     this.totalSales = 0,
+    this.totalCommission = 0,
     this.totalCollected = 0,
     this.netReceivables = 0,
     this.outstandingToCollect = 0,
@@ -85,10 +87,15 @@ class AdminFinancialMerchantSummaryRow {
             json['operationsCount'],
       ),
       totalSales: _toDouble(json['total_sales'] ?? json['totalSales']),
-      totalCollected:
-          _toDouble(json['total_collected'] ?? json['totalCollected']),
-      netReceivables:
-          _toDouble(json['net_receivables'] ?? json['netReceivables']),
+      totalCommission: _toDouble(
+        json['total_commission'] ?? json['totalCommission'],
+      ),
+      totalCollected: _toDouble(
+        json['total_collected'] ?? json['totalCollected'],
+      ),
+      netReceivables: _toDouble(
+        json['net_receivables'] ?? json['netReceivables'],
+      ),
       outstandingToCollect: _toDouble(
         json['outstanding_to_collect'] ?? json['outstandingToCollect'],
       ),
@@ -111,6 +118,18 @@ class AdminFinancialSalesOrderLine {
   final double totalAmount;
   final double subtotal;
   final double deliveryFee;
+  final double commissionAmount;
+  final double serviceFeeAmount;
+  final double appDeliveryFeeAmount;
+  final double storeDeliveryFeeAmount;
+  final double appReceivableAmount;
+  final double storeNetAmount;
+  final double productDiscountTotal;
+  final double couponDiscountTotal;
+  final String couponCode;
+  final String couponDiscountType;
+  final String deliveryFullName;
+  final String deliveryPhone;
   final String? note;
 
   const AdminFinancialSalesOrderLine({
@@ -122,13 +141,26 @@ class AdminFinancialSalesOrderLine {
     required this.totalAmount,
     required this.subtotal,
     required this.deliveryFee,
+    this.commissionAmount = 0,
+    this.serviceFeeAmount = 0,
+    this.appDeliveryFeeAmount = 0,
+    this.storeDeliveryFeeAmount = 0,
+    this.appReceivableAmount = 0,
+    this.storeNetAmount = 0,
+    this.productDiscountTotal = 0,
+    this.couponDiscountTotal = 0,
+    this.couponCode = '',
+    this.couponDiscountType = '',
+    this.deliveryFullName = '',
+    this.deliveryPhone = '',
     this.note,
   });
 
   factory AdminFinancialSalesOrderLine.fromJson(Map<String, dynamic> json) {
     return AdminFinancialSalesOrderLine(
       orderId: _toInt(json['order_id'] ?? json['orderId']),
-      createdAt: json['created_at']?.toString() ?? json['createdAt']?.toString(),
+      createdAt:
+          json['created_at']?.toString() ?? json['createdAt']?.toString(),
       status: '${json['status'] ?? ''}',
       customerName: '${json['customer_name'] ?? json['customerName'] ?? '-'}',
       customerPhone:
@@ -136,6 +168,36 @@ class AdminFinancialSalesOrderLine {
       totalAmount: _toDouble(json['total_amount'] ?? json['totalAmount']),
       subtotal: _toDouble(json['subtotal']),
       deliveryFee: _toDouble(json['delivery_fee'] ?? json['deliveryFee']),
+      commissionAmount: _toDouble(
+        json['commission_amount'] ?? json['commissionAmount'],
+      ),
+      serviceFeeAmount: _toDouble(
+        json['service_fee_amount'] ?? json['serviceFeeAmount'],
+      ),
+      appDeliveryFeeAmount: _toDouble(
+        json['app_delivery_fee_amount'] ?? json['appDeliveryFeeAmount'],
+      ),
+      storeDeliveryFeeAmount: _toDouble(
+        json['store_delivery_fee_amount'] ?? json['storeDeliveryFeeAmount'],
+      ),
+      appReceivableAmount: _toDouble(
+        json['app_receivable_amount'] ?? json['appReceivableAmount'],
+      ),
+      storeNetAmount: _toDouble(
+        json['store_net_amount'] ?? json['storeNetAmount'],
+      ),
+      productDiscountTotal: _toDouble(
+        json['product_discount_total'] ?? json['productDiscountTotal'],
+      ),
+      couponDiscountTotal: _toDouble(
+        json['coupon_discount_total'] ?? json['couponDiscountTotal'],
+      ),
+      couponCode: '${json['coupon_code'] ?? json['couponCode'] ?? ''}',
+      couponDiscountType:
+          '${json['coupon_discount_type'] ?? json['couponDiscountType'] ?? ''}',
+      deliveryFullName:
+          '${json['delivery_full_name'] ?? json['deliveryFullName'] ?? ''}',
+      deliveryPhone: '${json['delivery_phone'] ?? json['deliveryPhone'] ?? ''}',
       note: json['note']?.toString(),
     );
   }
@@ -176,8 +238,9 @@ class AdminFinancialCollectionLine {
       paymentScope: '${json['payment_scope'] ?? json['paymentScope'] ?? ''}',
       status: '${json['status'] ?? ''}',
       amount: _toDouble(json['amount']),
-      requestedAmount:
-          _toDouble(json['requested_amount'] ?? json['requestedAmount']),
+      requestedAmount: _toDouble(
+        json['requested_amount'] ?? json['requestedAmount'],
+      ),
       paidAmount: _toDouble(json['paid_amount'] ?? json['paidAmount']),
       paymentMethod: json['payment_method']?.toString(),
       paymentDate: json['payment_date']?.toString(),
@@ -224,10 +287,7 @@ class AdminFinancialMerchantInfo {
   final int id;
   final String name;
 
-  const AdminFinancialMerchantInfo({
-    required this.id,
-    required this.name,
-  });
+  const AdminFinancialMerchantInfo({required this.id, required this.name});
 
   factory AdminFinancialMerchantInfo.fromJson(Map<String, dynamic> json) {
     return AdminFinancialMerchantInfo(
@@ -239,6 +299,7 @@ class AdminFinancialMerchantInfo {
 
 class AdminFinancialReportSummary {
   final double totalSales;
+  final double totalCommission;
   final double totalCollected;
   final double netReceivables;
   final double outstandingToCollect;
@@ -249,6 +310,7 @@ class AdminFinancialReportSummary {
 
   const AdminFinancialReportSummary({
     this.totalSales = 0,
+    this.totalCommission = 0,
     this.totalCollected = 0,
     this.netReceivables = 0,
     this.outstandingToCollect = 0,
@@ -261,20 +323,26 @@ class AdminFinancialReportSummary {
   factory AdminFinancialReportSummary.fromJson(Map<String, dynamic> json) {
     return AdminFinancialReportSummary(
       totalSales: _toDouble(json['totalSales'] ?? json['total_sales']),
-      totalCollected:
-          _toDouble(json['totalCollected'] ?? json['total_collected']),
-      netReceivables:
-          _toDouble(json['netReceivables'] ?? json['net_receivables']),
+      totalCommission: _toDouble(
+        json['totalCommission'] ?? json['total_commission'],
+      ),
+      totalCollected: _toDouble(
+        json['totalCollected'] ?? json['total_collected'],
+      ),
+      netReceivables: _toDouble(
+        json['netReceivables'] ?? json['net_receivables'],
+      ),
       outstandingToCollect: _toDouble(
         json['outstandingToCollect'] ?? json['outstanding_to_collect'],
       ),
       totalOrders: _toInt(json['totalOrders'] ?? json['total_orders']),
-      totalOperations:
-          _toInt(json['totalOperations'] ?? json['total_operations']),
-      merchantsCount:
-          _toInt(json['merchantsCount'] ?? json['merchants_count']),
-      openingBalance:
-          _toDouble(json['openingBalance'] ?? json['opening_balance']),
+      totalOperations: _toInt(
+        json['totalOperations'] ?? json['total_operations'],
+      ),
+      merchantsCount: _toInt(json['merchantsCount'] ?? json['merchants_count']),
+      openingBalance: _toDouble(
+        json['openingBalance'] ?? json['opening_balance'],
+      ),
     );
   }
 }
@@ -344,9 +412,9 @@ class AdminFinancialMerchantDetailModel {
       window: AdminFinancialKpiWindow.fromJson(_asMap(json['window'])),
       merchant: AdminFinancialMerchantInfo.fromJson(_asMap(json['merchant'])),
       summary: AdminFinancialReportSummary.fromJson(summaryMap),
-      salesItems: _asMapList(json['items'])
-          .map(AdminFinancialSalesOrderLine.fromJson)
-          .toList(growable: false),
+      salesItems: _asMapList(
+        json['items'],
+      ).map(AdminFinancialSalesOrderLine.fromJson).toList(growable: false),
       pagination: AdminFinancialPagination.fromJson(paginationMap),
     );
   }
@@ -361,9 +429,9 @@ class AdminFinancialMerchantDetailModel {
       window: AdminFinancialKpiWindow.fromJson(_asMap(json['window'])),
       merchant: AdminFinancialMerchantInfo.fromJson(_asMap(json['merchant'])),
       summary: AdminFinancialReportSummary.fromJson(summaryMap),
-      collectionItems: _asMapList(json['items'])
-          .map(AdminFinancialCollectionLine.fromJson)
-          .toList(growable: false),
+      collectionItems: _asMapList(
+        json['items'],
+      ).map(AdminFinancialCollectionLine.fromJson).toList(growable: false),
       pagination: AdminFinancialPagination.fromJson(paginationMap),
     );
   }
@@ -378,9 +446,9 @@ class AdminFinancialMerchantDetailModel {
       window: AdminFinancialKpiWindow.fromJson(_asMap(json['window'])),
       merchant: AdminFinancialMerchantInfo.fromJson(_asMap(json['merchant'])),
       summary: AdminFinancialReportSummary.fromJson(summaryMap),
-      statementItems: _asMapList(json['statement'])
-          .map(AdminFinancialStatementLine.fromJson)
-          .toList(growable: false),
+      statementItems: _asMapList(
+        json['statement'],
+      ).map(AdminFinancialStatementLine.fromJson).toList(growable: false),
       pagination: AdminFinancialPagination.fromJson(paginationMap),
     );
   }

@@ -17,6 +17,26 @@ export function buildPhone(prefix, seed) {
   return `${prefix}${suffix}`;
 }
 
+const E2E_DEFAULT_REGISTRATION_LOCATION = {
+  latitude: env.serviceAreaCenterLatitude || 33.19302,
+  longitude: env.serviceAreaCenterLongitude || 44.62071,
+};
+
+function withDefaultRegistrationLocation(path, body) {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+  const normalizedPath = String(path || "").trim().toLowerCase();
+  const needsLocation =
+    normalizedPath === "/api/auth/register" ||
+    normalizedPath === "/api/owner/register" ||
+    normalizedPath === "/api/taxi/captain/register";
+  if (!needsLocation) return body;
+  return {
+    ...body,
+    latitude: body.latitude ?? E2E_DEFAULT_REGISTRATION_LOCATION.latitude,
+    longitude: body.longitude ?? E2E_DEFAULT_REGISTRATION_LOCATION.longitude,
+  };
+}
+
 export function createActor(name, runTag, appVersion = "e2e/1") {
   return {
     name,
@@ -107,7 +127,10 @@ async function performRequest(baseUrl, actor, method, path, { body = undefined, 
 }
 
 export async function request(baseUrl, actor, method, path, body) {
-  return performRequest(baseUrl, actor, method, path, { body, isJson: true });
+  return performRequest(baseUrl, actor, method, path, {
+    body: withDefaultRegistrationLocation(path, body),
+    isJson: true,
+  });
 }
 
 export async function requestMultipart(baseUrl, actor, method, path, formData) {

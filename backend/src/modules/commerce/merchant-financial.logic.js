@@ -1,5 +1,6 @@
 import { q } from "../../config/db.js";
 import { AppError } from "../../shared/utils/errors.js";
+import { getFreeDeliveryCampaignStatus } from "./free-delivery-campaign.js";
 
 const DEFAULT_MERCHANT_BILLING_PROFILE = Object.freeze({
   commissionType: "percentage",
@@ -277,8 +278,13 @@ function resolveCouponDiscountTotal(order, subtotal, serviceFeeAmount, deliveryF
   );
   if (explicit > 0) return explicit;
 
+  const suppliedTotal = order?.total_amount ?? order?.totalAmount;
+  if (suppliedTotal === undefined || suppliedTotal === null || suppliedTotal === "") {
+    return 0;
+  }
+
   const inferred = roundMoney(
-    subtotal + serviceFeeAmount + deliveryFeeAmount - roundMoney(order?.total_amount ?? order?.totalAmount ?? 0)
+    subtotal + serviceFeeAmount + deliveryFeeAmount - roundMoney(suppliedTotal)
   );
   if (inferred > 0) return inferred;
   return 0;
@@ -336,16 +342,10 @@ function resolveDeliveryBreakdown({
       courierSource,
       deliveryType,
       deliveryFee: 0,
-      appDeliveryFeeAmount: 0,
-      storeDeliveryFeeAmount: 0,
-    };
-  }
-
-  if (order?.has_free_delivery === true || order?.free_delivery_override === true) {
-    return {
-      courierSource,
-      deliveryType,
-      deliveryFee: 0,
+      rawDeliveryFee: 0,
+      deliverySubsidyAmount: 0,
+      freeDeliveryReason: null,
+      deliveryPromotion: null,
       appDeliveryFeeAmount: 0,
       storeDeliveryFeeAmount: 0,
     };
@@ -396,10 +396,42 @@ function resolveDeliveryBreakdown({
       : 0
   );
 
+  const campaign = order?.created_at
+    ? getFreeDeliveryCampaignStatus(order.created_at)
+    : { active: false };
+  const storedFreeDeliveryReason = String(
+    order?.free_delivery_reason || ""
+  ).trim();
+  const freeDeliveryReason = storedFreeDeliveryReason
+    ? storedFreeDeliveryReason
+    : campaign.active
+      ? "platform_campaign"
+      : order?.has_free_delivery === true || order?.free_delivery_override === true
+        ? "product_offer"
+        : null;
+
+  if (freeDeliveryReason) {
+    return {
+      courierSource,
+      deliveryType,
+      deliveryFee: 0,
+      rawDeliveryFee: deliveryFee,
+      deliverySubsidyAmount: deliveryFee,
+      freeDeliveryReason,
+      deliveryPromotion: campaign.active ? campaign : null,
+      appDeliveryFeeAmount: 0,
+      storeDeliveryFeeAmount: 0,
+    };
+  }
+
   return {
     courierSource,
     deliveryType,
     deliveryFee,
+    rawDeliveryFee: deliveryFee,
+    deliverySubsidyAmount: 0,
+    freeDeliveryReason: null,
+    deliveryPromotion: null,
     appDeliveryFeeAmount: roundMoney(appDeliveryFeeAmount),
     storeDeliveryFeeAmount: roundMoney(storeDeliveryFeeAmount),
   };
@@ -426,7 +458,14 @@ export function computeOrderFinancialSnapshot(order, profileInput = {}) {
       resolveServiceFeeAmount(subtotal, explicitServiceFee, profile)
   );
   const delivery = resolveDeliveryBreakdown({
-    order,
+    order: {
+      ...order,
+      free_delivery_override:
+        order?.free_delivery_override === true ||
+        Boolean(snapshotSource?.freeDeliveryReason),
+      free_delivery_reason:
+        order?.free_delivery_reason || snapshotSource?.freeDeliveryReason || null,
+    },
     profile,
     explicitDeliveryFee,
     subtotal,
@@ -462,6 +501,15 @@ export function computeOrderFinancialSnapshot(order, profileInput = {}) {
   return {
     subtotal,
     deliveryFee: delivery.deliveryFee,
+    rawDeliveryFee: roundMoney(
+      snapshotSource?.rawDeliveryFee ?? delivery.rawDeliveryFee
+    ),
+    deliverySubsidyAmount: roundMoney(
+      snapshotSource?.deliverySubsidyAmount ?? delivery.deliverySubsidyAmount
+    ),
+    freeDeliveryReason: delivery.freeDeliveryReason,
+    deliveryPromotion:
+      snapshotSource?.deliveryPromotion || delivery.deliveryPromotion || null,
     courierSource: delivery.courierSource,
     deliveryType: delivery.deliveryType,
     commissionType: profile.commissionType,

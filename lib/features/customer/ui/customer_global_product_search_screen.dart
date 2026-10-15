@@ -166,6 +166,21 @@ class _CustomerGlobalProductSearchScreenState
     );
   }
 
+  Future<void> _openSearchResult(Map<String, dynamic> item) async {
+    final merchant = _toMerchant(item);
+    final productId = int.tryParse('${item['productId'] ?? ''}');
+    final categoryId = int.tryParse('${item['categoryId'] ?? ''}');
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MerchantProductsScreen(
+          merchant: merchant,
+          initialCategoryId: categoryId,
+          initialProductId: productId,
+        ),
+      ),
+    );
+  }
+
   Future<void> _addToCart(
     Map<String, dynamic> item, {
     bool openCartAfterAdd = false,
@@ -410,12 +425,7 @@ class _CustomerGlobalProductSearchScreenState
                 onSelectionChanged: (next) {
                   setState(() => _cardSelections[product.id] = next);
                 },
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        MerchantProductsScreen(merchant: merchantModel),
-                  ),
-                ),
+                onTap: () => _openSearchResult(item),
                 trailing: Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -455,13 +465,7 @@ class _CustomerGlobalProductSearchScreenState
                         ),
                       ),
                     OutlinedButton(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => MerchantProductsScreen(
-                            merchant: _toMerchant(item),
-                          ),
-                        ),
-                      ),
+                      onPressed: () => _openSearchResult(item),
                       child: const Text('فتح المتجر'),
                     ),
                     FilledButton.tonalIcon(

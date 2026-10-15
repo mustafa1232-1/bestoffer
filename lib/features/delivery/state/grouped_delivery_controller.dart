@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/files/local_image_file.dart';
 import '../data/delivery_api.dart';
 import '../models/grouped_delivery_job.dart';
 import 'delivery_controller.dart' show deliveryApiProvider;
@@ -104,22 +105,35 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
 
   Future<void> _bootstrap({required bool silent}) async {
     final gen = _generation;
+    if (!mounted) return;
     if (!silent) state = state.copyWith(loading: true, clearError: true);
     try {
       final raw = await _api.currentGroupedJob();
-      if (gen != _generation) return; // superseded by logout / account switch
+      if (!mounted || gen != _generation) {
+        return; // disposed or superseded by logout / account switch
+      }
       if (raw == null) {
         state = state.copyWith(
-            loading: false, clearJob: true, clearError: true, cachedOffline: false);
+          loading: false,
+          clearJob: true,
+          clearError: true,
+          cachedOffline: false,
+        );
         return;
       }
       // The `current` row is a summary; fetch authoritative details.
-      final job = await _fetchDetails(GroupedDeliveryJob.fromMap(raw).deliveryJobId);
-      if (gen != _generation) return;
+      final job = await _fetchDetails(
+        GroupedDeliveryJob.fromMap(raw).deliveryJobId,
+      );
+      if (!mounted || gen != _generation) return;
       state = state.copyWith(
-          loading: false, job: job, clearError: true, cachedOffline: false);
+        loading: false,
+        job: job,
+        clearError: true,
+        cachedOffline: false,
+      );
     } catch (e) {
-      if (gen != _generation) return;
+      if (!mounted || gen != _generation) return;
       // §4: keep any existing job as a cached/offline view (mutations blocked)
       // and surface a retryable error; never silently read as "no job".
       state = state.copyWith(
@@ -148,14 +162,21 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
       if (gen != _generation) return;
       // A terminal job leaves Current (mirrors the server `current` contract).
       state = job.isTerminal
-          ? state.copyWith(clearJob: true, clearError: true, cachedOffline: false)
+          ? state.copyWith(
+              clearJob: true,
+              clearError: true,
+              cachedOffline: false,
+            )
           : state.copyWith(job: job, clearError: true, cachedOffline: false);
     } catch (e) {
       if (gen != _generation) return;
       if (e is DioException && e.response?.statusCode == 404) {
         state = state.copyWith(clearJob: true, cachedOffline: false);
       } else {
-        state = state.copyWith(error: _mapError(e), cachedOffline: state.job != null);
+        state = state.copyWith(
+          error: _mapError(e),
+          cachedOffline: state.job != null,
+        );
       }
     }
   }
@@ -184,9 +205,11 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
       state = state.copyWith(
         historyLoading: false,
         history: rows
-            .map((e) => GroupedDeliveryAssignmentHistory.fromMap(
-                  Map<String, dynamic>.from(e as Map),
-                ))
+            .map(
+              (e) => GroupedDeliveryAssignmentHistory.fromMap(
+                Map<String, dynamic>.from(e as Map),
+              ),
+            )
             .toList(),
       );
     } catch (e) {
@@ -208,7 +231,11 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
       if (state.cachedOffline) return;
     }
     final previous = state.job!;
-    state = state.copyWith(saving: true, clearError: true, job: optimistic ?? job);
+    state = state.copyWith(
+      saving: true,
+      clearError: true,
+      job: optimistic ?? job,
+    );
     try {
       await call(job.deliveryJobId, job.version);
       await refresh();
@@ -231,14 +258,28 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
       _mutate((id, v) => _api.headingToPickups(id, expectedVersion: v));
 
   Future<void> arrivedAtStore(int stopId) => _mutate(
-        (id, v) => _api.stopArrived(id, stopId, expectedVersion: v),
-        optimistic: state.job?.withStopStatus(stopId, 'COURIER_ARRIVED'),
-      );
+    (id, v) => _api.stopArrived(id, stopId, expectedVersion: v),
+    optimistic: state.job?.withStopStatus(stopId, 'COURIER_ARRIVED'),
+  );
 
-  Future<void> collectStore(int stopId) => _mutate(
-        (id, v) => _api.stopCollected(id, stopId, expectedVersion: v),
-        optimistic: state.job?.withStopStatus(stopId, 'COLLECTED'),
-      );
+  Future<void> collectStore(
+    int stopId, {
+    required double merchantPaidActual,
+    LocalImageFile? receiptFile,
+    bool withoutReceipt = false,
+    String? merchantPaymentNote,
+  }) => _mutate(
+    (id, v) => _api.stopCollected(
+      id,
+      stopId,
+      expectedVersion: v,
+      merchantPaidActual: merchantPaidActual,
+      receiptFile: receiptFile,
+      withoutReceipt: withoutReceipt,
+      merchantPaymentNote: merchantPaymentNote,
+    ),
+    optimistic: state.job?.withStopStatus(stopId, 'COLLECTED'),
+  );
 
   Future<void> headingToCustomer() {
     // Client-side guard mirrors the server rule (avoids a pointless 409).
@@ -246,13 +287,21 @@ class GroupedDeliveryController extends StateNotifier<GroupedDeliveryState> {
     return _mutate((id, v) => _api.headingToCustomer(id, expectedVersion: v));
   }
 
-  Future<void> markDelivered() {
+  Future<void> markDelivered({required double customerReceivedActual}) {
     if (state.job?.canDeliver != true) return Future.value();
-    return _mutate((id, v) => _api.markGroupedDelivered(id, expectedVersion: v));
+    return _mutate(
+      (id, v) => _api.markGroupedDelivered(
+        id,
+        expectedVersion: v,
+        customerReceivedActual: customerReceivedActual,
+      ),
+    );
   }
 }
 
 final groupedDeliveryControllerProvider =
-    StateNotifierProvider<GroupedDeliveryController, GroupedDeliveryState>((ref) {
-  return GroupedDeliveryController(ref.read(deliveryApiProvider));
-});
+    StateNotifierProvider<GroupedDeliveryController, GroupedDeliveryState>((
+      ref,
+    ) {
+      return GroupedDeliveryController(ref.read(deliveryApiProvider));
+    });

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/currency.dart';
 import '../../models/owner_merchant_model.dart';
 import '../../state/owner_controller.dart';
@@ -135,6 +136,8 @@ class OwnerDashboardMetrics {
   final String merchantStatusLabel;
   final String? tagline;
   final double totalSales;
+  final double appCommission;
+  final double netProfit;
   final int totalOrders;
   final int completedOrders;
   final int cancelledOrders;
@@ -156,6 +159,8 @@ class OwnerDashboardMetrics {
     required this.merchantStatusLabel,
     required this.tagline,
     required this.totalSales,
+    required this.appCommission,
+    required this.netProfit,
     required this.totalOrders,
     required this.completedOrders,
     required this.cancelledOrders,
@@ -198,10 +203,36 @@ class OwnerDashboardMetrics {
           analyticsLifetime.ordersCount,
     );
     final totalSales = _doubleValue(
-      dashboardKpis?['grossSales'] ??
+      dashboardKpis?['productSales'] ??
+          dashboardKpis?['product_sales'] ??
+          dashboardKpis?['grossSales'] ??
           dashboardKpis?['gross_sales'] ??
           dashboardKpis?['totalSales'] ??
           dashboardKpis?['total_sales'],
+    );
+    final rawAppCommission =
+        dashboardKpis?['appCommission'] ??
+        dashboardKpis?['app_commission'] ??
+        dashboardKpis?['totalAppDue'] ??
+        dashboardKpis?['total_app_due'] ??
+        dashboardKpis?['appDue'] ??
+        dashboardKpis?['app_due'] ??
+        dashboardKpis?['commissionAmount'] ??
+        dashboardKpis?['commission_amount'];
+    // Older production responses expose the application receivable only in
+    // the settlement summary. Use it when the newer KPI field is absent, so
+    // net profit cannot silently equal gross product sales.
+    final appCommission = rawAppCommission == null
+        ? _doubleValue(
+            outstandingSource['outstandingAmount'] ??
+                outstandingSource['outstanding_amount'] ??
+                0,
+          )
+        : _doubleValue(rawAppCommission);
+    final netProfit = _doubleValue(
+      dashboardKpis?['netProfit'] ??
+          dashboardKpis?['net_profit'] ??
+          (totalSales - appCommission),
     );
     final completedOrders = _intValue(
       dashboardKpis?['completedOrders'] ??
@@ -252,6 +283,8 @@ class OwnerDashboardMetrics {
           ? merchant!.tagline!.trim()
           : merchant?.description?.trim(),
       totalSales: totalSales,
+      appCommission: appCommission,
+      netProfit: netProfit,
       totalOrders: totalOrders,
       completedOrders: completedOrders,
       cancelledOrders: cancelledOrders,
@@ -306,15 +339,14 @@ class OwnerPeriodReportSummary {
     var activeOrders = 0;
 
     for (final order in orders) {
-      subtotal += order.subtotal;
-      serviceFee += order.serviceFee;
-      deliveryFee += order.deliveryFee;
-      couponDiscount += order.couponDiscountTotal;
-      grossSales += order.totalAmount;
-
       final status = order.status.toLowerCase();
       if (_completedStatuses.contains(status)) {
         completedOrders += 1;
+        subtotal += order.subtotal;
+        serviceFee += order.serviceFee;
+        deliveryFee += order.deliveryFee;
+        couponDiscount += order.couponDiscountTotal;
+        grossSales += order.subtotal;
       } else if (_cancelledStatuses.contains(status)) {
         cancelledOrders += 1;
       } else if (_activeStatuses.contains(status)) {
@@ -333,13 +365,13 @@ class OwnerPeriodReportSummary {
       deliveryFee: deliveryFee,
       couponDiscount: couponDiscount,
       grossSales: grossSales,
-      avgOrderValue: count == 0 ? 0 : grossSales / count,
+      avgOrderValue: completedOrders == 0 ? 0 : grossSales / completedOrders,
     );
   }
 
   List<String> get summaryLines => [
     'عدد الطلبات: $ordersCount',
-    'إجمالي المبيعات: ${formatIqd(grossSales)}',
+    'قيمة المنتجات: ${formatIqd(grossSales)}',
     'المجموع الفرعي: ${formatIqd(subtotal)}',
     'رسوم الخدمة المخزنة: ${formatIqd(serviceFee)}',
     'أجور التوصيل: ${formatIqd(deliveryFee)}',
@@ -414,24 +446,23 @@ class _OwnerHeroPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(26),
         gradient: LinearGradient(
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
           colors: [
-            scheme.primary.withValues(alpha: 0.26),
-            scheme.secondary.withValues(alpha: 0.18),
-            scheme.surfaceContainerHighest.withValues(alpha: 0.42),
+            AppColors.brandGreen.withValues(alpha: 0.18),
+            AppColors.brandGold.withValues(alpha: 0.10),
+            Colors.white.withValues(alpha: 0.92),
           ],
         ),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        border: Border.all(color: AppColors.brandGold.withValues(alpha: 0.28)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.18),
+            color: AppColors.brandNavy.withValues(alpha: 0.12),
             blurRadius: 24,
             offset: const Offset(0, 12),
           ),
@@ -451,6 +482,7 @@ class _OwnerHeroPanel extends StatelessWidget {
                       metrics.merchant?.name ?? 'لوحة صاحب المتجر',
                       textDirection: TextDirection.rtl,
                       style: const TextStyle(
+                        color: AppColors.brandNavy,
                         fontSize: 22,
                         fontWeight: FontWeight.w900,
                       ),
@@ -461,8 +493,9 @@ class _OwnerHeroPanel extends StatelessWidget {
                           ? metrics.tagline!
                           : 'مراقبة المبيعات، التقارير، المستحقات، وأداء التشغيل من مكان واحد.',
                       textDirection: TextDirection.rtl,
-                      style: TextStyle(
-                        color: scheme.onSurface.withValues(alpha: 0.82),
+                      style: const TextStyle(
+                        color: AppColors.brandNavy,
+                        fontWeight: FontWeight.w600,
                         height: 1.5,
                       ),
                     ),
@@ -476,7 +509,7 @@ class _OwnerHeroPanel extends StatelessWidget {
                   _Badge(
                     icon: Icons.storefront_outlined,
                     label: metrics.merchantTypeLabel,
-                    accent: scheme.primary,
+                    accent: AppColors.brandGreen,
                   ),
                   const SizedBox(height: 8),
                   _Badge(
@@ -508,8 +541,10 @@ class _OwnerHeroPanel extends StatelessWidget {
                     width: cardWidth,
                     child: _HeroStatCard(
                       icon: Icons.point_of_sale_outlined,
-                      label: 'إجمالي المبيعات',
+                      label: 'قيمة المنتجات',
                       value: formatIqd(metrics.totalSales),
+                      secondaryLabel: 'صافي الربح',
+                      secondaryValue: formatIqd(metrics.netProfit),
                       accent: const Color(0xFF2AA876),
                       onTap: () =>
                           onOpenPeriodReport(period: 'all', title: 'الإجمالي'),
@@ -528,7 +563,7 @@ class _OwnerHeroPanel extends StatelessWidget {
                     width: cardWidth,
                     child: _HeroStatCard(
                       icon: Icons.insights_outlined,
-                      label: 'متوسط الطلب',
+                      label: 'Ù…ØªÙˆØ³Ø· Ø§Ù„Ø·Ù„Ø¨',
                       value: formatIqd(metrics.avgOrderValue),
                       accent: const Color(0xFFE97A2E),
                     ),
@@ -824,17 +859,19 @@ class _TrendMiniChart extends StatelessWidget {
             Text(
               'اتجاه الطلبات',
               textDirection: TextDirection.rtl,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                color: AppColors.brandNavy,
+                fontWeight: FontWeight.w900,
+              ),
             ),
             const Spacer(),
             Text(
               'آخر تحديث مباشر',
               textDirection: TextDirection.rtl,
               style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                color: AppColors.brandNavy.withValues(alpha: 0.68),
                 fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -869,10 +906,10 @@ class _TrendMiniChart extends StatelessWidget {
                                     begin: Alignment.topCenter,
                                     end: Alignment.bottomCenter,
                                     colors: [
-                                      Theme.of(context).colorScheme.primary,
-                                      Theme.of(
-                                        context,
-                                      ).colorScheme.secondaryContainer,
+                                      AppColors.brandGreen,
+                                      AppColors.brandGold.withValues(
+                                        alpha: 0.72,
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -883,11 +920,15 @@ class _TrendMiniChart extends StatelessWidget {
                           Text(
                             point.label,
                             textDirection: TextDirection.rtl,
-                            style: const TextStyle(fontSize: 12),
+                            style: const TextStyle(
+                              color: AppColors.brandNavy,
+                              fontSize: 12,
+                            ),
                           ),
                           Text(
                             point.value.toString(),
                             style: const TextStyle(
+                              color: AppColors.brandNavy,
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
@@ -1000,7 +1041,7 @@ class _ReceivablesSummaryCard extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _ReceivableRow(
-          label: 'إجمالي المبيعات',
+          label: 'قيمة المنتجات',
           value: formatIqd(metrics.totalSales),
         ),
         _ReceivableRow(
@@ -1079,13 +1120,19 @@ class _PanelSectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.42),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        color: Colors.white.withValues(alpha: 0.95),
+        border: Border.all(color: AppColors.brandGold.withValues(alpha: 0.22)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.brandNavy.withValues(alpha: 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1093,7 +1140,11 @@ class _PanelSectionCard extends StatelessWidget {
           Text(
             title,
             textDirection: TextDirection.rtl,
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+            style: const TextStyle(
+              color: AppColors.brandNavy,
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+            ),
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 6),
@@ -1101,7 +1152,7 @@ class _PanelSectionCard extends StatelessWidget {
               subtitle!,
               textDirection: TextDirection.rtl,
               style: TextStyle(
-                color: scheme.onSurfaceVariant,
+                color: AppColors.brandNavy.withValues(alpha: 0.72),
                 fontSize: 12.5,
                 height: 1.4,
               ),
@@ -1120,6 +1171,8 @@ class _HeroStatCard extends StatelessWidget {
   final String label;
   final String value;
   final Color accent;
+  final String? secondaryLabel;
+  final String? secondaryValue;
   final VoidCallback? onTap;
 
   const _HeroStatCard({
@@ -1127,6 +1180,8 @@ class _HeroStatCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.accent,
+    this.secondaryLabel,
+    this.secondaryValue,
     this.onTap,
   });
 
@@ -1141,8 +1196,8 @@ class _HeroStatCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            color: Colors.white.withValues(alpha: 0.08),
-            border: Border.all(color: accent.withValues(alpha: 0.28)),
+            color: Colors.white.withValues(alpha: 0.90),
+            border: Border.all(color: accent.withValues(alpha: 0.34)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1159,8 +1214,9 @@ class _HeroStatCard extends StatelessWidget {
                 label,
                 textDirection: TextDirection.rtl,
                 style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: AppColors.brandNavy.withValues(alpha: 0.74),
                   fontSize: 12,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
               const SizedBox(height: 4),
@@ -1168,10 +1224,23 @@ class _HeroStatCard extends StatelessWidget {
                 value,
                 textDirection: TextDirection.rtl,
                 style: const TextStyle(
+                  color: AppColors.brandNavy,
                   fontSize: 18,
                   fontWeight: FontWeight.w900,
                 ),
               ),
+              if (secondaryLabel != null && secondaryValue != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '$secondaryLabel: $secondaryValue',
+                  textDirection: TextDirection.rtl,
+                  style: TextStyle(
+                    color: accent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -1193,8 +1262,8 @@ class _Badge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: accent.withValues(alpha: 0.16),
-        border: Border.all(color: accent.withValues(alpha: 0.22)),
+        color: accent.withValues(alpha: 0.14),
+        border: Border.all(color: accent.withValues(alpha: 0.34)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1203,7 +1272,11 @@ class _Badge extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+            style: const TextStyle(
+              color: AppColors.brandNavy,
+              fontWeight: FontWeight.w800,
+              fontSize: 12,
+            ),
           ),
         ],
       ),
@@ -1230,8 +1303,8 @@ class _MetricCard extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        color: Colors.white.withValues(alpha: 0.06),
-        border: Border.all(color: accent.withValues(alpha: 0.18)),
+        color: Colors.white.withValues(alpha: 0.96),
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
       ),
       child: Row(
         children: [
@@ -1253,8 +1326,9 @@ class _MetricCard extends StatelessWidget {
                   label,
                   textDirection: TextDirection.rtl,
                   style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    color: AppColors.brandNavy.withValues(alpha: 0.72),
                     fontSize: 12,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -1262,6 +1336,7 @@ class _MetricCard extends StatelessWidget {
                   value,
                   textDirection: TextDirection.rtl,
                   style: const TextStyle(
+                    color: AppColors.brandNavy,
                     fontSize: 18,
                     fontWeight: FontWeight.w900,
                   ),
@@ -1294,7 +1369,6 @@ class _QuickActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1304,8 +1378,10 @@ class _QuickActionTile extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
-            color: Colors.white.withValues(alpha: 0.06),
-            border: Border.all(color: scheme.primary.withValues(alpha: 0.14)),
+            color: Colors.white.withValues(alpha: 0.96),
+            border: Border.all(
+              color: AppColors.brandGreen.withValues(alpha: 0.20),
+            ),
           ),
           child: Row(
             children: [
@@ -1314,9 +1390,9 @@ class _QuickActionTile extends StatelessWidget {
                 height: 40,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(14),
-                  color: scheme.primary.withValues(alpha: 0.16),
+                  color: AppColors.brandGreen.withValues(alpha: 0.14),
                 ),
-                child: Icon(action.icon, color: scheme.primary),
+                child: Icon(action.icon, color: AppColors.brandGreen),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1324,12 +1400,16 @@ class _QuickActionTile extends StatelessWidget {
                   action.label,
                   textDirection: TextDirection.rtl,
                   style: const TextStyle(
+                    color: AppColors.brandNavy,
                     fontWeight: FontWeight.w800,
                     fontSize: 14,
                   ),
                 ),
               ),
-              Icon(Icons.chevron_left_rounded, color: scheme.onSurfaceVariant),
+              Icon(
+                Icons.chevron_left_rounded,
+                color: AppColors.brandNavy.withValues(alpha: 0.58),
+              ),
             ],
           ),
         ),
@@ -1375,11 +1455,11 @@ class _PeriodCard extends StatelessWidget {
               begin: Alignment.topRight,
               end: Alignment.bottomLeft,
               colors: [
-                spec.accent.withValues(alpha: 0.24),
-                Colors.white.withValues(alpha: 0.06),
+                spec.accent.withValues(alpha: 0.16),
+                Colors.white.withValues(alpha: 0.96),
               ],
             ),
-            border: Border.all(color: spec.accent.withValues(alpha: 0.26)),
+            border: Border.all(color: spec.accent.withValues(alpha: 0.34)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1396,6 +1476,7 @@ class _PeriodCard extends StatelessWidget {
                 spec.title,
                 textDirection: TextDirection.rtl,
                 style: const TextStyle(
+                  color: AppColors.brandNavy,
                   fontWeight: FontWeight.w900,
                   fontSize: 15,
                 ),
@@ -1405,8 +1486,9 @@ class _PeriodCard extends StatelessWidget {
                 spec.subtitle,
                 textDirection: TextDirection.rtl,
                 style: TextStyle(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  color: AppColors.brandNavy.withValues(alpha: 0.70),
                   fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ],

@@ -46,6 +46,9 @@ class _DeliveryLiveTrackingScreenState
   Timer? _reconnectTimer;
   int _reconnectAttempt = 0;
   bool _lifecycleResumed = true;
+  bool _loadInFlight = false;
+  DateTime? _lastLiveEventAt;
+  String? _snapshotFingerprint;
   late final VoidCallback _sessionRecoveryListener;
 
   bool get _isPublic => widget.publicToken != null;
@@ -97,15 +100,20 @@ class _DeliveryLiveTrackingScreenState
   void _startLiveUpdates() {
     if (!_lifecycleResumed || !orderTrackingIsActive(_snapshot)) return;
     _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     if (_isPublic) {
-      _connectPublicStream();
+      if (_publicSub == null) _connectPublicStream();
     } else {
-      _connectTrackingStream();
+      if (_liveSub == null) _connectTrackingStream();
     }
-    _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(Duration(seconds: _isPublic ? 12 : 6), (_) {
+    _pollTimer ??= Timer.periodic(Duration(seconds: _isPublic ? 30 : 20), (_) {
       if (_lifecycleResumed && orderTrackingIsActive(_snapshot)) {
-        unawaited(_load(silent: true));
+        final staleAfter = Duration(seconds: _isPublic ? 25 : 15);
+        final lastEvent = _lastLiveEventAt;
+        if (lastEvent == null ||
+            DateTime.now().difference(lastEvent) >= staleAfter) {
+          unawaited(_load(silent: true));
+        }
       }
     });
   }
@@ -130,6 +138,8 @@ class _DeliveryLiveTrackingScreenState
   }
 
   Future<void> _load({bool silent = false}) async {
+    if (_loadInFlight) return;
+    _loadInFlight = true;
     if (!silent) {
       setState(() {
         _loading = true;
@@ -149,11 +159,8 @@ class _DeliveryLiveTrackingScreenState
                   : api.getTrackingSnapshot(widget.orderId!))
               .timeout(const Duration(seconds: 15));
       if (!mounted) return;
-      setState(() {
-        _snapshot = trackingMap(data) ?? const <String, dynamic>{};
-        _loading = false;
-        _error = null;
-      });
+      _commitSnapshot(trackingMap(data) ?? const <String, dynamic>{});
+      _startLiveUpdates();
     } on DioException catch (error) {
       if (!mounted) return;
       // A real 403 means this viewer is not allowed to track the order (e.g. a
@@ -182,11 +189,13 @@ class _DeliveryLiveTrackingScreenState
           en: 'Failed to load live tracking for this order.',
         );
       });
+    } finally {
+      _loadInFlight = false;
     }
   }
 
   void _connectTrackingStream() {
-    _liveSub?.cancel();
+    if (_liveSub != null) return;
     _liveSub = ref
         .read(ordersApiProvider)
         .streamTrackingEvents(
@@ -197,15 +206,12 @@ class _DeliveryLiveTrackingScreenState
           (event) {
             if (!mounted) return;
             _reconnectAttempt = 0;
+            _lastLiveEventAt = DateTime.now();
             if (event.eventId != null) {
               _lastTrackingEventId = event.eventId;
             }
             if (event.event == 'order_tracking_update') {
-              setState(() {
-                _snapshot = mergeOrderTrackingEvent(_snapshot, event.data);
-                _loading = false;
-                _error = null;
-              });
+              _commitSnapshot(mergeOrderTrackingEvent(_snapshot, event.data));
               if (!orderTrackingIsActive(_snapshot)) _stopLiveUpdates();
             } else if (event.event == 'notification' ||
                 event.event == 'resync_required') {
@@ -213,15 +219,19 @@ class _DeliveryLiveTrackingScreenState
             }
           },
           onError: (error, stack) {
+            _liveSub = null;
             unawaited(_load(silent: true));
             _scheduleReconnect();
           },
-          onDone: _scheduleReconnect,
+          onDone: () {
+            _liveSub = null;
+            _scheduleReconnect();
+          },
         );
   }
 
   void _connectPublicStream() {
-    _publicSub?.cancel();
+    if (_publicSub != null) return;
     _publicSub = ref
         .read(ordersApiProvider)
         .streamPublicTrackingByToken(widget.publicToken!)
@@ -229,12 +239,9 @@ class _DeliveryLiveTrackingScreenState
           (event) {
             if (!mounted) return;
             _reconnectAttempt = 0;
+            _lastLiveEventAt = DateTime.now();
             if (event.event == 'order_tracking_update') {
-              setState(() {
-                _snapshot = mergeOrderTrackingEvent(_snapshot, event.data);
-                _error = null;
-                _loading = false;
-              });
+              _commitSnapshot(mergeOrderTrackingEvent(_snapshot, event.data));
               if (!orderTrackingIsActive(_snapshot)) _stopLiveUpdates();
               return;
             }
@@ -243,11 +250,30 @@ class _DeliveryLiveTrackingScreenState
             }
           },
           onError: (error, stack) {
+            _publicSub = null;
             unawaited(_load(silent: true));
             _scheduleReconnect();
           },
-          onDone: _scheduleReconnect,
+          onDone: () {
+            _publicSub = null;
+            _scheduleReconnect();
+          },
         );
+  }
+
+  void _commitSnapshot(Map<String, dynamic> next) {
+    if (!mounted) return;
+    final fingerprint = trackingPayloadFingerprint(next);
+    final changed = fingerprint != _snapshotFingerprint;
+    if (!changed && !_loading && _error == null) return;
+    setState(() {
+      if (changed) {
+        _snapshot = next;
+        _snapshotFingerprint = fingerprint;
+      }
+      _loading = false;
+      _error = null;
+    });
   }
 
   Future<void> _shareTracking() async {
@@ -335,6 +361,16 @@ class _DeliveryLiveTrackingScreenState
     return trackingMap(_snapshot?['latestLocation']);
   }
 
+  TrackingMotionSample? get _trackedCourierSample {
+    final fallbackTimestamp = DateTime.tryParse(
+      _string(_snapshot?['lastUpdatedAt']) ?? '',
+    );
+    return trackingMotionSampleFromMap(
+      _latestLocation,
+      fallbackTimestamp: fallbackTimestamp,
+    );
+  }
+
   Map<String, dynamic>? get _destination {
     return trackingMap(_snapshot?['destination']);
   }
@@ -366,7 +402,6 @@ class _DeliveryLiveTrackingScreenState
     final tokens = context.maslakiTokens;
     final items = <Marker>[];
     final destination = _destinationPoint;
-    final courierPoint = latLngFromMap(_latestLocation);
 
     if (destination != null) {
       items.add(
@@ -378,35 +413,6 @@ class _DeliveryLiveTrackingScreenState
             Icons.location_on_rounded,
             color: tokens.primaryAccent,
             size: 40,
-          ),
-        ),
-      );
-    }
-
-    if (courierPoint != null) {
-      items.add(
-        Marker(
-          point: courierPoint,
-          width: 58,
-          height: 58,
-          child: Container(
-            decoration: BoxDecoration(
-              color: tokens.surfaceSecondary,
-              shape: BoxShape.circle,
-              border: Border.all(color: tokens.primaryAccent, width: 1.5),
-              boxShadow: [
-                BoxShadow(
-                  color: tokens.glowPrimary.withValues(alpha: 0.34),
-                  blurRadius: 18,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-            child: Icon(
-              Icons.two_wheeler_rounded,
-              color: tokens.primaryAccent,
-              size: 30,
-            ),
           ),
         ),
       );
@@ -622,6 +628,32 @@ class _DeliveryLiveTrackingScreenState
       initialCenter: _initialCenter,
       markers: _markers,
       polylines: _polylines,
+      trackedSample: _trackedCourierSample,
+      trackedMarkerBuilder: (context, headingDegrees) {
+        final tokens = context.maslakiTokens;
+        return Container(
+          decoration: BoxDecoration(
+            color: tokens.surfaceSecondary,
+            shape: BoxShape.circle,
+            border: Border.all(color: tokens.primaryAccent, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: tokens.glowPrimary.withValues(alpha: 0.34),
+                blurRadius: 18,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: Transform.rotate(
+            angle: headingDegrees * 3.141592653589793 / 180,
+            child: Icon(
+              Icons.two_wheeler_rounded,
+              color: tokens.primaryAccent,
+              size: 30,
+            ),
+          ),
+        );
+      },
       topActions: topActions,
       sheetBuilder: (context, scrollController) {
         return ListView(

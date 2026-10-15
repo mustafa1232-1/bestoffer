@@ -65,6 +65,12 @@ class MediaCacheService {
     bindGlobalImageCacheManager();
   }
 
+  @visibleForTesting
+  MediaCacheService.withVideoCache(CacheManager videosManager)
+    : policy = const MediaCachePolicy() {
+    _videosManager = videosManager;
+  }
+
   CacheManager get imagesManager => _imagesManager;
   CacheManager get videosManager => _videosManager;
 
@@ -145,6 +151,7 @@ class MediaCacheService {
     MediaCacheScope scope = MediaCacheScope.public,
     int? userId,
     Map<String, String>? headers,
+    bool downloadIfMissing = false,
   }) async {
     // Normalize transport (http->https) and encoding so reels/videos load on
     // strict Android/iOS builds exactly like images do.
@@ -164,11 +171,6 @@ class MediaCacheService {
     final uri = Uri.tryParse(cleaned);
     if (uri == null) return CachedVideoSource.network(cleaned);
 
-    final contentLength = await _readContentLength(uri, headers: headers);
-    if (contentLength != null && contentLength > policy.maxVideoFileBytes) {
-      return CachedVideoSource.network(cleaned);
-    }
-
     final key = buildKey(
       MediaCacheKeyInput(
         url: cleaned,
@@ -180,6 +182,19 @@ class MediaCacheService {
     );
 
     try {
+      final cached = await _videosManager.getFileFromCache(key);
+      if (cached != null &&
+          cached.validTill.isAfter(DateTime.now()) &&
+          await cached.file.exists()) {
+        return CachedVideoSource.file(cached.file);
+      }
+      // Playback must not wait for a HEAD request followed by a complete MP4
+      // download. Let the player stream/range-fetch on a cache miss.
+      if (!downloadIfMissing) return CachedVideoSource.network(cleaned);
+      final contentLength = await _readContentLength(uri, headers: headers);
+      if (contentLength == null || contentLength > policy.maxVideoFileBytes) {
+        return CachedVideoSource.network(cleaned);
+      }
       final file = await _videosManager.getSingleFile(
         cleaned,
         key: key,
@@ -206,6 +221,7 @@ class MediaCacheService {
       unawaited(
         resolveVideoSource(
           url: url,
+          downloadIfMissing: true,
           version: version,
           scope: scope,
           userId: userId,

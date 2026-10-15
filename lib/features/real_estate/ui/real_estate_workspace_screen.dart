@@ -7,6 +7,7 @@ import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
 import '../../../core/sections/section_unavailable_screen.dart';
 import '../../paid_upgrades/ui/paid_upgrades_home_screen.dart';
+import '../../social/ui/social_chat_threads_screen.dart';
 import '../data/real_estate_api.dart';
 import '../models/real_estate_models.dart';
 import 'real_estate_listing_details_screen.dart';
@@ -79,7 +80,10 @@ class _RealEstateWorkspaceScreenState
     }
   }
 
-  Future<void> _markStatus(RealEstateListingModel listing, String nextStatus) async {
+  Future<void> _markStatus(
+    RealEstateListingModel listing,
+    String nextStatus,
+  ) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -91,7 +95,10 @@ class _RealEstateWorkspaceScreenState
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            mapAnyError(error, fallback: context.l10n.realEstateStatusUpdateFailed),
+            mapAnyError(
+              error,
+              fallback: context.l10n.realEstateStatusUpdateFailed,
+            ),
           ),
         ),
       );
@@ -114,6 +121,17 @@ class _RealEstateWorkspaceScreenState
       appBar: AppBar(
         title: Text(l10n.realEstateWorkspaceTitle),
         actions: [
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const SocialChatThreadsScreen(
+                  contextTypeFilter: 'real_estate_listing',
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.forum_outlined),
+            tooltip: 'محادثات النشاط',
+          ),
           IconButton(
             onPressed: _loading ? null : _load,
             icon: const Icon(Icons.refresh_rounded),
@@ -154,7 +172,8 @@ class _RealEstateWorkspaceScreenState
                 children: [
                   if (workspace != null && !workspace.propertySellerMonthly)
                     _PlanInactiveBanner(onOpenUpgrade: _openUpgrade),
-                  if (workspace != null) _WorkspaceSummary(workspace: workspace),
+                  if (workspace != null)
+                    _WorkspaceSummary(workspace: workspace),
                   const SizedBox(height: 12),
                   if (workspace == null || workspace.listings.isEmpty)
                     Padding(
@@ -173,10 +192,11 @@ class _RealEstateWorkspaceScreenState
                               onTap: () async {
                                 await Navigator.of(context).push(
                                   MaterialPageRoute(
-                                    builder: (_) => RealEstateListingDetailsScreen(
-                                      listingId: listing.id,
-                                      initialListing: listing,
-                                    ),
+                                    builder: (_) =>
+                                        RealEstateListingDetailsScreen(
+                                          listingId: listing.id,
+                                          initialListing: listing,
+                                        ),
                                   ),
                                 );
                                 if (mounted) {
@@ -215,11 +235,13 @@ class _RealEstateWorkspaceScreenState
                                   ),
                                 if (listing.status == 'active' ||
                                     listing.status == 'pending_admin_review' ||
-                                    listing.status == 'hidden_due_subscription_expiry')
+                                    listing.status ==
+                                        'hidden_due_subscription_expiry')
                                   OutlinedButton.icon(
                                     onPressed: _busy
                                         ? null
-                                        : () => _markStatus(listing, 'archived'),
+                                        : () =>
+                                              _markStatus(listing, 'archived'),
                                     icon: const Icon(Icons.archive_outlined),
                                     label: Text(l10n.realEstateArchived),
                                   ),

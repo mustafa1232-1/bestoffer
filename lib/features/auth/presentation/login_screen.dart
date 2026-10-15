@@ -14,15 +14,17 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/maslaki_brand_mark.dart';
 import '../../../core/widgets/maslaki_wordmark.dart';
 import '../../settings/ui/settings_screen.dart';
-import '../../services/ui/service_provider_onboarding_screen.dart';
 import '../domain/auth_input_normalizer.dart';
 import '../state/auth_controller.dart';
 import 'register_screen.dart';
+import 'mandatory_pin_change_screen.dart';
 
 /// شاشة الدخول الأساسية للتطبيق، وتستخدم أيضاً كبوابة مقيدة لمسار أصحاب
 /// المتاجر عندما يكون `ownerOnly=true`.
 class LoginScreen extends ConsumerStatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.popOnSuccess = false});
+
+  final bool popOnSuccess;
 
   @override
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
@@ -60,7 +62,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     if (normalized.isEmpty) {
       return context.l10n.authPhoneRequired;
     }
-    if (!isPlausibleIraqiAuthPhone(normalized)) {
+    if (!isPlausibleAuthLoginPhone(normalized)) {
       return context.l10n.authPhoneIncomplete;
     }
     return null;
@@ -111,8 +113,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       return;
     }
     if (authAfter.isCustomer ||
-        authAfter.isBackoffice ||
+        authAfter.isAdminDashboardUser ||
         authAfter.isServiceProvider) {
+      if (authAfter.user?.mustChangePin == true) {
+        if (!context.mounted) return;
+        final navigator = Navigator.of(context);
+        await navigator.push(
+          MaterialPageRoute(
+            builder: (_) => MandatoryPinChangeScreen(initialPin: pinCtrl.text),
+          ),
+        );
+      }
+      if (widget.popOnSuccess && context.mounted) {
+        Navigator.of(context).pop(true);
+      }
       return;
     }
 
@@ -123,6 +137,19 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         SnackBar(content: Text(l10n.authUserOnlyAppError)),
       );
     }
+  }
+
+  Future<void> _requestPinReset() async {
+    final phone = phoneCtrl.text.trim();
+    if (_validatePhone(context, phone) != null) {
+      setState(() => _phoneError = _validatePhone(context, phone));
+      return;
+    }
+    await ref.read(authControllerProvider.notifier).requestPinReset(phone);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('تم إرسال طلب إعادة التعيين إلى الإدارة')),
+    );
   }
 
   @override
@@ -154,9 +181,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final viewInsetsBottom = MediaQuery.viewInsetsOf(
-                  context,
-                ).bottom;
+                final viewInsetsBottom = MediaQuery.viewInsetsOf(context)
+                    .bottom;
                 // Height actually visible above the keyboard. Clamped so the
                 // minHeight can never go negative on tiny screens.
                 final visibleHeight =
@@ -277,9 +303,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                         ),
                       );
                     },
-                    icon: const Icon(
+                    icon: Icon(
                       Icons.settings_outlined,
-                      color: Colors.white70,
+                      color: tokens.textSecondary,
                     ),
                   ),
                 ],
@@ -359,6 +385,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
               ),
               const SizedBox(height: 8),
               TextButton(
+                onPressed: auth.loading || _loginInFlight
+                    ? null
+                    : _requestPinReset,
+                child: Text(
+                  'نسيت الرمز الخاص بي',
+                  style: TextStyle(color: tokens.textPrimary),
+                ),
+              ),
+              TextButton(
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const RegisterScreen()),
@@ -368,16 +403,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                   l10n.authCreateUserAccount,
                   style: TextStyle(color: tokens.textPrimary),
                 ),
-              ),
-              TextButton(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const ServiceProviderOnboardingScreen(),
-                    ),
-                  );
-                },
-                child: const Text('إنشاء حساب صاحب خدمة'),
               ),
               const SizedBox(height: 6),
               FilledButton.icon(
@@ -572,34 +597,38 @@ class _WelcomePill extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (!animationsEnabled) {
-      return _buildContent(0.55);
+      return _buildContent(context, 0.55);
     }
 
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
         final value = Curves.easeInOut.transform(controller.value);
-        return _buildContent(value);
+        return _buildContent(context, value);
       },
     );
   }
 
-  Widget _buildContent(double value) {
+  Widget _buildContent(BuildContext context, double value) {
+    final tokens = context.maslakiTokens;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
         color: Color.lerp(
-          const Color(0x33D4B07A),
-          const Color(0x334A6D93),
+          tokens.secondaryAccent.withValues(alpha: 0.12),
+          tokens.primaryAccent.withValues(alpha: 0.10),
           value,
         ),
-        border: Border.all(color: Colors.white.withOpacity(0.14)),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.80)),
       ),
       child: Text(
         text,
         textAlign: TextAlign.center,
-        style: TextStyle(color: Colors.white.withOpacity(0.95)),
+        style: TextStyle(
+          color: tokens.textSecondary,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
@@ -630,6 +659,7 @@ class _Field extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.maslakiTokens;
     return Directionality(
       textDirection: textDirection,
       child: TextFormField(
@@ -638,23 +668,33 @@ class _Field extends StatelessWidget {
         obscureText: obscure,
         onChanged: onChanged,
         textAlign: textAlign ?? TextAlign.start,
-        style: const TextStyle(color: Colors.white),
+        style: TextStyle(
+          color: tokens.textPrimary,
+          fontWeight: FontWeight.w700,
+        ),
+        cursorColor: tokens.primaryAccent,
         decoration: InputDecoration(
           labelText: label,
           errorText: errorText,
           hintText: hint,
-          hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-          labelStyle: TextStyle(color: Colors.white.withOpacity(0.85)),
+          hintStyle: TextStyle(color: tokens.textMuted),
+          labelStyle: TextStyle(color: tokens.textSecondary),
+          floatingLabelStyle: TextStyle(
+            color: tokens.primaryAccent,
+            fontWeight: FontWeight.w800,
+          ),
           filled: true,
-          fillColor: Colors.white.withOpacity(0.10),
+          fillColor: tokens.surfacePrimary.withValues(alpha: 0.96),
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.white.withOpacity(0.16)),
+            borderSide: BorderSide(
+              color: tokens.borderSubtle.withValues(alpha: 0.80),
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(18),
-            borderSide: BorderSide(color: Colors.white.withOpacity(0.35)),
+            borderSide: BorderSide(color: tokens.primaryAccent, width: 1.2),
           ),
         ),
       ),

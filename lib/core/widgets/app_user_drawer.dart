@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../auth/app_permission_matrix.dart';
 import '../utils/parsers.dart';
+import '../../features/admin/state/admin_controller.dart';
+import '../../features/admin/ui/admin_support_tickets_screen.dart';
 import '../../features/auth/state/auth_controller.dart';
 import '../../features/settings/ui/settings_screen.dart';
 import '../../features/social/models/social_models.dart';
@@ -16,6 +18,7 @@ import '../../features/social/ui/social_search_screen.dart';
 import '../../features/social/ui/social_shell_screen.dart';
 import '../../features/support/models/support_context.dart';
 import '../../features/support/ui/support_request_sheet.dart';
+import '../../features/support/ui/support_tickets_screen.dart';
 import '../i18n/app_localizations_context.dart';
 import '../i18n/locale_text.dart';
 
@@ -33,6 +36,19 @@ final _drawerCommunityScopesProvider =
           )
           .toList(growable: false);
     });
+
+final _adminSupportReadPermissionProvider = FutureProvider.autoDispose<bool>((
+  ref,
+) async {
+  final auth = ref.watch(authControllerProvider);
+  if (!auth.isAdminDashboardUser) return false;
+  if (auth.isSuperAdmin) return true;
+  final raw = await ref.read(adminApiProvider).myPermissions();
+  if (raw['wildcard'] == true) return true;
+  return List<dynamic>.from(raw['permissions'] as List? ?? const [])
+      .whereType<Map>()
+      .any((item) => '${item['key'] ?? ''}'.trim() == 'support.tickets.read');
+});
 
 class AppUserDrawerItem {
   final IconData icon;
@@ -115,6 +131,9 @@ class _AppUserDrawerState extends ConsumerState<AppUserDrawer> {
     final auth = ref.watch(authControllerProvider);
     final currentUserId = auth.user?.id;
     final permissions = ref.watch(appPermissionMatrixProvider);
+    final canOpenAdminSupport =
+        auth.isAdminDashboardUser &&
+        (ref.watch(_adminSupportReadPermissionProvider).valueOrNull == true);
     final l10n = context.l10n;
     final textDirection = Directionality.of(context);
     final userName = auth.user?.fullName.trim();
@@ -397,6 +416,28 @@ class _AppUserDrawerState extends ConsumerState<AppUserDrawer> {
 
     final resolvedItems = <AppUserDrawerItem>[
       ...drawerItems,
+      if ((!auth.isAdminDashboardUser || canOpenAdminSupport) &&
+          !hasDrawerItem(
+            context.lt(ar: 'طلبات الدعم', en: 'Support requests'),
+          ) &&
+          !hasDrawerItem(context.lt(ar: 'تذاكر الدعم', en: 'Support tickets')))
+        AppUserDrawerItem(
+          icon: Icons.forum_outlined,
+          label: context.lt(ar: 'طلبات الدعم', en: 'Support requests'),
+          subtitle: context.lt(
+            ar: 'متابعة طلباتك ومحادثات الدعم السابقة',
+            en: 'Follow your support conversations',
+          ),
+          onTap: (ctx) async {
+            await Navigator.of(ctx).push(
+              MaterialPageRoute<void>(
+                builder: (_) => canOpenAdminSupport
+                    ? const AdminSupportTicketsScreen()
+                    : const SupportTicketsScreen(),
+              ),
+            );
+          },
+        ),
       AppUserDrawerItem(
         icon: Icons.support_agent_rounded,
         label: context.lt(ar: 'الدعم / مشكلة', en: 'Support'),

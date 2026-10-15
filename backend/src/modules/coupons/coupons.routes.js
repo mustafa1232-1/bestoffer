@@ -9,6 +9,10 @@ export const couponsRouter = Router();
 // Customer: validate a coupon before checkout
 couponsRouter.post("/validate", requireAuth, c.validateCoupon);
 couponsRouter.get("/mine", requireAuth, requireCustomer, c.listMyCoupons);
+couponsRouter.get("/popups/pending", requireAuth, c.getPendingCouponPopup);
+couponsRouter.post("/:couponId/popups/ack", requireAuth, c.acknowledgeCouponPopup);
+// Influencer attribution is accepted only inside the atomic account
+// registration flow. There is intentionally no post-registration claim route.
 
 // Management: super-admin and owner (owner is scoped to his merchant only)
 couponsRouter.get("/stats", requireAuth, c.getCouponStats);
@@ -21,6 +25,36 @@ couponsRouter.get(
   requireAuth,
   requirePermission("coupons.agents.manage"),
   c.listAgentReferralCoupons
+);
+couponsRouter.get(
+  "/influencers",
+  requireAuth,
+  requirePermission("coupons.agents.manage"),
+  c.listInfluencerProfiles,
+);
+couponsRouter.post(
+  "/influencers",
+  requireAuth,
+  requirePermission("coupons.agents.manage"),
+  c.createInfluencerProfile,
+);
+couponsRouter.get(
+  "/influencers/:influencerId/referrals",
+  requireAuth,
+  requirePermission("coupons.agents.manage"),
+  c.getInfluencerReferrals,
+);
+couponsRouter.patch(
+  "/influencers/:influencerId/active",
+  requireAuth,
+  requirePermission("coupons.agents.manage"),
+  c.toggleInfluencerProfile,
+);
+couponsRouter.post(
+  "/influencers/:influencerId/coupons",
+  requireAuth,
+  requirePermission("coupons.agents.manage"),
+  c.createInfluencerMarketingCoupon,
 );
 couponsRouter.get(
   "/:couponId/redemptions",

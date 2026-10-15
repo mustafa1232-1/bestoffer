@@ -7,6 +7,7 @@ import '../../../core/files/media_picker_service.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../auth/state/auth_controller.dart';
 import '../data/jobs_api.dart';
 import '../models/job_models.dart';
@@ -567,7 +568,7 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
       case 'archived':
         return const Color(0xFFB7C0D1);
       default:
-        return Colors.white70;
+        return Theme.of(context).colorScheme.onSurfaceVariant;
     }
   }
 
@@ -833,16 +834,20 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
   }
 
   Widget _infoLine(String title, String value) {
+    final tokens = context.maslakiTokens;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: RichText(
         textAlign: TextAlign.right,
         text: TextSpan(
-          style: const TextStyle(color: Colors.white, height: 1.35),
+          style: TextStyle(color: tokens.textSecondary, height: 1.35),
           children: [
             TextSpan(
               text: '$title: ',
-              style: const TextStyle(fontWeight: FontWeight.w800),
+              style: TextStyle(
+                color: tokens.textPrimary,
+                fontWeight: FontWeight.w900,
+              ),
             ),
             TextSpan(text: value),
           ],
@@ -852,14 +857,13 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
   }
 
   Widget _buildRecommendationSection() {
+    final tokens = context.maslakiTokens;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: const Color(0xFF204D6E).withValues(alpha: 0.34),
-        border: Border.all(
-          color: const Color(0xFF6BC7FF).withValues(alpha: 0.35),
-        ),
+        color: tokens.cardPrimary.withValues(alpha: 0.98),
+        border: Border.all(color: tokens.borderSubtle.withValues(alpha: 0.95)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -867,7 +871,10 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
           Text(
             context.l10n.jobApplicationsAdminRecommendations,
             textAlign: TextAlign.right,
-            style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: tokens.textPrimary,
+              fontWeight: FontWeight.w900,
+            ),
           ),
           const SizedBox(height: 8),
           ..._recommendations.map((item) {
@@ -888,9 +895,9 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(12),
-                  color: Colors.white.withValues(alpha: 0.06),
+                  color: tokens.surfaceSecondary.withValues(alpha: 0.82),
                   border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.14),
+                    color: tokens.borderSubtle.withValues(alpha: 0.85),
                   ),
                 ),
                 child: Column(
@@ -906,11 +913,11 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(999),
                             color: const Color(
-                              0xFF6BC7FF,
+                              0xFF2F5D46,
                             ).withValues(alpha: 0.18),
                             border: Border.all(
                               color: const Color(
-                                0xFF6BC7FF,
+                                0xFF2F5D46,
                               ).withValues(alpha: 0.4),
                             ),
                           ),
@@ -919,7 +926,7 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
                                 .l10n
                                 .jobApplicationsAdministrativeRecommendation,
                             style: const TextStyle(
-                              color: Color(0xFF9EDDFF),
+                              color: Color(0xFF2F5D46),
                               fontWeight: FontWeight.w800,
                               fontSize: 11.5,
                             ),
@@ -933,9 +940,9 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
                             ),
                             textAlign: TextAlign.right,
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.8),
+                              color: tokens.textSecondary,
                               fontSize: 12,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w700,
                             ),
                           ),
                       ],
@@ -944,7 +951,8 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
                     Text(
                       item.candidateFullName,
                       textAlign: TextAlign.right,
-                      style: const TextStyle(
+                      style: TextStyle(
+                        color: tokens.textPrimary,
                         fontWeight: FontWeight.w900,
                         fontSize: 14.5,
                       ),
@@ -955,7 +963,8 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
                         subtitle,
                         textAlign: TextAlign.right,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.84),
+                          color: tokens.textSecondary,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],
@@ -964,7 +973,8 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
                       item.candidatePhone ?? '-',
                       textAlign: TextAlign.right,
                       style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.78),
+                        color: tokens.textSecondary,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                     if ((item.note ?? '').trim().isNotEmpty) ...[
@@ -972,7 +982,10 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
                       Text(
                         item.note!.trim(),
                         textAlign: TextAlign.right,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                     const SizedBox(height: 6),
@@ -1039,9 +1052,9 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
                         context.l10n.jobApplicationsManualRecommendationNoUser,
                         textAlign: TextAlign.right,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.7),
+                          color: tokens.textMuted,
                           fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ],

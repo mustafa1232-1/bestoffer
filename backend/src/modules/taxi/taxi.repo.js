@@ -282,6 +282,12 @@ export async function listNearbyCaptainsForPickup({
      JOIN app_user u ON u.id = p.captain_user_id
      WHERE p.is_online = TRUE
        AND u.role = 'taxi_captain'
+       AND (
+         SELECT COALESCE(SUM(l.rides_delta), 0)
+         FROM taxi_captain_ride_credit_ledger l
+         WHERE l.captain_user_id = p.captain_user_id
+           AND l.status = 'approved'
+       ) > 0
        AND p.latitude IS NOT NULL
        AND p.longitude IS NOT NULL
        AND p.last_seen_at >= NOW() - INTERVAL '3 minutes'
@@ -330,6 +336,12 @@ export async function listNearbyCaptainMarkers({
      JOIN app_user u ON u.id = p.captain_user_id
      WHERE p.is_online = TRUE
        AND u.role = 'taxi_captain'
+       AND (
+         SELECT COALESCE(SUM(l.rides_delta), 0)
+         FROM taxi_captain_ride_credit_ledger l
+         WHERE l.captain_user_id = p.captain_user_id
+           AND l.status = 'approved'
+       ) > 0
        AND p.latitude IS NOT NULL
        AND p.longitude IS NOT NULL
        AND p.last_seen_at >= NOW() - INTERVAL '3 minutes'
@@ -2900,6 +2912,122 @@ export async function getCaptainSubscription(captainUserId) {
      WHERE captain_user_id = $1
      LIMIT 1`,
     [Number(captainUserId)]
+  );
+  return r.rows[0] || null;
+}
+
+export async function getCaptainRideCreditSummary(captainUserId) {
+  await ensureSchema();
+  const r = await q(
+    `SELECT
+       COALESCE(SUM(rides_delta) FILTER (WHERE status = 'approved'), 0)::int AS remaining_rides,
+       COALESCE(SUM(rides_delta) FILTER (WHERE status = 'approved' AND rides_delta > 0), 0)::int AS purchased_rides,
+       COALESCE(ABS(SUM(rides_delta) FILTER (WHERE status = 'approved' AND rides_delta < 0)), 0)::int AS consumed_rides,
+       COALESCE(SUM(amount_iqd) FILTER (WHERE status = 'approved' AND rides_delta > 0), 0)::bigint AS paid_amount_iqd,
+       MAX(created_at) FILTER (WHERE status = 'approved' AND rides_delta > 0) AS last_top_up_at,
+       MAX(created_at) FILTER (WHERE status = 'approved' AND rides_delta < 0) AS last_consumed_at
+     FROM taxi_captain_ride_credit_ledger
+     WHERE captain_user_id = $1`,
+    [Number(captainUserId)]
+  );
+
+  const row = r.rows[0] || {};
+  return {
+    remainingRides: Number(row.remaining_rides || 0),
+    purchasedRides: Number(row.purchased_rides || 0),
+    consumedRides: Number(row.consumed_rides || 0),
+    paidAmountIqd: Number(row.paid_amount_iqd || 0),
+    lastTopUpAt: row.last_top_up_at || null,
+    lastConsumedAt: row.last_consumed_at || null,
+  };
+}
+
+export async function listCaptainRideCreditLedger(captainUserId, { limit = 50 } = {}) {
+  await ensureSchema();
+  const r = await q(
+    `SELECT *
+     FROM taxi_captain_ride_credit_ledger
+     WHERE captain_user_id = $1
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2`,
+    [
+      Number(captainUserId),
+      Math.max(1, Math.min(200, Number(limit) || 50)),
+    ]
+  );
+  return r.rows;
+}
+
+export async function addCaptainRideCreditTopUp({
+  captainUserId,
+  ridesToAdd,
+  amountIqd,
+  adminUserId,
+  paymentMethod = "cash",
+  note = null,
+  meta = {},
+}) {
+  await ensureSchema();
+  const safeRides = Math.max(1, Math.min(10000, Number(ridesToAdd) || 0));
+  const safeAmount = Math.max(0, Number(amountIqd) || 0);
+  const r = await q(
+    `INSERT INTO taxi_captain_ride_credit_ledger
+       (
+         captain_user_id,
+         entry_type,
+         rides_delta,
+         amount_iqd,
+         payment_method,
+         status,
+         note,
+         meta,
+         created_by_user_id,
+         approved_by_user_id,
+         approved_at,
+         created_at,
+         updated_at
+       )
+     VALUES ($1, 'top_up', $2, $3, $4, 'approved', $5, $6::jsonb, $7, $7, NOW(), NOW(), NOW())
+     RETURNING *`,
+    [
+      Number(captainUserId),
+      safeRides,
+      safeAmount,
+      paymentMethod || "cash",
+      note,
+      JSON.stringify(meta && typeof meta === "object" ? meta : {}),
+      adminUserId == null ? null : Number(adminUserId),
+    ]
+  );
+  return r.rows[0] || null;
+}
+
+export async function consumeCaptainRideCreditForCompletedRide({
+  captainUserId,
+  rideId,
+}) {
+  await ensureSchema();
+  const r = await q(
+    `INSERT INTO taxi_captain_ride_credit_ledger
+       (
+         captain_user_id,
+         ride_request_id,
+         entry_type,
+         rides_delta,
+         amount_iqd,
+         status,
+         note,
+         meta,
+         approved_at,
+         created_at,
+         updated_at
+       )
+     VALUES ($1, $2, 'ride_debit', -1, 0, 'approved', 'Completed taxi ride credit consumption.', '{}'::jsonb, NOW(), NOW(), NOW())
+     ON CONFLICT (captain_user_id, ride_request_id, entry_type)
+       WHERE entry_type = 'ride_debit' AND ride_request_id IS NOT NULL
+     DO NOTHING
+     RETURNING *`,
+    [Number(captainUserId), Number(rideId)]
   );
   return r.rows[0] || null;
 }

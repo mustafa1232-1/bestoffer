@@ -3,6 +3,7 @@ import test from "node:test";
 
 const ENV_KEYS = [
   "NODE_ENV",
+  "APP_VERSION",
   "DATABASE_URL",
   "DATABASE_PUBLIC_URL",
   "JWT_SECRET",
@@ -23,6 +24,10 @@ const ENV_KEYS = [
   "SECURITY_REQUEST_SIGNING_ENABLED",
   "SECURITY_REQUEST_SIGNING_TTL_SEC",
   "SECURITY_REQUEST_SIGNING_REFRESH_WINDOW_SEC",
+  "SUPER_ADMIN_PHONE",
+  "SUPER_ADMIN_PIN",
+  "SERVICES_OPERATOR_PHONE",
+  "SERVICES_OPERATOR_PIN",
 ];
 
 async function withEnv(overrides, run) {
@@ -30,7 +35,18 @@ async function withEnv(overrides, run) {
   for (const key of ENV_KEYS) snapshot[key] = process.env[key];
   try {
     for (const key of ENV_KEYS) delete process.env[key];
-    for (const [key, value] of Object.entries(overrides || {})) {
+    const effectiveOverrides = {
+      ...(overrides?.NODE_ENV === "production"
+        ? {
+            SUPER_ADMIN_PHONE: "07700000001",
+            SUPER_ADMIN_PIN: "48261935",
+            SERVICES_OPERATOR_PHONE: "07800000002",
+            SERVICES_OPERATOR_PIN: "73518426",
+          }
+        : {}),
+      ...(overrides || {}),
+    };
+    for (const [key, value] of Object.entries(effectiveOverrides)) {
       if (value !== undefined && value !== null) {
         process.env[key] = String(value);
       }
@@ -43,6 +59,27 @@ async function withEnv(overrides, run) {
     }
   }
 }
+
+test("validateRuntimeEnv rejects missing privileged production secrets", async () => {
+  await withEnv(
+    {
+      NODE_ENV: "production",
+      DATABASE_URL: "postgres://user:pass@localhost:5432/db",
+      JWT_SECRET: "x".repeat(32),
+      CORS_ORIGINS: "https://example.com",
+      AUTH_ALLOW_LEGACY_TOKENS: "false",
+      SUPER_ADMIN_PIN: "",
+      SERVICES_OPERATOR_PHONE: "",
+    },
+    async () => {
+      const mod = await loadEnvModule();
+      assert.throws(
+        () => mod.validateRuntimeEnv(),
+        /SUPER_ADMIN_PIN.*SERVICES_OPERATOR_PHONE/
+      );
+    }
+  );
+});
 
 async function loadEnvModule() {
   const salt = `${Date.now()}-${Math.random()}`;
@@ -178,6 +215,13 @@ test("env leaves git commit sha blank when no deployment sha is configured", asy
   await withEnv({}, async () => {
     const mod = await loadEnvModule();
     assert.equal(mod.env.gitCommitSha, "");
+  });
+});
+
+test("env falls back to the backend package version", async () => {
+  await withEnv({}, async () => {
+    const mod = await loadEnvModule();
+    assert.equal(mod.env.appVersion, "1.0.0");
   });
 });
 
