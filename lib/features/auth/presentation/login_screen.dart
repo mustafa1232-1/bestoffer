@@ -424,7 +424,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         return _SpeechData(
           _say(
             context,
-            'مسلكي ما ينخترق! انت ناسي الرمز، اضغط «نسيت الرمز»',
+            'مسلكي لا يمكن اختراقه! أنت نسيت الرمز، اضغط «نسيت الرمز»',
             'Maslaki can not be hacked! You forgot your PIN, press "Forgot my PIN"',
           ),
         );

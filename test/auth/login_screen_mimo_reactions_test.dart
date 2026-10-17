@@ -161,7 +161,10 @@ void main() {
     await _attempt(tester, '3333');
     // Animations are off in tests, so the run is skipped straight to laughing.
     expect(_mimo(tester).mood, MimoMood.laughing);
-    expect(find.textContaining('مثلكي ما ينخترق'), findsWidgets);
+    expect(
+      find.textContaining('مثلكي لا يمكن اختراقه'),
+      findsWidgets,
+    );
     expect(find.textContaining('حاول بعد'), findsOneWidget);
     final pinField = tester.widget<TextField>(find.byType(TextField).at(1));
     expect(pinField.enabled, isFalse);
