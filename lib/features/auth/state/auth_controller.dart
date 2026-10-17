@@ -205,6 +205,12 @@ class AuthController extends StateNotifier<AuthState> {
   AuthController(this.ref) : super(const AuthState());
 
   Future<void>? _bootstrapInFlight;
+
+  /// Optional UI hook awaited after the server accepted the credentials and
+  /// before the authenticated state is committed (committing swaps the login
+  /// screen away). The login screen uses it to play Mimo's success reaction.
+  /// Bounded by a timeout so a UI hook can never block sign-in.
+  Future<void> Function()? beforeLoginCommit;
   Timer? _sessionRetryTimer;
   int _sessionRetryAttempt = 0;
 
@@ -429,6 +435,14 @@ class AuthController extends StateNotifier<AuthState> {
       await _applyPreferredLocale(user);
       await ref.read(secureStoreProvider).saveGuestMode(false);
       SessionRecoveryCoordinator.instance.reset();
+      final hook = beforeLoginCommit;
+      if (hook != null) {
+        try {
+          await hook().timeout(const Duration(milliseconds: 1500));
+        } catch (_) {
+          // Cosmetic only; never let the hook affect authentication.
+        }
+      }
       state = state.copyWith(
         loading: false,
         user: user,
