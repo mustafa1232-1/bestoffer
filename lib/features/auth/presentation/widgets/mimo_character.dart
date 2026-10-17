@@ -19,6 +19,7 @@ enum MimoMood {
   thinking,
   sad,
   sleepy,
+  laughing,
 }
 
 /// Animated Mimo. Size it with a parent box of ~130x139 (the design's sitting
@@ -33,6 +34,7 @@ class MimoCharacter extends StatefulWidget {
     this.animate = true,
     this.nudgeTick = 0,
     this.shakeTick = 0,
+    this.running = false,
     this.semanticLabel,
   });
 
@@ -51,6 +53,9 @@ class MimoCharacter extends StatefulWidget {
 
   /// Bump to make Mimo shake his head (e.g. on a failed login).
   final int shakeTick;
+
+  /// Legs pedal fast and the body bobs, as if Mimo is running around.
+  final bool running;
   final String? semanticLabel;
 
   @override
@@ -74,6 +79,7 @@ class _MimoCharacterState extends State<MimoCharacter>
   double _time = 0;
   double _legPhase = 0;
   double _nextBlinkAt = 2.4;
+  double _run = 0;
 
   @override
   void initState() {
@@ -140,7 +146,10 @@ class _MimoCharacterState extends State<MimoCharacter>
     _lastElapsed = elapsed;
     _time += dt;
     final pose = _currentPose();
-    _legPhase += dt / pose.legSpeed;
+    // Ease in/out of running so the legs never snap.
+    final runTarget = widget.running ? 1.0 : 0.0;
+    _run += (runTarget - _run) * math.min(1, dt * 10);
+    _legPhase += dt / (pose.legSpeed + (0.26 - pose.legSpeed) * _run);
     _syncFrame();
   }
 
@@ -168,6 +177,7 @@ class _MimoCharacterState extends State<MimoCharacter>
       sitting: widget.sitting,
       time: widget.animate ? _time : 0,
       legPhase: _legPhase,
+      run: widget.animate ? _run : 0,
       blink: blink,
       nod: _nudgeCtrl.isAnimating ? math.sin(n * math.pi) : 0,
       shakeDx: _shakeCtrl.isAnimating
@@ -208,6 +218,7 @@ class _MimoFrame extends ChangeNotifier {
   double blink = 1;
   double nod = 0;
   double shakeDx = 0;
+  double run = 0;
 
   void update({
     required _MimoPose pose,
@@ -217,6 +228,7 @@ class _MimoFrame extends ChangeNotifier {
     required double blink,
     required double nod,
     required double shakeDx,
+    required double run,
   }) {
     this.pose = pose;
     this.sitting = sitting;
@@ -225,6 +237,7 @@ class _MimoFrame extends ChangeNotifier {
     this.blink = blink;
     this.nod = nod;
     this.shakeDx = shakeDx;
+    this.run = run;
     notifyListeners();
   }
 }
@@ -301,6 +314,7 @@ class _MimoPose {
     MimoMood.thinking: [_Tr(), _Tr(-56, -6)],
     MimoMood.sad: [_Tr(6, 12), _Tr(-6, 12)],
     MimoMood.sleepy: [_Tr(4, 8), _Tr(-4, 8)],
+    MimoMood.laughing: [_Tr(18, 22, -16), _Tr(-18, 22, 16)],
   };
 
   static const _pins = <MimoMood, _Tr>{
@@ -316,6 +330,7 @@ class _MimoPose {
     MimoMood.thinking: _Tr(0, 0, -12),
     MimoMood.sad: _Tr(0, 8, -20),
     MimoMood.sleepy: _Tr(0, 6, 24),
+    MimoMood.laughing: _Tr(0, -10, -10),
   };
 
   static const _standBodies = <MimoMood, _Tr>{
@@ -326,6 +341,7 @@ class _MimoPose {
     MimoMood.love: _Tr(0, -4),
     MimoMood.sad: _Tr(0, 3),
     MimoMood.sleepy: _Tr(0, 0, -4),
+    MimoMood.laughing: _Tr(0, -4),
   };
 
   // Sitting: a smaller hop so he never leaves the ledge.
@@ -344,6 +360,7 @@ class _MimoPose {
     final hands = _hands[m]!;
     final speed = switch (m) {
       MimoMood.happy => 0.8,
+      MimoMood.laughing => 0.5,
       MimoMood.love => 0.9,
       MimoMood.relieved => 1.6,
       MimoMood.sleepy => 2.6,
@@ -464,6 +481,9 @@ class _P {
   static final angryLidL = svgPath('M74 106 L95 113 L95 104 L74 100 Z');
   static final angryLidR = svgPath('M122 106 L101 113 L101 104 L122 100 Z');
   static final angryBrows = svgPath('M73 104 L95 112 M123 104 L101 112');
+  static final laughEyes = svgPath(
+    'M77 109 L90 116 L77 123 M119 109 L106 116 L119 123',
+  );
   static final happyEyes = svgPath(
     'M76 118 Q84 108 92 118 M104 118 Q112 108 120 118',
   );
@@ -527,6 +547,9 @@ class _P {
     MimoMood.sad: svgPath(
       'M${mx - 7} ${my + 5} Q$mx ${my - 1} ${mx + 7} ${my + 5}',
     ),
+    MimoMood.laughing: svgPath(
+      'M${mx - 12} ${my - 3} Q$mx ${my + 18} ${mx + 12} ${my - 3} Z',
+    ),
     MimoMood.sleepy: svgPath(
       'M${mx - 3} ${my + 2} A3 3.5 0 1 0 ${mx + 3} ${my + 2} '
       'A3 3.5 0 1 0 ${mx - 3} ${my + 2} Z',
@@ -538,6 +561,7 @@ class _P {
     MimoMood.scared: Color(0xFF5A1E2A),
     MimoMood.love: Color(0xFF7A2E3A),
     MimoMood.sleepy: Color(0xFF7A2E3A),
+    MimoMood.laughing: Color(0xFF7A2E3A),
   };
 }
 
@@ -590,6 +614,11 @@ class _MimoPainter extends CustomPainter {
     // Body group.
     canvas.save();
     p.body.apply(canvas, const Offset(100, 190));
+    final laughW = p.w(MimoMood.laughing).clamp(0.0, 1.0);
+    final bounce =
+        laughW * (math.sin(f.time * 2 * math.pi / 0.34)).abs() * 5 +
+        f.run * (math.sin(f.legPhase * 2 * math.pi)).abs() * 4;
+    canvas.translate(0, -bounce);
     _scaleAbout(
       canvas,
       const Offset(100, 190),
@@ -687,11 +716,12 @@ class _MimoPainter extends CustomPainter {
   void _drawLegs(Canvas canvas, _MimoFrame f, _MimoPose p) {
     final swing = math.sin(f.legPhase * 2 * math.pi);
     final shake = math.sin(f.time * 2 * math.pi / 0.18);
-    final calm = (1 - p.stiff) * (1 - p.legsStill);
-    final stiff = p.stiff * (1 - p.legsStill);
+    final calm = math.max((1 - p.stiff) * (1 - p.legsStill), f.run);
+    final stiff = p.stiff * (1 - p.legsStill) * (1 - f.run);
+    final amp = 13 + 15 * f.run;
     // Design: swingA 14°..-12°, swingB mirrored; stiff moods tremble ±3°.
-    final aL = (1 + 13 * swing) * calm + 3 * shake * stiff;
-    final aR = (1 - 13 * swing) * calm - 3 * shake * stiff;
+    final aL = (1 + amp * swing) * calm + 3 * shake * stiff;
+    final aR = (1 - amp * swing) * calm - 3 * shake * stiff;
     for (final (pivotX, angle) in [(70.0, aL), (130.0, aR)]) {
       canvas.save();
       canvas.translate(pivotX, 176);
@@ -869,6 +899,24 @@ class _MimoPainter extends CustomPainter {
       canvas.drawPath(_P.angryLidL, lid);
       canvas.drawPath(_P.angryLidR, lid);
       canvas.drawPath(_P.angryBrows, _stroke(navy, 3.6));
+    }
+
+    final laugh = w(MimoMood.laughing);
+    if (laugh > 0.01) {
+      final c = _navy.withValues(alpha: laugh);
+      canvas.drawPath(_P.laughEyes, _stroke(c, 3.4));
+      // Tears of joy squeezing out.
+      final drop = (f.time % 1.1) / 1.1;
+      for (final x in [70.0, 126.0]) {
+        canvas.save();
+        canvas.translate(x - 78, drop * 8 - 6);
+        final a = laugh * (1 - drop * 0.8);
+        canvas.drawPath(
+          _P.tear,
+          Paint()..color = _tearFill.withValues(alpha: a),
+        );
+        canvas.restore();
+      }
     }
 
     final happy = w(MimoMood.happy);

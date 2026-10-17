@@ -37,10 +37,10 @@ void main() {
           ),
         ),
       );
-        ProviderScope.containerOf(
-          tester.element(find.byType(MandatoryPinChangeScreen)),
-        ).read(authControllerProvider);
-        final fields = find.byType(TextField);
+      ProviderScope.containerOf(
+        tester.element(find.byType(MandatoryPinChangeScreen)),
+      ).read(authControllerProvider);
+      final fields = find.byType(TextField);
       expect(fields, findsNWidgets(2));
       expect(
         tester.widget<TextField>(fields.first).controller!.text,

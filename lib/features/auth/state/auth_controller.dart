@@ -209,8 +209,10 @@ class AuthController extends StateNotifier<AuthState> {
   /// Optional UI hook awaited after the server accepted the credentials and
   /// before the authenticated state is committed (committing swaps the login
   /// screen away). The login screen uses it to play Mimo's success reaction.
-  /// Bounded by a timeout so a UI hook can never block sign-in.
-  Future<void> Function()? beforeLoginCommit;
+  /// Receives the signed-in user (the session token is already stored, so the
+  /// hook may call authenticated APIs). Bounded by a timeout so a UI hook can
+  /// never block sign-in.
+  Future<void> Function(UserModel user)? beforeLoginCommit;
   Timer? _sessionRetryTimer;
   int _sessionRetryAttempt = 0;
 
@@ -438,7 +440,7 @@ class AuthController extends StateNotifier<AuthState> {
       final hook = beforeLoginCommit;
       if (hook != null) {
         try {
-          await hook().timeout(const Duration(milliseconds: 1500));
+          await hook(user).timeout(const Duration(seconds: 7));
         } catch (_) {
           // Cosmetic only; never let the hook affect authentication.
         }

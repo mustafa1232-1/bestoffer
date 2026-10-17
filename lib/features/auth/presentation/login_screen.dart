@@ -18,6 +18,9 @@ import '../domain/auth_input_normalizer.dart';
 import '../state/auth_controller.dart';
 import 'mandatory_pin_change_screen.dart';
 import 'register_screen.dart';
+import '../../coupons/data/coupons_api.dart';
+import '../data/mimo_known_accounts.dart';
+import '../models/user_model.dart';
 import 'widgets/mimo_character.dart';
 
 // Palette of the "ميمو بصفحة الدخول" design.
@@ -29,13 +32,66 @@ const _goldBorder = Color(0xFFC2AE85);
 const _cardBorder = Color(0xFFC9B48A);
 const _errorRed = Color(0xFFB42318);
 
-enum _LoginStatus { idle, invalid, loading, error, success }
+enum _LoginStatus {
+  idle,
+  invalid,
+  loading,
+  error,
+
+  /// Third wrong PIN: Mimo panics and runs around ("they hacked Maslaki!").
+  hacked,
+
+  /// …then laughs it off while PIN entry is locked for a minute.
+  laughing,
+  resetSent,
+  success,
+}
 
 enum _FocusTarget { none, phone, pin }
 
+/// Mimo speaks with a lisp: every "س" comes out as "ث" (مسلكي → مثلكي).
+String _lisp(String text) => text
+    .replaceAll('س', 'ث')
+    .replaceAll(RegExp(r's(?=[a-z])'), 'th')
+    .replaceAll('S', 'Th');
+
+/// Clears the 1-minute PIN lock that otherwise survives screen re-opens.
+@visibleForTesting
+void debugResetLoginLock() => _LoginScreenState._lockUntil = null;
+
+/// A public coupon Mimo offers right after a successful customer sign-in.
+class _CouponOffer {
+  const _CouponOffer({required this.code, required this.discountLabel});
+
+  final String code;
+  final String discountLabel;
+
+  static _CouponOffer? pick(List<Map<String, dynamic>> coupons, bool ar) {
+    Map<String, dynamic>? best;
+    for (final c in coupons) {
+      final code = '${c['code'] ?? ''}'.trim();
+      if (code.isEmpty) continue;
+      final global = c['scope_kind'] == 'global';
+      if (best == null || (global && best['scope_kind'] != 'global')) {
+        best = c;
+      }
+    }
+    if (best == null) return null;
+    final value = num.tryParse('${best['discount_value'] ?? ''}') ?? 0;
+    final v = value == value.roundToDouble()
+        ? value.toInt().toString()
+        : value.toString();
+    final label = best['discount_type'] == 'fixed'
+        ? (ar ? 'خصم $v د.ع' : '$v IQD off')
+        : (ar ? 'خصم $v%' : '$v% off');
+    return _CouponOffer(code: '${best['code']}'.trim(), discountLabel: label);
+  }
+}
+
 /// شاشة الدخول الأساسية للتطبيق مع الشخصية "ميمو" التي تتفاعل مع المستخدم:
-/// تنظر للحقل أثناء الكتابة، تغمض عيونها عند إظهار الرمز، تنصدم عند الفشل
-/// الأول، تزعل عند الثاني، وترتاح أو تفرح عند النجاح.
+/// تنظر للحقل أثناء الكتابة، تغمض عيونها عند إظهار الرمز، تتعرف على صاحب
+/// الرقم (إن سبق له الدخول من هذا الجهاز)، تركض وتضحك بعد ثلاث محاولات
+/// خاطئة مع قفل الرمز لدقيقة، وتقترح كوبون خصم عند نجاح دخول الزبون.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key, this.popOnSuccess = false});
 
@@ -47,12 +103,19 @@ class LoginScreen extends ConsumerStatefulWidget {
 
 class _LoginScreenState extends ConsumerState<LoginScreen>
     with TickerProviderStateMixin {
+  /// Survives leaving and reopening the screen during the same app run.
+  static DateTime? _lockUntil;
+  static const _lockDuration = Duration(minutes: 1);
+
   final phoneCtrl = TextEditingController();
   final pinCtrl = TextEditingController();
   final _phoneFocus = FocusNode();
   final _pinFocus = FocusNode();
   late final AnimationController _introCtrl;
   late final AnimationController _shakeCtrl;
+  late final AnimationController _runCtrl;
+  late final AnimationController _pulseCtrl;
+  late final MimoKnownAccounts _known;
 
   String? _phoneError;
   String? _pinError;
@@ -63,14 +126,30 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   _LoginStatus _status = _LoginStatus.idle;
   _FocusTarget _focus = _FocusTarget.none;
   int _fails = 0;
+  String _failPhone = '';
+  String? _knownName;
+  String? _successName;
+  _CouponOffer? _coupon;
+  Completer<void>? _couponDismissed;
   int _nudgeTick = 0;
   int _mimoShakeTick = 0;
   bool _sleepy = false;
   bool _petting = false;
+  bool _laughingFace = false;
+  int _lockSecondsLeft = 0;
   Timer? _sleepTimer;
   Timer? _petTimer;
+  Timer? _lockTimer;
+  Timer? _laughTimer;
+  Timer? _nameLookup;
 
   bool get _busy => _loginInFlight || ref.read(authControllerProvider).loading;
+  bool get _locked => _lockSecondsLeft > 0;
+
+  bool get _suggestForgot =>
+      _locked ||
+      _status == _LoginStatus.laughing ||
+      (_status == _LoginStatus.error && (_knownName != null || _fails >= 2));
 
   bool get _animationsEnabled =>
       ref.read(appSettingsControllerProvider).animationsEnabled;
@@ -78,6 +157,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   @override
   void initState() {
     super.initState();
+    _known = MimoKnownAccounts(ref.read(secureStoreProvider));
     _introCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 780),
@@ -85,6 +165,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     _shakeCtrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 480),
+    );
+    _runCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2200),
+    );
+    _pulseCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
     );
     _phoneFocus.addListener(_onFocusChanged);
     _pinFocus.addListener(_onFocusChanged);
@@ -97,6 +185,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       }
     });
     _serverError = _safeAuthMessage(ref.read(authControllerProvider).error);
+    _resumeLockIfAny();
     _scheduleSleep();
   }
 
@@ -104,8 +193,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   void dispose() {
     _sleepTimer?.cancel();
     _petTimer?.cancel();
+    _lockTimer?.cancel();
+    _laughTimer?.cancel();
+    _nameLookup?.cancel();
+    if (_couponDismissed?.isCompleted == false) _couponDismissed!.complete();
     _introCtrl.dispose();
     _shakeCtrl.dispose();
+    _runCtrl.dispose();
+    _pulseCtrl.dispose();
     _phoneFocus.dispose();
     _pinFocus.dispose();
     phoneCtrl.dispose();
@@ -142,26 +237,42 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     if (next == _focus) return;
     setState(() {
       _focus = next;
-      if (next != _FocusTarget.none && _status == _LoginStatus.success) {
+      if (next != _FocusTarget.none &&
+          (_status == _LoginStatus.success ||
+              _status == _LoginStatus.resetSent)) {
         _status = _LoginStatus.idle;
       }
     });
     _poke();
   }
 
-  void _onTyped() {
+  void _onTyped({bool phoneChanged = false}) {
     _poke();
     setState(() {
       _nudgeTick++;
-      if (_status == _LoginStatus.error || _status == _LoginStatus.invalid) {
+      if (_status == _LoginStatus.error ||
+          _status == _LoginStatus.invalid ||
+          _status == _LoginStatus.resetSent) {
         _status = _LoginStatus.idle;
       }
       _serverError = null;
     });
+    if (phoneChanged) {
+      // Debounced: is this a number that already signed in on this device?
+      _nameLookup?.cancel();
+      _nameLookup = Timer(const Duration(milliseconds: 250), () async {
+        final name = await _known.nameFor(phoneCtrl.text);
+        if (mounted && name != _knownName) setState(() => _knownName = name);
+      });
+    }
   }
 
   void _petMimo() {
-    if (_busy || _status == _LoginStatus.success) return;
+    if (_busy ||
+        _status == _LoginStatus.success ||
+        _status == _LoginStatus.hacked) {
+      return;
+    }
     HapticFeedback.selectionClick();
     _poke();
     _petTimer?.cancel();
@@ -174,13 +285,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   MimoMood _mood() {
     switch (_status) {
       case _LoginStatus.success:
+        if (_coupon != null) return MimoMood.love;
         return _fails >= 2 ? MimoMood.relieved : MimoMood.happy;
       case _LoginStatus.loading:
         return MimoMood.thinking;
       case _LoginStatus.error:
+        if (_knownName != null) {
+          return _fails >= 2 ? MimoMood.shocked : MimoMood.happy;
+        }
         return _fails >= 2 ? MimoMood.angry : MimoMood.shocked;
+      case _LoginStatus.hacked:
+        return MimoMood.scared;
+      case _LoginStatus.laughing:
+        if (_laughingFace) return MimoMood.laughing;
       case _LoginStatus.invalid:
         return MimoMood.sad;
+      case _LoginStatus.resetSent:
+        return MimoMood.happy;
       case _LoginStatus.idle:
         break;
     }
@@ -201,30 +322,211 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     return -0.8 + (math.min(len, max) / max) * 1.6;
   }
 
+  /// Mimo's line in the user's language, lisped, with `{name}` filled in
+  /// afterwards so names are never mangled.
+  String _say(BuildContext context, String ar, String en, {String? name}) {
+    final line = _lisp(context.lt(ar: ar, en: en));
+    return name == null ? line : line.replaceAll('{name}', name);
+  }
+
+  /// Short exclamation in the side bubble next to Mimo.
   _BubbleData? _bubble(BuildContext context) {
+    final name = _knownName;
     switch (_status) {
       case _LoginStatus.success:
-        return _fails >= 2
-            ? _BubbleData(context.lt(ar: 'لقد أخفتني!', en: 'You scared me!'))
-            : _BubbleData(context.lt(ar: 'هلا بيك!', en: 'Welcome!'));
+        final who = _successName;
+        if (_coupon != null && who != null) {
+          return _BubbleData(
+            _say(context, 'عمو {name}!', 'Hey {name}!', name: who),
+          );
+        }
+        if (_fails >= 2) {
+          return _BubbleData(_say(context, 'لقد أخفتني!', 'You scared me!'));
+        }
+        return who == null
+            ? _BubbleData(_say(context, 'هلا بيك!', 'Welcome!'))
+            : _BubbleData(
+                _say(context, 'هلا بيك {name}!', 'Welcome {name}!', name: who),
+              );
       case _LoginStatus.error:
+        if (name != null) {
+          return _fails >= 2
+              ? _BubbleData(_say(context, 'لحظة!', 'Wait!'))
+              : _BubbleData(
+                  _say(context, 'هلو {name}!', 'Hi {name}!', name: name),
+                );
+        }
         return _fails >= 2
             ? _BubbleData(
-                context.lt(ar: 'منو انت؟!', en: 'Who are you?!'),
+                _say(context, 'منو انت؟!', 'Who are you?!'),
                 background: _errorRed,
                 foreground: Colors.white,
               )
-            : _BubbleData(context.lt(ar: 'منو انت؟', en: 'Who are you?'));
+            : _BubbleData(_say(context, 'منو انت؟', 'Who are you?'));
+      case _LoginStatus.laughing:
+        return _laughingFace
+            ? _BubbleData(_say(context, 'ههههههه', 'Hahaha'))
+            : null;
       case _LoginStatus.invalid:
-        return _BubbleData(context.lt(ar: 'كمّل البيانات', en: 'Almost there'));
+        return _BubbleData(_say(context, 'كمّل البيانات', 'Almost there'));
+      case _LoginStatus.resetSent:
+        return _BubbleData(_say(context, 'تمام!', 'Done!'));
+      case _LoginStatus.hacked:
       case _LoginStatus.loading:
       case _LoginStatus.idle:
         break;
     }
     if (_petting) {
-      return _BubbleData(context.lt(ar: 'تدغدغني!', en: 'That tickles!'));
+      return _BubbleData(_say(context, 'تدغدغني!', 'That tickles!'));
     }
     return null;
+  }
+
+  /// Longer line shown in the speech card under the ledge (replaces the
+  /// tagline while Mimo is talking).
+  _SpeechData? _speech(BuildContext context) {
+    final name = _knownName;
+    switch (_status) {
+      case _LoginStatus.error:
+        if (name != null) {
+          return _fails >= 2
+              ? _SpeechData(
+                  _say(
+                    context,
+                    'منو انت؟ انت {name} لو لا؟',
+                    'Who are you? Are you {name} or not?',
+                    name: name,
+                  ),
+                )
+              : _SpeechData(
+                  _say(
+                    context,
+                    'إذا ناسي الرمز، دوس جوّة على «نسيت الرمز»',
+                    'If you forgot your PIN, press "Forgot my PIN" below',
+                  ),
+                );
+        }
+        return _fails >= 2
+            ? _SpeechData(
+                _say(
+                  context,
+                  'إذا ناسي الرمز، دوس على «نسيت الرمز»',
+                  'Forgot your PIN? Press "Forgot my PIN"',
+                ),
+              )
+            : null;
+      case _LoginStatus.hacked:
+        return _SpeechData(
+          _say(context, 'اخترقوا مسلكي!!', 'Maslaki got hacked!!'),
+          alert: true,
+        );
+      case _LoginStatus.laughing:
+        return _SpeechData(
+          _say(
+            context,
+            'مسلكي ما ينخترق! انت ناسي الرمز، اضغط «نسيت الرمز»',
+            'Maslaki can not be hacked! You forgot your PIN, press "Forgot my PIN"',
+          ),
+        );
+      case _LoginStatus.resetSent:
+        return _SpeechData(
+          _say(
+            context,
+            'وصّلت طلبك للإدارة، راح يوصلك رمز جديد',
+            'I told the admins, a new PIN is on its way',
+          ),
+        );
+      case _LoginStatus.success:
+        final coupon = _coupon;
+        if (coupon == null) return null;
+        return _SpeechData(
+          _say(
+            context,
+            'اكو خصم على التسوق من مسلكي! هذا رمز الكوبون:',
+            'There is a shopping discount on Maslaki! Here is the coupon code:',
+          ),
+          coupon: coupon,
+        );
+      case _LoginStatus.idle:
+      case _LoginStatus.invalid:
+      case _LoginStatus.loading:
+        return null;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lock after the third wrong PIN
+  // ---------------------------------------------------------------------------
+
+  void _resumeLockIfAny() {
+    final until = _lockUntil;
+    if (until == null) return;
+    final left = until.difference(DateTime.now()).inSeconds;
+    if (left <= 0) {
+      _lockUntil = null;
+      return;
+    }
+    _lockSecondsLeft = left;
+    _status = _LoginStatus.laughing;
+    _startLockTicker();
+  }
+
+  void _startLockTicker() {
+    _lockTimer?.cancel();
+    _lockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      // Tick down every second, but honour the wall clock too so time spent
+      // with the app in the background still counts.
+      final until = _lockUntil;
+      final wallLeft = until == null
+          ? 0
+          : until.difference(DateTime.now()).inSeconds;
+      final left = math.max(0, math.min(_lockSecondsLeft - 1, wallLeft));
+      setState(() {
+        _lockSecondsLeft = left;
+        if (left == 0) {
+          _lockTimer?.cancel();
+          _lockUntil = null;
+          if (_status == _LoginStatus.laughing) _status = _LoginStatus.idle;
+        }
+      });
+    });
+  }
+
+  void _syncForgotPulse() {
+    final want = _suggestForgot && _animationsEnabled;
+    if (want && !_pulseCtrl.isAnimating) {
+      _pulseCtrl.repeat(reverse: true);
+    } else if (!want && _pulseCtrl.isAnimating) {
+      _pulseCtrl.stop();
+      _pulseCtrl.value = 0;
+    }
+  }
+
+  /// "اخترقوا مسلكي!!" → runs left and right → laughs → locks PIN for 1 min.
+  Future<void> _startHackedSequence() async {
+    _lockUntil = DateTime.now().add(_lockDuration);
+    _lockSecondsLeft = _lockDuration.inSeconds;
+    pinCtrl.clear();
+    _startLockTicker();
+    setState(() {
+      _status = _LoginStatus.hacked;
+      _laughingFace = false;
+    });
+    HapticFeedback.heavyImpact();
+    if (_animationsEnabled) {
+      await _runCtrl.forward(from: 0);
+    }
+    if (!mounted) return;
+    setState(() {
+      _status = _locked ? _LoginStatus.laughing : _LoginStatus.idle;
+      _laughingFace = true;
+    });
+    HapticFeedback.lightImpact();
+    _laughTimer?.cancel();
+    _laughTimer = Timer(const Duration(milliseconds: 2800), () {
+      if (mounted) setState(() => _laughingFace = false);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -261,20 +563,71 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     HapticFeedback.mediumImpact();
   }
 
-  /// Runs while the app is about to leave this screen: Mimo cheers first.
-  Future<void> _celebrate() async {
+  /// Wrong PIN vs. "something else went wrong" (offline, server down, locked
+  /// or disabled account). Only wrong PINs count towards Mimo's reactions.
+  bool _isCredentialFailure(AuthState auth, BuildContext context) {
+    final code = auth.errorCode?.toUpperCase();
+    if (code == 'INVALID_CREDENTIALS') return true;
+    if (code != null) return false;
+    final l10n = context.l10n;
+    return auth.error != l10n.commonNoInternet &&
+        auth.error != l10n.apiServerError;
+  }
+
+  /// Runs after the server accepted the PIN and before the app leaves this
+  /// screen: Mimo cheers, remembers the account on this device, and offers a
+  /// public coupon to customers.
+  Future<void> _celebrate(UserModel user) async {
     if (!mounted) return;
-    setState(() => _status = _LoginStatus.success);
+    final first = MimoKnownAccounts.firstName(user.fullName);
+    final ar = Localizations.localeOf(context).languageCode == 'ar';
+    setState(() {
+      _status = _LoginStatus.success;
+      _successName = first.isEmpty ? null : first;
+    });
     HapticFeedback.lightImpact();
-    if (_animationsEnabled) {
-      await Future<void>.delayed(const Duration(milliseconds: 850));
+    unawaited(_known.remember(phoneCtrl.text, user.fullName));
+
+    final role = user.role.trim().toLowerCase();
+    if (role == 'user' || role == 'customer') {
+      _CouponOffer? offer;
+      try {
+        final coupons = await ref
+            .read(couponsApiProvider)
+            .listMyCoupons(limit: 30)
+            .timeout(const Duration(milliseconds: 2500));
+        offer = _CouponOffer.pick(coupons, ar);
+      } catch (_) {
+        offer = null; // No coupon is fine; never block sign-in.
+      }
+      if (offer != null && mounted) {
+        final dismissed = Completer<void>();
+        setState(() {
+          _coupon = offer;
+          _couponDismissed = dismissed;
+        });
+        // Auto-continue if the user just reads it and does nothing.
+        final autoContinue = Timer(const Duration(seconds: 3), _finishCoupon);
+        await dismissed.future;
+        autoContinue.cancel();
+        return;
+      }
     }
+    // No coupon: one second of Mimo cheering, then into the app.
+    if (_animationsEnabled) {
+      await Future<void>.delayed(const Duration(seconds: 1));
+    }
+  }
+
+  void _finishCoupon() {
+    final c = _couponDismissed;
+    if (c != null && !c.isCompleted) c.complete();
   }
 
   /// ينفذ login ثم يطبق guard إضافي لمسار owner-only إذا كانت الشاشة مستخدمة
   /// داخل تطبيق أو تدفق مقصور على أصحاب المتاجر.
   Future<void> _submitLogin(BuildContext context) async {
-    if (_loginInFlight) return;
+    if (_loginInFlight || _locked) return;
     final messenger = ScaffoldMessenger.of(context);
     final l10n = context.l10n;
     FocusScope.of(context).unfocus();
@@ -292,6 +645,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       return;
     }
 
+    // A different number starts a fresh streak (it's a different person).
+    final phoneKey = normalizeIraqiPhoneForAuth(phoneCtrl.text);
+    if (phoneKey != _failPhone) {
+      _fails = 0;
+      _failPhone = phoneKey;
+    }
+
     setState(() {
       _loginInFlight = true;
       _status = _LoginStatus.loading;
@@ -307,20 +667,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       if (mounted) setState(() => _loginInFlight = false);
     }
 
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
     final authAfter = ref.read(authControllerProvider);
     if (!authAfter.isAuthed && authAfter.error != null) {
+      final credential = _isCredentialFailure(authAfter, context);
+      // The name was looked up while typing; never wait on storage here.
       setState(() {
-        _fails++;
-        _status = _LoginStatus.error;
         _serverError =
             _safeAuthMessage(authAfter.error) ??
             context.lt(
               ar: 'رقم الهاتف أو الرمز السري غير صحيح',
               en: 'Wrong phone number or PIN',
             );
+        if (credential) {
+          _fails++;
+          _status = _LoginStatus.error;
+        } else {
+          _status = _LoginStatus.invalid;
+        }
       });
       _playFailFeedback();
+      if (credential && _fails >= 3) {
+        await _startHackedSequence();
+      }
       return;
     }
     if (authAfter.isCustomer ||
@@ -369,8 +738,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     }
     await ref.read(authControllerProvider.notifier).requestPinReset(phone);
     if (!mounted) return;
+    setState(() {
+      _status = _LoginStatus.resetSent;
+      _laughingFace = false;
+    });
+    HapticFeedback.lightImpact();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('تم إرسال طلب إعادة التعيين إلى الإدارة')),
+    );
+  }
+
+  String _formatLock() {
+    final m = _lockSecondsLeft ~/ 60;
+    final sec = (_lockSecondsLeft % 60).toString().padLeft(2, '0');
+    return '$m:$sec';
+  }
+
+  void _copyCoupon() {
+    final code = _coupon?.code;
+    if (code == null) return;
+    Clipboard.setData(ClipboardData(text: code));
+    HapticFeedback.selectionClick();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 2),
+        content: Text(context.lt(ar: 'تم نسخ الكوبون', en: 'Coupon copied')),
+      ),
     );
   }
 
@@ -386,15 +779,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     final useDesktopLayout =
         appIsDesktop && MediaQuery.sizeOf(context).width >= 1180;
     final pad = useDesktopLayout ? 24.0 : 16.0;
+    _syncForgotPulse();
 
     final stage = _LoginStage(
       intro: _introCtrl,
+      run: _runCtrl,
       mimo: MimoCharacter(
         mood: _mood(),
         lookX: _lookX(),
         animate: settings.animationsEnabled,
         nudgeTick: _nudgeTick,
         shakeTick: _mimoShakeTick,
+        running: _status == _LoginStatus.hacked,
         semanticLabel: context.lt(ar: 'ميمو', en: 'Mimo'),
       ),
       onMimoTap: _petMimo,
@@ -519,22 +915,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           ],
         ),
         const SizedBox(height: 12),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: const Color(0xFFE4EAE6),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: const Color(0xFFB9A57C)),
-          ),
-          child: Text(
-            l10n.authLoginTagline,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 14,
-              height: 1.6,
-              color: Color(0xFF2F3845),
-            ),
-          ),
+        _MimoSpeechArea(
+          tagline: l10n.authLoginTagline,
+          speech: _speech(context),
+          animate: anim,
+          onCopyCoupon: _copyCoupon,
+          onContinue: _finishCoupon,
         ),
         const SizedBox(height: 12),
         AnimatedBuilder(
@@ -564,14 +950,20 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                 onSubmitted: (_) => _pinFocus.requestFocus(),
                 onChanged: (_) {
                   if (_phoneError != null) _phoneError = null;
-                  _onTyped();
+                  _onTyped(phoneChanged: true);
                 },
               ),
               const SizedBox(height: 12),
               _MimoField(
                 controller: pinCtrl,
                 focusNode: _pinFocus,
-                hint: l10n.authPinLabel,
+                hint: _locked
+                    ? context.lt(
+                        ar: 'مقفول ${_formatLock()}',
+                        en: 'Locked ${_formatLock()}',
+                      )
+                    : l10n.authPinLabel,
+                enabled: !_locked,
                 keyboardType: TextInputType.number,
                 textInputAction: TextInputAction.done,
                 maxLength: 8,
@@ -647,11 +1039,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
         ),
         const SizedBox(height: 14),
         _Pressable(
-          enabled: !busy && !success,
+          enabled: !busy && !success && !_locked,
           child: SizedBox(
             height: 50,
             child: ElevatedButton(
-              onPressed: busy || success ? null : () => _submitLogin(context),
+              onPressed: busy || success || _locked
+                  ? null
+                  : () => _submitLogin(context),
               style: ElevatedButton.styleFrom(
                 backgroundColor: _green,
                 foregroundColor: Colors.white,
@@ -679,6 +1073,21 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
                         key: ValueKey('ok'),
                         size: 26,
                       )
+                    : _locked
+                    ? Row(
+                        key: const ValueKey('locked'),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.lock_clock_rounded, size: 20),
+                          const SizedBox(width: 8),
+                          Text(
+                            context.lt(
+                              ar: 'حاول بعد ${_formatLock()}',
+                              en: 'Try again in ${_formatLock()}',
+                            ),
+                          ),
+                        ],
+                      )
                     : busy
                     ? const SizedBox(
                         key: ValueKey('busy'),
@@ -695,13 +1104,37 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
           ),
         ),
         const SizedBox(height: 6),
-        TextButton(
-          onPressed: busy ? null : _requestPinReset,
-          style: TextButton.styleFrom(foregroundColor: _ink),
-          child: const Text(
-            'نسيت الرمز الخاص بي',
-            style: TextStyle(fontSize: 15),
-          ),
+        // Pulses when Mimo points the user here.
+        AnimatedBuilder(
+          animation: _pulseCtrl,
+          builder: (context, child) {
+            final on = _suggestForgot;
+            final v = on ? (_animationsEnabled ? _pulseCtrl.value : 1.0) : 0.0;
+            return Transform.scale(
+              scale: 1 + 0.04 * v,
+              child: TextButton(
+                onPressed: busy ? null : _requestPinReset,
+                style: TextButton.styleFrom(
+                  foregroundColor: on ? const Color(0xFF7A4A12) : _ink,
+                  backgroundColor: on
+                      ? Color.lerp(
+                          const Color(0x1FB8893F),
+                          const Color(0x40B8893F),
+                          v,
+                        )
+                      : Colors.transparent,
+                  shape: const StadiumBorder(),
+                ),
+                child: Text(
+                  'نسيت الرمز الخاص بي',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: on ? FontWeight.w800 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            );
+          },
         ),
         TextButton(
           onPressed: () {
@@ -765,9 +1198,289 @@ class _BubbleData {
   final Color foreground;
 }
 
+class _SpeechData {
+  const _SpeechData(this.text, {this.alert = false, this.coupon});
+
+  final String text;
+  final bool alert;
+  final _CouponOffer? coupon;
+}
+
+/// The tagline pill under the ledge. While Mimo has something longer to say it
+/// morphs into his speech card (typewriter text, optional coupon ticket).
+class _MimoSpeechArea extends StatelessWidget {
+  const _MimoSpeechArea({
+    required this.tagline,
+    required this.speech,
+    required this.animate,
+    required this.onCopyCoupon,
+    required this.onContinue,
+  });
+
+  final String tagline;
+  final _SpeechData? speech;
+  final bool animate;
+  final VoidCallback onCopyCoupon;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    final d = speech;
+    final Widget child;
+    if (d == null) {
+      child = Container(
+        key: const ValueKey('tagline'),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE4EAE6),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFB9A57C)),
+        ),
+        child: Text(
+          tagline,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 14,
+            height: 1.6,
+            color: Color(0xFF2F3845),
+          ),
+        ),
+      );
+    } else {
+      final fg = d.alert ? Colors.white : _navy;
+      final typing = Duration(
+        milliseconds: animate ? 40 * d.text.characters.length + 120 : 0,
+      );
+      child = Container(
+        key: ValueKey('speech|${d.text}|${d.alert}'),
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: d.alert ? _errorRed : Colors.white,
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(
+            color: d.alert ? _errorRed : _goldFocus,
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: (d.alert ? _errorRed : _goldFocus).withOpacity(0.22),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _TypewriterText(
+              text: d.text,
+              animate: animate,
+              textAlign: TextAlign.start,
+              style: TextStyle(
+                color: fg,
+                fontSize: d.alert ? 18 : 15,
+                fontWeight: FontWeight.w800,
+                height: 1.5,
+              ),
+            ),
+            if (d.coupon != null) ...[
+              const SizedBox(height: 10),
+              _PopIn(
+                delay: typing,
+                animate: animate,
+                child: _CouponTicket(
+                  offer: d.coupon!,
+                  onCopy: onCopyCoupon,
+                  onContinue: onContinue,
+                ),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+    return _SmoothSize(
+      animate: animate,
+      child: AnimatedSwitcher(
+        duration: animate ? const Duration(milliseconds: 280) : Duration.zero,
+        switchInCurve: Curves.easeOutBack,
+        switchOutCurve: Curves.easeIn,
+        transitionBuilder: (child, a) => FadeTransition(
+          opacity: a.drive(CurveTween(curve: const Interval(0, 0.6))),
+          child: ScaleTransition(
+            alignment: Alignment.topCenter,
+            scale: Tween(begin: 0.92, end: 1.0).animate(a),
+            child: child,
+          ),
+        ),
+        layoutBuilder: (current, previous) => Stack(
+          alignment: Alignment.topCenter,
+          children: [...previous, ?current],
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _CouponTicket extends StatelessWidget {
+  const _CouponTicket({
+    required this.offer,
+    required this.onCopy,
+    required this.onContinue,
+  });
+
+  final _CouponOffer offer;
+  final VoidCallback onCopy;
+  final VoidCallback onContinue;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsetsDirectional.fromSTEB(12, 6, 4, 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF6E5),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _goldFocus, width: 1.4),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: _green,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  offer.discountLabel,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: SelectableText(
+                    offer.code,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: _navy,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2.4,
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: context.lt(ar: 'نسخ الكوبون', en: 'Copy coupon'),
+                onPressed: onCopy,
+                icon: const Icon(Icons.copy_rounded, color: _goldFocus),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        _Pressable(
+          child: SizedBox(
+            height: 46,
+            child: FilledButton.icon(
+              onPressed: onContinue,
+              style: FilledButton.styleFrom(
+                backgroundColor: _green,
+                foregroundColor: Colors.white,
+                shape: const StadiumBorder(),
+                textStyle: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              icon: const Icon(Icons.shopping_bag_outlined, size: 20),
+              label: Text(context.lt(ar: 'يلا نتسوق', en: 'Let us shop')),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Springs its child in after [delay] (e.g. once Mimo finished typing).
+class _PopIn extends StatefulWidget {
+  const _PopIn({
+    required this.child,
+    required this.delay,
+    required this.animate,
+  });
+
+  final Widget child;
+  final Duration delay;
+  final bool animate;
+
+  @override
+  State<_PopIn> createState() => _PopInState();
+}
+
+class _PopInState extends State<_PopIn> with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+  );
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget.animate) {
+      _ctrl.value = 1;
+    } else {
+      _timer = Timer(widget.delay, () {
+        if (mounted) _ctrl.forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _ctrl,
+      builder: (context, child) {
+        final v = Curves.easeOutBack.transform(_ctrl.value);
+        return Opacity(
+          opacity: _ctrl.value,
+          child: Transform.scale(scale: 0.8 + 0.2 * v, child: child),
+        );
+      },
+      child: widget.child,
+    );
+  }
+}
+
 class _LoginStage extends StatelessWidget {
   const _LoginStage({
     required this.intro,
+    required this.run,
     required this.mimo,
     required this.onMimoTap,
     required this.bubble,
@@ -776,6 +1489,9 @@ class _LoginStage extends StatelessWidget {
   });
 
   final Animation<double> intro;
+
+  /// 0→1 while Mimo runs left and right across the ledge.
+  final Animation<double> run;
   final Widget mimo;
   final VoidCallback onMimoTap;
   final _BubbleData? bubble;
@@ -804,6 +1520,22 @@ class _LoginStage extends StatelessWidget {
         final w = constraints.maxWidth;
         // Mimo sits slightly off-centre on the ledge, like the mock.
         final mimoLeft = w / 2 - _mimoW / 2 - 18 * (w / 354);
+        // Two laps: right, left, right, left, back to the seat.
+        final rightRange = w - _mimoW - mimoLeft - 4;
+        final leftRange = mimoLeft - 4;
+        double runDx() {
+          if (!run.isAnimating && run.value == 0) return 0;
+          final e = Curves.easeInOut.transform(run.value);
+          final x = math.sin(e * math.pi * 4);
+          return x >= 0 ? x * rightRange : x * leftRange;
+        }
+
+        double runTilt() {
+          if (!run.isAnimating) return 0;
+          final e = Curves.easeInOut.transform(run.value);
+          return math.cos(e * math.pi * 4) * 0.12;
+        }
+
         return Stack(
           clipBehavior: Clip.none,
           children: [
@@ -874,14 +1606,21 @@ class _LoginStage extends StatelessWidget {
               left: mimoLeft + 20,
               width: 92,
               height: 12,
-              child: FadeTransition(
-                opacity: mimoIn,
-                child: const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      colors: [Color(0x4D0B2440), Color(0x000B2440)],
+              child: AnimatedBuilder(
+                animation: run,
+                builder: (context, child) => Transform.translate(
+                  offset: Offset(runDx(), 0),
+                  child: child,
+                ),
+                child: FadeTransition(
+                  opacity: mimoIn,
+                  child: const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        colors: [Color(0x4D0B2440), Color(0x000B2440)],
+                      ),
+                      borderRadius: BorderRadius.all(Radius.elliptical(46, 6)),
                     ),
-                    borderRadius: BorderRadius.all(Radius.elliptical(46, 6)),
                   ),
                 ),
               ),
@@ -893,14 +1632,18 @@ class _LoginStage extends StatelessWidget {
               width: _mimoW,
               height: _mimoH,
               child: AnimatedBuilder(
-                animation: mimoIn,
+                animation: Listenable.merge([mimoIn, run]),
                 builder: (context, child) {
                   final v = mimoIn.value;
                   return Opacity(
                     opacity: v.clamp(0.0, 1.0),
                     child: Transform.translate(
-                      offset: Offset(0, (1 - v) * -36),
-                      child: child,
+                      offset: Offset(runDx(), (1 - v) * -36),
+                      child: Transform.rotate(
+                        angle: runTilt(),
+                        alignment: Alignment.bottomCenter,
+                        child: child,
+                      ),
                     ),
                   );
                 },
@@ -1024,8 +1767,10 @@ class _TypewriterText extends StatefulWidget {
     required this.text,
     required this.style,
     required this.animate,
+    this.textAlign = TextAlign.center,
   });
 
+  final TextAlign textAlign;
   final String text;
   final TextStyle style;
   final bool animate;
@@ -1072,7 +1817,7 @@ class _TypewriterTextState extends State<_TypewriterText>
               child: Text(
                 widget.text,
                 style: widget.style,
-                textAlign: TextAlign.center,
+                textAlign: widget.textAlign,
               ),
             ),
             AnimatedBuilder(
@@ -1094,8 +1839,7 @@ class _TypewriterTextState extends State<_TypewriterText>
                     ],
                   ),
                   style: widget.style,
-                  textAlign: TextAlign.center,
-                  maxLines: 3,
+                  textAlign: widget.textAlign,
                 );
               },
             ),
@@ -1124,6 +1868,7 @@ class _MimoField extends StatelessWidget {
     required this.prefixIcon,
     this.errorText,
     this.obscure = false,
+    this.enabled = true,
     this.onChanged,
     this.onSubmitted,
     this.trailing,
@@ -1141,6 +1886,7 @@ class _MimoField extends StatelessWidget {
   final IconData prefixIcon;
   final String? errorText;
   final bool obscure;
+  final bool enabled;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
   final Widget? trailing;
@@ -1168,7 +1914,7 @@ class _MimoField extends StatelessWidget {
             end: trailing == null ? 14 : 2,
           ),
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: enabled ? Colors.white : const Color(0xFFF1EEE6),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: borderColor, width: strong ? 2 : 1),
             boxShadow: [
@@ -1199,6 +1945,7 @@ class _MimoField extends StatelessWidget {
                   child: TextField(
                     controller: controller,
                     focusNode: focusNode,
+                    enabled: enabled,
                     keyboardType: keyboardType,
                     textInputAction: textInputAction,
                     obscureText: obscure,
