@@ -8,21 +8,35 @@ import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/parsers.dart';
 import '../state/admin_controller.dart';
 
-const _paymentMethods = <String>['cash', 'bank_transfer', 'wallet', 'card', 'other'];
+const _paymentMethods = <String>[
+  'cash',
+  'bank_transfer',
+  'wallet',
+  'card',
+  'other',
+];
 
 String _payMethodLabel(BuildContext c, String key) {
   const ar = {
-    'cash': 'نقدي', 'bank_transfer': 'حوالة بنكية', 'wallet': 'محفظة',
-    'card': 'بطاقة', 'other': 'أخرى',
+    'cash': 'نقدي',
+    'bank_transfer': 'حوالة بنكية',
+    'wallet': 'محفظة',
+    'card': 'بطاقة',
+    'other': 'أخرى',
   };
   return c.lt(ar: ar[key] ?? key, en: key);
 }
 
 String payrollStatusLabel(BuildContext c, String key) {
   const ar = {
-    'DRAFT': 'مسودة', 'CALCULATED': 'محسوبة', 'UNDER_REVIEW': 'قيد المراجعة',
-    'APPROVED': 'معتمدة', 'RELEASED': 'مُطلَقة', 'PAID': 'مدفوعة',
-    'ACKNOWLEDGED': 'مؤكَّد الاستلام', 'ARCHIVED': 'مؤرشفة',
+    'DRAFT': 'مسودة',
+    'CALCULATED': 'محسوبة',
+    'UNDER_REVIEW': 'قيد المراجعة',
+    'APPROVED': 'معتمدة',
+    'RELEASED': 'مُطلَقة',
+    'PAID': 'مدفوعة',
+    'ACKNOWLEDGED': 'مؤكَّد الاستلام',
+    'ARCHIVED': 'مؤرشفة',
   };
   return c.lt(ar: ar[key] ?? key, en: key);
 }
@@ -59,9 +73,11 @@ class _AdminPayrollScreenState extends ConsumerState<AdminPayrollScreen> {
       setState(() => _runs = runs);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر تحميل الرواتب.')
-          : 'تعذّر تحميل الرواتب.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر تحميل الرواتب.')
+            : 'تعذّر تحميل الرواتب.',
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -82,7 +98,10 @@ class _AdminPayrollScreenState extends ConsumerState<AdminPayrollScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(context.lt(ar: 'إلغاء', en: 'Cancel'))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(context.lt(ar: 'إلغاء', en: 'Cancel')),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, controller.text.trim()),
             child: Text(context.lt(ar: 'إنشاء', en: 'Create')),
@@ -93,7 +112,9 @@ class _AdminPayrollScreenState extends ConsumerState<AdminPayrollScreen> {
     if (period == null || !RegExp(r'^\d{4}-\d{2}$').hasMatch(period)) return;
     try {
       final data = await ref.read(adminApiProvider).createPayrollRun(period);
-      final runId = parseInt(Map<String, dynamic>.from(data['run'] as Map)['id']);
+      final runId = parseInt(
+        Map<String, dynamic>.from(data['run'] as Map)['id'],
+      );
       if (!mounted) return;
       await Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => AdminPayrollRunScreen(runId: runId)),
@@ -101,9 +122,11 @@ class _AdminPayrollScreenState extends ConsumerState<AdminPayrollScreen> {
       _load();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر إنشاء الدورة.')
-          : 'تعذّر إنشاء الدورة.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر إنشاء الدورة.')
+            : 'تعذّر إنشاء الدورة.',
+      );
     }
   }
 
@@ -113,7 +136,10 @@ class _AdminPayrollScreenState extends ConsumerState<AdminPayrollScreen> {
       appBar: AppBar(
         title: Text(context.lt(ar: 'الرواتب', en: 'Payroll')),
         actions: [
-          IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh_rounded)),
+          IconButton(
+            onPressed: _loading ? null : _load,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -124,37 +150,47 @@ class _AdminPayrollScreenState extends ConsumerState<AdminPayrollScreen> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
-              ? Center(child: Text(_error!))
-              : _runs.isEmpty
-                  ? MaslakiEmptyState(
-                      icon: Icons.payments_outlined,
-                      title: context.lt(ar: 'لا توجد دورات رواتب', en: 'No payroll runs'),
-                      body: context.lt(ar: 'أنشئ دورة راتب جديدة.', en: 'Create a new payroll run.'),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(MaslakiSpacing.md),
-                      itemCount: _runs.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: MaslakiSpacing.sm),
-                      itemBuilder: (context, i) {
-                        final r = _runs[i];
-                        return MaslakiCard(
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: Text('${r['period_month'] ?? ''}'),
-                            subtitle: Text(payrollStatusLabel(context, '${r['status'] ?? ''}')),
-                            trailing: const Icon(Icons.chevron_left_rounded),
-                            onTap: () async {
-                              await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => AdminPayrollRunScreen(runId: parseInt(r['id'])),
-                                ),
-                              );
-                              _load();
-                            },
-                          ),
-                        );
-                      },
+          ? Center(child: Text(_error!))
+          : _runs.isEmpty
+          ? MaslakiEmptyState(
+              icon: Icons.payments_outlined,
+              title: context.lt(
+                ar: 'لا توجد دورات رواتب',
+                en: 'No payroll runs',
+              ),
+              body: context.lt(
+                ar: 'أنشئ دورة راتب جديدة.',
+                en: 'Create a new payroll run.',
+              ),
+            )
+          : ListView.separated(
+              padding: const EdgeInsets.all(MaslakiSpacing.md),
+              itemCount: _runs.length,
+              separatorBuilder: (_, _) =>
+                  const SizedBox(height: MaslakiSpacing.sm),
+              itemBuilder: (context, i) {
+                final r = _runs[i];
+                return MaslakiCard(
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text('${r['period_month'] ?? ''}'),
+                    subtitle: Text(
+                      payrollStatusLabel(context, '${r['status'] ?? ''}'),
                     ),
+                    trailing: const Icon(Icons.chevron_left_rounded),
+                    onTap: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              AdminPayrollRunScreen(runId: parseInt(r['id'])),
+                        ),
+                      );
+                      _load();
+                    },
+                  ),
+                );
+              },
+            ),
     );
   }
 }
@@ -164,7 +200,8 @@ class AdminPayrollRunScreen extends ConsumerStatefulWidget {
   final int runId;
 
   @override
-  ConsumerState<AdminPayrollRunScreen> createState() => _AdminPayrollRunScreenState();
+  ConsumerState<AdminPayrollRunScreen> createState() =>
+      _AdminPayrollRunScreenState();
 }
 
 class _AdminPayrollRunScreenState extends ConsumerState<AdminPayrollRunScreen> {
@@ -196,9 +233,11 @@ class _AdminPayrollRunScreenState extends ConsumerState<AdminPayrollRunScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر تحميل الدورة.')
-          : 'تعذّر تحميل الدورة.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر تحميل الدورة.')
+            : 'تعذّر تحميل الدورة.',
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -214,9 +253,11 @@ class _AdminPayrollRunScreenState extends ConsumerState<AdminPayrollRunScreen> {
       await _load();
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e is DioException
-          ? mapDioError(e, fallback: 'تعذّر تنفيذ العملية.')
-          : 'تعذّر تنفيذ العملية.');
+      setState(
+        () => _error = e is DioException
+            ? mapDioError(e, fallback: 'تعذّر تنفيذ العملية.')
+            : 'تعذّر تنفيذ العملية.',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -236,63 +277,128 @@ class _AdminPayrollRunScreenState extends ConsumerState<AdminPayrollRunScreen> {
             children: [
               DropdownButtonFormField<String>(
                 initialValue: method,
-                decoration: InputDecoration(labelText: context.lt(ar: 'طريقة الدفع', en: 'Payment method')),
+                decoration: InputDecoration(
+                  labelText: context.lt(
+                    ar: 'طريقة الدفع',
+                    en: 'Payment method',
+                  ),
+                ),
                 items: [
                   for (final m in _paymentMethods)
-                    DropdownMenuItem(value: m, child: Text(_payMethodLabel(ctx, m))),
+                    DropdownMenuItem(
+                      value: m,
+                      child: Text(_payMethodLabel(ctx, m)),
+                    ),
                 ],
                 onChanged: (v) => setLocal(() => method = v ?? method),
               ),
               TextField(
                 controller: reference,
-                decoration: InputDecoration(labelText: context.lt(ar: 'مرجع (اختياري)', en: 'Reference (optional)')),
+                decoration: InputDecoration(
+                  labelText: context.lt(
+                    ar: 'مرجع (اختياري)',
+                    en: 'Reference (optional)',
+                  ),
+                ),
               ),
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(context.lt(ar: 'إلغاء', en: 'Cancel'))),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(context.lt(ar: 'تأكيد', en: 'Confirm'))),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(context.lt(ar: 'إلغاء', en: 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(context.lt(ar: 'تأكيد', en: 'Confirm')),
+            ),
           ],
         ),
       ),
     );
     if (ok != true) return;
-    await _run2(() => api.markPayrollRunPaid(
-          widget.runId,
-          paymentMethod: method,
-          paymentReference: reference.text.trim(),
-        ));
+    await _run2(
+      () => api.markPayrollRunPaid(
+        widget.runId,
+        paymentMethod: method,
+        paymentReference: reference.text.trim(),
+      ),
+    );
   }
 
   List<Widget> _actions(String status) {
     final api = ref.read(adminApiProvider);
-    Widget btn(String label, VoidCallback onTap, {IconData icon = Icons.arrow_forward_rounded}) =>
-        FilledButton.icon(onPressed: _busy ? null : onTap, icon: Icon(icon), label: Text(label));
+    Widget btn(
+      String label,
+      VoidCallback onTap, {
+      IconData icon = Icons.arrow_forward_rounded,
+    }) => FilledButton.icon(
+      onPressed: _busy ? null : onTap,
+      icon: Icon(icon),
+      label: Text(label),
+    );
     switch (status) {
       case 'DRAFT':
-        return [btn(context.lt(ar: 'احتساب', en: 'Calculate'),
-            () => _run2(() => api.calculatePayrollRun(widget.runId)), icon: Icons.calculate_rounded)];
+        return [
+          btn(
+            context.lt(ar: 'احتساب', en: 'Calculate'),
+            () => _run2(() => api.calculatePayrollRun(widget.runId)),
+            icon: Icons.calculate_rounded,
+          ),
+        ];
       case 'CALCULATED':
         return [
-          btn(context.lt(ar: 'إعادة الاحتساب', en: 'Recalculate'),
-              () => _run2(() => api.calculatePayrollRun(widget.runId)), icon: Icons.calculate_rounded),
-          btn(context.lt(ar: 'إرسال للمراجعة', en: 'Submit for review'),
-              () => _run2(() => api.payrollRunAction(widget.runId, 'submit'))),
+          btn(
+            context.lt(ar: 'إعادة الاحتساب', en: 'Recalculate'),
+            () => _run2(() => api.calculatePayrollRun(widget.runId)),
+            icon: Icons.calculate_rounded,
+          ),
+          btn(
+            context.lt(ar: 'إرسال للمراجعة', en: 'Submit for review'),
+            () => _run2(() => api.payrollRunAction(widget.runId, 'submit')),
+          ),
         ];
       case 'UNDER_REVIEW':
-        return [btn(context.lt(ar: 'اعتماد', en: 'Approve'),
-            () => _run2(() => api.payrollRunAction(widget.runId, 'approve')), icon: Icons.verified_rounded)];
+        return [
+          btn(
+            context.lt(ar: 'اعتماد', en: 'Approve'),
+            () => _run2(() => api.payrollRunAction(widget.runId, 'approve')),
+            icon: Icons.verified_rounded,
+          ),
+        ];
       case 'APPROVED':
-        return [btn(context.lt(ar: 'إطلاق', en: 'Release'),
-            () => _run2(() => api.payrollRunAction(widget.runId, 'release')), icon: Icons.send_rounded)];
+        return [
+          btn(
+            context.lt(ar: 'إطلاق', en: 'Release'),
+            () => _run2(() => api.payrollRunAction(widget.runId, 'release')),
+            icon: Icons.send_rounded,
+          ),
+        ];
       case 'RELEASED':
-        return [btn(context.lt(ar: 'تم التسديد', en: 'Mark paid'), _markPaid, icon: Icons.payments_rounded)];
+        return [
+          btn(
+            context.lt(ar: 'تم التسديد', en: 'Mark paid'),
+            _markPaid,
+            icon: Icons.payments_rounded,
+          ),
+        ];
       case 'PAID':
-        return [btn(context.lt(ar: 'تأكيد الاستلام', en: 'Acknowledge'),
-            () => _run2(() => api.payrollRunAction(widget.runId, 'acknowledge')), icon: Icons.done_all_rounded)];
+        return [
+          btn(
+            context.lt(ar: 'تأكيد الاستلام', en: 'Acknowledge'),
+            () =>
+                _run2(() => api.payrollRunAction(widget.runId, 'acknowledge')),
+            icon: Icons.done_all_rounded,
+          ),
+        ];
       case 'ACKNOWLEDGED':
-        return [btn(context.lt(ar: 'أرشفة', en: 'Archive'),
-            () => _run2(() => api.payrollRunAction(widget.runId, 'archive')), icon: Icons.archive_rounded)];
+        return [
+          btn(
+            context.lt(ar: 'أرشفة', en: 'Archive'),
+            () => _run2(() => api.payrollRunAction(widget.runId, 'archive')),
+            icon: Icons.archive_rounded,
+          ),
+        ];
       default:
         return const [];
     }
@@ -301,11 +407,15 @@ class _AdminPayrollRunScreenState extends ConsumerState<AdminPayrollRunScreen> {
   @override
   Widget build(BuildContext context) {
     final status = '${_run['status'] ?? ''}';
-    final totalNet =
-        _items.fold<int>(0, (s, it) => s + parseInt(it['net_iqd']));
+    final totalNet = _items.fold<int>(
+      0,
+      (s, it) => s + parseInt(it['net_iqd']),
+    );
     return Scaffold(
       appBar: AppBar(
-        title: Text('${context.lt(ar: 'دورة', en: 'Run')} ${_run['period_month'] ?? ''}'),
+        title: Text(
+          '${context.lt(ar: 'دورة', en: 'Run')} ${_run['period_month'] ?? ''}',
+        ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -315,7 +425,12 @@ class _AdminPayrollRunScreenState extends ConsumerState<AdminPayrollRunScreen> {
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    child: Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
                   ),
                 MaslakiCard(
                   child: Column(
@@ -326,32 +441,45 @@ class _AdminPayrollRunScreenState extends ConsumerState<AdminPayrollRunScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 4),
-                      Text('${context.lt(ar: 'عدد الموظفين', en: 'Employees')}: ${_items.length}'),
-                      Text('${context.lt(ar: 'إجمالي الصافي', en: 'Total net')}: $totalNet د.ع'),
+                      Text(
+                        '${context.lt(ar: 'عدد الموظفين', en: 'Employees')}: ${_items.length}',
+                      ),
+                      Text(
+                        '${context.lt(ar: 'إجمالي الصافي', en: 'Total net')}: $totalNet د.ع',
+                      ),
                       if (_run['payment_method'] != null)
-                        Text('${context.lt(ar: 'طريقة الدفع', en: 'Payment')}: '
-                            '${_payMethodLabel(context, '${_run['payment_method']}')}'),
+                        Text(
+                          '${context.lt(ar: 'طريقة الدفع', en: 'Payment')}: '
+                          '${_payMethodLabel(context, '${_run['payment_method']}')}',
+                        ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 12),
                 Wrap(spacing: 8, runSpacing: 8, children: _actions(status)),
                 const SizedBox(height: 12),
-                Text(context.lt(ar: 'البنود', en: 'Items'), style: Theme.of(context).textTheme.titleSmall),
+                Text(
+                  context.lt(ar: 'البنود', en: 'Items'),
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
                 const SizedBox(height: 6),
                 for (final it in _items)
                   MaslakiCard(
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
-                      title: Text('${it['full_name'] ?? it['employee_user_id']}'),
+                      title: Text(
+                        '${it['full_name'] ?? it['employee_user_id']}',
+                      ),
                       subtitle: Text(
                         '${context.lt(ar: 'أساسي', en: 'Base')} ${it['base_salary_iqd']} + '
                         '${context.lt(ar: 'إضافات', en: 'Add')} ${it['additions_iqd']} - '
                         '${context.lt(ar: 'خصم', en: 'Ded')} ${it['deductions_iqd']}',
                       ),
-                      trailing: Text('${it['net_iqd']} د.ع',
-                          style: const TextStyle(fontWeight: FontWeight.w800)),
+                      trailing: Text(
+                        '${it['net_iqd']} د.ع',
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
                     ),
                   ),
               ],

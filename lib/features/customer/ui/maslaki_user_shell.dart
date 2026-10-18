@@ -8,6 +8,8 @@ import 'package:core_design_system/core_design_system.dart';
 import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../mimo/mimo_navigation.dart';
+import '../../mimo/mimo_overlay.dart';
 import '../../orders/ui/customer_orders_screen.dart';
 import '../../social/ui/social_shell_screen.dart';
 import 'customer_account_hub_screen.dart';
@@ -195,14 +197,30 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
     );
   }
 
+  /// The home tab opens what Mimo suggests. If the app started on another
+  /// tab, home isn't built yet: build it, then hand the request over again.
+  void _onMimoNavRequest() {
+    final request = MimoNavigation.requests.value;
+    if (request == null || !mounted || _tabNavigators[0] != null) return;
+    _goToTab(0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) MimoNavigation.open(request);
+    });
+  }
+
+  @override
+  void dispose() {
+    MimoNavigation.requests.removeListener(_onMimoNavRequest);
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
+    MimoNavigation.requests.addListener(_onMimoNavRequest);
     final auth = ref.read(authControllerProvider);
     final requested = widget.initialIndex.clamp(0, _navigatorKeys.length - 1);
-    _index = !auth.isAuthed && _isGuestRestrictedTab(requested)
-        ? 0
-        : requested;
+    _index = !auth.isAuthed && _isGuestRestrictedTab(requested) ? 0 : requested;
   }
 
   @override
@@ -211,8 +229,7 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
     final shellController = MaslakiUserShellController(
       currentIndex: _index,
       popCurrentNavigator: _popCurrentNavigator,
-      goHome: ({bool resetStack = true}) =>
-          goHome(resetStack: resetStack),
+      goHome: ({bool resetStack = true}) => goHome(resetStack: resetStack),
       goToTab: (int tabIndex, {bool resetStack = false}) =>
           goToTab(tabIndex, resetStack: resetStack),
     );
@@ -228,56 +245,58 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
             Navigator.of(context).maybePop();
           }
         },
-        child: Scaffold(
-          extendBody: true,
-          backgroundColor: Colors.transparent,
-          body: Stack(
-            children: List<Widget>.generate(_navigatorKeys.length, (index) {
-              final isActive = index == _index;
-              final navigator = _tabNavigators[index];
-              if (!isActive && navigator == null) {
-                return const SizedBox.shrink();
-              }
-              return Offstage(
-                offstage: !isActive,
-                child: TickerMode(
-                  enabled: isActive,
-                  child: _navigatorForIndex(index),
+        child: MimoOverlay(
+          child: Scaffold(
+            extendBody: true,
+            backgroundColor: Colors.transparent,
+            body: Stack(
+              children: List<Widget>.generate(_navigatorKeys.length, (index) {
+                final isActive = index == _index;
+                final navigator = _tabNavigators[index];
+                if (!isActive && navigator == null) {
+                  return const SizedBox.shrink();
+                }
+                return Offstage(
+                  offstage: !isActive,
+                  child: TickerMode(
+                    enabled: isActive,
+                    child: _navigatorForIndex(index),
+                  ),
+                );
+              }),
+            ),
+            bottomNavigationBar: MaslakiBottomNavShell(
+              visible: _showBottomBar,
+              currentIndex: _index,
+              onTap: _selectTab,
+              items: [
+                MaslakiBottomNavItem(
+                  label: l10n.customerHomeTitle,
+                  icon: Icons.home_outlined,
+                  activeIcon: Icons.home_rounded,
                 ),
-              );
-            }),
-          ),
-          bottomNavigationBar: MaslakiBottomNavShell(
-            visible: _showBottomBar,
-            currentIndex: _index,
-            onTap: _selectTab,
-            items: [
-              MaslakiBottomNavItem(
-                label: l10n.customerHomeTitle,
-                icon: Icons.home_outlined,
-                activeIcon: Icons.home_rounded,
-              ),
-              MaslakiBottomNavItem(
-                label: l10n.commonOrders,
-                icon: Icons.receipt_long_outlined,
-                activeIcon: Icons.receipt_long_rounded,
-              ),
-              MaslakiBottomNavItem(
-                label: l10n.socialBasmayaCommunity,
-                icon: Icons.groups_outlined,
-                activeIcon: Icons.groups_rounded,
-              ),
-              MaslakiBottomNavItem(
-                label: l10n.socialShellMessages,
-                icon: Icons.chat_bubble_outline_rounded,
-                activeIcon: Icons.chat_bubble_rounded,
-              ),
-              MaslakiBottomNavItem(
-                label: l10n.settingsAccount,
-                icon: Icons.person_outline_rounded,
-                activeIcon: Icons.person_rounded,
-              ),
-            ],
+                MaslakiBottomNavItem(
+                  label: l10n.commonOrders,
+                  icon: Icons.receipt_long_outlined,
+                  activeIcon: Icons.receipt_long_rounded,
+                ),
+                MaslakiBottomNavItem(
+                  label: l10n.socialBasmayaCommunity,
+                  icon: Icons.groups_outlined,
+                  activeIcon: Icons.groups_rounded,
+                ),
+                MaslakiBottomNavItem(
+                  label: l10n.socialShellMessages,
+                  icon: Icons.chat_bubble_outline_rounded,
+                  activeIcon: Icons.chat_bubble_rounded,
+                ),
+                MaslakiBottomNavItem(
+                  label: l10n.settingsAccount,
+                  icon: Icons.person_outline_rounded,
+                  activeIcon: Icons.person_rounded,
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -305,10 +324,7 @@ class MaslakiUserShellScope extends InheritedWidget {
 }
 
 class MaslakiHomeNavigator {
-  static Future<void> goHome(
-    BuildContext context, {
-    bool resetStack = true,
-  }) {
+  static Future<void> goHome(BuildContext context, {bool resetStack = true}) {
     return goToTab(context, 0, resetStack: resetStack);
   }
 

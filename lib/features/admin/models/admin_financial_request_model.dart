@@ -81,7 +81,8 @@ class AdminFinancialRequestModel {
       note: json['note']?.toString(),
       reviewNote: json['review_note']?.toString(),
       internalAdminNote: json['internal_admin_note']?.toString(),
-      submittedAt: json['submitted_at']?.toString() ?? json['created_at']?.toString(),
+      submittedAt:
+          json['submitted_at']?.toString() ?? json['created_at']?.toString(),
     );
   }
 }

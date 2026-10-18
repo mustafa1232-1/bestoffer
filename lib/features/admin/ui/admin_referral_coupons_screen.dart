@@ -32,8 +32,9 @@ class _AdminReferralCouponsScreenState
       _error = null;
     });
     try {
-      final agents =
-          await ref.read(couponsApiProvider).listAgentReferralCoupons();
+      final agents = await ref
+          .read(couponsApiProvider)
+          .listAgentReferralCoupons();
       if (!mounted) return;
       setState(() {
         _agents = agents;
@@ -56,8 +57,9 @@ class _AdminReferralCouponsScreenState
 
   Future<void> _editDiscount(Map<String, dynamic> a) async {
     final couponId = (a['couponId'] as num).toInt();
-    final ctrl =
-        TextEditingController(text: '${(a['discountValue'] as num?) ?? 0}');
+    final ctrl = TextEditingController(
+      text: '${(a['discountValue'] as num?) ?? 0}',
+    );
     String type = '${a['discountType'] ?? 'percent'}';
     final ok = await showDialog<bool>(
       context: context,
@@ -102,21 +104,23 @@ class _AdminReferralCouponsScreenState
     if (ok != true) return;
     final value = num.tryParse(ctrl.text.trim()) ?? 0;
     try {
-      await ref.read(couponsApiProvider).updateCouponDiscount(
+      await ref
+          .read(couponsApiProvider)
+          .updateCouponDiscount(
             couponId: couponId,
             discountType: type,
             discountValue: value,
           );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحديث الخصم')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم تحديث الخصم')));
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذّر التحديث: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذّر التحديث: $e')));
     }
   }
 
@@ -124,8 +128,9 @@ class _AdminReferralCouponsScreenState
     final couponId = (a['couponId'] as num).toInt();
     List<Map<String, dynamic>> rows = const [];
     try {
-      rows =
-          await ref.read(couponsApiProvider).getAgentCouponRedemptions(couponId);
+      rows = await ref
+          .read(couponsApiProvider)
+          .getAgentCouponRedemptions(couponId);
     } catch (_) {}
     if (!mounted) return;
     await showModalBottomSheet<void>(
@@ -139,7 +144,10 @@ class _AdminReferralCouponsScreenState
             children: [
               Text(
                 'الزبائن عبر ${a['agentName'] ?? ''} — كوبون ${a['code']}',
-                style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  fontSize: 15,
+                ),
               ),
               const SizedBox(height: 8),
               if (rows.isEmpty)
@@ -174,16 +182,13 @@ class _AdminReferralCouponsScreenState
   }
 
   Widget _stat(String label, String value) => Expanded(
-        child: Column(
-          children: [
-            Text(value, style: const TextStyle(fontWeight: FontWeight.w900)),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 11, color: Colors.grey),
-            ),
-          ],
-        ),
-      );
+    child: Column(
+      children: [
+        Text(value, style: const TextStyle(fontWeight: FontWeight.w900)),
+        Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -260,8 +265,9 @@ class _AdminReferralCouponsScreenState
                             const SizedBox(height: 6),
                             Text(
                               _discountLabel(a),
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w700),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                             const SizedBox(height: 8),
                             Row(

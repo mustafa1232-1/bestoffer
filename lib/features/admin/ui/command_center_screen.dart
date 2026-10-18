@@ -398,9 +398,9 @@ class _SectionsHeader extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           context.lt(ar: 'تفاصيل الأقسام', en: 'Sections'),
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(width: 6),
         Text(
@@ -452,9 +452,9 @@ class _AlertsBanner extends StatelessWidget {
                       ar: 'لا يوجد ما يحتاج تدخّلاً الآن.',
                       en: 'Nothing needs intervention right now.',
                     ),
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: good.fg,
-                    ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: good.fg),
                   ),
                 ],
               ),
@@ -507,9 +507,9 @@ class _AlertsBanner extends StatelessWidget {
                 ar: 'منها $criticalCount حالة حرِجة تتطلّب تدخّلاً فورياً.',
                 en: '$criticalCount of them are critical and need immediate action.',
               ),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: headColors.fg,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: headColors.fg),
             ),
           ],
           const SizedBox(height: MaslakiSpacing.sm),
@@ -568,9 +568,9 @@ class _AlertRow extends StatelessWidget {
               children: [
                 Text(
                   '${alert.sectionTitle} — $label',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 if (desc.isNotEmpty)
                   Text(
@@ -640,7 +640,9 @@ class _MonitoringCard extends StatelessWidget {
 
     // فرز العدّادات: التي تحتاج تدخّلاً أولاً ثم البقية حسب الأولوية.
     final entries = (counters?.entries.toList() ?? [])
-      ..sort((a, b) => _metaFor(a.key).priority.compareTo(_metaFor(b.key).priority));
+      ..sort(
+        (a, b) => _metaFor(a.key).priority.compareTo(_metaFor(b.key).priority),
+      );
     final alertEntries = entries
         .where((e) => _metaFor(e.key).isAlert && _toInt(e.value) > 0)
         .toList(growable: false);
@@ -862,9 +864,9 @@ class _MetricRow extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 if (desc.isNotEmpty)
                   Text(

@@ -43,6 +43,8 @@
 	<string>يستخدم تطبيق مسلكي الكاميرا لالتقاط الصور والفيديوهات للمنشورات والريلز والستوري وصور الحساب والمنتجات عند الحاجة. | Maslaki uses the camera to capture photos and videos for posts, reels, stories, profile pictures, and product images.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>يستخدم تطبيق مسلكي الموقع لتحديد عنوانك، عرض الخدمات القريبة، تتبع الطلبات، وخدمات التوصيل والتكسي عند استخدام هذه الخدمات. | Maslaki uses your location to determine your address, show nearby services, track orders, and enable delivery and taxi services.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>يستخدم مسلكي التعرف على الكلام حتى تتكلم مع ميمو بصوتك بدل الكتابة. | Maslaki uses speech recognition so you can talk to Mimo instead of typing.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>يستخدم تطبيق مسلكي الميكروفون لتسجيل الصوت في الريلز والستوري والرسائل الصوتية والمكالمات عند استخدام هذه الميزات. | Maslaki uses the microphone to record audio in reels, stories, voice messages, and calls.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

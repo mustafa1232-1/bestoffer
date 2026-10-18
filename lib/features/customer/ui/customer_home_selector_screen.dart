@@ -21,6 +21,10 @@ import '../../../core/widgets/maslaki_user_drawer.dart';
 import '../../../core/widgets/maslaki_wordmark.dart';
 import '../../../pages/map_page.dart';
 import '../../auth/state/auth_controller.dart';
+import '../../mimo/mimo_navigation.dart';
+import '../../mimo/mimo_overlay.dart';
+import '../../mimo/mimo_perch.dart';
+import 'maslaki_user_shell.dart';
 import '../../auth/ui/merchants_list_screen.dart';
 import '../../customer/models/customer_ad_board_item.dart';
 import '../../customer/models/recent_activity.dart';
@@ -42,6 +46,7 @@ import '../../paid_upgrades/state/paid_upgrades_summary_provider.dart';
 import '../../real_estate/ui/real_estate_marketplace_screen.dart';
 import '../../real_estate/ui/real_estate_workspace_screen.dart';
 import '../../services/ui/service_offering_details_screen.dart';
+import '../../support/ui/support_tickets_screen.dart';
 import '../../services/ui/service_provider_workspace_screen.dart';
 import '../../services/ui/services_marketplace_screen.dart';
 import '../../social/ui/social_shell_screen.dart';
@@ -92,6 +97,7 @@ class _CustomerHomeSelectorScreenState
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    MimoNavigation.requests.addListener(_onMimoNavRequest);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(ref.read(customerAdBoardControllerProvider.notifier).load());
@@ -224,8 +230,102 @@ class _CustomerHomeSelectorScreenState
 
   @override
   void dispose() {
+    MimoNavigation.requests.removeListener(_onMimoNavRequest);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Opens what Mimo suggested (section, store or product) using this screen's
+  /// own access checks, after bringing the user back to the home tab.
+  void _onMimoNavRequest() {
+    final request = MimoNavigation.requests.value;
+    if (request == null || !mounted) return;
+    final shell = MaslakiUserShellScope.maybeOf(context)?.controller;
+    final section = request.section;
+    if (section == 'orders' && shell != null) {
+      shell.goToTab(1);
+      return;
+    }
+    if (section == 'community' && shell != null) {
+      shell.goToTab(2);
+      return;
+    }
+    shell?.goHome(resetStack: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final ticketId = request.ticketId;
+      if (ticketId != null) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => SupportTicketDetailsScreen(ticketId: ticketId),
+          ),
+        );
+        return;
+      }
+      final serviceId = request.serviceId;
+      if (serviceId != null) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ServiceOfferingDetailsScreen(offeringId: serviceId),
+          ),
+        );
+        return;
+      }
+      final store = request.store;
+      if (store != null) {
+        final id = int.tryParse('${store['id'] ?? ''}') ?? 0;
+        if (id <= 0) return;
+        final merchant = MerchantModel(
+          id: id,
+          name: '${store['name'] ?? ''}',
+          type: '${store['type'] ?? 'market'}',
+          activityType: '${store['activityType'] ?? store['type'] ?? 'market'}',
+          imageUrl: store['imageUrl'] as String?,
+          logoUrl: store['logoUrl'] as String?,
+          coverImageUrl: store['coverImageUrl'] as String?,
+          avgMerchantRating: (store['rating'] as num?)?.toDouble(),
+          ratingCount: (store['ratingsCount'] as num?)?.toInt() ?? 0,
+          isOpen: store['isOpen'] != false,
+          hasDiscountOffer: store['hasOffer'] == true,
+          hasFreeDeliveryOffer: store['freeDelivery'] == true,
+        );
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => MerchantProductsScreen(
+              merchant: merchant,
+              initialProductId: request.productId,
+            ),
+          ),
+        );
+        return;
+      }
+      switch (section) {
+        case 'shopping':
+          await _openShopping();
+        case 'taxi':
+          await _openSection(HomeMainSection.taxi);
+        case 'services':
+          await _openServicesEntry();
+        case 'pharmacy':
+          await _openShopping(activityType: 'pharmacy', title: 'الصيدليات');
+        case 'offers':
+          await _openCouponsHub();
+        case 'cars':
+          await _openCarsHub();
+        case 'real_estate':
+          await _openRealEstateEntry();
+        case 'jobs':
+          await _openSection(HomeMainSection.jobs);
+        case 'cart':
+          await _openCart();
+        case 'login':
+          await requireAuthBeforeAction(
+            context,
+            featureArabic: 'ميمو المساعد',
+            featureEnglish: 'Mimo assistant',
+          );
+      }
+    });
   }
 
   @override
@@ -1227,9 +1327,13 @@ class _CustomerHomeSelectorScreenState
                     const SizedBox(height: 12),
                     HomeEntrance(
                       order: 1,
-                      child: HomeSearchBar(
-                        onTap: () => _openShopping(),
-                        onSubmitted: (query) => _openShopping(query: query),
+                      child: MimoPerch(
+                        home: true,
+                        alignX: 0.11,
+                        child: HomeSearchBar(
+                          onTap: () => _openShopping(),
+                          onSubmitted: (query) => _openShopping(query: query),
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -1420,6 +1524,8 @@ class HomeHeader extends StatelessWidget {
                   ],
                 ),
               ),
+              const SizedBox(width: 8),
+              const MimoToggleButton(),
               const SizedBox(width: 8),
               _HeaderMiniButton(
                 icon: Icons.notifications_outlined,

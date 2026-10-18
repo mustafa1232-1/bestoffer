@@ -20,6 +20,24 @@ enum MimoMood {
   sad,
   sleepy,
   laughing,
+
+  /// Spiral eyes, swaying, stars around the pin (after being swung around).
+  dizzy,
+  wink,
+
+  /// Big eyes, raised brow, head tilt and a "?".
+  curious,
+  dancing,
+
+  /// Happy eyes and tongue out — food talk.
+  yummy,
+  waving,
+
+  /// Looking up, hands reaching up alternately.
+  climbing,
+
+  /// Scared face with flailing hands.
+  falling,
 }
 
 /// Animated Mimo. Size it with a parent box of ~130x139 (the design's sitting
@@ -35,6 +53,7 @@ class MimoCharacter extends StatefulWidget {
     this.nudgeTick = 0,
     this.shakeTick = 0,
     this.running = false,
+    this.holding = false,
     this.semanticLabel,
   });
 
@@ -56,6 +75,9 @@ class MimoCharacter extends StatefulWidget {
 
   /// Legs pedal fast and the body bobs, as if Mimo is running around.
   final bool running;
+
+  /// Both hands up over the head, as if hanging from the user's finger.
+  final bool holding;
   final String? semanticLabel;
 
   @override
@@ -80,6 +102,7 @@ class _MimoCharacterState extends State<MimoCharacter>
   double _legPhase = 0;
   double _nextBlinkAt = 2.4;
   double _run = 0;
+  double _hold = 0;
 
   @override
   void initState() {
@@ -149,6 +172,8 @@ class _MimoCharacterState extends State<MimoCharacter>
     // Ease in/out of running so the legs never snap.
     final runTarget = widget.running ? 1.0 : 0.0;
     _run += (runTarget - _run) * math.min(1, dt * 10);
+    final holdTarget = widget.holding ? 1.0 : 0.0;
+    _hold += (holdTarget - _hold) * math.min(1, dt * 14);
     _legPhase += dt / (pose.legSpeed + (0.26 - pose.legSpeed) * _run);
     _syncFrame();
   }
@@ -178,6 +203,7 @@ class _MimoCharacterState extends State<MimoCharacter>
       time: widget.animate ? _time : 0,
       legPhase: _legPhase,
       run: widget.animate ? _run : 0,
+      hold: widget.animate ? _hold : (widget.holding ? 1 : 0),
       blink: blink,
       nod: _nudgeCtrl.isAnimating ? math.sin(n * math.pi) : 0,
       shakeDx: _shakeCtrl.isAnimating
@@ -219,6 +245,7 @@ class _MimoFrame extends ChangeNotifier {
   double nod = 0;
   double shakeDx = 0;
   double run = 0;
+  double hold = 0;
 
   void update({
     required _MimoPose pose,
@@ -229,6 +256,7 @@ class _MimoFrame extends ChangeNotifier {
     required double nod,
     required double shakeDx,
     required double run,
+    required double hold,
   }) {
     this.pose = pose;
     this.sitting = sitting;
@@ -238,6 +266,7 @@ class _MimoFrame extends ChangeNotifier {
     this.nod = nod;
     this.shakeDx = shakeDx;
     this.run = run;
+    this.hold = hold;
     notifyListeners();
   }
 }
@@ -315,6 +344,14 @@ class _MimoPose {
     MimoMood.sad: [_Tr(6, 12), _Tr(-6, 12)],
     MimoMood.sleepy: [_Tr(4, 8), _Tr(-4, 8)],
     MimoMood.laughing: [_Tr(18, 22, -16), _Tr(-18, 22, 16)],
+    MimoMood.dizzy: [_Tr(6, 10, 14), _Tr(-6, 10, -14)],
+    MimoMood.wink: [_Tr(), _Tr(-30, -40, 20)],
+    MimoMood.curious: [_Tr(), _Tr(-54, -2)],
+    MimoMood.dancing: [_Tr(-6, -50), _Tr(6, -50)],
+    MimoMood.yummy: [_Tr(30, -6, -20), _Tr(-30, -6, 20)],
+    MimoMood.waving: [_Tr(), _Tr(6, -70, -10)],
+    MimoMood.climbing: [_Tr(4, -70), _Tr(-4, -70)],
+    MimoMood.falling: [_Tr(-6, -62, 20), _Tr(6, -62, -20)],
   };
 
   static const _pins = <MimoMood, _Tr>{
@@ -331,6 +368,14 @@ class _MimoPose {
     MimoMood.sad: _Tr(0, 8, -20),
     MimoMood.sleepy: _Tr(0, 6, 24),
     MimoMood.laughing: _Tr(0, -10, -10),
+    MimoMood.dizzy: _Tr(0, -4),
+    MimoMood.wink: _Tr(0, -4, -10),
+    MimoMood.curious: _Tr(0, -6, 14),
+    MimoMood.dancing: _Tr(0, -10),
+    MimoMood.yummy: _Tr(0, -8),
+    MimoMood.waving: _Tr(0, -6, -6),
+    MimoMood.climbing: _Tr(0, -4),
+    MimoMood.falling: _Tr(0, -20, 10),
   };
 
   static const _standBodies = <MimoMood, _Tr>{
@@ -361,6 +406,10 @@ class _MimoPose {
     final speed = switch (m) {
       MimoMood.happy => 0.8,
       MimoMood.laughing => 0.5,
+      MimoMood.dancing => 0.5,
+      MimoMood.climbing => 0.4,
+      MimoMood.falling => 0.3,
+      MimoMood.dizzy => 1.8,
       MimoMood.love => 0.9,
       MimoMood.relieved => 1.6,
       MimoMood.sleepy => 2.6,
@@ -383,6 +432,10 @@ class _MimoPose {
           ? const Offset(4, -4)
           : m == MimoMood.sad
           ? const Offset(0, 3)
+          : m == MimoMood.climbing
+          ? const Offset(0, -6)
+          : m == MimoMood.curious
+          ? const Offset(-2, -2)
           : Offset.zero,
       handL: hands[0],
       handR: hands[1],
@@ -481,6 +534,26 @@ class _P {
   static final angryLidL = svgPath('M74 106 L95 113 L95 104 L74 100 Z');
   static final angryLidR = svgPath('M122 106 L101 113 L101 104 L122 100 Z');
   static final angryBrows = svgPath('M73 104 L95 112 M123 104 L101 112');
+  static final star = svgPath(
+    'M0 -7 l2.5 4.5 4.5 2.5 -4.5 2.5 -2.5 4.5 -2.5 -4.5 -4.5 -2.5 4.5 -2.5z',
+  );
+  static final winkEye = svgPath('M104 117 Q112 109 120 117');
+  static final curiousBrow = svgPath('M73 100 Q83 90 93 97');
+  static final spiral = _spiralPath();
+  static final notes = svgPath(
+    'M150 40 L150 24 L160 21 L160 37 M26 64 L26 50 L34 48 L34 62',
+  );
+
+  static Path _spiralPath() {
+    final path = Path()..moveTo(0, 0);
+    for (var i = 1; i <= 40; i++) {
+      final a = i / 40 * math.pi * 4;
+      final r = i / 40 * 7.5;
+      path.lineTo(math.cos(a) * r, math.sin(a) * r);
+    }
+    return path;
+  }
+
   static final laughEyes = svgPath(
     'M77 109 L90 116 L77 123 M119 109 L106 116 L119 123',
   );
@@ -547,6 +620,33 @@ class _P {
     MimoMood.sad: svgPath(
       'M${mx - 7} ${my + 5} Q$mx ${my - 1} ${mx + 7} ${my + 5}',
     ),
+    MimoMood.dizzy: svgPath(
+      'M${mx - 9} ${my + 2} Q${mx - 6} ${my - 2} ${mx - 3} ${my + 2} '
+      'Q$mx ${my + 6} ${mx + 3} ${my + 2} Q${mx + 6} ${my - 2} ${mx + 9} ${my + 2}',
+    ),
+    MimoMood.wink: svgPath(
+      'M${mx - 8} ${my - 1} Q$mx ${my + 8} ${mx + 8} ${my - 1}',
+    ),
+    MimoMood.curious: svgPath(
+      'M${mx - 3} ${my + 2} A3 3.5 0 1 0 ${mx + 3} ${my + 2} '
+      'A3 3.5 0 1 0 ${mx - 3} ${my + 2} Z',
+    ),
+    MimoMood.dancing: svgPath(
+      'M${mx - 9} ${my - 1} Q$mx ${my + 12} ${mx + 9} ${my - 1} Z',
+    ),
+    MimoMood.yummy: svgPath(
+      'M${mx - 8} ${my - 1} Q$mx ${my + 8} ${mx + 8} ${my - 1}',
+    ),
+    MimoMood.waving: svgPath(
+      'M${mx - 9} ${my - 1} Q$mx ${my + 12} ${mx + 9} ${my - 1} Z',
+    ),
+    MimoMood.climbing: svgPath('M${mx - 6} ${my + 1} L${mx + 6} ${my + 1}'),
+    MimoMood.falling: svgPath(
+      'M${mx - 10} ${my + 1} Q${mx - 7.5} ${my - 3} ${mx - 5} ${my + 1} '
+      'Q${mx - 2.5} ${my + 5} $mx ${my + 1} Q${mx + 2.5} ${my - 3} ${mx + 5} '
+      '${my + 1} Q${mx + 7.5} ${my + 5} ${mx + 10} ${my + 1} L${mx + 9} '
+      '${my + 7} Q$mx ${my + 12} ${mx - 9} ${my + 7} Z',
+    ),
     MimoMood.laughing: svgPath(
       'M${mx - 12} ${my - 3} Q$mx ${my + 18} ${mx + 12} ${my - 3} Z',
     ),
@@ -562,6 +662,10 @@ class _P {
     MimoMood.love: Color(0xFF7A2E3A),
     MimoMood.sleepy: Color(0xFF7A2E3A),
     MimoMood.laughing: Color(0xFF7A2E3A),
+    MimoMood.curious: Color(0xFF7A2E3A),
+    MimoMood.dancing: Color(0xFF7A2E3A),
+    MimoMood.waving: Color(0xFF7A2E3A),
+    MimoMood.falling: Color(0xFF5A1E2A),
   };
 }
 
@@ -619,6 +723,16 @@ class _MimoPainter extends CustomPainter {
         laughW * (math.sin(f.time * 2 * math.pi / 0.34)).abs() * 5 +
         f.run * (math.sin(f.legPhase * 2 * math.pi)).abs() * 4;
     canvas.translate(0, -bounce);
+    final danceW = p.w(MimoMood.dancing).clamp(0.0, 1.0);
+    final dizzyW = p.w(MimoMood.dizzy).clamp(0.0, 1.0);
+    final sway =
+        danceW * math.sin(f.time * 2 * math.pi / 0.9) * 0.12 +
+        dizzyW * math.sin(f.time * 2 * math.pi / 1.6) * 0.08;
+    if (sway != 0) {
+      canvas.translate(100, 190);
+      canvas.rotate(sway);
+      canvas.translate(-100, -190);
+    }
     _scaleAbout(
       canvas,
       const Offset(100, 190),
@@ -691,13 +805,14 @@ class _MimoPainter extends CustomPainter {
     _drawFace(canvas, f, p);
     canvas.restore();
 
-    // Hands.
+    // Hands (pose + time-based gestures, then blended to "holding").
+    final (handL, handR) = _gestureHands(f, p);
     canvas.save();
-    p.handL.apply(canvas, const Offset(34, 132));
+    handL.apply(canvas, const Offset(34, 132));
     _drawHand(canvas, const Offset(34, 132), const Offset(30, 126));
     canvas.restore();
     canvas.save();
-    p.handR.apply(canvas, const Offset(166, 132));
+    handR.apply(canvas, const Offset(166, 132));
     _drawHand(canvas, const Offset(166, 132), const Offset(162, 126));
     canvas.restore();
 
@@ -705,6 +820,42 @@ class _MimoPainter extends CustomPainter {
 
     _drawEffects(canvas, f, p);
     canvas.restore();
+  }
+
+  static const _holdL = _Tr(54, -98, -30);
+  static const _holdR = _Tr(-54, -98, 30);
+
+  (_Tr, _Tr) _gestureHands(_MimoFrame f, _MimoPose p) {
+    double w(MimoMood m) => p.w(m).clamp(0.0, 1.0);
+    final t = f.time;
+    var l = p.handL, r = p.handR;
+    final wave = w(MimoMood.waving);
+    if (wave > 0) {
+      r = _Tr(r.dx, r.dy, r.rot + math.sin(t * 2 * math.pi / 0.5) * 24 * wave);
+    }
+    final dance = w(MimoMood.dancing);
+    if (dance > 0) {
+      final s = math.sin(t * 2 * math.pi / 0.9) * 14 * dance;
+      l = _Tr(l.dx, l.dy + s, l.rot);
+      r = _Tr(r.dx, r.dy - s, r.rot);
+    }
+    final climb = w(MimoMood.climbing);
+    if (climb > 0) {
+      final s = math.sin(f.legPhase * 2 * math.pi) * 16 * climb;
+      l = _Tr(l.dx, l.dy + s, l.rot);
+      r = _Tr(r.dx, r.dy - s, r.rot);
+    }
+    final fall = w(MimoMood.falling);
+    if (fall > 0) {
+      final s = math.sin(t * 2 * math.pi / 0.22) * 22 * fall;
+      l = _Tr(l.dx, l.dy, l.rot + s);
+      r = _Tr(r.dx, r.dy, r.rot - s);
+    }
+    if (f.hold > 0) {
+      l = _Tr.lerp(l, _holdL, f.hold);
+      r = _Tr.lerp(r, _holdR, f.hold);
+    }
+    return (l, r);
   }
 
   void _drawPin(Canvas canvas) {
@@ -765,7 +916,9 @@ class _MimoPainter extends CustomPainter {
         (w(MimoMood.idle) +
                 w(MimoMood.down) +
                 w(MimoMood.thinking) +
-                w(MimoMood.sad))
+                w(MimoMood.sad) +
+                w(MimoMood.curious) +
+                w(MimoMood.climbing))
             .clamp(0.0, 1.0);
     if (openOp > 0.01) {
       canvas.save();
@@ -815,7 +968,7 @@ class _MimoPainter extends CustomPainter {
       );
     }
 
-    final scare = w(MimoMood.scared);
+    final scare = (w(MimoMood.scared) + w(MimoMood.falling)).clamp(0.0, 1.0);
     if (scare > 0.01) {
       for (final cx in [84.0, 112.0]) {
         canvas.drawCircle(
@@ -919,7 +1072,57 @@ class _MimoPainter extends CustomPainter {
       }
     }
 
-    final happy = w(MimoMood.happy);
+    final wink = w(MimoMood.wink);
+    if (wink > 0.01) {
+      final navy = _navy.withValues(alpha: wink);
+      _fillEllipse(canvas, const Offset(84, 116), 7, 9, navy);
+      canvas.drawCircle(
+        const Offset(86.5, 112.5),
+        2.8,
+        Paint()..color = Colors.white.withValues(alpha: wink),
+      );
+      canvas.drawPath(_P.winkEye, _stroke(navy, 3.2));
+    }
+
+    final curious = w(MimoMood.curious);
+    if (curious > 0.01) {
+      canvas.drawPath(
+        _P.curiousBrow,
+        _stroke(_brown.withValues(alpha: curious), 2.6),
+      );
+    }
+
+    final dizzy = w(MimoMood.dizzy);
+    if (dizzy > 0.01) {
+      final c = _navy.withValues(alpha: dizzy);
+      for (final cx in [84.0, 112.0]) {
+        canvas.save();
+        canvas.translate(cx, 116);
+        canvas.rotate(f.time * 2 * math.pi / 0.8);
+        canvas.drawPath(_P.spiral, _stroke(c, 2.2));
+        canvas.restore();
+      }
+    }
+
+    final yummy = w(MimoMood.yummy);
+    if (yummy > 0.01) {
+      // Tongue licking the lips.
+      final lick = math.sin(f.time * 2 * math.pi / 0.8) * 2;
+      _fillEllipse(
+        canvas,
+        Offset(103 + lick, 140),
+        4.5,
+        3.6,
+        const Color(0xFFE8798A).withValues(alpha: yummy),
+      );
+    }
+
+    final happy =
+        (w(MimoMood.happy) +
+                w(MimoMood.dancing) +
+                w(MimoMood.yummy) +
+                w(MimoMood.waving))
+            .clamp(0.0, 1.0);
     if (happy > 0.01) {
       canvas.drawPath(
         _P.happyEyes,
@@ -1093,7 +1296,53 @@ class _MimoPainter extends CustomPainter {
       }
     }
 
-    final happy = w(MimoMood.happy);
+    final dizzy = w(MimoMood.dizzy);
+    if (dizzy > 0.01) {
+      // Little stars orbiting the pin.
+      for (var i = 0; i < 3; i++) {
+        final a = t * 2 * math.pi / 1.4 + i * 2 * math.pi / 3;
+        final c = Offset(100 + math.cos(a) * 34, 18 + math.sin(a) * 10);
+        canvas.save();
+        canvas.translate(c.dx, c.dy);
+        canvas.drawPath(
+          _P.star,
+          Paint()..color = const Color(0xFFE7BF6C).withValues(alpha: dizzy),
+        );
+        canvas.restore();
+      }
+    }
+
+    final curious = w(MimoMood.curious);
+    if (curious > 0.01) {
+      final bob = math.sin(t * 2 * math.pi / 1.2) * 2;
+      _drawText(
+        canvas,
+        '?',
+        Offset(150, 10 + bob),
+        34,
+        _gold.withValues(alpha: curious),
+      );
+    }
+
+    final dance = w(MimoMood.dancing);
+    if (dance > 0.01) {
+      final drift = (t % 1.6) / 1.6;
+      canvas.save();
+      canvas.translate(0, -drift * 10);
+      final c = _navy.withValues(alpha: dance * (1 - drift * 0.6));
+      canvas.drawPath(_P.notes, _stroke(c, 2.4));
+      for (final o in const [
+        Offset(147, 40),
+        Offset(157, 37),
+        Offset(23, 64),
+        Offset(31, 62),
+      ]) {
+        _fillEllipse(canvas, o, 3.6, 2.8, c);
+      }
+      canvas.restore();
+    }
+
+    final happy = (w(MimoMood.happy) + w(MimoMood.dancing)).clamp(0.0, 1.0);
     if (happy > 0.01) {
       final twinkle = 0.75 + math.sin(t * 2 * math.pi / 0.9) * 0.25;
       canvas.drawPath(

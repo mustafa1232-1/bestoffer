@@ -45,6 +45,7 @@ import 'admin_merchant_state_management_screen.dart';
 import 'admin_notification_center_screen.dart';
 import 'admin_notifications_operations_screen.dart';
 import 'admin_orders_overview_screen.dart';
+import 'admin_mimo_dashboard_screen.dart';
 import 'admin_permissions_matrix_screen.dart';
 import 'admin_rbac_management_screen.dart';
 import 'admin_receivables_screen.dart';
@@ -898,6 +899,17 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
             subtitle: 'الصيانة العامة وجدولة التسوق والتكسي ورسائل الإتاحة',
             group: groupSystem,
             onTap: (_) => _openPage(const AdminSectionAvailabilityScreen()),
+          ),
+        if (auth.isSuperAdmin || auth.isAdmin)
+          AppUserDrawerItem(
+            icon: Icons.smart_toy_rounded,
+            label: navText(ar: 'لوحة ميمو', en: 'Mimo dashboard'),
+            subtitle: navText(
+              ar: 'استخدام ميمو وكلفته وجودته وشنو تعلم وتذاكره',
+              en: "Mimo's usage, cost, quality, learning and tickets",
+            ),
+            group: groupSystem,
+            onTap: (_) => _openPage(const AdminMimoDashboardScreen()),
           ),
         if (canPermission('support.tickets.read'))
           AppUserDrawerItem(

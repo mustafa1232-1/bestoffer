@@ -90,13 +90,13 @@ class _AdminMerchantBillingProfileScreenState
     _merchantDeliveryEnabled = billing['merchant_delivery_enabled'] != false;
 
     _commissionValueCtrl.text = commissionValue != null
-        ? _num(commissionValue).toStringAsFixed(
-            _commissionType == 'percentage' ? 2 : 0,
-          )
+        ? _num(
+            commissionValue,
+          ).toStringAsFixed(_commissionType == 'percentage' ? 2 : 0)
         : (_num(commissionRate) * 100).toStringAsFixed(2);
-    _serviceValueCtrl.text = _num(billing['service_fee_value']).toStringAsFixed(
-      0,
-    );
+    _serviceValueCtrl.text = _num(
+      billing['service_fee_value'],
+    ).toStringAsFixed(0);
     _appDeliveryValueCtrl.text = _num(
       billing['app_delivery_fee_value'] ?? billing['delivery_fee_value'],
     ).toStringAsFixed(0);
@@ -152,16 +152,10 @@ class _AdminMerchantBillingProfileScreenState
   String _commissionModelLabel(BuildContext context, String value) {
     switch (value) {
       case 'monthly_subscription':
-        return context.lt(
-          ar: 'اشتراك شهري',
-          en: 'Monthly subscription',
-        );
+        return context.lt(ar: 'اشتراك شهري', en: 'Monthly subscription');
       case 'percentage':
       default:
-        return context.lt(
-          ar: 'نسبة مئوية',
-          en: 'Percentage',
-        );
+        return context.lt(ar: 'نسبة مئوية', en: 'Percentage');
     }
   }
 
@@ -198,7 +192,8 @@ class _AdminMerchantBillingProfileScreenState
 
     final body = <String, dynamic>{
       'commissionType': _commissionType,
-      'commissionValue': _parseDoubleInput(_commissionValueCtrl.text.trim()) ?? 0,
+      'commissionValue':
+          _parseDoubleInput(_commissionValueCtrl.text.trim()) ?? 0,
       'commissionModel': _commissionModel,
       'monthlySubscriptionAmount': _commissionModel == 'monthly_subscription'
           ? (_parseDoubleInput(_commissionValueCtrl.text.trim()) ?? 0)
@@ -231,7 +226,7 @@ class _AdminMerchantBillingProfileScreenState
             merchantId: widget.merchantId,
             commissionRate: _commissionType == 'percentage'
                 ? ((_parseDoubleInput(_commissionValueCtrl.text.trim()) ?? 0) /
-                    100)
+                      100)
                 : 0,
             commissionType: _commissionType,
             commissionValue:
@@ -239,7 +234,8 @@ class _AdminMerchantBillingProfileScreenState
             serviceFeeMode: _serviceFeeType,
             serviceFeeType: _serviceFeeType,
             commissionModel: _commissionModel,
-            monthlySubscriptionAmount: _commissionModel == 'monthly_subscription'
+            monthlySubscriptionAmount:
+                _commissionModel == 'monthly_subscription'
                 ? (_parseDoubleInput(_commissionValueCtrl.text.trim()) ?? 0)
                 : 0,
             serviceFeeValue:
@@ -324,9 +320,7 @@ class _AdminMerchantBillingProfileScreenState
                   Card(
                     child: ListTile(
                       title: Text(widget.merchantName),
-                      subtitle: Text(
-                        '${l10n.commonId}: ${widget.merchantId}',
-                      ),
+                      subtitle: Text('${l10n.commonId}: ${widget.merchantId}'),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -356,10 +350,7 @@ class _AdminMerchantBillingProfileScreenState
                     initialValue: _commissionModel,
                     decoration: _decoration(
                       context,
-                      context.lt(
-                        ar: 'نموذج العمولة',
-                        en: 'Commission model',
-                      ),
+                      context.lt(ar: 'نموذج العمولة', en: 'Commission model'),
                     ),
                     items: [
                       DropdownMenuItem(
@@ -396,14 +387,14 @@ class _AdminMerchantBillingProfileScreenState
                               en: 'Monthly subscription amount',
                             )
                           : (_commissionType == 'percentage'
-                              ? l10n.adminMerchantBillingCommissionValuePercentage
-                              : l10n.adminMerchantBillingCommissionValueFixed),
+                                ? l10n.adminMerchantBillingCommissionValuePercentage
+                                : l10n.adminMerchantBillingCommissionValueFixed),
                     ),
                     validator: _commissionModel == 'monthly_subscription'
                         ? _validateAmount
                         : (_commissionType == 'percentage'
-                            ? _validatePercentage
-                            : _validateAmount),
+                              ? _validatePercentage
+                              : _validateAmount),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
@@ -425,9 +416,7 @@ class _AdminMerchantBillingProfileScreenState
                       ),
                       DropdownMenuItem(
                         value: 'per_order',
-                        child: Text(
-                          _serviceFeeTypeLabel(context, 'per_order'),
-                        ),
+                        child: Text(_serviceFeeTypeLabel(context, 'per_order')),
                       ),
                       DropdownMenuItem(
                         value: 'global_rule',
@@ -514,7 +503,9 @@ class _AdminMerchantBillingProfileScreenState
                     value: _merchantDeliveryEnabled,
                     onChanged: (value) =>
                         setState(() => _merchantDeliveryEnabled = value),
-                    title: Text(l10n.adminMerchantBillingEnableMerchantDelivery),
+                    title: Text(
+                      l10n.adminMerchantBillingEnableMerchantDelivery,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   TextFormField(

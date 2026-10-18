@@ -489,8 +489,7 @@ class _AdminCreateUserScreenState extends ConsumerState<AdminCreateUserScreen> {
           SwitchListTile.adaptive(
             contentPadding: EdgeInsets.zero,
             value: _createReferralCoupon,
-            onChanged: (value) =>
-                setState(() => _createReferralCoupon = value),
+            onChanged: (value) => setState(() => _createReferralCoupon = value),
             title: const Text('أنشئ كوبون إحالة لهذا الموظف'),
             subtitle: const Text(
               'كوبون عام باسم الموظف لتتبّع الزبائن الذين يأتون عبره. بلا خصم افتراضيًا، ويمكنك إضافة خصم لاحقًا من شاشة المراقبة. يصل الموظف إشعار بكوبونه.',
@@ -500,9 +499,9 @@ class _AdminCreateUserScreenState extends ConsumerState<AdminCreateUserScreen> {
         if (_role == 'admin' || _role == 'deputy_admin') ...[
           const SizedBox(height: 8),
           Card(
-            color: Theme.of(context).colorScheme.primaryContainer.withValues(
-              alpha: 0.35,
-            ),
+            color: Theme.of(
+              context,
+            ).colorScheme.primaryContainer.withValues(alpha: 0.35),
             child: SwitchListTile.adaptive(
               value: _enableEmployeeManagement,
               onChanged: (value) =>

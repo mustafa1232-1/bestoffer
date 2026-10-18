@@ -122,14 +122,18 @@ class _AdminFinancialReportsHubScreenState
                   const Divider(height: 1),
                   ListTile(
                     leading: const Icon(Icons.calendar_month_outlined),
-                    title: Text(context.lt(
-                      ar: 'اشتراكات المتاجر الشهرية',
-                      en: 'Merchant monthly subscriptions',
-                    )),
-                    subtitle: Text(context.lt(
-                      ar: 'إصدار الفواتير واستلام مدفوعات الاشتراك الشهري.',
-                      en: 'Generate invoices and collect monthly subscription payments.',
-                    )),
+                    title: Text(
+                      context.lt(
+                        ar: 'اشتراكات المتاجر الشهرية',
+                        en: 'Merchant monthly subscriptions',
+                      ),
+                    ),
+                    subtitle: Text(
+                      context.lt(
+                        ar: 'إصدار الفواتير واستلام مدفوعات الاشتراك الشهري.',
+                        en: 'Generate invoices and collect monthly subscription payments.',
+                      ),
+                    ),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: _openMerchantSubscriptions,
                   ),

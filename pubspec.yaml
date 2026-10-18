@@ -1,7 +1,7 @@
 name: maslaki
 description: "Maslaki - Basmaya super-app for shopping, food, and taxi"
 publish_to: 'none'
-version: 1.0.14+60
+version: 1.0.15+61
 environment:
   sdk: ^3.10.7
 
@@ -85,6 +85,8 @@ dependencies:
   social_ui:
     path: packages/social_ui
   livekit_client: 2.13.0
+  speech_to_text: ^7.5.0
+  flutter_tts: ^4.2.5
 
 dev_dependencies:
   file: ^7.0.1

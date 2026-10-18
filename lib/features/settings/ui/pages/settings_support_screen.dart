@@ -38,7 +38,10 @@ class SettingsSupportScreen extends ConsumerWidget {
                 ListTile(
                   leading: const Icon(Icons.public_rounded),
                   title: Text(
-                    context.lt(ar: 'صفحة الدعم الرسمية', en: 'Official support page'),
+                    context.lt(
+                      ar: 'صفحة الدعم الرسمية',
+                      en: 'Official support page',
+                    ),
                   ),
                   subtitle: const Text(kMaslakiSupportUrl),
                   trailing: const Icon(Icons.open_in_new_rounded),

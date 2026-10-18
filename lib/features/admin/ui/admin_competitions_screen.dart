@@ -370,9 +370,7 @@ class _AdminCompetitionListTabState
           else if (_items.isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 24),
-              child: Center(
-                child: Text(l10n.adminCompetitionsListEmpty),
-              ),
+              child: Center(child: Text(l10n.adminCompetitionsListEmpty)),
             )
           else
             ..._items.map((competition) {
@@ -415,7 +413,7 @@ class _AdminCompetitionListTabState
                                               );
                                           if (!mounted || updated != true) {
                                             return;
-                                        }
+                                          }
                                           await _load();
                                           await widget.onUpdated();
                                         },
@@ -627,31 +625,27 @@ class _AdminCompetitionCreateTabState
     final title = _titleController.text.trim();
     if (title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.adminCompetitionsTitleRequired),
-        ),
+        SnackBar(content: Text(l10n.adminCompetitionsTitleRequired)),
       );
       return;
     }
 
     if (_startAt != null && _endAt != null && !_endAt!.isAfter(_startAt!)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.adminCompetitionsEndAfterStart),
-        ),
+        SnackBar(content: Text(l10n.adminCompetitionsEndAfterStart)),
       );
       return;
     }
 
     final tiers = <Map<String, dynamic>>[];
     for (final tier in _tiers) {
-      final required = tryParseLocalizedInt(tier.requiredController.text.trim());
+      final required = tryParseLocalizedInt(
+        tier.requiredController.text.trim(),
+      );
       final reward = tryParseLocalizedDouble(tier.rewardController.text.trim());
       if (required == null || required <= 0 || reward == null || reward < 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.adminCompetitionsCheckTiersRewards),
-          ),
+          SnackBar(content: Text(l10n.adminCompetitionsCheckTiersRewards)),
         );
         return;
       }
@@ -1037,31 +1031,27 @@ class _AdminCompetitionEditSheetState
     final title = _titleController.text.trim();
     if (title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.adminCompetitionsTitleRequired),
-        ),
+        SnackBar(content: Text(l10n.adminCompetitionsTitleRequired)),
       );
       return;
     }
 
     if (_startAt != null && _endAt != null && !_endAt!.isAfter(_startAt!)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.adminCompetitionsEndAfterStart),
-        ),
+        SnackBar(content: Text(l10n.adminCompetitionsEndAfterStart)),
       );
       return;
     }
 
     final tiers = <Map<String, dynamic>>[];
     for (final tier in _tiers) {
-      final required = tryParseLocalizedInt(tier.requiredController.text.trim());
+      final required = tryParseLocalizedInt(
+        tier.requiredController.text.trim(),
+      );
       final reward = tryParseLocalizedDouble(tier.rewardController.text.trim());
       if (required == null || required <= 0 || reward == null || reward < 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.adminCompetitionsCheckTiersRewards),
-          ),
+          SnackBar(content: Text(l10n.adminCompetitionsCheckTiersRewards)),
         );
         return;
       }
@@ -1083,9 +1073,7 @@ class _AdminCompetitionEditSheetState
       final previous = tiers[i - 1]['requiredCompletedOrders'] as int;
       if (current >= previous) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10n.adminCompetitionsTierOrderInvalid),
-          ),
+          SnackBar(content: Text(l10n.adminCompetitionsTierOrderInvalid)),
         );
         return;
       }
@@ -1218,7 +1206,8 @@ class _AdminCompetitionEditSheetState
                                 controller: tier.requiredController,
                                 keyboardType: TextInputType.number,
                                 decoration: InputDecoration(
-                                  labelText: l10n.adminCompetitionsRequiredOrders,
+                                  labelText:
+                                      l10n.adminCompetitionsRequiredOrders,
                                 ),
                               ),
                             ),

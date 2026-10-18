@@ -10,7 +10,7 @@ import 'package:maslaki/core/theme/theme_preset.dart';
 import 'package:maslaki/features/auth/data/mimo_known_accounts.dart';
 import 'package:maslaki/features/auth/models/user_model.dart';
 import 'package:maslaki/features/auth/presentation/login_screen.dart';
-import 'package:maslaki/features/auth/presentation/widgets/mimo_character.dart';
+import 'package:maslaki/features/mimo/mimo_character.dart';
 import 'package:maslaki/features/auth/state/auth_controller.dart';
 import 'package:maslaki/features/coupons/data/coupons_api.dart';
 import 'package:maslaki/l10n/app_localizations.dart';

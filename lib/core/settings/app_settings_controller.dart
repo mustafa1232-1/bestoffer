@@ -14,6 +14,12 @@ class AppSettingsState {
   final Locale locale;
   final bool animationsEnabled;
   final bool weatherEffectsEnabled;
+
+  /// Mimo, the mascot assistant floating over the customer app.
+  final bool mimoEnabled;
+
+  /// Mimo speaks up on his own (order updates, daily tip, forgotten cart).
+  final bool mimoProactive;
   final AppThemePreset themePreset;
   final MaslakiTheme maslakiTheme;
   final bool loaded;
@@ -22,6 +28,8 @@ class AppSettingsState {
     required this.locale,
     required this.animationsEnabled,
     required this.weatherEffectsEnabled,
+    this.mimoEnabled = true,
+    this.mimoProactive = true,
     required this.themePreset,
     required this.maslakiTheme,
     required this.loaded,
@@ -40,6 +48,8 @@ class AppSettingsState {
     Locale? locale,
     bool? animationsEnabled,
     bool? weatherEffectsEnabled,
+    bool? mimoEnabled,
+    bool? mimoProactive,
     AppThemePreset? themePreset,
     MaslakiTheme? maslakiTheme,
     bool? loaded,
@@ -49,6 +59,8 @@ class AppSettingsState {
       animationsEnabled: animationsEnabled ?? this.animationsEnabled,
       weatherEffectsEnabled:
           weatherEffectsEnabled ?? this.weatherEffectsEnabled,
+      mimoEnabled: mimoEnabled ?? this.mimoEnabled,
+      mimoProactive: mimoProactive ?? this.mimoProactive,
       themePreset: themePreset ?? this.themePreset,
       maslakiTheme: maslakiTheme ?? this.maslakiTheme,
       loaded: loaded ?? this.loaded,
@@ -87,6 +99,8 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
   static const _keyWeatherEffectsBase = 'app_weather_effects';
   static const _keyThemePresetBase = 'app_theme_preset';
   static const _keyMaslakiThemeBase = 'app_maslaki_theme';
+  static const _keyMimoBase = 'app_mimo_enabled';
+  static const _keyMimoProactiveBase = 'app_mimo_proactive';
   static const _legacyKeyLocale = _keyLocaleBase;
   static const _legacyKeyAnimations = _keyAnimationsBase;
   static const _legacyKeyWeatherEffects = _keyWeatherEffectsBase;
@@ -113,6 +127,8 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
   String get _keyWeatherEffects => '${storageScope}_$_keyWeatherEffectsBase';
   String get _keyThemePreset => '${storageScope}_$_keyThemePresetBase';
   String get _keyMaslakiTheme => '${storageScope}_$_keyMaslakiThemeBase';
+  String get _keyMimo => '${storageScope}_$_keyMimoBase';
+  String get _keyMimoProactive => '${storageScope}_$_keyMimoProactiveBase';
 
   /// يحمّل التفضيلات من التخزين، مع أولوية للقيمة المحفوظة ثم لغة الجهاز
   /// ثم fallback عربي.
@@ -134,6 +150,8 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
       _legacyKeyThemePreset,
     );
     final maslakiThemeRaw = await store.readString(_keyMaslakiTheme);
+    final mimoRaw = await store.readString(_keyMimo);
+    final mimoProactiveRaw = await store.readString(_keyMimoProactive);
 
     final locale =
         _normalizeLocale(localeRaw) ??
@@ -143,6 +161,8 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
       locale: locale,
       animationsEnabled: animationsRaw ?? true,
       weatherEffectsEnabled: weatherRaw ?? true,
+      mimoEnabled: mimoRaw != 'false',
+      mimoProactive: mimoProactiveRaw != 'false',
       themePreset: AppThemePreset.fromStorageValue(themePresetRaw),
       maslakiTheme: MaslakiTheme.fromStorageValue(maslakiThemeRaw),
       loaded: true,
@@ -178,6 +198,16 @@ class AppSettingsController extends StateNotifier<AppSettingsState> {
   Future<void> setAnimationsEnabled(bool value) async {
     state = state.copyWith(animationsEnabled: value);
     await store.writeBool(_keyAnimations, value);
+  }
+
+  Future<void> setMimoEnabled(bool value) async {
+    state = state.copyWith(mimoEnabled: value);
+    await store.writeString(_keyMimo, value ? 'true' : 'false');
+  }
+
+  Future<void> setMimoProactive(bool value) async {
+    state = state.copyWith(mimoProactive: value);
+    await store.writeString(_keyMimoProactive, value ? 'true' : 'false');
   }
 
   Future<void> setWeatherEffectsEnabled(bool value) async {

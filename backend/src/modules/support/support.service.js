@@ -1109,6 +1109,12 @@ export async function resolveTicket({
       status: "acw",
     });
   }
+  // Mimo learns from tickets he escalated (fire-and-forget).
+  if (ticket.channel === "mimo") {
+    import("../mimo/mimo.controller.js")
+      .then((m) => m.onSupportTicketResolved({ ...ticket, resolution_summary: summary }))
+      .catch(() => {});
+  }
   notifyTicketUser(
     ticket,
     "support.ticket.resolved",

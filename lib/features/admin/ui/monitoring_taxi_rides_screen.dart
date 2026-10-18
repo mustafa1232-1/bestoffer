@@ -157,10 +157,10 @@ class _MonitoringTaxiRidesScreenState
                             : () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(
                                   builder: (_) => MonitoringDetailScreen(
-                                          mode: MonitoringDetailMode.taxiRide,
-                                          id: id,
-                                          title: 'Ride #$id',
-                                        ),
+                                    mode: MonitoringDetailMode.taxiRide,
+                                    id: id,
+                                    title: 'Ride #$id',
+                                  ),
                                 ),
                               ),
                         child: _RideTile(ride: ride),

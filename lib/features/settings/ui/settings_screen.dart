@@ -211,9 +211,7 @@ class _SettingsAboutFooterState extends State<_SettingsAboutFooter> {
     if (_taps >= 7) {
       _taps = 0;
       Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => const BuildDiagnosticsScreen(),
-        ),
+        MaterialPageRoute<void>(builder: (_) => const BuildDiagnosticsScreen()),
       );
     }
   }

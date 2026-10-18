@@ -61,10 +61,12 @@ class _AdminSupportSettingsScreenState
       _emergency.text = '${data['supportEmergencyPhone'] ?? ''}';
     } catch (_) {
       if (!mounted) return;
-      setState(() => _error = context.lt(
-            ar: 'تعذّر تحميل إعدادات الدعم.',
-            en: 'Unable to load support settings.',
-          ));
+      setState(
+        () => _error = context.lt(
+          ar: 'تعذّر تحميل إعدادات الدعم.',
+          en: 'Unable to load support settings.',
+        ),
+      );
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -85,25 +87,31 @@ class _AdminSupportSettingsScreenState
         'supportEmergencyPhone': _emergency.text.trim(),
       });
       if (!mounted) return;
-      setState(() => _success = context.lt(
-            ar: 'تم حفظ رقم الدعم. سيصل كل التطبيقات.',
-            en: 'Support contact saved. It reaches all apps.',
-          ));
+      setState(
+        () => _success = context.lt(
+          ar: 'تم حفظ رقم الدعم. سيصل كل التطبيقات.',
+          en: 'Support contact saved. It reaches all apps.',
+        ),
+      );
     } on DioException catch (e) {
       if (!mounted) return;
-      setState(() => _error = mapDioError(
-            e,
-            fallback: context.lt(
-              ar: 'تعذّر حفظ الإعدادات.',
-              en: 'Unable to save settings.',
-            ),
-          ));
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _error = context.lt(
+      setState(
+        () => _error = mapDioError(
+          e,
+          fallback: context.lt(
             ar: 'تعذّر حفظ الإعدادات.',
             en: 'Unable to save settings.',
-          ));
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(
+        () => _error = context.lt(
+          ar: 'تعذّر حفظ الإعدادات.',
+          en: 'Unable to save settings.',
+        ),
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -125,8 +133,9 @@ class _AdminSupportSettingsScreenState
                     padding: const EdgeInsets.only(bottom: MaslakiSpacing.sm),
                     child: Text(
                       _error!,
-                      style:
-                          TextStyle(color: Theme.of(context).colorScheme.error),
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ),
                   ),
                 if (_success != null)
@@ -139,7 +148,10 @@ class _AdminSupportSettingsScreenState
                   ),
                 _field(
                   _e164,
-                  context.lt(ar: 'رقم الدعم (E164)', en: 'Support phone (E164)'),
+                  context.lt(
+                    ar: 'رقم الدعم (E164)',
+                    en: 'Support phone (E164)',
+                  ),
                   hint: '+9647XXXXXXXXX',
                   keyboard: TextInputType.phone,
                 ),
@@ -158,7 +170,10 @@ class _AdminSupportSettingsScreenState
                 ),
                 _field(
                   _emergency,
-                  context.lt(ar: 'رقم الطوارئ (E164)', en: 'Emergency phone (E164)'),
+                  context.lt(
+                    ar: 'رقم الطوارئ (E164)',
+                    en: 'Emergency phone (E164)',
+                  ),
                   keyboard: TextInputType.phone,
                 ),
                 const SizedBox(height: MaslakiSpacing.md),

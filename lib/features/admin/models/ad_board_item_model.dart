@@ -81,8 +81,7 @@ class AdBoardItemModel {
   bool isScheduled(DateTime now) =>
       isActive && startsAt != null && startsAt!.isAfter(now);
 
-  bool isExpired(DateTime now) =>
-      endsAt != null && endsAt!.isBefore(now);
+  bool isExpired(DateTime now) => endsAt != null && endsAt!.isBefore(now);
 
   bool isLive(DateTime now) =>
       isActive &&

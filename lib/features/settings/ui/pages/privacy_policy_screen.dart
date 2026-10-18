@@ -35,24 +35,31 @@ class PrivacyPolicyScreen extends StatelessWidget {
       _PolicySectionCard(
         title: context.lt(ar: 'نظرة عامة', en: 'Overview'),
         body: context.lt(
-          ar: 'مسلكي تطبيق مجتمعي شامل للتسوق والطعام والتوصيل والتاكسي والميزات الاجتماعية. '
+          ar:
+              'مسلكي تطبيق مجتمعي شامل للتسوق والطعام والتوصيل والتاكسي والميزات الاجتماعية. '
               'توضح هذه السياسة ما نجمعه ولماذا، والخيارات المتاحة لك.',
-          en: 'Maslaki is a community super-app for shopping, food, delivery, '
+          en:
+              'Maslaki is a community super-app for shopping, food, delivery, '
               'taxi, and social features. This policy explains what we collect, '
               'why, and the choices you have.',
         ),
       ),
       _PolicySectionCard(
-        title: context.lt(ar: 'المعلومات التي نجمعها', en: 'Information we collect'),
+        title: context.lt(
+          ar: 'المعلومات التي نجمعها',
+          en: 'Information we collect',
+        ),
         body: context.lt(
-          ar: '• بيانات الحساب: الاسم ورقم الهاتف ومعلومات السكن التي تزودنا بها.\n'
+          ar:
+              '• بيانات الحساب: الاسم ورقم الهاتف ومعلومات السكن التي تزودنا بها.\n'
               '• الموقع: لعرض المتاجر القريبة وتشغيل تتبع الرحلات والتوصيل فقط أثناء استخدامك لتلك الميزات.\n'
               '• الكاميرا والمايكروفون: للمكالمات داخل التطبيق والرسائل الصوتية والتقاط القصص والريلز والصور.\n'
               '• الصور والوسائط التي تختار رفعها.\n'
               '• الرسائل والمحتوى الاجتماعي الذي تنشره.\n'
               '• معلومات الجهاز: رمز الإشعارات وبصمة الجهاز لتأمين جلساتك.\n'
               '• بيانات الاستخدام والتشخيص (بموافقتك).',
-          en: '• Account details: name, phone number, and residence info you provide.\n'
+          en:
+              '• Account details: name, phone number, and residence info you provide.\n'
               '• Location: to show nearby merchants and to power trip and delivery tracking (only while you use those features).\n'
               '• Camera & microphone: for in-app calls, voice messages, and capturing stories, reels, and photos.\n'
               '• Photos & media you choose to upload.\n'
@@ -167,17 +174,14 @@ class _PolicySectionCard extends StatelessWidget {
       children: [
         Text(
           title,
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(fontWeight: FontWeight.w800),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 6),
         Text(
           body,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                height: 1.45,
-              ),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.45),
         ),
       ],
     );

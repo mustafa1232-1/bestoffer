@@ -71,25 +71,43 @@ class _AdminCustomerReliabilityPolicyScreenState
         (config['thresholds'] as Map?) ?? const <String, dynamic>{},
       );
 
-      _windowDaysController.text =
-          _asDouble(config['windowDays'], 180).round().toString();
+      _windowDaysController.text = _asDouble(
+        config['windowDays'],
+        180,
+      ).round().toString();
       _baseScoreController.text = _asDouble(config['baseScore'], 70).toString();
-      _warningThresholdController.text =
-          _asDouble(config['warningThreshold'], 50).toString();
-      _weightCompletedController.text =
-          _asDouble(weights['completed'], 4).toString();
-      _weightCancelledController.text =
-          _asDouble(weights['cancelledByCustomer'], -8).toString();
-      _weightFailedDeliveryController.text =
-          _asDouble(weights['failedDelivery'], -10).toString();
-      _weightNoAnswerController.text =
-          _asDouble(weights['noAnswer'], -9).toString();
-      _weightComplaintsController.text =
-          _asDouble(weights['complaints'], -12).toString();
-      _thresholdTrustedController.text =
-          _asDouble(thresholds['trustedMin'], 80).toString();
-      _thresholdNeedsAttentionController.text =
-          _asDouble(thresholds['needsAttentionMax'], 45).toString();
+      _warningThresholdController.text = _asDouble(
+        config['warningThreshold'],
+        50,
+      ).toString();
+      _weightCompletedController.text = _asDouble(
+        weights['completed'],
+        4,
+      ).toString();
+      _weightCancelledController.text = _asDouble(
+        weights['cancelledByCustomer'],
+        -8,
+      ).toString();
+      _weightFailedDeliveryController.text = _asDouble(
+        weights['failedDelivery'],
+        -10,
+      ).toString();
+      _weightNoAnswerController.text = _asDouble(
+        weights['noAnswer'],
+        -9,
+      ).toString();
+      _weightComplaintsController.text = _asDouble(
+        weights['complaints'],
+        -12,
+      ).toString();
+      _thresholdTrustedController.text = _asDouble(
+        thresholds['trustedMin'],
+        80,
+      ).toString();
+      _thresholdNeedsAttentionController.text = _asDouble(
+        thresholds['needsAttentionMax'],
+        45,
+      ).toString();
     } catch (e) {
       _error = 'تعذر تحميل سياسة موثوقية العميل: $e';
     } finally {
@@ -110,8 +128,10 @@ class _AdminCustomerReliabilityPolicyScreenState
     setState(() => _saving = true);
     try {
       final trustedMin = _readNumber(_thresholdTrustedController, 80);
-      final needsAttentionRaw =
-          _readNumber(_thresholdNeedsAttentionController, 45);
+      final needsAttentionRaw = _readNumber(
+        _thresholdNeedsAttentionController,
+        45,
+      );
       final needsAttentionMax = needsAttentionRaw > trustedMin
           ? trustedMin
           : needsAttentionRaw;
@@ -141,9 +161,9 @@ class _AdminCustomerReliabilityPolicyScreenState
       await _load();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر حفظ السياسة: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر حفظ السياسة: $e')));
     } finally {
       if (mounted) {
         setState(() => _saving = false);
@@ -151,10 +171,7 @@ class _AdminCustomerReliabilityPolicyScreenState
     }
   }
 
-  Widget _numberField(
-    TextEditingController controller,
-    String label,
-  ) {
+  Widget _numberField(TextEditingController controller, String label) {
     return TextField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(
@@ -203,8 +220,14 @@ class _AdminCustomerReliabilityPolicyScreenState
                             style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                           const SizedBox(height: 8),
-                          _numberField(_windowDaysController, 'نافذة التحليل بالأيام'),
-                          _numberField(_baseScoreController, 'النتيجة الأساسية'),
+                          _numberField(
+                            _windowDaysController,
+                            'نافذة التحليل بالأيام',
+                          ),
+                          _numberField(
+                            _baseScoreController,
+                            'النتيجة الأساسية',
+                          ),
                           _numberField(
                             _warningThresholdController,
                             'حد التحذير للمتجر',
@@ -225,7 +248,10 @@ class _AdminCustomerReliabilityPolicyScreenState
                             style: TextStyle(fontWeight: FontWeight.w700),
                           ),
                           const SizedBox(height: 8),
-                          _numberField(_weightCompletedController, 'وزن الطلبات المكتملة'),
+                          _numberField(
+                            _weightCompletedController,
+                            'وزن الطلبات المكتملة',
+                          ),
                           _numberField(
                             _weightCancelledController,
                             'وزن إلغاء العميل',
@@ -234,8 +260,14 @@ class _AdminCustomerReliabilityPolicyScreenState
                             _weightFailedDeliveryController,
                             'وزن تعذر التسليم',
                           ),
-                          _numberField(_weightNoAnswerController, 'وزن عدم الرد'),
-                          _numberField(_weightComplaintsController, 'وزن الشكاوى'),
+                          _numberField(
+                            _weightNoAnswerController,
+                            'وزن عدم الرد',
+                          ),
+                          _numberField(
+                            _weightComplaintsController,
+                            'وزن الشكاوى',
+                          ),
                         ],
                       ),
                     ),

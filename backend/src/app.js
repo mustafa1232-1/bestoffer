@@ -12,6 +12,7 @@ import {
 } from "./config/supabase.js";
 import { adminRouter } from "./modules/admin/admin.routes.js";
 import { assistantRouter } from "./modules/assistant/assistant.routes.js";
+import { mimoRouter } from "./modules/mimo/mimo.routes.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { behaviorRouter } from "./modules/behavior/behavior.routes.js";
 import { getUserPublicById } from "./modules/auth/auth.repo.js";
@@ -378,6 +379,7 @@ function mountApiSurface(prefix = "/api") {
   app.use(`${prefix}/paid-upgrades`, paidUpgradesRouter);
   app.use(`${prefix}/coupons`, couponsRouter);
   app.use(`${prefix}/assistant`, assistantRouter);
+  app.use(`${prefix}/mimo`, mimoRouter);
   app.use(`${prefix}/cars`, carsRouter);
   app.use(`${prefix}/behavior`, behaviorRouter);
   app.use(`${prefix}/taxi`, taxiRouter);

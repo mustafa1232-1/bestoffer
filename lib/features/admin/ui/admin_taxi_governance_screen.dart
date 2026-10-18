@@ -400,11 +400,15 @@ class _AdminTaxiGovernanceScreenState
           Future<void> submit() async {
             final code = codeCtrl.text.trim().toUpperCase();
             final title = titleCtrl.text.trim();
-            final first = tryParseLocalizedDouble(firstDiscountCtrl.text.trim());
+            final first = tryParseLocalizedDouble(
+              firstDiscountCtrl.text.trim(),
+            );
             final second = tryParseLocalizedDouble(
               secondDiscountCtrl.text.trim(),
             );
-            final third = tryParseLocalizedDouble(thirdDiscountCtrl.text.trim());
+            final third = tryParseLocalizedDouble(
+              thirdDiscountCtrl.text.trim(),
+            );
 
             bool invalidPercent(double? value) =>
                 value == null || value <= 0 || value > 100;
@@ -486,7 +490,8 @@ class _AdminTaxiGovernanceScreenState
                   code: parsed.formCode ?? parsed.messageCode,
                   fallback: mapAnyErrorL10n(
                     error,
-                    fallbackBuilder: (l10n) => l10n.couponManagementCreateFailed,
+                    fallbackBuilder: (l10n) =>
+                        l10n.couponManagementCreateFailed,
                   ),
                 );
               });
@@ -529,7 +534,9 @@ class _AdminTaxiGovernanceScreenState
                         final text = newValue.text.toUpperCase();
                         return newValue.copyWith(
                           text: text,
-                          selection: TextSelection.collapsed(offset: text.length),
+                          selection: TextSelection.collapsed(
+                            offset: text.length,
+                          ),
                         );
                       }),
                     ],
@@ -586,14 +593,15 @@ class _AdminTaxiGovernanceScreenState
                       FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                     ],
                     onChanged: (_) => clearFieldError('firstDiscount'),
-                    decoration: discountDecoration(
-                      l10n.couponManagementDiscountValueLabel,
-                    ).copyWith(
-                      errorText: resolveFieldError(
-                        'firstDiscount',
-                        l10n.couponManagementDiscountValueLabel,
-                      ),
-                    ),
+                    decoration:
+                        discountDecoration(
+                          l10n.couponManagementDiscountValueLabel,
+                        ).copyWith(
+                          errorText: resolveFieldError(
+                            'firstDiscount',
+                            l10n.couponManagementDiscountValueLabel,
+                          ),
+                        ),
                   ),
                   if (maxUses >= 2) ...[
                     const SizedBox(height: 8),
@@ -606,14 +614,15 @@ class _AdminTaxiGovernanceScreenState
                         FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                       ],
                       onChanged: (_) => clearFieldError('secondDiscount'),
-                      decoration: discountDecoration(
-                        l10n.couponManagementDiscountValueLabel,
-                      ).copyWith(
-                        errorText: resolveFieldError(
-                          'secondDiscount',
-                          l10n.couponManagementDiscountValueLabel,
-                        ),
-                      ),
+                      decoration:
+                          discountDecoration(
+                            l10n.couponManagementDiscountValueLabel,
+                          ).copyWith(
+                            errorText: resolveFieldError(
+                              'secondDiscount',
+                              l10n.couponManagementDiscountValueLabel,
+                            ),
+                          ),
                     ),
                   ],
                   if (maxUses == 3) ...[
@@ -627,14 +636,15 @@ class _AdminTaxiGovernanceScreenState
                         FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                       ],
                       onChanged: (_) => clearFieldError('thirdDiscount'),
-                      decoration: discountDecoration(
-                        l10n.couponManagementDiscountValueLabel,
-                      ).copyWith(
-                        errorText: resolveFieldError(
-                          'thirdDiscount',
-                          l10n.couponManagementDiscountValueLabel,
-                        ),
-                      ),
+                      decoration:
+                          discountDecoration(
+                            l10n.couponManagementDiscountValueLabel,
+                          ).copyWith(
+                            errorText: resolveFieldError(
+                              'thirdDiscount',
+                              l10n.couponManagementDiscountValueLabel,
+                            ),
+                          ),
                     ),
                   ],
                 ],

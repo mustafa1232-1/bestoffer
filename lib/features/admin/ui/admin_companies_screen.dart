@@ -9,7 +9,8 @@ import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
 import '../../../core/forms/form_scroll_coordinator.dart';
 import '../../../core/i18n/app_localizations_context.dart';
-import '../../../core/network/api_error_mapper.dart' hide parseBackendFieldErrors;
+import '../../../core/network/api_error_mapper.dart'
+    hide parseBackendFieldErrors;
 import '../../company/company_portal_text.dart';
 import '../../company/models/company_models.dart';
 import '../state/admin_controller.dart';
@@ -179,10 +180,7 @@ class _AdminCompaniesScreenState extends ConsumerState<AdminCompaniesScreen> {
     }
   }
 
-  String _companyEditorFieldLabel(
-    BuildContext context,
-    String field,
-  ) {
+  String _companyEditorFieldLabel(BuildContext context, String field) {
     final l10n = context.l10n;
     switch (field) {
       case 'name':
@@ -280,10 +278,7 @@ class _AdminCompaniesScreenState extends ConsumerState<AdminCompaniesScreen> {
             });
           }
 
-          String? customFieldResolver(
-            String field,
-            String? code,
-          ) {
+          String? customFieldResolver(String field, String? code) {
             switch (code?.trim().toUpperCase()) {
               case 'COMPANY_CODE_EXISTS':
                 return field == 'code' ? l10n.adminCompaniesCodeExists : null;
@@ -339,15 +334,17 @@ class _AdminCompaniesScreenState extends ConsumerState<AdminCompaniesScreen> {
                 fieldErrors = localErrors;
                 formError = l10n.validationReviewRequiredFields;
               });
-              await scrollCoordinator.focusFirstError(<String>[
-                'name',
-                'code',
-                'phone',
-                'email',
-                'ownerFullName',
-                'ownerPhone',
-                'ownerPin',
-              ].where(localErrors.containsKey));
+              await scrollCoordinator.focusFirstError(
+                <String>[
+                  'name',
+                  'code',
+                  'phone',
+                  'email',
+                  'ownerFullName',
+                  'ownerPhone',
+                  'ownerPin',
+                ].where(localErrors.containsKey),
+              );
               return;
             }
 
@@ -378,10 +375,12 @@ class _AdminCompaniesScreenState extends ConsumerState<AdminCompaniesScreen> {
 
             try {
               if (isEdit) {
-                await ref.read(adminApiProvider).companyAdminUpdateCompany(
-                  companyId: company.id,
-                  body: body,
-                );
+                await ref
+                    .read(adminApiProvider)
+                    .companyAdminUpdateCompany(
+                      companyId: company.id,
+                      body: body,
+                    );
               } else {
                 body['owner'] = {
                   'fullName': ownerFullName.text.trim(),
@@ -391,7 +390,9 @@ class _AdminCompaniesScreenState extends ConsumerState<AdminCompaniesScreen> {
                   'workTitle': l10n.adminCompaniesOwnerWorkTitle,
                   'workCompany': name.text.trim(),
                 };
-                await ref.read(adminApiProvider).companyAdminCreateCompany(body);
+                await ref
+                    .read(adminApiProvider)
+                    .companyAdminCreateCompany(body);
               }
             } catch (error) {
               if (!dialogContext.mounted) return;
@@ -439,15 +440,17 @@ class _AdminCompaniesScreenState extends ConsumerState<AdminCompaniesScreen> {
                     : fallback;
               });
               if (nextErrors.isNotEmpty) {
-                await scrollCoordinator.focusFirstError(<String>[
-                  'name',
-                  'code',
-                  'phone',
-                  'email',
-                  'ownerFullName',
-                  'ownerPhone',
-                  'ownerPin',
-                ].where(nextErrors.containsKey));
+                await scrollCoordinator.focusFirstError(
+                  <String>[
+                    'name',
+                    'code',
+                    'phone',
+                    'email',
+                    'ownerFullName',
+                    'ownerPhone',
+                    'ownerPin',
+                  ].where(nextErrors.containsKey),
+                );
               }
               return;
             }
@@ -837,9 +840,7 @@ class _AdminCompaniesScreenState extends ConsumerState<AdminCompaniesScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                FormErrorBanner(
-                  message: formError.isEmpty ? null : formError,
-                ),
+                FormErrorBanner(message: formError.isEmpty ? null : formError),
                 DropdownButtonFormField<int>(
                   initialValue: merchantId,
                   decoration: InputDecoration(
@@ -890,10 +891,12 @@ class _AdminCompaniesScreenState extends ConsumerState<AdminCompaniesScreen> {
                   formError = '';
                 });
                 try {
-                  await ref.read(adminApiProvider).companyAdminLinkBranch(
-                    companyId: company.id,
-                    merchantId: merchantId!,
-                  );
+                  await ref
+                      .read(adminApiProvider)
+                      .companyAdminLinkBranch(
+                        companyId: company.id,
+                        merchantId: merchantId!,
+                      );
                   if (!mounted) return;
                   Navigator.of(dialogContext).pop(true);
                 } catch (error) {

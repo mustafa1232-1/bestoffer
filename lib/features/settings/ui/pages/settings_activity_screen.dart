@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/i18n/app_formatters.dart';
@@ -149,7 +149,9 @@ class _SettingsActivityScreenState
                 }
 
                 final item = _events[index];
-                final event = _stringValue(item['eventName'] ?? item['event_name']);
+                final event = _stringValue(
+                  item['eventName'] ?? item['event_name'],
+                );
                 final category = _stringValue(item['category']);
                 final action = _stringValue(item['action']);
                 final at = _formatDate(item['createdAt'] ?? item['created_at']);

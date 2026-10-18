@@ -589,13 +589,18 @@ class _AdminSupportTicketDetailsScreenState
           final data = snapshot.data!;
           final ticket = _map(data.ticket['ticket']);
           final order = _map(data.orderContext['order']);
-          final revisions = _list(data.orderContext['revisions'])
-              .map(OrderRevisionModel.fromJson)
-              .toList(growable: false);
+          final revisions = _list(
+            data.orderContext['revisions'],
+          ).map(OrderRevisionModel.fromJson).toList(growable: false);
           return ListView(
             padding: const EdgeInsets.all(12),
             children: [
               _TicketSummary(ticket: ticket),
+              if (parseString(ticket['channel']) == 'mimo' &&
+                  _can('support.tickets.reply')) ...[
+                const SizedBox(height: 12),
+                _TeachMimoPanel(ticketId: widget.ticketId),
+              ],
               const SizedBox(height: 12),
               if (_can('support.tickets.assign')) ...[
                 _LinkSuggestionsSection(
@@ -626,6 +631,7 @@ class _AdminSupportTicketDetailsScreenState
                   onChanged: () async => _refresh(),
                 ),
               ],
+              const SizedBox(height: 12),
               _LinkedOrderSection(contextData: data.orderContext),
               const SizedBox(height: 12),
               OrderRevisionPanel(
@@ -676,9 +682,9 @@ class _AdminSupportTicketDetailsScreenState
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerHighest,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -746,6 +752,115 @@ class _TicketSummary extends StatelessWidget {
           ),
           Text('الحالة: ${parseString(ticket['status'])}'),
           Text('الموضوع: ${parseString(ticket['subject'])}'),
+          if (parseString(ticket['channel']) == 'mimo')
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text(
+                '🤖 رفعها ميمو نيابةً عن المستخدم — شوف ملاحظته الداخلية',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The admin teaches Mimo how this problem is solved (also learned
+/// automatically when the ticket is resolved).
+class _TeachMimoPanel extends ConsumerStatefulWidget {
+  const _TeachMimoPanel({required this.ticketId});
+
+  final int ticketId;
+
+  @override
+  ConsumerState<_TeachMimoPanel> createState() => _TeachMimoPanelState();
+}
+
+class _TeachMimoPanelState extends ConsumerState<_TeachMimoPanel> {
+  bool _busy = false;
+  String? _learned;
+
+  Future<void> _teach() async {
+    final controller = TextEditingController();
+    final solution = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('علّم ميمو'),
+        content: TextField(
+          controller: controller,
+          minLines: 3,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            hintText:
+                'شلون تنحل هاي المشكلة؟ مثلاً: إذا الطلب بقى بانتظار المحل أكثر من 20 دقيقة نتصل بالمحل…',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('علّمه'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (solution == null || solution.length < 5 || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      final out = await ref
+          .read(adminApiProvider)
+          .teachMimoFromTicket(widget.ticketId, solution: solution);
+      if (!mounted) return;
+      setState(() {
+        _learned = out['learned'] == true
+            ? 'تعلّم ميمو: ${out['problem'] ?? ''} ← ${out['solution'] ?? ''}'
+            : 'ما گدر يتعلمها، جرّب صياغة أوضح';
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _learned = 'صار خطأ، حاول مرة ثانية');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _Panel(
+      title: 'ميمو يتعلم منك',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            'ميمو رفع هاي المشكلة لأنه ما عرف يحلها. علّمه الحل، أو حلها وسكّر التذكرة وهو يتعلم من الحل تلقائياً.',
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: FilledButton.icon(
+              onPressed: _busy ? null : _teach,
+              icon: _busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.school_rounded),
+              label: const Text('علّم ميمو'),
+            ),
+          ),
+          if (_learned != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _learned!,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
         ],
       ),
     );
@@ -1216,8 +1331,9 @@ class _ConversationScreenState extends ConsumerState<_ConversationScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _sending = false);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('تعذّر إرسال الرسالة.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تعذّر إرسال الرسالة.')));
     }
   }
 
@@ -1757,8 +1873,9 @@ class _LinkSuggestionsSectionState
             reason: 'linked from suggestions',
           );
       if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('تم الربط بنجاح.')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('تم الربط بنجاح.')));
       }
       await widget.onLinked();
     } catch (e) {

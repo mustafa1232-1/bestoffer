@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/i18n/app_localizations_context.dart';
+import '../../../../core/i18n/locale_text.dart';
 import '../../../../core/settings/app_settings_controller.dart';
 
 class SettingsAppearanceScreen extends ConsumerWidget {
@@ -44,6 +45,43 @@ class SettingsAppearanceScreen extends ConsumerWidget {
                         .read(appSettingsControllerProvider.notifier)
                         .setAnimationsEnabled(value);
                   },
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  value: settings.mimoEnabled,
+                  title: Text(
+                    context.lt(ar: 'ميمو المساعد', en: 'Mimo assistant'),
+                  ),
+                  subtitle: Text(
+                    context.lt(
+                      ar: 'إظهار ميمو فوق شاشات التطبيق',
+                      en: 'Show Mimo on top of the app screens',
+                    ),
+                  ),
+                  onChanged: (value) {
+                    ref
+                        .read(appSettingsControllerProvider.notifier)
+                        .setMimoEnabled(value);
+                  },
+                ),
+                SwitchListTile(
+                  value: settings.mimoProactive,
+                  title: Text(
+                    context.lt(ar: 'ميمو يبادر', en: 'Mimo speaks up'),
+                  ),
+                  subtitle: Text(
+                    context.lt(
+                      ar: 'يخبرك بحالة طلبك ويذكّرك بالكوبونات والسلة المنسية',
+                      en: 'Order updates, expiring coupons and forgotten-cart tips',
+                    ),
+                  ),
+                  onChanged: settings.mimoEnabled
+                      ? (value) {
+                          ref
+                              .read(appSettingsControllerProvider.notifier)
+                              .setMimoProactive(value);
+                        }
+                      : null,
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
@@ -130,8 +168,10 @@ class _ThemeOption extends StatelessWidget {
       leading: _Preview(tokens: tokens),
       title: Text(label),
       trailing: selected
-          ? Icon(Icons.check_circle_rounded,
-              color: Theme.of(context).colorScheme.primary)
+          ? Icon(
+              Icons.check_circle_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            )
           : const Icon(Icons.circle_outlined),
     );
   }
@@ -145,14 +185,14 @@ class _Preview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget dot(Color c) => Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(
-            color: c,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.black26),
-          ),
-        );
+      width: 16,
+      height: 16,
+      decoration: BoxDecoration(
+        color: c,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.black26),
+      ),
+    );
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(

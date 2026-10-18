@@ -1171,6 +1171,59 @@ class AdminApi {
     return attachment;
   }
 
+  /// لوحة ميمو: الاستخدام والكلفة التقديرية والجودة والطلب غير المغطى.
+  Future<Map<String, dynamic>> mimoDashboard({int days = 30}) async {
+    final response = await dio.get(
+      '/api/mimo/admin/dashboard',
+      queryParameters: {'days': days},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
+  /// ما تعلّمه ميمو (مؤكد/محلي/مرفوض) مع بحث.
+  Future<List<Map<String, dynamic>>> mimoKnowledge({
+    String? status,
+    String? query,
+    int offset = 0,
+  }) async {
+    final response = await dio.get(
+      '/api/mimo/admin/knowledge',
+      queryParameters: {'status': ?status, 'q': ?query, 'offset': offset},
+    );
+    final raw = (response.data as Map)['items'];
+    return [
+      for (final e in (raw is List ? raw : const []))
+        if (e is Map) Map<String, dynamic>.from(e),
+    ];
+  }
+
+  Future<void> updateMimoKnowledge(
+    int id, {
+    String? status,
+    String? answer,
+  }) async {
+    await dio.patch(
+      '/api/mimo/admin/knowledge/$id',
+      data: {'status': ?status, 'answer': ?answer},
+    );
+  }
+
+  Future<void> deleteMimoKnowledge(int id) async {
+    await dio.delete('/api/mimo/admin/knowledge/$id');
+  }
+
+  /// يعلّم ميمو حل مشكلة تذكرة رفعها هو، ليحلها بنفسه في المرات القادمة.
+  Future<Map<String, dynamic>> teachMimoFromTicket(
+    int ticketId, {
+    required String solution,
+  }) async {
+    final response = await dio.post(
+      '/api/mimo/admin/tickets/$ticketId/teach',
+      data: {'solution': solution},
+    );
+    return Map<String, dynamic>.from(response.data as Map);
+  }
+
   /// ردّ الموظف على تذكرة (أو ملاحظة داخلية) مع مرفقات اختيارية.
   Future<Map<String, dynamic>> replySupportTicket(
     int ticketId, {

@@ -1,4 +1,4 @@
-﻿import '../../../core/utils/parsers.dart';
+import '../../../core/utils/parsers.dart';
 
 class AdminOrdersOverviewSummary {
   final int totalOrders;
@@ -68,7 +68,9 @@ class AdminOrdersOverviewMerchant {
       ownerFullName: parseNullableString(
         json['ownerFullName'] ?? json['owner_full_name'],
       ),
-      ownerPhone: parseNullableString(json['ownerPhone'] ?? json['owner_phone']),
+      ownerPhone: parseNullableString(
+        json['ownerPhone'] ?? json['owner_phone'],
+      ),
       ordersCount: parseInt(json['ordersCount'] ?? json['orders_count']),
       lastOrderAt: parseNullableDateTime(
         json['lastOrderAt'] ?? json['last_order_at'],

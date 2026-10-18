@@ -72,9 +72,9 @@ class _AdminTaxiCaptainDetailsScreenState
       _error = null;
     });
     try {
-      final details = await _taxiApi(ref).adminTaxiCaptainDetails(
-        widget.captainUserId,
-      );
+      final details = await _taxiApi(
+        ref,
+      ).adminTaxiCaptainDetails(widget.captainUserId);
       if (!mounted) return;
       setState(() {
         _details = details;
@@ -288,9 +288,7 @@ class _AdminTaxiCaptainDetailsScreenState
                       items: [
                         DropdownMenuItem(
                           value: 'credit',
-                          child: Text(
-                            l10n.adminTaxiCaptainRewardTypeCredit,
-                          ),
+                          child: Text(l10n.adminTaxiCaptainRewardTypeCredit),
                         ),
                         DropdownMenuItem(
                           value: 'cash_equivalent',
@@ -482,9 +480,7 @@ class _AdminTaxiCaptainDetailsScreenState
                       items: [
                         DropdownMenuItem(
                           value: 'low',
-                          child: Text(
-                            l10n.adminTaxiCaptainWarningSeverityLow,
-                          ),
+                          child: Text(l10n.adminTaxiCaptainWarningSeverityLow),
                         ),
                         DropdownMenuItem(
                           value: 'medium',
@@ -494,9 +490,7 @@ class _AdminTaxiCaptainDetailsScreenState
                         ),
                         DropdownMenuItem(
                           value: 'high',
-                          child: Text(
-                            l10n.adminTaxiCaptainWarningSeverityHigh,
-                          ),
+                          child: Text(l10n.adminTaxiCaptainWarningSeverityHigh),
                         ),
                         DropdownMenuItem(
                           value: 'critical',
@@ -531,7 +525,9 @@ class _AdminTaxiCaptainDetailsScreenState
                       items: [
                         DropdownMenuItem(
                           value: null,
-                          child: Text(l10n.adminTaxiCaptainDetailsNoStatusEffect),
+                          child: Text(
+                            l10n.adminTaxiCaptainDetailsNoStatusEffect,
+                          ),
                         ),
                         DropdownMenuItem(
                           value: 'warned',
@@ -554,7 +550,8 @@ class _AdminTaxiCaptainDetailsScreenState
                       ],
                       onChanged: (!affectsStatus || submitting)
                           ? null
-                          : (value) => setSheetState(() => statusEffect = value),
+                          : (value) =>
+                                setSheetState(() => statusEffect = value),
                     ),
                     const SizedBox(height: 10),
                     TextField(
@@ -828,9 +825,7 @@ class _AdminTaxiCaptainDetailsScreenState
                         ),
                         trailing: TextButton(
                           onPressed: submitting ? null : pickSuspendedUntil,
-                          child: Text(
-                            l10n.adminTaxiCaptainDetailsPickDateTime,
-                          ),
+                          child: Text(l10n.adminTaxiCaptainDetailsPickDateTime),
                         ),
                       ),
                     Row(
@@ -917,19 +912,14 @@ class _AdminTaxiCaptainDetailsScreenState
     final rating = _asDouble(profile['rating_avg'] ?? profile['ratingAvg']);
     final ridesCount = _asInt(profile['rides_count'] ?? profile['ridesCount']);
     final warningCount = _asInt(
-      governance['warningCount'] ??
-          profile['warning_count'] ??
-          warnings.length,
+      governance['warningCount'] ?? profile['warning_count'] ?? warnings.length,
     );
 
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.adminTaxiCaptainDetailsTitle),
         actions: [
-          IconButton(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
+          IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
       body: RefreshIndicator(
@@ -1045,7 +1035,9 @@ class _AdminTaxiCaptainDetailsScreenState
                   ),
                   _InfoChip(
                     label: l10n.taxiCaptainApprovedCredits,
-                    value: formatIqd(_asInt(subscription['approvedCreditsIqd'])),
+                    value: formatIqd(
+                      _asInt(subscription['approvedCreditsIqd']),
+                    ),
                   ),
                   _InfoChip(
                     label: l10n.adminTaxiCashPaymentsDiscount,
@@ -1066,31 +1058,36 @@ class _AdminTaxiCaptainDetailsScreenState
               child: ledger.isEmpty
                   ? Text(l10n.commonNoData)
                   : Column(
-                      children: ledger.take(12).map((item) {
-                        final amount = _asInt(item['amountIqd']);
-                        final status = '${item['status'] ?? '-'}';
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            '${item['entryType'] ?? '-'}',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                          subtitle: Text('${item['createdAt'] ?? '-'}'),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(formatIqd(amount)),
-                              Text(
-                                status,
-                                style: Theme.of(context).textTheme.bodySmall,
+                      children: ledger
+                          .take(12)
+                          .map((item) {
+                            final amount = _asInt(item['amountIqd']);
+                            final status = '${item['status'] ?? '-'}';
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                '${item['entryType'] ?? '-'}',
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
                               ),
-                            ],
-                          ),
-                        );
-                      }).toList(growable: false),
+                              subtitle: Text('${item['createdAt'] ?? '-'}'),
+                              trailing: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(formatIqd(amount)),
+                                  Text(
+                                    status,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            );
+                          })
+                          .toList(growable: false),
                     ),
             ),
             const SizedBox(height: 12),
@@ -1099,16 +1096,19 @@ class _AdminTaxiCaptainDetailsScreenState
               child: contests.isEmpty
                   ? Text(l10n.commonNoData)
                   : Column(
-                      children: contests.take(8).map((item) {
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text('${item['title'] ?? '-'}'),
-                          subtitle: Text(
-                            '${item['progressValue'] ?? 0} / ${item['targetValue'] ?? 0}',
-                          ),
-                        );
-                      }).toList(growable: false),
+                      children: contests
+                          .take(8)
+                          .map((item) {
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text('${item['title'] ?? '-'}'),
+                              subtitle: Text(
+                                '${item['progressValue'] ?? 0} / ${item['targetValue'] ?? 0}',
+                              ),
+                            );
+                          })
+                          .toList(growable: false),
                     ),
             ),
             const SizedBox(height: 12),
@@ -1117,19 +1117,24 @@ class _AdminTaxiCaptainDetailsScreenState
               child: rewards.isEmpty
                   ? Text(l10n.commonNoData)
                   : Column(
-                      children: rewards.take(8).map((item) {
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            _rewardTypeLabel('${item['rewardType'] ?? '-'}'),
-                          ),
-                          subtitle: Text('${item['createdAt'] ?? '-'}'),
-                          trailing: Text(
-                            formatIqd(_asInt(item['rewardValue'])),
-                          ),
-                        );
-                      }).toList(growable: false),
+                      children: rewards
+                          .take(8)
+                          .map((item) {
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                _rewardTypeLabel(
+                                  '${item['rewardType'] ?? '-'}',
+                                ),
+                              ),
+                              subtitle: Text('${item['createdAt'] ?? '-'}'),
+                              trailing: Text(
+                                formatIqd(_asInt(item['rewardValue'])),
+                              ),
+                            );
+                          })
+                          .toList(growable: false),
                     ),
             ),
             const SizedBox(height: 12),
@@ -1138,24 +1143,27 @@ class _AdminTaxiCaptainDetailsScreenState
               child: warnings.isEmpty
                   ? Text(l10n.commonNoData)
                   : Column(
-                      children: warnings.take(8).map((item) {
-                        final severity = _warningSeverityLabel(
-                          '${item['severity'] ?? ''}',
-                        );
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            severity,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                          subtitle: Text(
-                            '${item['reason_text'] ?? item['reasonText'] ?? item['reason_code'] ?? '-'}\n${item['created_at'] ?? item['createdAt'] ?? '-'}',
-                          ),
-                          isThreeLine: true,
-                        );
-                      }).toList(growable: false),
+                      children: warnings
+                          .take(8)
+                          .map((item) {
+                            final severity = _warningSeverityLabel(
+                              '${item['severity'] ?? ''}',
+                            );
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                severity,
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              subtitle: Text(
+                                '${item['reason_text'] ?? item['reasonText'] ?? item['reason_code'] ?? '-'}\n${item['created_at'] ?? item['createdAt'] ?? '-'}',
+                              ),
+                              isThreeLine: true,
+                            );
+                          })
+                          .toList(growable: false),
                     ),
             ),
             const SizedBox(height: 12),
@@ -1164,17 +1172,20 @@ class _AdminTaxiCaptainDetailsScreenState
               child: complaints.isEmpty
                   ? Text(l10n.commonNoData)
                   : Column(
-                      children: complaints.take(8).map((item) {
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text('${item['category'] ?? '-'}'),
-                          subtitle: Text(
-                            '${item['reason'] ?? '-'}\n${item['status'] ?? '-'}',
-                          ),
-                          isThreeLine: true,
-                        );
-                      }).toList(growable: false),
+                      children: complaints
+                          .take(8)
+                          .map((item) {
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text('${item['category'] ?? '-'}'),
+                              subtitle: Text(
+                                '${item['reason'] ?? '-'}\n${item['status'] ?? '-'}',
+                              ),
+                              isThreeLine: true,
+                            );
+                          })
+                          .toList(growable: false),
                     ),
             ),
             const SizedBox(height: 12),
@@ -1183,22 +1194,25 @@ class _AdminTaxiCaptainDetailsScreenState
               child: statusHistory.isEmpty
                   ? Text(l10n.commonNoData)
                   : Column(
-                      children: statusHistory.take(8).map((item) {
-                        final oldStatus = _governanceStatusLabel(
-                          '${item['oldStatus'] ?? item['old_status'] ?? '-'}',
-                        );
-                        final newStatus = _governanceStatusLabel(
-                          '${item['newStatus'] ?? item['new_status'] ?? '-'}',
-                        );
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text('$oldStatus -> $newStatus'),
-                          subtitle: Text(
-                            '${item['createdAt'] ?? item['created_at'] ?? '-'}',
-                          ),
-                        );
-                      }).toList(growable: false),
+                      children: statusHistory
+                          .take(8)
+                          .map((item) {
+                            final oldStatus = _governanceStatusLabel(
+                              '${item['oldStatus'] ?? item['old_status'] ?? '-'}',
+                            );
+                            final newStatus = _governanceStatusLabel(
+                              '${item['newStatus'] ?? item['new_status'] ?? '-'}',
+                            );
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text('$oldStatus -> $newStatus'),
+                              subtitle: Text(
+                                '${item['createdAt'] ?? item['created_at'] ?? '-'}',
+                              ),
+                            );
+                          })
+                          .toList(growable: false),
                     ),
             ),
             const SizedBox(height: 12),
@@ -1207,24 +1221,27 @@ class _AdminTaxiCaptainDetailsScreenState
               child: rides.isEmpty
                   ? Text(l10n.commonNoData)
                   : Column(
-                      children: rides.take(10).map((item) {
-                        return ListTile(
-                          dense: true,
-                          contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            '#${item['id'] ?? '-'} - ${item['status'] ?? '-'}',
-                          ),
-                          subtitle: Text('${item['created_at'] ?? '-'}'),
-                          trailing: Text(
-                            formatIqd(
-                              _asInt(
-                                item['agreed_fare_iqd'] ??
-                                    item['proposed_fare_iqd'],
+                      children: rides
+                          .take(10)
+                          .map((item) {
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                '#${item['id'] ?? '-'} - ${item['status'] ?? '-'}',
                               ),
-                            ),
-                          ),
-                        );
-                      }).toList(growable: false),
+                              subtitle: Text('${item['created_at'] ?? '-'}'),
+                              trailing: Text(
+                                formatIqd(
+                                  _asInt(
+                                    item['agreed_fare_iqd'] ??
+                                        item['proposed_fare_iqd'],
+                                  ),
+                                ),
+                              ),
+                            );
+                          })
+                          .toList(growable: false),
                     ),
             ),
           ],

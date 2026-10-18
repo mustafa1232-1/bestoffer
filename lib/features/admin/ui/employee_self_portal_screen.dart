@@ -396,7 +396,8 @@ class _EmployeeSelfPortalScreenState
         .toList(growable: false);
     final primary = coupons.isNotEmpty ? coupons.first : <String, dynamic>{};
     final code = '${primary['code'] ?? ''}';
-    final share = (primary['sharePercent'] as num?) ?? (c['sharePercent'] as num?) ?? 25;
+    final share =
+        (primary['sharePercent'] as num?) ?? (c['sharePercent'] as num?) ?? 25;
     final redemptions = (summary['totalRedemptions'] as num?)?.toInt() ?? 0;
 
     return [

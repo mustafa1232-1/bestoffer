@@ -21,7 +21,9 @@ import 'register_screen.dart';
 import '../../coupons/data/coupons_api.dart';
 import '../data/mimo_known_accounts.dart';
 import '../models/user_model.dart';
-import 'widgets/mimo_character.dart';
+import '../../mimo/mimo_character.dart';
+import '../../mimo/mimo_typewriter_text.dart';
+import '../../mimo/mimo_voice.dart';
 
 // Palette of the "ميمو بصفحة الدخول" design.
 const _ink = Color(0xFF1B2430);
@@ -48,12 +50,6 @@ enum _LoginStatus {
 }
 
 enum _FocusTarget { none, phone, pin }
-
-/// Mimo speaks with a lisp: every "س" comes out as "ث" (مسلكي → مثلكي).
-String _lisp(String text) => text
-    .replaceAll('س', 'ث')
-    .replaceAll(RegExp(r's(?=[a-z])'), 'th')
-    .replaceAll('S', 'Th');
 
 /// Clears the 1-minute PIN lock that otherwise survives screen re-opens.
 @visibleForTesting
@@ -152,7 +148,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       (_status == _LoginStatus.error && (_knownName != null || _fails >= 2));
 
   bool get _animationsEnabled =>
-      ref.read(appSettingsControllerProvider).animationsEnabled;
+      ref.read(appSettingsControllerProvider).animationsEnabled &&
+      !(MediaQuery.maybeDisableAnimationsOf(context) ?? false);
 
   @override
   void initState() {
@@ -325,7 +322,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
   /// Mimo's line in the user's language, lisped, with `{name}` filled in
   /// afterwards so names are never mangled.
   String _say(BuildContext context, String ar, String en, {String? name}) {
-    final line = _lisp(context.lt(ar: ar, en: en));
+    final line = mimoLisp(context.lt(ar: ar, en: en));
     return name == null ? line : line.replaceAll('{name}', name);
   }
 
@@ -787,7 +784,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       mimo: MimoCharacter(
         mood: _mood(),
         lookX: _lookX(),
-        animate: settings.animationsEnabled,
+        animate: _animationsEnabled,
         nudgeTick: _nudgeTick,
         shakeTick: _mimoShakeTick,
         running: _status == _LoginStatus.hacked,
@@ -795,7 +792,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
       ),
       onMimoTap: _petMimo,
       bubble: _bubble(context),
-      animate: settings.animationsEnabled,
+      animate: _animationsEnabled,
       card: _buildLoginCard(context, auth: auth, settings: settings),
     );
 
@@ -870,7 +867,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen>
     final busy = auth.loading || _loginInFlight;
     final success = _status == _LoginStatus.success;
     final hasError = _status == _LoginStatus.error;
-    final anim = settings.animationsEnabled;
+    final anim = _animationsEnabled;
     final fast = anim ? const Duration(milliseconds: 220) : Duration.zero;
 
     return Column(
@@ -1275,7 +1272,7 @@ class _MimoSpeechArea extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            _TypewriterText(
+            MimoTypewriterText(
               text: d.text,
               animate: animate,
               textAlign: TextAlign.start,
@@ -1747,7 +1744,7 @@ class _SpeechBubble extends StatelessWidget {
                   ),
                 ],
               ),
-              child: _TypewriterText(
+              child: MimoTypewriterText(
                 text: d.text,
                 animate: animate,
                 style: TextStyle(
@@ -1758,94 +1755,6 @@ class _SpeechBubble extends StatelessWidget {
                 ),
               ),
             ),
-    );
-  }
-}
-
-class _TypewriterText extends StatefulWidget {
-  const _TypewriterText({
-    required this.text,
-    required this.style,
-    required this.animate,
-    this.textAlign = TextAlign.center,
-  });
-
-  final TextAlign textAlign;
-  final String text;
-  final TextStyle style;
-  final bool animate;
-
-  @override
-  State<_TypewriterText> createState() => _TypewriterTextState();
-}
-
-class _TypewriterTextState extends State<_TypewriterText>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ctrl = AnimationController(
-    vsync: this,
-    duration: Duration(milliseconds: 40 * widget.text.characters.length + 60),
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.animate) {
-      _ctrl.forward();
-    } else {
-      _ctrl.value = 1;
-    }
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final chars = widget.text.characters;
-    return Semantics(
-      liveRegion: true,
-      label: widget.text,
-      child: ExcludeSemantics(
-        child: Stack(
-          children: [
-            // Reserves the final size so the bubble never jitters.
-            Opacity(
-              opacity: 0,
-              child: Text(
-                widget.text,
-                style: widget.style,
-                textAlign: widget.textAlign,
-              ),
-            ),
-            AnimatedBuilder(
-              animation: _ctrl,
-              builder: (context, _) {
-                final count = (chars.length * _ctrl.value).ceil();
-                final shown = chars.take(count).toString();
-                final cursor = _ctrl.value < 1 ? '▍' : '';
-                return Text.rich(
-                  TextSpan(
-                    text: shown,
-                    children: [
-                      TextSpan(
-                        text: cursor,
-                        style: TextStyle(
-                          color: widget.style.color?.withOpacity(0.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                  style: widget.style,
-                  textAlign: widget.textAlign,
-                );
-              },
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
