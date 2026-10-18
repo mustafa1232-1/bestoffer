@@ -70,7 +70,7 @@ function notificationSurfaceForRole(role) {
   return "user";
 }
 
-function notifyUser({ userId, role, type, title, body, revision, order = null, extra = {} }) {
+function notifyUser({ userId, role, type, title, body, textEn = null, revision, order = null, extra = {} }) {
   if (!userId) return;
   const payload = {
     ...publicRevisionPayload(revision),
@@ -86,6 +86,7 @@ function notifyUser({ userId, role, type, title, body, revision, order = null, e
     type,
     title,
     body,
+    textEn,
     orderId: Number(revision.order_id),
     merchantId: order?.merchant_id == null ? undefined : Number(order.merchant_id),
     payload,
@@ -1625,8 +1626,9 @@ function notifyRevisionCreated(revision) {
     userId: revision.created_by_user_id,
     role: "admin",
     type: "order.revision.created",
-    title: "Order revision draft created",
-    body: `Order #${revision.order_id} revision draft is ready.`,
+    title: `مسودة تعديل جاهزة للطلب #${revision.order_id}`,
+    body: `مسودة تعديل الطلب #${revision.order_id} جاهزة للمراجعة.`,
+    textEn: { title: "Order revision draft created", body: `Order #${revision.order_id} revision draft is ready.` },
     revision,
   });
 }
@@ -1639,8 +1641,9 @@ function notifyRevisionSubmitted(revision) {
         userId: revision.created_by_user_id,
         role: "admin",
         type: "order.revision.submitted",
-        title: "Order revision submitted",
-        body: `Order #${revision.order_id} revision is awaiting approval.`,
+        title: `تعديل الطلب #${revision.order_id} بانتظار الموافقة`,
+        body: `أُرسل تعديل الطلب #${revision.order_id} وبانتظار موافقة الأطراف.`,
+        textEn: { title: "Order revision submitted", body: `Order #${revision.order_id} revision is awaiting approval.` },
         revision,
         order,
         extra: { approvalsRequired: required },
@@ -1650,8 +1653,9 @@ function notifyRevisionSubmitted(revision) {
           userId: order?.customer_user_id,
           role: "customer",
           type: "order.revision.awaiting_customer",
-          title: "Order update needs your approval",
-          body: `Review the proposed change for order #${revision.order_id}.`,
+          title: `تعديل على طلبك #${revision.order_id} يحتاج موافقتك`,
+          body: `راجع التعديل المقترح على طلبك #${revision.order_id} ووافق أو ارفض.`,
+          textEn: { title: "Order update needs your approval", body: `Review the proposed change for order #${revision.order_id}.` },
           revision,
           order,
           extra: { approvalType: "CUSTOMER" },
@@ -1662,8 +1666,9 @@ function notifyRevisionSubmitted(revision) {
           userId: order?.owner_user_id,
           role: "owner",
           type: "order.revision.awaiting_merchant",
-          title: "Order update needs store approval",
-          body: `Review the proposed change for order #${revision.order_id}.`,
+          title: `تعديل على الطلب #${revision.order_id} يحتاج موافقة المتجر`,
+          body: `راجع التعديل المقترح على الطلب #${revision.order_id} ووافق أو ارفض.`,
+          textEn: { title: "Order update needs store approval", body: `Review the proposed change for order #${revision.order_id}.` },
           revision,
           order,
           extra: { approvalType: "MERCHANT" },
@@ -1685,8 +1690,12 @@ function notifyRevisionDecision(revision, approvalType, decision) {
         userId: revision.created_by_user_id,
         role: "admin",
         type,
-        title: "Order revision decision",
-        body: `Order #${revision.order_id}: ${approvalType} ${decision.toLowerCase()}.`,
+        title: `قرار على تعديل الطلب #${revision.order_id}`,
+        body: `${approvalType === "CUSTOMER" ? "الزبون" : "المتجر"} ${decision === "REJECTED" ? "رفض" : "وافق على"} تعديل الطلب #${revision.order_id}.`,
+        textEn: {
+          title: "Order revision decision",
+          body: `Order #${revision.order_id}: ${approvalType} ${decision.toLowerCase()}.`,
+        },
         revision,
         order,
         extra: { approvalType, decision },
@@ -1699,8 +1708,12 @@ function notifyRevisionDecision(revision, approvalType, decision) {
         userId: otherUserId,
         role: otherRole,
         type,
-        title: "Order revision decision",
-        body: `Order #${revision.order_id}: ${approvalType} ${decision.toLowerCase()}.`,
+        title: `قرار على تعديل الطلب #${revision.order_id}`,
+        body: `${approvalType === "CUSTOMER" ? "الزبون" : "المتجر"} ${decision === "REJECTED" ? "رفض" : "وافق على"} تعديل الطلب #${revision.order_id}.`,
+        textEn: {
+          title: "Order revision decision",
+          body: `Order #${revision.order_id}: ${approvalType} ${decision.toLowerCase()}.`,
+        },
         revision,
         order,
         extra: { approvalType, decision },
@@ -1722,8 +1735,9 @@ function notifyRevisionApplied(revision, order) {
       userId: recipient.userId,
       role: recipient.role,
       type: "order.revision.applied",
-      title: "Order updated",
-      body: `Order #${revision.order_id} was updated by support.`,
+      title: `تم تعديل الطلب #${revision.order_id}`,
+      body: `فريق الدعم عدّل الطلب #${revision.order_id}. افتح الطلب لمشاهدة التفاصيل.`,
+      textEn: { title: "Order updated", body: `Order #${revision.order_id} was updated by support.` },
       revision,
       order,
     });
@@ -1743,8 +1757,9 @@ function notifyRevisionFailed({ orderId, revisionId, actorUserId, error }) {
     userId: actorUserId,
     role: "admin",
     type: "order.revision.failed",
-    title: "Order revision failed",
-    body: `Order #${orderId} revision could not be applied.`,
+    title: `فشل تطبيق تعديل الطلب #${orderId}`,
+    body: `تعذر تطبيق تعديل الطلب #${orderId}. راجع التذكرة.`,
+    textEn: { title: "Order revision failed", body: `Order #${orderId} revision could not be applied.` },
     revision,
     extra: { failureReason: String(error?.message || error).slice(0, 160) },
   });

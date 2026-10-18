@@ -4,6 +4,19 @@ import { createManyNotifications } from "../notifications/notifications.repo.js"
 import * as repo from "./jobs.repo.js";
 import { getJobsTaxonomyMeta } from "./jobs.validators.js";
 
+const JOB_APPLICATION_STATUS_AR = {
+  submitted: "تم الاستلام",
+  under_review: "قيد المراجعة",
+  reviewing: "قيد المراجعة",
+  shortlisted: "ضمن القائمة المختصرة",
+  interview: "مقابلة",
+  rejected: "مرفوض",
+  hired: "تم التعيين",
+  withdrawn: "مسحوب",
+  dismissed_after_hire: "إنهاء بعد التعيين",
+  archived: "مؤرشف",
+};
+
 /**
  * Purpose:
  * منطق الوظائف المركزي: التصفح، إنشاء الوظائف، التقديم، مراجعة الطلبات،
@@ -514,9 +527,13 @@ export async function createJob(dto, actor) {
         [...new Set(recipients)].map((targetUserId) => ({
           userId: Number(targetUserId),
           type: "jobs.posted",
-          title: "New job has been posted",
-          body: `${actorName} posted "${safeJobTitle}" for ${safeCompany}.`,
+          title: `وظيفة جديدة: ${safeJobTitle}`,
+          body: `${actorName} نشر وظيفة «${safeJobTitle}» لدى ${safeCompany}.`,
           payload: {
+            textEn: {
+              title: `New job: ${safeJobTitle}`,
+              body: `${actorName} posted "${safeJobTitle}" for ${safeCompany}.`,
+            },
             target: "jobs_applications",
             jobId: Number(row.id),
             jobTitle: safeJobTitle,
@@ -774,9 +791,13 @@ export async function updateJobApplicationStatus(
       {
         userId: applicantUserId,
         type: "jobs.application.status_updated",
-        title: "Job application updated",
-        body: `Your application for "${row.job_title || "the job"}" is now ${statusLabel}.`,
+        title: `تحديث طلبك لوظيفة «${row.job_title || "الوظيفة"}»`,
+        body: `حالة طلبك صارت: ${JOB_APPLICATION_STATUS_AR[status] || statusLabel}.`,
         payload: {
+          textEn: {
+            title: `Update on your "${row.job_title || "job"}" application`,
+            body: `Your application is now ${statusLabel}.`,
+          },
           target: "jobs_my_applications",
           jobId: Number(jobId),
           applicationId: Number(applicationId),
@@ -848,9 +869,13 @@ export async function acceptMyJobOffer(applicationId, dto, actor) {
         [...new Set(recipients)].map((targetUserId) => ({
           userId: Number(targetUserId),
           type: "jobs.application.offer_accepted",
-          title: "Job offer accepted",
-          body: `${actorName} accepted the offer for "${updated.job_title || "the job"}".`,
+          title: `${actorName} قبل عرض وظيفة «${updated.job_title || "الوظيفة"}»`,
+          body: `المتقدم ${actorName} وافق على عرض العمل. افتح الطلب لإكمال التعيين.`,
           payload: {
+            textEn: {
+              title: `${actorName} accepted the "${updated.job_title || "job"}" offer`,
+              body: `${actorName} accepted the job offer. Open the application to finish hiring.`,
+            },
             target: "jobs_applications",
             jobId: Number(updated.job_id),
             applicationId: Number(updated.id),
@@ -924,9 +949,13 @@ export async function withdrawMyApplication(applicationId, reason, actor) {
         [...new Set(recipients)].map((targetUserId) => ({
           userId: Number(targetUserId),
           type: "jobs.application.withdrawn",
-          title: "Application withdrawn",
-          body: `${actorName} withdrew the application for "${updated.job_title || "the job"}".`,
+          title: `${actorName} سحب طلبه لوظيفة «${updated.job_title || "الوظيفة"}»`,
+          body: `لم يعد ${actorName} مرشحاً لهذه الوظيفة.`,
           payload: {
+            textEn: {
+              title: `${actorName} withdrew from "${updated.job_title || "the job"}"`,
+              body: `${actorName} is no longer a candidate for this job.`,
+            },
             target: "jobs_applications",
             jobId: Number(updated.job_id),
             applicationId: Number(updated.id),
@@ -1183,9 +1212,13 @@ export async function createJobRecommendation(jobId, dto, actor) {
         [...new Set(recipients)].map((targetUserId) => ({
           userId: Number(targetUserId),
           type: "jobs.recommendation.submitted",
-          title: "Employee recommendation received",
-          body: `${actorName} recommended a candidate for "${job.title}"${safeDepartment ? ` (${safeDepartment})` : ""}.`,
+          title: `ترشيح جديد لوظيفة «${job.title}»`,
+          body: `${actorName} رشّح ${String(candidateFullName || "").trim() || "مرشحاً"}${safeDepartment ? ` (${safeDepartment})` : ""}.`,
           payload: {
+            textEn: {
+              title: `New recommendation for "${job.title}"`,
+              body: `${actorName} recommended a candidate for "${job.title}"${safeDepartment ? ` (${safeDepartment})` : ""}.`,
+            },
             target: "jobs_applications",
             jobId: Number(jobId),
             recommendationId: Number(inserted.id),

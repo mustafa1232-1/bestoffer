@@ -72,10 +72,154 @@ import 'package:maslaki/features/ai_dev_support/screens/incident_details_screen.
 
 import '../../pages/map_page.dart';
 import '../sections/section_access_guard.dart';
+import '../sections/section_availability_models.dart';
 import '../sections/section_availability_targets.dart';
 import '../sections/section_unavailable_screen.dart';
 import 'local_notification_service.dart';
 import 'notification_type_registry.dart';
+
+/// Every screen a notification can open. One entry per real destination;
+/// see docs/notifications_routing_map.md for the type → screen table per role.
+enum NotificationScreen {
+  notifications,
+  sectionUnavailable,
+  customerOrdersCurrent,
+  customerOrdersCompleted,
+  customerOrdersCancelled,
+  customerNotifications,
+  customerOrderTracking,
+  customerOrders,
+  supportTicketDetails,
+  supportTickets,
+  taxiMap,
+  taxiLiveTracking,
+  taxiSharedRide,
+  jobsMyApplications,
+  socialCommunity,
+  socialReportedPosts,
+  socialChat,
+  socialActivity,
+  socialHome,
+  socialCall,
+  socialReels,
+  socialStory,
+  socialPost,
+  socialProfile,
+  residenceChange,
+  socialRestrictions,
+  paidUpgrades,
+  realEstateMarketplace,
+  realEstateWorkspace,
+  realEstateListing,
+  carListing,
+  carsMarketplace,
+  servicesMarketplace,
+  customerEmergencyRequest,
+  serviceProviderWorkspace,
+  serviceRequestDetails,
+  serviceMyRequests,
+  serviceProviderProfile,
+  serviceOfferingDetails,
+  pharmacyConversation,
+  customerPharmacyConversations,
+  taxiTripDetails,
+  taxiTripsNew,
+  taxiCompetitions,
+  taxiCaptainNotifications,
+  taxiCaptainDashboard,
+  taxiTripsCurrent,
+  taxiTripsCompleted,
+  taxiTripsCancelled,
+  taxiEarnings,
+  taxiReports,
+  jobApplications,
+  hrEmployeePortal,
+  hrDashboard,
+  accountantDashboard,
+  adminOrderDetails,
+  adminOrdersMonitoring,
+  adminTaxiRideDetails,
+  adminTaxiRides,
+  adminCarListing,
+  adminRealEstateListing,
+  adminDashboard,
+  adminApprovalsHub,
+  adminSettlements,
+  adminReceivables,
+  adminCompetitions,
+  adminSupportTicketDetails,
+  adminSupportTickets,
+  adminSupportOrComplaints,
+  adminAdBoard,
+  adminMaintenance,
+  adminSettings,
+  adminNotificationCenter,
+  adminNotificationsOperations,
+  adminDeviceReliability,
+  adminCrashCenter,
+  adminAuditSecurity,
+  adminFeatureFlags,
+  adminPermissionsMatrix,
+  adminAiDevIncident,
+  adminAiDevSupport,
+  adminMerchantApprovals,
+  adminEmergencyRequest,
+  adminEmergencyRequests,
+  adminServicesHub,
+  adminTaxiCashPayments,
+  adminTaxiProfileEdits,
+  adminTaxiGovernance,
+  adminSocialReports,
+  adminResidenceRequests,
+  adminSocialRestrictions,
+  adminPaidUpgradeRequests,
+  adminRealEstatePending,
+  adminReports,
+  adminRequestsInbox,
+  merchantDashboard,
+  merchantOrderDetails,
+  merchantOrdersCurrent,
+  merchantOrdersCompleted,
+  merchantOrdersCancelled,
+  merchantReceivables,
+  merchantPaymentRequests,
+  merchantCouriers,
+  merchantReports,
+  merchantNotifications,
+  merchantSettings,
+  ownerDashboard,
+  ownerOrdersTab,
+  ownerPharmacyConversation,
+  ownerPharmacyConversations,
+  deliveryRestricted,
+  courierOrderDetails,
+  courierDashboard,
+  courierOrdersNew,
+  courierOrdersCurrent,
+  courierOrdersCompleted,
+  courierOrdersCancelled,
+  courierCompetitions,
+  courierEarnings,
+  courierReports,
+  courierReconciliation,
+  courierNotifications,
+  courierSettings,
+}
+
+/// Result of [NotificationNavigation.resolveDestination]: the screen plus the
+/// entity it is about (order/ride/thread/ticket/... id).
+@immutable
+class NotificationDestination {
+  final NotificationScreen screen;
+  final int? id;
+  final Object? extra;
+
+  const NotificationDestination(this.screen, {this.id, this.extra});
+
+  @override
+  String toString() =>
+      'NotificationDestination(${screen.name}${id == null ? '' : ', id: $id'})';
+}
 
 /// يحول الإشعار المخزن أو القادم من push/local notification إلى شاشة فعلية
 /// داخل التطبيق بحسب الدور ونوع الحدث والـ payload المتاح.
@@ -86,7 +230,7 @@ import 'notification_type_registry.dart';
 ///
 /// Maintenance notes:
 /// - إذا ضغط المستخدم إشعاراً ووصل إلى شاشة خاطئة، ابدأ من:
-///   payloadFromModel -> resolveTarget -> _resolveRoute.
+///   payloadFromModel -> resolveTarget -> resolveDestination -> buildRoute.
 class NotificationNavigation {
   /// يبني payload موحداً من نموذج الإشعار المخزن في inbox.
   static NotificationTapPayload payloadFromModel(AppNotificationModel model) {
@@ -207,8 +351,9 @@ class NotificationNavigation {
     if (auth.isCompanyPortal) {
       return;
     }
-    final route = _resolveRoute(auth: auth, payload: payload);
-    if (route == null) return;
+    final destination = resolveDestination(auth: auth, payload: payload);
+    if (destination == null) return;
+    final route = buildRoute(destination, payload);
 
     final target = resolveTarget(
       rawTarget: payload.target,
@@ -216,7 +361,8 @@ class NotificationNavigation {
       orderId: payload.orderId,
     );
     final threadId = payload.threadId;
-    if (target == 'social_call' &&
+    if (destination.screen == NotificationScreen.socialCall &&
+        target == 'social_call' &&
         appInAppCallsEnabled &&
         threadId != null &&
         threadId > 0) {
@@ -649,9 +795,12 @@ class NotificationNavigation {
     return restricted.contains(t);
   }
 
-  /// يحول target النهائي إلى Route Flutter صالح اعتماداً على دور المستخدم
-  /// والكيانات المرجعية الموجودة في payload.
-  static Route<void>? _resolveRoute({
+  /// Resolves the exact screen a notification opens for the signed-in role.
+  ///
+  /// Pure (no widgets): the routing table in docs/notifications_routing_map.md
+  /// mirrors this function and test/core/notifications/
+  /// notification_destination_table_test.dart pins it per role.
+  static NotificationDestination? resolveDestination({
     required AuthState auth,
     required NotificationTapPayload payload,
   }) {
@@ -660,6 +809,7 @@ class NotificationNavigation {
       type: payload.type,
       orderId: payload.orderId,
     );
+    final normalizedType = (payload.type ?? '').trim().toLowerCase();
     final rideId = payload.rideId;
     final orderId = payload.orderId;
     final postId = payload.postId;
@@ -668,8 +818,8 @@ class NotificationNavigation {
     final jobId = payload.jobId;
     final applicationId = payload.applicationId;
     final threadId = payload.threadId;
-    final sessionId = payload.sessionId;
     final entityId = payload.entityId;
+    final ticketId = _supportTicketId(payload);
     final scopeType = (payload.scopeType ?? '').trim().toLowerCase();
     final scopeCode = (payload.scopeCode ?? '').trim().toUpperCase();
     final roleScope = (payload.roleScope ?? '').trim().toLowerCase();
@@ -681,23 +831,37 @@ class NotificationNavigation {
     );
     final isHr = auth.isHr;
     final isAccountant = auth.isAccountant;
+    // Captains have their own branch below; they are never routed as customers.
     final isCustomer =
         !auth.isAdminDashboardUser &&
         !auth.isBackoffice &&
         !auth.isOwner &&
         !auth.isDelivery &&
+        !auth.isTaxiCaptain &&
         !isHr &&
         !isAccountant;
+    final isSupportNotification =
+        target == 'support_ticket' ||
+        target == 'admin_support_ticket' ||
+        normalizedType.startsWith('support.') ||
+        normalizedType == 'admin_support_ticket_created';
+    // A finished/missed call has no live session to join: open the chat.
+    final isTerminalCall =
+        normalizedType == 'social.call.missed' ||
+        normalizedType == 'social.call.declined' ||
+        normalizedType == 'social.call.ended';
 
-    _debugLogResolution(
-      role: auth.user?.role ?? '',
-      isDelivery: auth.isDelivery,
-      isTaxiCaptain: auth.isTaxiCaptain,
-      type: payload.type,
-      target: target,
-      module: targetModule,
-      roleScope: roleScope,
-    );
+    if (kDebugMode) {
+      _debugLogResolution(
+        role: auth.user?.role ?? '',
+        isDelivery: auth.isDelivery,
+        isTaxiCaptain: auth.isTaxiCaptain,
+        type: payload.type,
+        target: target,
+        module: targetModule,
+        roleScope: roleScope,
+      );
+    }
 
     if (!_isScopeAllowedForRole(
       auth: auth,
@@ -707,11 +871,11 @@ class NotificationNavigation {
       // Hard isolation: a courier must never be routed into a customer/social
       // surface. Show an explicit dead-end instead of a silent redirect.
       if (auth.isDelivery && isRestrictedForDelivery(targetModule, target)) {
-        return MaterialPageRoute(
-          builder: (_) => const DeliveryRestrictedScreen(),
+        return const NotificationDestination(
+          NotificationScreen.deliveryRestricted,
         );
       }
-      return _fallbackRouteForRole(auth, preferredModule: targetModule);
+      return _fallbackDestinationForRole(auth, preferredModule: targetModule);
     }
 
     final courierScoped =
@@ -720,15 +884,15 @@ class NotificationNavigation {
         roleScope == 'delivery' ||
         target.startsWith('courier_') ||
         target.startsWith('delivery_') ||
-        (payload.type ?? '').toLowerCase().contains('courier') ||
-        (payload.type ?? '').toLowerCase().contains('delivery_order');
+        normalizedType.contains('courier') ||
+        normalizedType.contains('delivery_order');
     final taxiScoped =
         targetModule == 'taxi' ||
         roleScope == 'taxi' ||
         roleScope == 'taxi_captain' ||
         target.startsWith('taxi_') ||
         target == 'taxi_live' ||
-        (payload.type ?? '').toLowerCase().startsWith('taxi.');
+        normalizedType.startsWith('taxi.');
     final taxiOfferNotification =
         target == 'taxi_offer_received' ||
         target == 'taxi_counter_offer_received' ||
@@ -747,446 +911,272 @@ class NotificationNavigation {
         target == 'taxi_new_request' ||
         target == 'taxi_trips_new';
 
+    NotificationDestination to(
+      NotificationScreen screen, {
+      int? id,
+      Object? extra,
+    }) => NotificationDestination(screen, id: id, extra: extra);
+
     if (isCustomer) {
-      final unavailableSectionRoute = _resolveUnavailableSectionRoute(
+      final unavailable = _resolveUnavailableSection(
         target: target,
         targetModule: targetModule,
         payload: payload,
       );
-      if (unavailableSectionRoute != null) {
-        return unavailableSectionRoute;
-      }
+      if (unavailable != null) return unavailable;
       if (target == 'customer_orders_current') {
-        return MaterialPageRoute(
-          builder: (_) => const CustomerOrdersCurrentPage(),
-        );
+        return to(NotificationScreen.customerOrdersCurrent);
       }
       if (target == 'customer_orders_completed') {
-        return MaterialPageRoute(
-          builder: (_) => const CustomerOrdersCompletedPage(),
-        );
+        return to(NotificationScreen.customerOrdersCompleted);
       }
       if (target == 'customer_orders_cancelled') {
-        return MaterialPageRoute(
-          builder: (_) => const CustomerOrdersCancelledPage(),
-        );
+        return to(NotificationScreen.customerOrdersCancelled);
       }
       if (target == 'customer_notifications') {
-        return MaterialPageRoute(
-          builder: (_) => const CustomerNotificationsPage(),
-        );
+        return to(NotificationScreen.customerNotifications);
       }
-      if (target == 'support_ticket') {
-        final ticketId = entityId ?? payload.requestId;
-        if (ticketId != null && ticketId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => SupportTicketDetailsScreen(ticketId: ticketId),
-          );
+      if (isSupportNotification) {
+        if (ticketId != null) {
+          return to(NotificationScreen.supportTicketDetails, id: ticketId);
         }
-        return MaterialPageRoute(builder: (_) => const SupportTicketsScreen());
+        return to(NotificationScreen.supportTickets);
       }
       if (taxiOfferNotification || taxiChatNotification) {
-        return MaterialPageRoute(builder: (_) => const MapPage());
+        // Offers are accepted from the live ride request on the map.
+        return to(NotificationScreen.taxiMap);
       }
-      if (taxiAssignmentNotification || target == 'taxi_live') {
+      if (taxiAssignmentNotification ||
+          taxiTerminalNotification ||
+          target == 'taxi_live') {
         if (rideId != null && rideId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => TaxiLiveTrackingScreen(rideId: rideId),
-          );
+          return to(NotificationScreen.taxiLiveTracking, id: rideId);
         }
-        return MaterialPageRoute(builder: (_) => const MapPage());
-      }
-      if (taxiTerminalNotification) {
-        return MaterialPageRoute(builder: (_) => const MapPage());
+        return to(NotificationScreen.taxiMap);
       }
       if (taxiRequestNotification) {
-        return MaterialPageRoute(builder: (_) => const MapPage());
+        return to(NotificationScreen.taxiMap);
       }
-      if (target == 'jobs_my_applications') {
-        return MaterialPageRoute(
-          builder: (_) => JobMyApplicationsScreen(
-            initialTab: _initialMyApplicationsTab(payload),
-          ),
-        );
+      if (target == 'taxi_shared_ride' && rideId != null && rideId > 0) {
+        return to(NotificationScreen.taxiSharedRide, id: rideId);
       }
-      if (target == 'jobs_applications') {
-        return MaterialPageRoute(
-          builder: (_) => JobMyApplicationsScreen(
-            initialTab: _initialMyApplicationsTab(payload),
-          ),
+      if (target == 'jobs_my_applications' || target == 'jobs_applications') {
+        return to(
+          NotificationScreen.jobsMyApplications,
+          extra: _initialMyApplicationsTab(payload),
         );
       }
       if (target == 'social_community' &&
           scopeType.isNotEmpty &&
           scopeCode.isNotEmpty) {
-        return MaterialPageRoute(
-          builder: (_) =>
-              SocialCommunityScreen(scopeType: scopeType, scopeCode: scopeCode),
+        return to(
+          NotificationScreen.socialCommunity,
+          extra: (scopeType: scopeType, scopeCode: scopeCode),
         );
       }
       if (target == 'social_reported_posts') {
-        return MaterialPageRoute(
-          builder: (_) => const SocialReportedPostsScreen(),
-        );
+        return to(NotificationScreen.socialReportedPosts);
       }
-      if (target == 'social_chat') {
-        return MaterialPageRoute(
-          builder: (_) => SocialShellScreen(
-            initialTab: SocialShellTab.messages,
-            initialThreadId: threadId,
-          ),
-        );
+      if (target == 'social_chat' ||
+          (target == 'social_call' && isTerminalCall)) {
+        return to(NotificationScreen.socialChat, id: threadId);
       }
       if (target == 'social_activity') {
-        return MaterialPageRoute(
-          builder: (_) =>
-              const SocialShellScreen(initialTab: SocialShellTab.activity),
-        );
+        return to(NotificationScreen.socialActivity);
       }
       if (target == 'social_call') {
         if (appInAppCallsEnabled && threadId != null && threadId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => SocialCallScreen(
-              threadId: threadId,
-              isCaller: false,
-              initialSessionId: sessionId,
-              remoteDisplayName: payload.remoteDisplayName,
-              initialAction: payload.quickActionId,
-              notificationId: payload.notificationId,
-            ),
-          );
+          return to(NotificationScreen.socialCall, id: threadId);
         }
-        return MaterialPageRoute(
-          builder: (_) => SocialShellScreen(
-            initialTab: SocialShellTab.messages,
-            initialThreadId: threadId,
-          ),
-        );
+        return to(NotificationScreen.socialChat, id: threadId);
       }
       if (target == 'social_reel' || (reelId != null && reelId > 0)) {
-        return MaterialPageRoute(
-          builder: (_) => SocialShellScreen(
-            initialTab: SocialShellTab.reels,
-            initialReelId: reelId,
-          ),
-        );
+        return to(NotificationScreen.socialReels, id: reelId);
       }
       if (target == 'social_story' && storyId != null && storyId > 0) {
-        return MaterialPageRoute(
-          builder: (_) => SocialStoryViewerScreen(storyId: storyId),
-        );
+        return to(NotificationScreen.socialStory, id: storyId);
       }
       if (target == 'social_post') {
         if (postId != null && postId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => SocialPostDetailsScreen(postId: postId),
-          );
+          return to(NotificationScreen.socialPost, id: postId);
         }
         if (reelId != null && reelId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => SocialShellScreen(
-              initialTab: SocialShellTab.reels,
-              initialReelId: reelId,
-            ),
-          );
+          return to(NotificationScreen.socialReels, id: reelId);
         }
       }
       if (target == 'social_feed') {
         if (postId != null && postId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => SocialPostDetailsScreen(postId: postId),
-          );
+          return to(NotificationScreen.socialPost, id: postId);
         }
         if (storyId != null && storyId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => SocialStoryViewerScreen(storyId: storyId),
-          );
+          return to(NotificationScreen.socialStory, id: storyId);
         }
-        return MaterialPageRoute(
-          builder: (_) =>
-              const SocialShellScreen(initialTab: SocialShellTab.activity),
-        );
+        return to(NotificationScreen.socialActivity);
       }
       if (target == 'social_profile') {
         final userId =
             payload.entityId ?? payload.senderUserId ?? auth.user?.id;
         if (userId != null && userId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => SocialProfileScreen(userId: userId),
-          );
+          return to(NotificationScreen.socialProfile, id: userId);
         }
         if (postId != null && postId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => SocialPostDetailsScreen(postId: postId),
-          );
+          return to(NotificationScreen.socialPost, id: postId);
         }
-        return MaterialPageRoute(
-          builder: (_) =>
-              const SocialShellScreen(initialTab: SocialShellTab.home),
-        );
+        return to(NotificationScreen.socialHome);
       }
       if (target == 'residence_change_request') {
-        return MaterialPageRoute(
-          builder: (_) => const SocialResidenceChangeScreen(),
-        );
+        return to(NotificationScreen.residenceChange);
       }
       // Result of a user's profile core-data change request → their profile.
       if (target == 'profile_core_change_request' || target == 'profile') {
         final selfId = payload.entityId ?? auth.user?.id;
         if (selfId != null && selfId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => SocialProfileScreen(userId: selfId),
-          );
+          return to(NotificationScreen.socialProfile, id: selfId);
         }
       }
       if (target == 'social_restriction_notice' ||
           target == 'social_restrictions') {
-        return MaterialPageRoute(
-          builder: (_) => SocialRestrictionsScreen(
-            initialRestrictionId: payload.restrictionId,
-            initialCapabilityKey: payload.capabilityKey,
-            initialReason: payload.restrictionReason,
-            initialStartsAt: payload.restrictionStartsAt,
-            initialEndsAt: payload.restrictionEndsAt,
-          ),
-        );
+        return to(NotificationScreen.socialRestrictions);
       }
       if (target == 'paid_upgrades_home') {
-        return MaterialPageRoute(
-          builder: (_) => const PaidUpgradesHomeScreen(),
-        );
+        return to(NotificationScreen.paidUpgrades);
       }
       if (target == 'real_estate_marketplace') {
-        return MaterialPageRoute(
-          builder: (_) => const RealEstateMarketplaceScreen(),
-        );
+        return to(NotificationScreen.realEstateMarketplace);
       }
       if (target == 'real_estate_workspace') {
-        return MaterialPageRoute(
-          builder: (_) => const RealEstateWorkspaceScreen(),
-        );
+        return to(NotificationScreen.realEstateWorkspace);
       }
       if (target == 'real_estate_listing') {
         if (entityId != null && entityId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => RealEstateListingDetailsScreen(listingId: entityId),
-          );
+          return to(NotificationScreen.realEstateListing, id: entityId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const RealEstateMarketplaceScreen(),
-        );
+        return to(NotificationScreen.realEstateMarketplace);
       }
       if (target == 'car_listing') {
         if (entityId != null && entityId > 0) {
-          return MaterialPageRoute(
-            builder: (_) =>
-                CustomerCarListingDetailsScreen(listingId: entityId),
-          );
+          return to(NotificationScreen.carListing, id: entityId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const CustomerCarsMarketplaceScreen(),
-        );
+        return to(NotificationScreen.carsMarketplace);
       }
       if (target == 'services_marketplace') {
-        return MaterialPageRoute(
-          builder: (_) => const ServicesMarketplaceScreen(),
-        );
+        return to(NotificationScreen.servicesMarketplace);
       }
       if (target == 'customer_emergency_request') {
         final requestId = payload.requestId ?? entityId;
         if ((requestId ?? 0) > 0) {
-          return MaterialPageRoute(
-            builder: (_) =>
-                EmergencyRequestTrackingScreen(requestId: requestId!),
-          );
+          return to(NotificationScreen.customerEmergencyRequest, id: requestId);
         }
       }
       if (target == 'services_provider_workspace') {
-        return MaterialPageRoute(
-          builder: (_) => const ServiceProviderShell(
-            child: ServiceProviderWorkspaceScreen(),
-          ),
-        );
+        return to(NotificationScreen.serviceProviderWorkspace);
       }
       if (target == 'services_provider_requests' ||
           target == 'service_request_details') {
         final requestId = payload.requestId ?? entityId;
         if ((requestId ?? 0) > 0) {
-          return MaterialPageRoute(
-            builder: (_) => ServiceRequestDetailsScreen(requestId: requestId!),
-          );
+          return to(NotificationScreen.serviceRequestDetails, id: requestId);
         }
-        return MaterialPageRoute(
-          builder: (_) => auth.isServiceProvider
-              ? const ServiceProviderShell(
-                  child: ServiceProviderWorkspaceScreen(),
-                )
-              : const ServiceMyRequestsScreen(),
+        return to(
+          auth.isServiceProvider
+              ? NotificationScreen.serviceProviderWorkspace
+              : NotificationScreen.serviceMyRequests,
         );
       }
       if ((target == 'service_provider_profile' ||
               target == 'service_provider_details') &&
           (entityId ?? 0) > 0) {
-        return MaterialPageRoute(
-          builder: (_) => ServiceProviderProfileScreen(providerId: entityId!),
-        );
+        return to(NotificationScreen.serviceProviderProfile, id: entityId);
       }
       if ((target == 'service_offering_details' ||
               target == 'service_offering') &&
           (entityId ?? 0) > 0) {
-        return MaterialPageRoute(
-          builder: (_) => ServiceOfferingDetailsScreen(offeringId: entityId!),
-        );
+        return to(NotificationScreen.serviceOfferingDetails, id: entityId);
       }
       if (target == 'pharmacy_conversation') {
-        final conversationId = entityId;
-        if ((conversationId ?? 0) > 0) {
-          return MaterialPageRoute(
-            builder: (_) =>
-                PharmacyConversationScreen(conversationId: conversationId),
-          );
+        if ((entityId ?? 0) > 0) {
+          return to(NotificationScreen.pharmacyConversation, id: entityId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const CustomerPharmacyConversationsScreen(),
-        );
-      }
-      if (target == 'taxi_live') {
-        if (rideId != null && rideId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => TaxiLiveTrackingScreen(rideId: rideId),
-          );
-        }
-        return MaterialPageRoute(builder: (_) => const MapPage());
-      }
-      if (target == 'taxi_shared_ride' && rideId != null && rideId > 0) {
-        return MaterialPageRoute(
-          builder: (_) => TaxiSharedRideTrackingScreen(rideId: rideId),
-        );
+        return to(NotificationScreen.customerPharmacyConversations);
       }
       if (target == 'order_tracking' || orderId != null) {
         if (orderId != null && orderId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => DeliveryLiveTrackingScreen(orderId: orderId),
-          );
+          return to(NotificationScreen.customerOrderTracking, id: orderId);
         }
-        return MaterialPageRoute(
-          builder: (_) => CustomerOrdersScreen(initialOrderId: orderId),
-        );
+        return to(NotificationScreen.customerOrders);
       }
-      return MaterialPageRoute(builder: (_) => const NotificationsScreen());
+      return to(NotificationScreen.notifications);
     }
 
     if (auth.isTaxiCaptain &&
         !courierScoped &&
         (taxiScoped || !auth.isDelivery)) {
       // A new ride request opens that specific ride so the captain can accept it.
-      if (taxiRequestNotification || target == 'taxi_new_request') {
+      if (taxiRequestNotification) {
         if (rideId != null && rideId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => TaxiTripDetailsPage(rideId: rideId),
-          );
+          return to(NotificationScreen.taxiTripDetails, id: rideId);
         }
-        return MaterialPageRoute(builder: (_) => const TaxiTripsNewPage());
+        return to(NotificationScreen.taxiTripsNew);
       }
       if (target == 'taxi_competitions') {
-        return MaterialPageRoute(
-          builder: (_) => const TaxiCaptainCompetitionsPage(),
-        );
+        return to(NotificationScreen.taxiCompetitions);
       }
       if (target == 'taxi_notifications') {
-        return MaterialPageRoute(
-          builder: (_) => const TaxiCaptainNotificationsPage(),
-        );
+        return to(NotificationScreen.taxiCaptainNotifications);
       }
       if (taxiOfferNotification || taxiChatNotification) {
         if (rideId != null && rideId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => TaxiTripDetailsPage(rideId: rideId),
-          );
+          return to(NotificationScreen.taxiTripDetails, id: rideId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const TaxiCaptainDashboardPage(),
-        );
+        return to(NotificationScreen.taxiCaptainDashboard);
       }
-      if (taxiAssignmentNotification || taxiTerminalNotification) {
+      if (taxiAssignmentNotification ||
+          taxiTerminalNotification ||
+          target == 'taxi_trips_current' ||
+          target == 'taxi_live' ||
+          target == 'taxi_trip_details') {
         if (rideId != null && rideId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => TaxiTripDetailsPage(rideId: rideId),
-          );
+          return to(NotificationScreen.taxiTripDetails, id: rideId);
         }
-        return MaterialPageRoute(builder: (_) => const TaxiTripsCurrentPage());
-      }
-      if (target == 'taxi_trips_new') {
-        return MaterialPageRoute(builder: (_) => const TaxiTripsNewPage());
-      }
-      if (target == 'taxi_trip_details') {
-        return MaterialPageRoute(
-          builder: (_) => TaxiTripDetailsPage(rideId: rideId),
-        );
-      }
-      if (target == 'taxi_trips_current' || target == 'taxi_live') {
-        if (rideId != null && rideId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => TaxiTripDetailsPage(rideId: rideId),
-          );
-        }
-        return MaterialPageRoute(builder: (_) => const TaxiTripsCurrentPage());
+        return to(NotificationScreen.taxiTripsCurrent);
       }
       if (target == 'taxi_trips_completed') {
-        return MaterialPageRoute(
-          builder: (_) => const TaxiTripsCompletedPage(),
-        );
+        return to(NotificationScreen.taxiTripsCompleted);
       }
       if (target == 'taxi_trips_cancelled') {
-        return MaterialPageRoute(
-          builder: (_) => const TaxiTripsCancelledPage(),
-        );
+        return to(NotificationScreen.taxiTripsCancelled);
       }
       if (target == 'taxi_earnings') {
-        return MaterialPageRoute(builder: (_) => const TaxiEarningsPage());
+        return to(NotificationScreen.taxiEarnings);
       }
       if (target == 'taxi_reports') {
-        return MaterialPageRoute(builder: (_) => const TaxiReportsPage());
-      }
-      if (target == 'taxi_notifications') {
-        return MaterialPageRoute(builder: (_) => const TaxiNotificationsPage());
+        return to(NotificationScreen.taxiReports);
       }
       if (rideId != null && rideId > 0) {
-        return MaterialPageRoute(
-          builder: (_) => TaxiTripDetailsPage(rideId: rideId),
-        );
+        return to(NotificationScreen.taxiTripDetails, id: rideId);
       }
-      return MaterialPageRoute(
-        builder: (_) => const TaxiCaptainDashboardPage(),
-      );
+      return to(NotificationScreen.taxiCaptainDashboard);
     }
 
     if (isHr) {
       if (target == 'jobs_applications') {
-        return MaterialPageRoute(
-          builder: (_) => JobApplicationsScreen(
-            initialJobId: jobId,
-            initialSearch: _jobInitialSearch(payload, applicationId),
-          ),
+        return to(
+          NotificationScreen.jobApplications,
+          id: jobId,
+          extra: _jobInitialSearch(payload, applicationId),
         );
       }
       if (target == 'employee_portal') {
-        return MaterialPageRoute(
-          builder: (_) => const HrEmployeePortalScreen(),
-        );
+        return to(NotificationScreen.hrEmployeePortal);
       }
-      return MaterialPageRoute(builder: (_) => const HrDashboardScreen());
+      return to(NotificationScreen.hrDashboard);
     }
 
     if (isAccountant) {
       if (target == 'employee_portal') {
-        return MaterialPageRoute(
-          builder: (_) => const HrEmployeePortalScreen(),
-        );
+        return to(NotificationScreen.hrEmployeePortal);
       }
-      return MaterialPageRoute(
-        builder: (_) => const AccountantDashboardScreen(),
-      );
+      return to(NotificationScreen.accountantDashboard);
     }
 
     if (auth.isBackoffice || auth.isStaff) {
@@ -1195,382 +1185,276 @@ class NotificationNavigation {
           target == 'admin_orders_monitoring' ||
           (target == 'order_tracking' && orderId != null)) {
         if (orderId != null && orderId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => MonitoringDetailScreen(
-              mode: MonitoringDetailMode.order,
-              id: orderId,
-              title: 'Order #$orderId',
-            ),
-          );
+          return to(NotificationScreen.adminOrderDetails, id: orderId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const MonitoringOperationsListScreen(
-            mode: MonitoringOperationsMode.orders,
-          ),
-        );
+        return to(NotificationScreen.adminOrdersMonitoring);
       }
       if (target == 'admin_taxi_ride_details' ||
           target == 'admin_taxi_rides' ||
           target == 'admin_taxi_rides_monitoring') {
         if (rideId != null && rideId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => MonitoringDetailScreen(
-              mode: MonitoringDetailMode.taxiRide,
-              id: rideId,
-              title: 'Ride #$rideId',
-            ),
-          );
+          return to(NotificationScreen.adminTaxiRideDetails, id: rideId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const MonitoringTaxiRidesScreen(),
-        );
+        return to(NotificationScreen.adminTaxiRides);
       }
       if (target == 'admin_marketplace_contacts') {
         final entity = (payload.targetEntity ?? '').trim().toLowerCase();
         if (entityId != null && entityId > 0) {
           if (entity == 'car_listing') {
-            return MaterialPageRoute(
-              builder: (_) => MonitoringDetailScreen(
-                mode: MonitoringDetailMode.carListing,
-                id: entityId,
-                title: 'Car listing #$entityId',
-              ),
-            );
+            return to(NotificationScreen.adminCarListing, id: entityId);
           }
           if (entity == 'real_estate_listing') {
-            return MaterialPageRoute(
-              builder: (_) => MonitoringDetailScreen(
-                mode: MonitoringDetailMode.realEstateListing,
-                id: entityId,
-                title: 'Real estate #$entityId',
-              ),
-            );
+            return to(NotificationScreen.adminRealEstateListing, id: entityId);
           }
         }
-        return MaterialPageRoute(builder: (_) => const AdminDashboardPage());
+        return to(NotificationScreen.adminDashboard);
+      }
+      // Tickets (incl. Mimo escalations) open the ticket itself, never a list.
+      if (isSupportNotification) {
+        if (ticketId != null) {
+          return to(NotificationScreen.adminSupportTicketDetails, id: ticketId);
+        }
+        return to(NotificationScreen.adminSupportTickets);
       }
       if (target == 'admin_requests_inbox' ||
           target == 'admin_approval_requests' ||
           target == 'admin_profile_change_requests' ||
           target.startsWith('admin_request_') ||
           target.contains('approval')) {
-        return MaterialPageRoute(
-          builder: (_) => const AdminApprovalsHubScreen(),
-        );
+        return to(NotificationScreen.adminApprovalsHub);
       }
       if (target == 'admin_payment_requests' ||
           target.startsWith('admin_payment_') ||
           target.contains('settlement')) {
-        return MaterialPageRoute(
-          builder: (_) => const AdminReceivablesScreen(),
-        );
+        return to(NotificationScreen.adminSettlements);
       }
       if (target == 'admin_receivables') {
-        return MaterialPageRoute(builder: (_) => const AdminReceivablesPage());
+        return to(NotificationScreen.adminReceivables);
       }
       if (target == 'admin_competitions') {
-        return MaterialPageRoute(builder: (_) => const AdminCompetitionsPage());
-      }
-      if (target == 'admin_support_ticket') {
-        final ticketId = entityId ?? payload.requestId;
-        if (ticketId != null && ticketId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => AdminSupportTicketDetailsScreen(ticketId: ticketId),
-          );
-        }
-        return MaterialPageRoute(
-          builder: (_) => const AdminSupportTicketsScreen(),
-        );
+        return to(NotificationScreen.adminCompetitions);
       }
       if (target == 'admin_support' ||
-          target == 'support_ticket' ||
           target == 'admin_complaints' ||
           target == 'order_revision') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminSupportOrComplaintsPage(),
-        );
+        return to(NotificationScreen.adminSupportOrComplaints);
       }
       if (target == 'admin_ad_board') {
-        return MaterialPageRoute(builder: (_) => const AdminAdBoardScreen());
+        return to(NotificationScreen.adminAdBoard);
       }
       if (target == 'admin_maintenance') {
-        return MaterialPageRoute(builder: (_) => const AdminMaintenancePage());
+        return to(NotificationScreen.adminMaintenance);
       }
       if (target == 'admin_settings') {
-        return MaterialPageRoute(builder: (_) => const AdminSettingsPage());
+        return to(NotificationScreen.adminSettings);
       }
       if (target == 'admin_ops_notification_center' ||
           target == 'admin_notification_center') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminNotificationCenterPage(),
-        );
+        return to(NotificationScreen.adminNotificationCenter);
       }
       if (target == 'admin_ops_notifications_operations' ||
           target == 'admin_notifications_operations') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminNotificationsOperationsPage(),
-        );
+        return to(NotificationScreen.adminNotificationsOperations);
       }
       if (target == 'admin_ops_device_reliability' ||
           target == 'admin_device_reliability') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminDeviceReliabilityPage(),
-        );
+        return to(NotificationScreen.adminDeviceReliability);
       }
       if (target == 'admin_ops_crash_center' ||
           target == 'admin_crash_error_center') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminCrashErrorCenterPage(),
-        );
+        return to(NotificationScreen.adminCrashCenter);
       }
       if (target == 'admin_ops_audit_security' ||
           target == 'admin_audit_security_center') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminAuditSecurityCenterPage(),
-        );
+        return to(NotificationScreen.adminAuditSecurity);
       }
       if (target == 'admin_ops_feature_flags' ||
           target == 'admin_feature_flags_center') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminFeatureFlagsCenterPage(),
-        );
+        return to(NotificationScreen.adminFeatureFlags);
       }
       if (target == 'admin_ops_permissions_matrix' ||
           target == 'admin_permissions_matrix') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminPermissionsMatrixPage(),
-        );
+        return to(NotificationScreen.adminPermissionsMatrix);
       }
       if (target == 'admin_ai_dev_support' ||
           target == 'admin_ai_dev_support_incident_details') {
-        if (target == 'admin_ai_dev_support_incident_details' &&
-            (entityId ?? 0) > 0) {
-          return MaterialPageRoute(
-            builder: (_) => IncidentDetailsScreen(incidentId: entityId!),
-          );
+        if ((entityId ?? 0) > 0) {
+          return to(NotificationScreen.adminAiDevIncident, id: entityId);
         }
-        return MaterialPageRoute(builder: (_) => const AdminAiDevSupportPage());
+        return to(NotificationScreen.adminAiDevSupport);
       }
       if (target == 'admin_merchants_pending') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminMerchantApprovalsScreen(),
-        );
+        return to(NotificationScreen.adminMerchantApprovals);
       }
       if (target == 'admin_services_providers_pending' ||
           target == 'admin_services_requests' ||
           target == 'admin_services_reports') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminApprovalsHubScreen(),
-        );
+        return to(NotificationScreen.adminApprovalsHub);
       }
       if (target == 'admin_emergency_request') {
         final requestId = payload.requestId ?? entityId;
         if ((requestId ?? 0) > 0) {
-          return MaterialPageRoute(
-            builder: (_) => EmergencyRequestTrackingScreen(
-              requestId: requestId!,
-              adminMode: true,
-            ),
-          );
+          return to(NotificationScreen.adminEmergencyRequest, id: requestId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const AdminEmergencyRequestsScreen(),
-        );
+        return to(NotificationScreen.adminEmergencyRequests);
       }
       if (target == 'admin_services_offerings_pending') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminServicesHubScreen(),
-        );
+        return to(NotificationScreen.adminServicesHub);
       }
       if (target == 'admin_settlements') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminReceivablesScreen(),
-        );
+        return to(NotificationScreen.adminSettlements);
       }
       if (target == 'admin_taxi_payments_pending') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminTaxiCashPaymentsScreen(),
-        );
+        return to(NotificationScreen.adminTaxiCashPayments);
       }
       if (target == 'admin_taxi_profile_edits_pending') {
-        return MaterialPageRoute(
-          builder: (_) =>
-              const AdminTaxiCaptainRequestsScreen(initialTabIndex: 1),
-        );
+        return to(NotificationScreen.adminTaxiProfileEdits);
       }
       if (target == 'admin_taxi_governance') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminTaxiGovernanceScreen(),
-        );
+        return to(NotificationScreen.adminTaxiGovernance);
       }
       if (target == 'admin_social_reports' ||
           target == 'social_reported_posts') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminSocialReportsScreen(),
-        );
+        return to(NotificationScreen.adminSocialReports);
       }
       if (target == 'admin_residence_requests') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminResidenceChangeRequestsScreen(),
-        );
+        return to(NotificationScreen.adminResidenceRequests);
       }
       if (target == 'admin_social_restrictions' ||
           target == 'social_restrictions') {
-        final initialUserId = payload.entityId ?? payload.senderUserId;
-        return MaterialPageRoute(
-          builder: (_) =>
-              AdminSocialRestrictionsScreen(initialUserId: initialUserId),
+        return to(
+          NotificationScreen.adminSocialRestrictions,
+          id: payload.entityId ?? payload.senderUserId,
         );
       }
       if (target == 'admin_paid_upgrade_requests') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminPaidUpgradeRequestsScreen(),
-        );
+        return to(NotificationScreen.adminPaidUpgradeRequests);
       }
       if (target == 'admin_real_estate_pending') {
-        return MaterialPageRoute(
-          builder: (_) => const AdminRealEstatePendingScreen(),
-        );
+        return to(NotificationScreen.adminRealEstatePending);
       }
       if (target == 'admin_reports' ||
           target == 'admin_financial_reports' ||
           target == 'admin_sales_report' ||
           target == 'admin_collections_report' ||
           target == 'admin_receivables_report') {
-        return MaterialPageRoute(builder: (_) => const AdminReportsPage());
+        return to(NotificationScreen.adminReports);
       }
       if (target == 'jobs_applications' || target == 'jobs_my_applications') {
-        return MaterialPageRoute(
-          builder: (_) => JobApplicationsScreen(
-            initialJobId: jobId,
-            initialSearch: _jobInitialSearch(payload, applicationId),
-          ),
+        return to(
+          NotificationScreen.jobApplications,
+          id: jobId,
+          extra: _jobInitialSearch(payload, applicationId),
         );
       }
-      if (target == 'order_tracking' && orderId != null) {
-        return MaterialPageRoute(
-          builder: (_) => CustomerOrdersScreen(initialOrderId: orderId),
-        );
+      if (orderId != null && orderId > 0) {
+        return to(NotificationScreen.adminOrderDetails, id: orderId);
       }
-      return MaterialPageRoute(builder: (_) => const AdminDashboardPage());
+      if (rideId != null && rideId > 0) {
+        return to(NotificationScreen.adminTaxiRideDetails, id: rideId);
+      }
+      return to(NotificationScreen.notifications);
     }
 
     if (auth.isOwner) {
-      if (target == 'merchant_dashboard') {
-        return MaterialPageRoute(builder: (_) => const MerchantDashboardPage());
-      }
-      if (target == 'merchant_orders_current' || target == 'owner_orders') {
-        if (orderId != null && orderId > 0) {
-          return MaterialPageRoute(
-            builder: (_) => MerchantOrderDetailsPage(orderId: orderId),
-          );
+      if (isSupportNotification) {
+        if (ticketId != null) {
+          return to(NotificationScreen.supportTicketDetails, id: ticketId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const MerchantOrdersCurrentPage(),
-        );
+        return to(NotificationScreen.supportTickets);
       }
-      if ((target == 'merchant_order_details' ||
+      if (target == 'merchant_dashboard') {
+        return to(NotificationScreen.merchantDashboard);
+      }
+      if ((target == 'merchant_orders_current' ||
+              target == 'owner_orders' ||
+              target == 'merchant_order_details' ||
               target == 'owner_order_details' ||
               target == 'order_tracking' ||
               target == 'order_revision') &&
           orderId != null &&
           orderId > 0) {
-        return MaterialPageRoute(
-          builder: (_) => MerchantOrderDetailsPage(orderId: orderId),
-        );
+        return to(NotificationScreen.merchantOrderDetails, id: orderId);
+      }
+      if (target == 'merchant_orders_current' || target == 'owner_orders') {
+        return to(NotificationScreen.merchantOrdersCurrent);
       }
       if (target == 'merchant_orders_completed') {
-        return MaterialPageRoute(
-          builder: (_) => const MerchantOrdersCompletedPage(),
-        );
+        return to(NotificationScreen.merchantOrdersCompleted);
       }
       if (target == 'merchant_orders_cancelled') {
-        return MaterialPageRoute(
-          builder: (_) => const MerchantOrdersCancelledPage(),
-        );
+        return to(NotificationScreen.merchantOrdersCancelled);
       }
       if (target == 'merchant_receivables' ||
           target == 'merchant_payment' ||
           target == 'merchant_settlement' ||
           target == 'owner_settlements') {
-        return MaterialPageRoute(
-          builder: (_) => const MerchantReceivablesPage(),
-        );
+        return to(NotificationScreen.merchantReceivables);
       }
       if (target == 'merchant_payment_requests') {
-        return MaterialPageRoute(
-          builder: (_) => const MerchantPaymentRequestsPage(),
-        );
+        return to(NotificationScreen.merchantPaymentRequests);
       }
       if (target == 'merchant_couriers') {
-        return MaterialPageRoute(builder: (_) => const MerchantCouriersPage());
+        return to(NotificationScreen.merchantCouriers);
       }
       if (target == 'merchant_reports') {
-        return MaterialPageRoute(builder: (_) => const MerchantReportsPage());
+        return to(NotificationScreen.merchantReports);
       }
       if (target == 'merchant_notifications') {
-        return MaterialPageRoute(
-          builder: (_) => const MerchantNotificationsPage(),
-        );
+        return to(NotificationScreen.merchantNotifications);
       }
       if (target == 'merchant_settings') {
-        return MaterialPageRoute(builder: (_) => const MerchantSettingsPage());
+        return to(NotificationScreen.merchantSettings);
       }
       if (target == 'owner_dashboard') {
-        return MaterialPageRoute(builder: (_) => const OwnerDashboardScreen());
+        return to(NotificationScreen.ownerDashboard);
       }
       if (target == 'pharmacy_conversation') {
-        final conversationId = entityId;
-        if ((conversationId ?? 0) > 0) {
-          return MaterialPageRoute(
-            builder: (_) => PharmacyConversationScreen(
-              conversationId: conversationId,
-              ownerMode: true,
-            ),
-          );
+        if ((entityId ?? 0) > 0) {
+          return to(NotificationScreen.ownerPharmacyConversation, id: entityId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const OwnerPharmacyConversationsScreen(),
-        );
+        return to(NotificationScreen.ownerPharmacyConversations);
       }
       if (target == 'owner_orders' || target == 'order_tracking') {
-        return MaterialPageRoute(
-          builder: (_) =>
-              const OwnerDashboardScreen(initialTab: OwnerDashboardTab.orders),
-        );
+        return to(NotificationScreen.ownerOrdersTab);
       }
       if (target == 'jobs_applications') {
-        return MaterialPageRoute(
-          builder: (_) => JobApplicationsScreen(
-            initialJobId: jobId,
-            initialSearch: _jobInitialSearch(payload, applicationId),
-          ),
+        return to(
+          NotificationScreen.jobApplications,
+          id: jobId,
+          extra: _jobInitialSearch(payload, applicationId),
         );
       }
       if (target == 'hr_dashboard') {
-        return MaterialPageRoute(builder: (_) => const HrDashboardScreen());
+        return to(NotificationScreen.hrDashboard);
       }
       if (target == 'accountant_dashboard') {
-        return MaterialPageRoute(
-          builder: (_) => const AccountantDashboardScreen(),
-        );
+        return to(NotificationScreen.accountantDashboard);
       }
       if (target == 'employee_portal') {
-        return MaterialPageRoute(
-          builder: (_) => const HrEmployeePortalScreen(),
-        );
+        return to(NotificationScreen.hrEmployeePortal);
       }
-      return MaterialPageRoute(builder: (_) => const OwnerDashboardScreen());
+      if (orderId != null && orderId > 0) {
+        return to(NotificationScreen.merchantOrderDetails, id: orderId);
+      }
+      return to(NotificationScreen.merchantNotifications);
     }
 
     if (auth.isDelivery && (!taxiScoped || courierScoped)) {
       if (targetModule == 'taxi' || roleScope == 'taxi_captain') {
-        return MaterialPageRoute(builder: (_) => const NotificationsScreen());
+        return to(NotificationScreen.courierNotifications);
+      }
+      if (isSupportNotification) {
+        if (ticketId != null) {
+          return to(NotificationScreen.supportTicketDetails, id: ticketId);
+        }
+        return to(NotificationScreen.supportTickets);
       }
       final normalizedAction = (payload.action ?? '').trim().toLowerCase();
-      final normalizedType = (payload.type ?? '').trim().toLowerCase();
+      // An assignment (even an urgent one) is already the courier's order;
+      // only open offers go to the "new orders" list.
       final isOfferNotification =
-          payload.requiresAction ||
+          (payload.requiresAction && !normalizedType.contains('assigned')) ||
           normalizedAction.contains('offer') ||
           normalizedAction.contains('requested') ||
           normalizedType.contains('delivery_order_available') ||
@@ -1578,98 +1462,459 @@ class NotificationNavigation {
       final hasOrderId = orderId != null && orderId > 0;
       if (target == 'courier_dashboard' || target == 'delivery_dashboard') {
         if (hasOrderId && !isOfferNotification) {
-          return MaterialPageRoute(
-            builder: (_) => CourierOrderDetailsPage(orderId: orderId),
-          );
+          return to(NotificationScreen.courierOrderDetails, id: orderId);
         }
-        return MaterialPageRoute(builder: (_) => const CourierDashboardPage());
+        return to(NotificationScreen.courierDashboard);
       }
       if (target == 'courier_orders_new' ||
           target == 'delivery_order_offer' ||
           target == 'courier_order_offer') {
-        return MaterialPageRoute(builder: (_) => const CourierOrdersNewPage());
+        return to(NotificationScreen.courierOrdersNew);
       }
       if (target == 'courier_orders_current' ||
           target == 'delivery_orders' ||
           target == 'delivery_dashboard_orders') {
         if (isOfferNotification) {
-          return MaterialPageRoute(
-            builder: (_) => const CourierOrdersNewPage(),
-          );
+          return to(NotificationScreen.courierOrdersNew);
         }
         if (hasOrderId) {
-          return MaterialPageRoute(
-            builder: (_) => CourierOrderDetailsPage(orderId: orderId),
-          );
+          return to(NotificationScreen.courierOrderDetails, id: orderId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const CourierOrdersCurrentPage(),
-        );
+        return to(NotificationScreen.courierOrdersCurrent);
       }
       if (target == 'courier_orders_completed') {
         if (hasOrderId) {
-          return MaterialPageRoute(
-            builder: (_) => CourierOrderDetailsPage(orderId: orderId),
-          );
+          return to(NotificationScreen.courierOrderDetails, id: orderId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const CourierOrdersCompletedPage(),
-        );
+        return to(NotificationScreen.courierOrdersCompleted);
       }
       if (target == 'courier_orders_cancelled') {
         if (hasOrderId) {
-          return MaterialPageRoute(
-            builder: (_) => CourierOrderDetailsPage(orderId: orderId),
-          );
+          return to(NotificationScreen.courierOrderDetails, id: orderId);
         }
-        return MaterialPageRoute(
-          builder: (_) => const CourierOrdersCancelledPage(),
-        );
+        return to(NotificationScreen.courierOrdersCancelled);
       }
       if (target == 'courier_competitions') {
-        return MaterialPageRoute(
-          builder: (_) => const CourierCompetitionsPage(),
-        );
+        return to(NotificationScreen.courierCompetitions);
       }
       if (target == 'courier_earnings') {
-        return MaterialPageRoute(builder: (_) => const CourierEarningsPage());
+        return to(NotificationScreen.courierEarnings);
       }
       if (target == 'courier_reports') {
-        return MaterialPageRoute(builder: (_) => const CourierReportsPage());
+        return to(NotificationScreen.courierReports);
       }
       if (target == 'courier_reconciliation') {
-        return MaterialPageRoute(
-          builder: (_) => const DeliveryReconciliationScreen(),
-        );
+        return to(NotificationScreen.courierReconciliation);
       }
       if (target == 'courier_notifications') {
-        return MaterialPageRoute(
-          builder: (_) => const CourierNotificationsPage(),
-        );
+        return to(NotificationScreen.courierNotifications);
       }
       if (target == 'courier_settings') {
-        return MaterialPageRoute(builder: (_) => const CourierSettingsPage());
+        return to(NotificationScreen.courierSettings);
       }
-      if (target == 'order_tracking' ||
-          target == 'order_revision' ||
-          targetModule == 'courier' ||
-          target.startsWith('courier_')) {
-        if (!hasOrderId) {
-          return MaterialPageRoute(
-            builder: (_) => const CourierNotificationsPage(),
-          );
-        }
-        return MaterialPageRoute(
-          builder: (_) => CourierOrderDetailsPage(orderId: orderId),
-        );
+      if (hasOrderId) {
+        return to(NotificationScreen.courierOrderDetails, id: orderId);
       }
-      return MaterialPageRoute(builder: (_) => const NotificationsScreen());
+      return to(NotificationScreen.courierNotifications);
     }
 
-    return _fallbackRouteForRole(auth, preferredModule: targetModule);
+    return _fallbackDestinationForRole(auth, preferredModule: targetModule);
   }
 
-  static Route<void>? _resolveUnavailableSectionRoute({
+  /// Builds the Flutter route for a resolved [NotificationDestination].
+  static Route<void> buildRoute(
+    NotificationDestination destination,
+    NotificationTapPayload payload,
+  ) {
+    final id = destination.id;
+    final requiredId = id ?? 0;
+    MaterialPageRoute<void> page(Widget child) =>
+        MaterialPageRoute<void>(builder: (_) => child);
+
+    return switch (destination.screen) {
+      NotificationScreen.notifications => page(const NotificationsScreen()),
+      NotificationScreen.sectionUnavailable => page(
+        SectionUnavailableScreen(
+          entry: destination.extra! as SectionAvailabilityEntry,
+        ),
+      ),
+      NotificationScreen.customerOrdersCurrent => page(
+        const CustomerOrdersCurrentPage(),
+      ),
+      NotificationScreen.customerOrdersCompleted => page(
+        const CustomerOrdersCompletedPage(),
+      ),
+      NotificationScreen.customerOrdersCancelled => page(
+        const CustomerOrdersCancelledPage(),
+      ),
+      NotificationScreen.customerNotifications => page(
+        const CustomerNotificationsPage(),
+      ),
+      NotificationScreen.customerOrderTracking => page(
+        DeliveryLiveTrackingScreen(orderId: requiredId),
+      ),
+      NotificationScreen.customerOrders => page(
+        CustomerOrdersScreen(initialOrderId: id),
+      ),
+      NotificationScreen.supportTicketDetails => page(
+        SupportTicketDetailsScreen(ticketId: requiredId),
+      ),
+      NotificationScreen.supportTickets => page(const SupportTicketsScreen()),
+      NotificationScreen.taxiMap => page(const MapPage()),
+      NotificationScreen.taxiLiveTracking => page(
+        TaxiLiveTrackingScreen(rideId: requiredId),
+      ),
+      NotificationScreen.taxiSharedRide => page(
+        TaxiSharedRideTrackingScreen(rideId: requiredId),
+      ),
+      NotificationScreen.jobsMyApplications => page(
+        JobMyApplicationsScreen(initialTab: destination.extra as int? ?? 0),
+      ),
+      NotificationScreen.socialCommunity => () {
+        final scope =
+            destination.extra! as ({String scopeType, String scopeCode});
+        return page(
+          SocialCommunityScreen(
+            scopeType: scope.scopeType,
+            scopeCode: scope.scopeCode,
+          ),
+        );
+      }(),
+      NotificationScreen.socialReportedPosts => page(
+        const SocialReportedPostsScreen(),
+      ),
+      NotificationScreen.socialChat => page(
+        SocialShellScreen(
+          initialTab: SocialShellTab.messages,
+          initialThreadId: id,
+        ),
+      ),
+      NotificationScreen.socialActivity => page(
+        const SocialShellScreen(initialTab: SocialShellTab.activity),
+      ),
+      NotificationScreen.socialHome => page(
+        const SocialShellScreen(initialTab: SocialShellTab.home),
+      ),
+      NotificationScreen.socialCall => page(
+        SocialCallScreen(
+          threadId: requiredId,
+          isCaller: false,
+          initialSessionId: payload.sessionId,
+          remoteDisplayName: payload.remoteDisplayName,
+          initialAction: payload.quickActionId,
+          notificationId: payload.notificationId,
+        ),
+      ),
+      NotificationScreen.socialReels => page(
+        SocialShellScreen(initialTab: SocialShellTab.reels, initialReelId: id),
+      ),
+      NotificationScreen.socialStory => page(
+        SocialStoryViewerScreen(storyId: requiredId),
+      ),
+      NotificationScreen.socialPost => page(
+        SocialPostDetailsScreen(postId: requiredId),
+      ),
+      NotificationScreen.socialProfile => page(
+        SocialProfileScreen(userId: requiredId),
+      ),
+      NotificationScreen.residenceChange => page(
+        const SocialResidenceChangeScreen(),
+      ),
+      NotificationScreen.socialRestrictions => page(
+        SocialRestrictionsScreen(
+          initialRestrictionId: payload.restrictionId,
+          initialCapabilityKey: payload.capabilityKey,
+          initialReason: payload.restrictionReason,
+          initialStartsAt: payload.restrictionStartsAt,
+          initialEndsAt: payload.restrictionEndsAt,
+        ),
+      ),
+      NotificationScreen.paidUpgrades => page(const PaidUpgradesHomeScreen()),
+      NotificationScreen.realEstateMarketplace => page(
+        const RealEstateMarketplaceScreen(),
+      ),
+      NotificationScreen.realEstateWorkspace => page(
+        const RealEstateWorkspaceScreen(),
+      ),
+      NotificationScreen.realEstateListing => page(
+        RealEstateListingDetailsScreen(listingId: requiredId),
+      ),
+      NotificationScreen.carListing => page(
+        CustomerCarListingDetailsScreen(listingId: requiredId),
+      ),
+      NotificationScreen.carsMarketplace => page(
+        const CustomerCarsMarketplaceScreen(),
+      ),
+      NotificationScreen.servicesMarketplace => page(
+        const ServicesMarketplaceScreen(),
+      ),
+      NotificationScreen.customerEmergencyRequest => page(
+        EmergencyRequestTrackingScreen(requestId: requiredId),
+      ),
+      NotificationScreen.serviceProviderWorkspace => page(
+        const ServiceProviderShell(child: ServiceProviderWorkspaceScreen()),
+      ),
+      NotificationScreen.serviceRequestDetails => page(
+        ServiceRequestDetailsScreen(requestId: requiredId),
+      ),
+      NotificationScreen.serviceMyRequests => page(
+        const ServiceMyRequestsScreen(),
+      ),
+      NotificationScreen.serviceProviderProfile => page(
+        ServiceProviderProfileScreen(providerId: requiredId),
+      ),
+      NotificationScreen.serviceOfferingDetails => page(
+        ServiceOfferingDetailsScreen(offeringId: requiredId),
+      ),
+      NotificationScreen.pharmacyConversation => page(
+        PharmacyConversationScreen(conversationId: id),
+      ),
+      NotificationScreen.customerPharmacyConversations => page(
+        const CustomerPharmacyConversationsScreen(),
+      ),
+      NotificationScreen.taxiTripDetails => page(
+        TaxiTripDetailsPage(rideId: id),
+      ),
+      NotificationScreen.taxiTripsNew => page(const TaxiTripsNewPage()),
+      NotificationScreen.taxiCompetitions => page(
+        const TaxiCaptainCompetitionsPage(),
+      ),
+      NotificationScreen.taxiCaptainNotifications => page(
+        const TaxiCaptainNotificationsPage(),
+      ),
+      NotificationScreen.taxiCaptainDashboard => page(
+        const TaxiCaptainDashboardPage(),
+      ),
+      NotificationScreen.taxiTripsCurrent => page(const TaxiTripsCurrentPage()),
+      NotificationScreen.taxiTripsCompleted => page(
+        const TaxiTripsCompletedPage(),
+      ),
+      NotificationScreen.taxiTripsCancelled => page(
+        const TaxiTripsCancelledPage(),
+      ),
+      NotificationScreen.taxiEarnings => page(const TaxiEarningsPage()),
+      NotificationScreen.taxiReports => page(const TaxiReportsPage()),
+      NotificationScreen.jobApplications => page(
+        JobApplicationsScreen(
+          initialJobId: id,
+          initialSearch: destination.extra as String? ?? '',
+        ),
+      ),
+      NotificationScreen.hrEmployeePortal => page(
+        const HrEmployeePortalScreen(),
+      ),
+      NotificationScreen.hrDashboard => page(const HrDashboardScreen()),
+      NotificationScreen.accountantDashboard => page(
+        const AccountantDashboardScreen(),
+      ),
+      NotificationScreen.adminOrderDetails => page(
+        MonitoringDetailScreen(
+          mode: MonitoringDetailMode.order,
+          id: requiredId,
+          title: 'Order #$requiredId',
+        ),
+      ),
+      NotificationScreen.adminOrdersMonitoring => page(
+        const MonitoringOperationsListScreen(
+          mode: MonitoringOperationsMode.orders,
+        ),
+      ),
+      NotificationScreen.adminTaxiRideDetails => page(
+        MonitoringDetailScreen(
+          mode: MonitoringDetailMode.taxiRide,
+          id: requiredId,
+          title: 'Ride #$requiredId',
+        ),
+      ),
+      NotificationScreen.adminTaxiRides => page(
+        const MonitoringTaxiRidesScreen(),
+      ),
+      NotificationScreen.adminCarListing => page(
+        MonitoringDetailScreen(
+          mode: MonitoringDetailMode.carListing,
+          id: requiredId,
+          title: 'Car listing #$requiredId',
+        ),
+      ),
+      NotificationScreen.adminRealEstateListing => page(
+        MonitoringDetailScreen(
+          mode: MonitoringDetailMode.realEstateListing,
+          id: requiredId,
+          title: 'Real estate #$requiredId',
+        ),
+      ),
+      NotificationScreen.adminDashboard => page(const AdminDashboardPage()),
+      NotificationScreen.adminApprovalsHub => page(
+        const AdminApprovalsHubScreen(),
+      ),
+      NotificationScreen.adminSettlements => page(
+        const AdminReceivablesScreen(),
+      ),
+      NotificationScreen.adminReceivables => page(const AdminReceivablesPage()),
+      NotificationScreen.adminCompetitions => page(
+        const AdminCompetitionsPage(),
+      ),
+      NotificationScreen.adminSupportTicketDetails => page(
+        AdminSupportTicketDetailsScreen(ticketId: requiredId),
+      ),
+      NotificationScreen.adminSupportTickets => page(
+        const AdminSupportTicketsScreen(),
+      ),
+      NotificationScreen.adminSupportOrComplaints => page(
+        const AdminSupportOrComplaintsPage(),
+      ),
+      NotificationScreen.adminAdBoard => page(const AdminAdBoardScreen()),
+      NotificationScreen.adminMaintenance => page(const AdminMaintenancePage()),
+      NotificationScreen.adminSettings => page(const AdminSettingsPage()),
+      NotificationScreen.adminNotificationCenter => page(
+        const AdminNotificationCenterPage(),
+      ),
+      NotificationScreen.adminNotificationsOperations => page(
+        const AdminNotificationsOperationsPage(),
+      ),
+      NotificationScreen.adminDeviceReliability => page(
+        const AdminDeviceReliabilityPage(),
+      ),
+      NotificationScreen.adminCrashCenter => page(
+        const AdminCrashErrorCenterPage(),
+      ),
+      NotificationScreen.adminAuditSecurity => page(
+        const AdminAuditSecurityCenterPage(),
+      ),
+      NotificationScreen.adminFeatureFlags => page(
+        const AdminFeatureFlagsCenterPage(),
+      ),
+      NotificationScreen.adminPermissionsMatrix => page(
+        const AdminPermissionsMatrixPage(),
+      ),
+      NotificationScreen.adminAiDevIncident => page(
+        IncidentDetailsScreen(incidentId: requiredId),
+      ),
+      NotificationScreen.adminAiDevSupport => page(
+        const AdminAiDevSupportPage(),
+      ),
+      NotificationScreen.adminMerchantApprovals => page(
+        const AdminMerchantApprovalsScreen(),
+      ),
+      NotificationScreen.adminEmergencyRequest => page(
+        EmergencyRequestTrackingScreen(requestId: requiredId, adminMode: true),
+      ),
+      NotificationScreen.adminEmergencyRequests => page(
+        const AdminEmergencyRequestsScreen(),
+      ),
+      NotificationScreen.adminServicesHub => page(
+        const AdminServicesHubScreen(),
+      ),
+      NotificationScreen.adminTaxiCashPayments => page(
+        const AdminTaxiCashPaymentsScreen(),
+      ),
+      NotificationScreen.adminTaxiProfileEdits => page(
+        const AdminTaxiCaptainRequestsScreen(initialTabIndex: 1),
+      ),
+      NotificationScreen.adminTaxiGovernance => page(
+        const AdminTaxiGovernanceScreen(),
+      ),
+      NotificationScreen.adminSocialReports => page(
+        const AdminSocialReportsScreen(),
+      ),
+      NotificationScreen.adminResidenceRequests => page(
+        const AdminResidenceChangeRequestsScreen(),
+      ),
+      NotificationScreen.adminSocialRestrictions => page(
+        AdminSocialRestrictionsScreen(initialUserId: id),
+      ),
+      NotificationScreen.adminPaidUpgradeRequests => page(
+        const AdminPaidUpgradeRequestsScreen(),
+      ),
+      NotificationScreen.adminRealEstatePending => page(
+        const AdminRealEstatePendingScreen(),
+      ),
+      NotificationScreen.adminReports => page(const AdminReportsPage()),
+      NotificationScreen.adminRequestsInbox => page(
+        const AdminRequestsInboxPage(),
+      ),
+      NotificationScreen.merchantDashboard => page(
+        const MerchantDashboardPage(),
+      ),
+      NotificationScreen.merchantOrderDetails => page(
+        MerchantOrderDetailsPage(orderId: requiredId),
+      ),
+      NotificationScreen.merchantOrdersCurrent => page(
+        const MerchantOrdersCurrentPage(),
+      ),
+      NotificationScreen.merchantOrdersCompleted => page(
+        const MerchantOrdersCompletedPage(),
+      ),
+      NotificationScreen.merchantOrdersCancelled => page(
+        const MerchantOrdersCancelledPage(),
+      ),
+      NotificationScreen.merchantReceivables => page(
+        const MerchantReceivablesPage(),
+      ),
+      NotificationScreen.merchantPaymentRequests => page(
+        const MerchantPaymentRequestsPage(),
+      ),
+      NotificationScreen.merchantCouriers => page(const MerchantCouriersPage()),
+      NotificationScreen.merchantReports => page(const MerchantReportsPage()),
+      NotificationScreen.merchantNotifications => page(
+        const MerchantNotificationsPage(),
+      ),
+      NotificationScreen.merchantSettings => page(const MerchantSettingsPage()),
+      NotificationScreen.ownerDashboard => page(const OwnerDashboardScreen()),
+      NotificationScreen.ownerOrdersTab => page(
+        const OwnerDashboardScreen(initialTab: OwnerDashboardTab.orders),
+      ),
+      NotificationScreen.ownerPharmacyConversation => page(
+        PharmacyConversationScreen(conversationId: id, ownerMode: true),
+      ),
+      NotificationScreen.ownerPharmacyConversations => page(
+        const OwnerPharmacyConversationsScreen(),
+      ),
+      NotificationScreen.deliveryRestricted => page(
+        const DeliveryRestrictedScreen(),
+      ),
+      NotificationScreen.courierOrderDetails => page(
+        CourierOrderDetailsPage(orderId: requiredId),
+      ),
+      NotificationScreen.courierDashboard => page(const CourierDashboardPage()),
+      NotificationScreen.courierOrdersNew => page(const CourierOrdersNewPage()),
+      NotificationScreen.courierOrdersCurrent => page(
+        const CourierOrdersCurrentPage(),
+      ),
+      NotificationScreen.courierOrdersCompleted => page(
+        const CourierOrdersCompletedPage(),
+      ),
+      NotificationScreen.courierOrdersCancelled => page(
+        const CourierOrdersCancelledPage(),
+      ),
+      NotificationScreen.courierCompetitions => page(
+        const CourierCompetitionsPage(),
+      ),
+      NotificationScreen.courierEarnings => page(const CourierEarningsPage()),
+      NotificationScreen.courierReports => page(const CourierReportsPage()),
+      NotificationScreen.courierReconciliation => page(
+        const DeliveryReconciliationScreen(),
+      ),
+      NotificationScreen.courierNotifications => page(
+        const CourierNotificationsPage(),
+      ),
+      NotificationScreen.courierSettings => page(const CourierSettingsPage()),
+    };
+  }
+
+  static int? _supportTicketId(NotificationTapPayload payload) {
+    final entity = (payload.targetEntity ?? '').trim().toLowerCase();
+    final candidates = <int?>[
+      if (entity.isEmpty || entity.contains('ticket')) payload.entityId,
+      payload.requestId,
+    ];
+    for (final value in candidates) {
+      if (value != null && value > 0) return value;
+    }
+    return null;
+  }
+
+  static NotificationDestination? _resolveUnavailableSection({
     required String target,
     required String targetModule,
     required NotificationTapPayload payload,
@@ -1691,8 +1936,9 @@ class NotificationNavigation {
         ((payload.requestId ?? payload.entityId) ?? 0) > 0;
     if (allowExistingActiveAccess) return null;
 
-    return MaterialPageRoute(
-      builder: (_) => SectionUnavailableScreen(entry: entry),
+    return NotificationDestination(
+      NotificationScreen.sectionUnavailable,
+      extra: entry,
     );
   }
 
@@ -1762,49 +2008,47 @@ class NotificationNavigation {
     }
   }
 
-  static MaterialPageRoute<void> _fallbackRouteForRole(
+  static NotificationDestination _fallbackDestinationForRole(
     AuthState auth, {
     String preferredModule = '',
   }) {
     final module = preferredModule.trim().toLowerCase();
     if (module == 'courier' && auth.isDelivery) {
-      return MaterialPageRoute(
-        builder: (_) => const CourierNotificationsPage(),
+      return const NotificationDestination(
+        NotificationScreen.courierNotifications,
       );
     }
     if (module == 'taxi' && auth.isTaxiCaptain) {
-      return MaterialPageRoute(
-        builder: (_) => const TaxiCaptainNotificationsPage(),
+      return const NotificationDestination(
+        NotificationScreen.taxiCaptainNotifications,
       );
     }
     if (module == 'merchant' && auth.isOwner) {
-      return MaterialPageRoute(
-        builder: (_) => const MerchantNotificationsPage(),
+      return const NotificationDestination(
+        NotificationScreen.merchantNotifications,
       );
     }
-    if (module == 'admin' &&
-        (auth.isBackoffice || auth.isStaff || auth.isAdminDashboardUser)) {
-      return MaterialPageRoute(builder: (_) => const AdminRequestsInboxPage());
-    }
     if (auth.isBackoffice || auth.isStaff || auth.isAdminDashboardUser) {
-      return MaterialPageRoute(builder: (_) => const AdminRequestsInboxPage());
+      return const NotificationDestination(
+        NotificationScreen.adminRequestsInbox,
+      );
     }
     if (auth.isOwner) {
-      return MaterialPageRoute(
-        builder: (_) => const MerchantNotificationsPage(),
+      return const NotificationDestination(
+        NotificationScreen.merchantNotifications,
       );
     }
     if (auth.isDelivery) {
-      return MaterialPageRoute(
-        builder: (_) => const CourierNotificationsPage(),
+      return const NotificationDestination(
+        NotificationScreen.courierNotifications,
       );
     }
     if (auth.isTaxiCaptain) {
-      return MaterialPageRoute(
-        builder: (_) => const TaxiCaptainNotificationsPage(),
+      return const NotificationDestination(
+        NotificationScreen.taxiCaptainNotifications,
       );
     }
-    return MaterialPageRoute(builder: (_) => const NotificationsScreen());
+    return const NotificationDestination(NotificationScreen.notifications);
   }
 
   static int _initialMyApplicationsTab(NotificationTapPayload payload) {

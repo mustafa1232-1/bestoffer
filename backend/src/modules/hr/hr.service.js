@@ -1085,9 +1085,13 @@ export async function submitPayrollBatch(actor, batchId, query = {}) {
       accountantUserIds.map((userId) => ({
         userId,
         type: "accountant.payroll.submitted",
-        title: "Payroll batch ready",
-        body: `A payroll batch for ${merchant.name} is waiting for processing.`,
+        title: `دفعة رواتب ${merchant.name} جاهزة للمعالجة`,
+        body: `رواتب شهر ${Number(batch.period_month)}/${Number(batch.period_year)} بانتظار المحاسب.`,
         payload: {
+          textEn: {
+            title: `${merchant.name} payroll batch is ready`,
+            body: `Payroll for ${Number(batch.period_month)}/${Number(batch.period_year)} is waiting for processing.`,
+          },
           target: "accountant_dashboard",
           payrollBatchId: Number(batch.id),
           merchantId: Number(merchant.id),
@@ -1141,6 +1145,34 @@ export async function closePayrollBatch(actor, batchId, query = {}) {
 
 async function resolveEmployeeProfileFromActor(actor, merchantId = null) {
   return resolveOrCreateEmployeeProfile(actor, merchantId);
+}
+
+const HR_DECISION_LABELS = {
+  approved: { ar: "تمت الموافقة", en: "approved" },
+  rejected: { ar: "مرفوض", en: "rejected" },
+  pending: { ar: "قيد المراجعة", en: "pending" },
+  cancelled: { ar: "ملغي", en: "cancelled" },
+  paid: { ar: "تم الصرف", en: "paid" },
+};
+
+function hrDecisionLabel(status) {
+  const key = String(status || "").trim().toLowerCase();
+  return HR_DECISION_LABELS[key] || { ar: key || "محدّث", en: key || "updated" };
+}
+
+const HR_SALARY_ACTION_LABELS = {
+  bonus: { ar: "مكافأة", en: "Bonus" },
+  deduction: { ar: "خصم", en: "Deduction" },
+  penalty: { ar: "عقوبة مالية", en: "Penalty" },
+  allowance: { ar: "بدل", en: "Allowance" },
+  raise: { ar: "زيادة راتب", en: "Raise" },
+  advance: { ar: "استقطاع سلفة", en: "Advance deduction" },
+  advance_deduction: { ar: "استقطاع سلفة", en: "Advance deduction" },
+};
+
+function hrSalaryActionLabel(actionType) {
+  const key = String(actionType || "").trim().toLowerCase();
+  return HR_SALARY_ACTION_LABELS[key] || { ar: "تعديل مالي", en: "Payroll adjustment" };
 }
 
 async function notifyHrAndOwnerForEmployeeRequest({
@@ -1258,9 +1290,13 @@ export async function createMyLeaveRequest(actor, dto) {
     merchant,
     actorUserId,
     type: "hr.leave.request_created",
-    title: "New leave request",
-    body: "An employee submitted a leave request.",
+    title: `طلب إجازة جديد من ${profile.full_name || profile.display_name || "موظف"}`,
+    body: `إجازة من ${from} إلى ${to} — بانتظار موافقتك.`,
     payload: {
+      textEn: {
+        title: `New leave request from ${profile.full_name || profile.display_name || "an employee"}`,
+        body: `Leave from ${from} to ${to} is waiting for your decision.`,
+      },
       section: "leave_requests",
       leaveId: Number(created?.id || 0),
     },
@@ -1326,9 +1362,13 @@ export async function createMyAdvanceRequest(actor, dto) {
     merchant,
     actorUserId,
     type: "hr.advance.request_created",
-    title: "New salary advance request",
-    body: "An employee requested a salary advance.",
+    title: `طلب سلفة جديد من ${profile.full_name || profile.display_name || "موظف"}`,
+    body: `المبلغ المطلوب ${Number(requestedAmount || 0).toFixed(0)} ${dto.currency || "IQD"} — بانتظار موافقتك.`,
     payload: {
+      textEn: {
+        title: `New salary advance request from ${profile.full_name || profile.display_name || "an employee"}`,
+        body: `Requested ${Number(requestedAmount || 0).toFixed(0)} ${dto.currency || "IQD"} — waiting for your decision.`,
+      },
       section: "advance_requests",
       advanceRequestId: Number(created?.id || 0),
     },
@@ -1386,9 +1426,15 @@ export async function decideAdvanceRequest(actor, requestId, dto) {
       {
         userId: employeeUserId,
         type: "employee.advance.request_decided",
-        title: "Advance request updated",
-        body: `Your advance request was ${String(dto.status)}.`,
+        title: `طلب السلفة: ${hrDecisionLabel(dto.status).ar}`,
+        body: dto.decisionNote
+          ? `قرار طلب السلفة: ${hrDecisionLabel(dto.status).ar}. الملاحظة: ${dto.decisionNote}`
+          : `قرار طلب السلفة: ${hrDecisionLabel(dto.status).ar}.`,
         payload: {
+          textEn: {
+            title: `Advance request ${hrDecisionLabel(dto.status).en}`,
+            body: `Your salary advance request was ${hrDecisionLabel(dto.status).en}.`,
+          },
           target: "employee_portal",
           section: "advance_requests",
           advanceRequestId: Number(requestId),
@@ -1468,9 +1514,13 @@ export async function createLeaveRequest(actor, dto) {
       [...recipientIds].map((userId) => ({
         userId,
         type: "hr.leave.request_created",
-        title: "New leave request",
-        body: `A new leave request was added for ${created?.date_from ?? ""} - ${created?.date_to ?? ""}.`,
+        title: "طلب إجازة جديد",
+        body: `أُضيف طلب إجازة من ${created?.date_from ?? ""} إلى ${created?.date_to ?? ""} — بانتظار الموافقة.`,
         payload: {
+          textEn: {
+            title: "New leave request",
+            body: `A leave request for ${created?.date_from ?? ""} - ${created?.date_to ?? ""} is waiting for approval.`,
+          },
           target: "hr_dashboard",
           merchantId: Number(merchant.id),
           leaveId: Number(created?.id || 0),
@@ -1514,9 +1564,15 @@ export async function decideLeaveRequest(actor, leaveId, dto) {
       {
         userId: employeeUserId,
         type: "employee.leave.request_decided",
-        title: "Leave request updated",
-        body: `Your leave request has been marked as ${String(dto.status)}.`,
+        title: `طلب الإجازة: ${hrDecisionLabel(dto.status).ar}`,
+        body: dto.decisionNote
+          ? `قرار طلب إجازتك: ${hrDecisionLabel(dto.status).ar}. الملاحظة: ${dto.decisionNote}`
+          : `قرار طلب إجازتك: ${hrDecisionLabel(dto.status).ar}.`,
         payload: {
+          textEn: {
+            title: `Leave request ${hrDecisionLabel(dto.status).en}`,
+            body: `Your leave request was ${hrDecisionLabel(dto.status).en}.`,
+          },
           target: "hr_dashboard",
           section: "leave_requests",
           leaveId: Number(leaveId),
@@ -1581,9 +1637,13 @@ export async function createSalaryAction(actor, dto) {
       {
         userId: employeeUserId,
         type: "employee.salary.action_created",
-        title: "Compensation update",
-        body: `A ${String(dto.actionType)} action was added to your payroll workflow.`,
+        title: `${hrSalaryActionLabel(dto.actionType).ar} على راتبك`,
+        body: `أُضيف ${hrSalaryActionLabel(dto.actionType).ar} لراتب شهر ${dto.effectiveMonth || "الحالي"}${dto.description ? `: ${dto.description}` : "."}`,
         payload: {
+          textEn: {
+            title: `${hrSalaryActionLabel(dto.actionType).en} added to your salary`,
+            body: `A ${hrSalaryActionLabel(dto.actionType).en.toLowerCase()} was added for ${dto.effectiveMonth || "this month"}.`,
+          },
           target: "hr_dashboard",
           section: "salary_actions",
           salaryActionId: Number(created?.id || 0),

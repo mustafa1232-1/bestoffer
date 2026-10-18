@@ -13,7 +13,7 @@ import {
  * - source of truth للسياسات البسيطة مثل unreadOnly/limit والتحقق من token.
  * - الارسال الفعلي وتخزين الإشعارات يحصل في `notifications.repo.js`.
  */
-export async function listUserNotifications(userId, query) {
+export async function listUserNotifications(userId, query, role = null) {
   const unreadOnly =
     query?.unreadOnly === true ||
     query?.unreadOnly === "true" ||
@@ -23,14 +23,17 @@ export async function listUserNotifications(userId, query) {
   return repo.listUserNotifications(userId, {
     unreadOnly,
     limit,
+    appSurface: resolveRoleAppSurface(role),
   });
 }
 
 /**
  * يعيد unread badge count كما تستهلكه الواجهة والـ pollers.
  */
-export async function unreadCount(userId) {
-  const unreadCount = await repo.countUnreadNotifications(userId);
+export async function unreadCount(userId, role = null) {
+  const unreadCount = await repo.countUnreadNotifications(userId, {
+    appSurface: resolveRoleAppSurface(role),
+  });
   return { unreadCount };
 }
 

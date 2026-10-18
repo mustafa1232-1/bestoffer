@@ -85,7 +85,7 @@ test("grouped delivery fee plan applies 100%, 50%, 50% rules for 3 stores", () =
   assert.equal(plan.allocatedDeliveryFeeTotal, 2000);
 });
 
-test("grouped delivery fee plan applies 100%, 50%, 50%, 50% rules for 4 stores", () => {
+test("grouped delivery fee plan caps four stores at 2000 IQD", () => {
   const plan = buildGroupedDeliveryFeePlan([
     makeEntry({ rawDeliveryFee: 1000 }),
     makeEntry({ rawDeliveryFee: 1000 }),
@@ -99,13 +99,13 @@ test("grouped delivery fee plan applies 100%, 50%, 50%, 50% rules for 4 stores",
   );
   assert.deepEqual(
     plan.entries.map((entry) => entry.allocatedDeliveryFee),
-    [1000, 500, 500, 500]
+    [1000, 500, 500, 0]
   );
   assert.equal(plan.rawDeliveryFeeTotal, 4000);
-  assert.equal(plan.allocatedDeliveryFeeTotal, 2500);
+  assert.equal(plan.allocatedDeliveryFeeTotal, 2000);
 });
 
-test("grouped delivery fee plan applies 100%, 50% for every extra store", () => {
+test("grouped delivery fee plan never exceeds the 2000 IQD customer cap", () => {
   const plan = buildGroupedDeliveryFeePlan([
     makeEntry({ rawDeliveryFee: 1000 }),
     makeEntry({ rawDeliveryFee: 1000 }),
@@ -121,10 +121,10 @@ test("grouped delivery fee plan applies 100%, 50% for every extra store", () => 
   );
   assert.deepEqual(
     plan.entries.map((entry) => entry.allocatedDeliveryFee),
-    [1000, 500, 500, 500, 500, 500]
+    [1000, 500, 500, 0, 0, 0]
   );
   assert.equal(plan.rawDeliveryFeeTotal, 6000);
-  assert.equal(plan.allocatedDeliveryFeeTotal, 3500);
+  assert.equal(plan.allocatedDeliveryFeeTotal, 2000);
 });
 
 test("grouped delivery fee plan honors pickup_sequence before checkout and creation order", () => {

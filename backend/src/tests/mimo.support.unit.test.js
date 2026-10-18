@@ -100,7 +100,12 @@ test("escalate opens a mimo ticket, writes 'عمو مشكلة' and alerts admins
   // Admins 1, 2 + the auto-assigned agent 3.
   assert.deepEqual(deps.calls.notified.map((n) => n.userId).sort(), [1, 2, 3]);
   assert.equal(deps.calls.notified[0].type, "support.mimo.escalation");
-  assert.match(deps.calls.notified[0].title, /فوراً/);
+  // Admins see what happened and the tap opens that exact ticket.
+  assert.match(deps.calls.notified[0].title, /^🚨 تذكرة دعم عاجلة: /);
+  assert.match(deps.calls.notified[0].body, /SUP-55/);
+  assert.equal(deps.calls.notified[0].payload.target, "admin_support_ticket");
+  assert.equal(deps.calls.notified[0].payload.entityId, deps.calls.notified[0].payload.ticketId);
+  assert.match(deps.calls.notified[0].payload.textEn.title, /^🚨 Urgent support ticket: /);
   assert.equal(out.ticketNumber, "SUP-55");
 });
 

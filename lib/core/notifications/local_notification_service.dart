@@ -864,10 +864,11 @@ bool _parseBool(dynamic value) {
 bool _isCallNotification({required String? type, required String? target}) {
   final normalizedType = (type ?? '').trim().toLowerCase();
   final normalizedTarget = (target ?? '').trim().toLowerCase();
-  if (normalizedTarget == 'social_call') {
-    return true;
+  // Only a live invite rings; missed / ended calls are ordinary notifications.
+  if (normalizedType.startsWith('social.call.')) {
+    return normalizedType == 'social.call.incoming';
   }
-  return normalizedType.startsWith('social.call.');
+  return normalizedTarget == 'social_call';
 }
 
 bool _isUrgentRealtimeNotification({

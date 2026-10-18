@@ -1,3 +1,9 @@
+import {
+  notifyCalleeMissedCall,
+  sendCallEndedPush,
+  sendIncomingCallPush,
+  verifyCallActionToken,
+} from "./feed.call-push.js";
 import { AppError } from "../../shared/utils/errors.js";
 import { issueSocialCallVoiceToken, socialCallVoiceConfigured, processSocialCallVoiceCleanup } from "./feed.call-voice.js";
 import { q } from "../../config/db.js";
@@ -1704,16 +1710,39 @@ async function processSocialRingingCallTimeoutsAndEmit() {
       })
     );
 
+    const [callerProfile, calleeProfile] = await Promise.all([
+      repo.findUserPublicProfile(ended.callerUserId).catch(() => null),
+      repo.findUserPublicProfile(ended.calleeUserId).catch(() => null),
+    ]);
+    const calleeName = calleeProfile?.full_name || "";
     await createNotification({
       userId: Number(ended.callerUserId),
       type: "social.call.missed",
-      title: "لم يتم الرد على المكالمة",
-      body: "انتهت مهلة الرنين. يمكنك إعادة المحاولة من داخل المحادثة.",
+      title: calleeName ? `${calleeName} ما رد على مكالمتك` : "لم يتم الرد على المكالمة",
+      body: "انتهت مهلة الرنين. اضغط لفتح المحادثة ومعاودة الاتصال.",
+      textEn: {
+        title: calleeName ? `${calleeName} didn't answer your call` : "No answer",
+        body: "The call timed out. Tap to open the chat and try again.",
+      },
       payload: {
         threadId: Number(ended.threadId),
         sessionId: Number(ended.id),
-        target: "social_call",
+        senderUserId: Number(ended.calleeUserId),
+        target: "social_chat",
       },
+    });
+    await notifyCalleeMissedCall({
+      calleeUserId: Number(ended.calleeUserId),
+      callerUserId: Number(ended.callerUserId),
+      callerName: callerProfile?.full_name || "",
+      threadId: Number(ended.threadId),
+      sessionId: Number(ended.id),
+    });
+    await sendCallEndedPush({
+      calleeUserId: Number(ended.calleeUserId),
+      threadId: Number(ended.threadId),
+      sessionId: Number(ended.id),
+      reason: "timeout",
     });
   }
 }
@@ -2574,22 +2603,29 @@ function dispatchPostNotifications({ audienceUserIds, actor, post }) {
   if (!Array.isArray(audienceUserIds) || audienceUserIds.length <= 0) return;
   setImmediate(async () => {
     try {
-      const actorName = actor?.full_name || "User";
+      const actorName = actor?.full_name || "مستخدم";
+      const actorNameEn = actor?.full_name || "Someone";
       const actorId = Number(actor?.id || post.userId || 0);
       const isReel = isReelPostKind(post?.postKind ?? post?.post_kind);
       await createManyNotifications(
         audienceUserIds.map((userId) => ({
           userId: Number(userId),
           type: isReel ? "social.reel.new" : "social.post.new",
-          title: isReel ? "New reel on Maslaki" : "New post on Maslaki",
+          title: isReel ? `ريل جديد من ${actorName}` : `منشور جديد من ${actorName}`,
           body: isReel
-            ? `${actorName} posted a new reel`
-            : `${actorName} posted new content`,
-          payload: buildPostNotificationPayload({
-            post,
-            postId: Number(post.id),
-            actorUserId: actorId,
-          }),
+            ? `${actorName} نشر ريل جديد، شوفه هسه.`
+            : `${actorName} نشر منشوراً جديداً.`,
+          payload: {
+            ...buildPostNotificationPayload({
+              post,
+              postId: Number(post.id),
+              actorUserId: actorId,
+            }),
+            textEn: {
+              title: isReel ? `New reel from ${actorNameEn}` : `New post from ${actorNameEn}`,
+              body: isReel ? `${actorNameEn} posted a new reel.` : `${actorNameEn} posted new content.`,
+            },
+          },
         }))
       );
     } catch (error) {
@@ -4701,9 +4737,13 @@ export async function toggleStoryLike({ storyId, userId }) {
     await createNotification({
       userId: Number(story.user_id),
       type: "social.story.like",
-      title: "New story like",
-      body: `${actor?.full_name || "Someone"} liked your story`,
+      title: `${actor?.full_name || "مستخدم"} أعجب بالستوري مالتك`,
+      body: "افتح الستوري لتشوف التفاعل.",
       payload: {
+        textEn: {
+          title: `${actor?.full_name || "Someone"} liked your story`,
+          body: "Open your story to see the reaction.",
+        },
         storyId: Number(storyId),
         actorUserId: Number(userId),
         target: "social_story",
@@ -4760,9 +4800,13 @@ export async function addStoryComment({ storyId, userId, body }) {
     await createNotification({
       userId: Number(story.user_id),
       type: "social.story.comment",
-      title: "New story comment",
-      body: `${actor?.full_name || "Someone"} commented on your story`,
+      title: `${actor?.full_name || "مستخدم"} علّق على الستوري مالتك`,
+      body: "افتح الستوري لقراءة التعليق.",
       payload: {
+        textEn: {
+          title: `${actor?.full_name || "Someone"} commented on your story`,
+          body: "Open your story to read the comment.",
+        },
         storyId: Number(storyId),
         actorUserId: Number(userId),
         commentId: Number(inserted.id),
@@ -4805,9 +4849,14 @@ export async function reportStory({ storyId, reporterUserId, reason, details }) 
       .map((adminId) => ({
         userId: adminId,
         type: "social.report.story.created",
-        title: "New story report",
-        body: `${reporter?.full_name || "User"} reported a story`,
+        title: `تبليغ جديد على ستوري${String(reason || "").trim() ? `: ${String(reason).trim().slice(0, 60)}` : ""}`,
+        body: `${reporter?.full_name || "مستخدم"} بلّغ عن ستوري ويحتاج مراجعتك.`,
         payload: {
+          target: "admin_social_reports",
+          textEn: {
+            title: "New story report",
+            body: `${reporter?.full_name || "A user"} reported a story that needs review.`,
+          },
           reportId: Number(inserted.id),
           storyId: Number(storyId),
           reporterUserId: Number(reporterUserId),
@@ -5462,15 +5511,23 @@ export async function toggleLike({ postId, userId }) {
     await createNotification({
       userId: Number(post.user_id),
       type: isReel ? "social.reel.like" : "social.post.like",
-      title: isReel ? "New like on your reel" : "New like on your post",
-      body: isReel
-        ? `${actor?.full_name || "User"} liked your reel`
-        : `${actor?.full_name || "User"} liked your post`,
-      payload: buildPostNotificationPayload({
-        post,
-        postId: Number(postId),
-        actorUserId: Number(userId),
-      }),
+      title: isReel
+        ? `${actor?.full_name || "مستخدم"} أعجب بالريل مالتك`
+        : `${actor?.full_name || "مستخدم"} أعجب بمنشورك`,
+      body: isReel ? "افتح الريل لتشوف التفاعل." : "افتح المنشور لتشوف التفاعل.",
+      payload: {
+        ...buildPostNotificationPayload({
+          post,
+          postId: Number(postId),
+          actorUserId: Number(userId),
+        }),
+        textEn: {
+          title: isReel
+            ? `${actor?.full_name || "Someone"} liked your reel`
+            : `${actor?.full_name || "Someone"} liked your post`,
+          body: isReel ? "Open your reel to see the reaction." : "Open your post to see the reaction.",
+        },
+      },
     });
   }
 
@@ -8206,19 +8263,15 @@ export async function startThreadCall({ userId, threadId, preferLiveKit = false 
     remoteDisplayName: calleeDisplayName,
   });
 
-  await createNotification({
-    userId: peerUserId,
-    type: "social.call.incoming",
-    title: `\u0645\u0643\u0627\u0644\u0645\u0629 \u0648\u0627\u0631\u062F\u0629 \u0645\u0646 ${callerDisplayName}`, 
-    body: "\u0627\u0636\u063A\u0637 \u0644\u0644\u0631\u062F \u0639\u0644\u0649 \u0627\u0644\u0645\u0643\u0627\u0644\u0645\u0629 \u062F\u0627\u062E\u0644 \u0627\u0644\u062A\u0637\u0628\u064A\u0642.",
-    payload: {
-      threadId: Number(threadId),
-      sessionId: Number(session.id),
-      senderUserId: Number(userId),
-      remoteDisplayName: callerDisplayName,
-      target: "social_call",
-      requiresAction: true,
-    },
+  // Rings the callee's phone (native Answer/Decline UI, works when closed).
+  await sendIncomingCallPush({
+    calleeUserId: peerUserId,
+    callerUserId: Number(userId),
+    callerName: callerDisplayName,
+    callerAvatarUrl: caller?.image_url || null,
+    threadId: Number(threadId),
+    sessionId: Number(session.id),
+    ringTimeoutSeconds: SOCIAL_CALL_RING_TIMEOUT_SECONDS,
   });
 
   return {
@@ -8237,6 +8290,7 @@ export async function sendThreadCallSignal({ userId, threadId, dto }) {
   if (!session) {
     throw new AppError("SOCIAL_CALL_SESSION_NOT_FOUND", { status: 404 });
   }
+  const wasRinging = session.status === "ringing";
 
   if (Number(session.threadId) !== Number(threadId)) {
     throw new AppError("SOCIAL_CALL_SESSION_NOT_FOUND", { status: 404 });
@@ -8299,11 +8353,81 @@ export async function sendThreadCallSignal({ userId, threadId, dto }) {
 
   emitToUser(Number(session.callerUserId), "social_call_update", updatePayload);
   emitToUser(Number(session.calleeUserId), "social_call_update", updatePayload);
+  if (wasRinging && ["decline", "hangup"].includes(dto.signalType)) {
+    await afterRingingCallEnded({ session, endedByUserId: Number(userId) });
+  }
 
   return {
     session: mappedSession,
     signal: mappedSignal,
   };
+}
+
+/**
+ * A call that ended while still ringing: stop the callee's ringing UI on every
+ * device and, when the caller gave up, leave the callee a "missed call".
+ */
+async function afterRingingCallEnded({ session, endedByUserId }) {
+  const calleeUserId = Number(session.calleeUserId);
+  const callerUserId = Number(session.callerUserId);
+  await sendCallEndedPush({
+    calleeUserId,
+    threadId: Number(session.threadId),
+    sessionId: Number(session.id),
+    reason: endedByUserId === calleeUserId ? "declined" : "cancelled",
+  });
+  if (endedByUserId === callerUserId) {
+    const caller = await repo.findUserPublicProfile(callerUserId).catch(() => null);
+    await notifyCalleeMissedCall({
+      calleeUserId,
+      callerUserId,
+      callerName: caller?.full_name || "",
+      threadId: Number(session.threadId),
+      sessionId: Number(session.id),
+    });
+  }
+}
+
+/**
+ * Decline from the native incoming-call UI (lock screen / app closed). The
+ * short-lived signed token from the call push replaces the session auth.
+ */
+export async function declineThreadCallByToken({ token }) {
+  const claims = verifyCallActionToken(token);
+  if (!claims) throw new AppError("SOCIAL_CALL_TOKEN_INVALID", { status: 401 });
+  const session = await repo.getThreadCallSessionById(claims.sessionId);
+  if (!session || Number(session.calleeUserId) !== Number(claims.calleeUserId)) {
+    throw new AppError("SOCIAL_CALL_SESSION_NOT_FOUND", { status: 404 });
+  }
+  if (session.status !== "ringing") {
+    return { declined: false, status: session.status };
+  }
+  const ended = await repo.endThreadCallSession({
+    sessionId: session.id,
+    status: "declined",
+    endReason: "declined_by_user",
+  });
+  const signal = await repo.insertThreadCallSignal({
+    sessionId: session.id,
+    threadId: session.threadId,
+    senderUserId: Number(session.calleeUserId),
+    signalType: "decline",
+    signalPayload: { reason: "declined_from_call_ui", status: "declined" },
+  });
+  const finalSession = ended || session;
+  for (const viewerUserId of [Number(session.callerUserId), Number(session.calleeUserId)]) {
+    emitToUser(viewerUserId, "social_call_update", {
+      eventType: "call_signal",
+      threadId: Number(session.threadId),
+      session: mapCallSession(finalSession, viewerUserId),
+      signal: mapCallSignal(signal),
+    });
+  }
+  await afterRingingCallEnded({
+    session: finalSession,
+    endedByUserId: Number(session.calleeUserId),
+  });
+  return { declined: true, status: "declined" };
 }
 
 export async function endThreadCall({ userId, threadId, dto }) {
@@ -8348,6 +8472,9 @@ export async function endThreadCall({ userId, threadId, dto }) {
   };
   emitToUser(Number(active.callerUserId), "social_call_update", payload);
   emitToUser(Number(active.calleeUserId), "social_call_update", payload);
+  if (active.status === "ringing") {
+    await afterRingingCallEnded({ session: active, endedByUserId: Number(userId) });
+  }
 
   return {
     session: mapCallSession(ended || active, userId),

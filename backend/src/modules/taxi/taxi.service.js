@@ -148,9 +148,13 @@ export async function registerCaptain(dto) {
     approvers.map((approverId) => ({
       userId: Number(approverId),
       type: "admin_taxi_captain_pending_approval",
-      title: "Taxi captain account pending approval",
-      body: `New taxi captain request: ${user.full_name} (${user.phone})`,
+      title: `طلب حساب كابتن جديد: ${user.full_name}`,
+      body: `${user.full_name} (${user.phone}) سجّل ككابتن تكسي وينتظر موافقتك.`,
       payload: {
+        textEn: {
+          title: `New taxi captain request: ${user.full_name}`,
+          body: `${user.full_name} (${user.phone}) registered as a taxi captain and is waiting for approval.`,
+        },
         captainUserId: Number(user.id),
       },
     }))

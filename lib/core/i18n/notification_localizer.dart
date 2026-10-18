@@ -27,25 +27,96 @@ LocalizedNotificationText resolveNotificationText({
   required AppNotificationModel notification,
 }) {
   final payload = notification.payload ?? const <String, dynamic>{};
+  // Backend-authored English copy for the specific event (payload.textEn).
+  final english = _isEnglish(l10n) ? _readEnglishText(payload['textEn']) : null;
+  final storedTitle = english?.title ?? notification.title.trim();
+  final storedBody = english?.body ?? notification.body?.trim();
   final title = _resolveNotificationPiece(
     l10n: l10n,
     key: payload['i18nTitleKey']?.toString(),
     args: _readArgs(payload['i18nTitleArgs']),
-    fallback: notification.title.trim().isEmpty
-        ? l10n.notificationsGenericTitle
-        : notification.title.trim(),
+    fallback: storedTitle.isEmpty ? null : storedTitle,
   );
   final body = _resolveNotificationPiece(
     l10n: l10n,
     key: payload['i18nBodyKey']?.toString(),
     args: _readArgs(payload['i18nBodyArgs']),
-    fallback: notification.body?.trim(),
+    fallback: (storedBody ?? '').isEmpty ? null : storedBody,
   );
   return LocalizedNotificationText(
     title: title ?? l10n.notificationsGenericTitle,
     body: body,
   );
 }
+
+({String? title, String? body})? _readEnglishText(dynamic raw) {
+  if (raw is! Map) return null;
+  String? read(String key) {
+    final value = '${raw[key] ?? ''}'.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  final title = read('title');
+  final body = read('body');
+  if (title == null && body == null) return null;
+  return (title: title, body: body);
+}
+
+/// Category-level keys carry no event detail ("Admin update", "New
+/// notification"). They only fill a missing piece and never replace the
+/// specific title/body the backend stored for the event.
+const Set<String> _genericNotificationKeys = <String>{
+  'notifications.generic.title',
+  'notifications.generic.body',
+  'notifications.orders.title',
+  'notifications.orders.body',
+  'notifications.delivery.title',
+  'notifications.delivery.body',
+  'notifications.taxi.title',
+  'notifications.taxi.body',
+  'notifications.services.title',
+  'notifications.services.body',
+  'notifications.jobs.title',
+  'notifications.jobs.body',
+  'notifications.real_estate.title',
+  'notifications.real_estate.body',
+  'notifications.paid_upgrades.title',
+  'notifications.paid_upgrades.body',
+  'notifications.company.title',
+  'notifications.company.body',
+  'notifications.admin.title',
+  'notifications.admin.body',
+  'notifications.hr.title',
+  'notifications.hr.body',
+  'notifications.profile.title',
+  'notifications.profile.body',
+  'notifications.social.activity.title',
+  'notifications.social.activity.body',
+  'notifications.social.post.like.title',
+  'notifications.social.post.like.body',
+  'notifications.social.reel.like.title',
+  'notifications.social.reel.like.body',
+  'notifications.social.comment.title',
+  'notifications.social.comment.body',
+  'notifications.social.mention.title',
+  'notifications.social.mention.body',
+  'notifications.social.relation.title',
+  'notifications.social.relation.body',
+  'notifications.social.report.title',
+  'notifications.social.report.body',
+  'notifications.social.community.title',
+  'notifications.social.community.body',
+  'notifications.social.story.title',
+  'notifications.social.story.body',
+  'notifications.social.call.title',
+  'notifications.social.call.body',
+  'notifications.chat.message.title',
+  'notifications.chat.message.body',
+};
+
+@visibleForTesting
+bool isGenericNotificationKey(String key) =>
+    _genericNotificationKeys.contains(key.trim());
 
 Map<String, String> _readArgs(dynamic raw) {
   if (raw is! Map) return const <String, String>{};
@@ -571,6 +642,11 @@ String? _resolveNotificationPiece({
 }) {
   final normalizedKey = (key ?? '').trim();
   if (normalizedKey.isEmpty) return fallback;
+  if (fallback != null &&
+      fallback.trim().isNotEmpty &&
+      _genericNotificationKeys.contains(normalizedKey)) {
+    return fallback;
+  }
   final detailed = _resolveDetailedNotificationPiece(
     l10n: l10n,
     key: normalizedKey,
@@ -663,6 +739,15 @@ String? _resolveNotificationPiece({
     case 'notifications.social.community.body':
       return l10n.notificationsSocialCommunityBody;
     case 'notifications.social.call.title':
+      final caller = args['senderName']?.trim() ?? '';
+      if (caller.isNotEmpty) {
+        return _localizedTemplate(
+          l10n,
+          args,
+          ar: 'مكالمة واردة من {senderName}',
+          en: 'Incoming call from {senderName}',
+        );
+      }
       return l10n.notificationsSocialCallTitle;
     case 'notifications.social.call.body':
       return l10n.notificationsSocialCallBody(
@@ -671,6 +756,15 @@ String? _resolveNotificationPiece({
             : l10n.commonUnknown,
       );
     case 'notifications.chat.message.title':
+      final sender = args['senderName']?.trim() ?? '';
+      if (sender.isNotEmpty) {
+        return _localizedTemplate(
+          l10n,
+          args,
+          ar: 'رسالة جديدة من {senderName}',
+          en: 'New message from {senderName}',
+        );
+      }
       return l10n.notificationsChatMessageTitle;
     case 'notifications.chat.message.body':
       return l10n.notificationsChatMessageBody(

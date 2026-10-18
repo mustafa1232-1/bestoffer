@@ -44,13 +44,13 @@ test.after(async () => {
   }
 });
 
-test("support link suggestions surface the reporter's recent rides", async () => {
+test("support link suggestions surface only the reporter's active rides", async () => {
   const customer = await makeUser();
   const r = await q(
     `INSERT INTO taxi_ride_request
        (customer_user_id, pickup_latitude, pickup_longitude, dropoff_latitude,
         dropoff_longitude, pickup_label, dropoff_label, proposed_fare_iqd, status)
-     VALUES ($1,33.3,44.3,33.4,44.4,'من','إلى',10000,'completed') RETURNING id`,
+     VALUES ($1,33.3,44.3,33.4,44.4,'من','إلى',10000,'captain_assigned') RETURNING id`,
     [customer]
   );
   rideIds.push(Number(r.rows[0].id));
@@ -60,7 +60,7 @@ test("support link suggestions surface the reporter's recent rides", async () =>
   assert.ok(Array.isArray(out.rides));
   assert.ok(
     out.rides.some((x) => x.entityId === Number(r.rows[0].id) && x.entityType === "ride"),
-    "recent ride is suggested for linking"
+    "active ride is suggested for linking"
   );
   assert.ok(out.rides[0].route.includes("→"), "ride suggestion shows a route");
 });

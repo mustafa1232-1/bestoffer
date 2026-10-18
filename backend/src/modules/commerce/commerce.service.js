@@ -142,12 +142,22 @@ async function buildCompetitionNotifications({ out, orderId }) {
       type: String(event.type || "courier_competition_rank_unlocked"),
       title:
         String(event.type) === "courier_competition_upgraded_rank"
-          ? "Competition rank upgraded"
-          : "Competition rank unlocked",
+          ? `ترقّيت إلى ${event.rankTitle || "مرتبة أعلى"} في ${event.competitionTitle || "المسابقة"}`
+          : `فتحت مرتبة ${event.rankTitle || "جديدة"} في ${event.competitionTitle || "المسابقة"}`,
       body:
         String(event.type) === "courier_competition_upgraded_rank"
-          ? `You moved up to ${event.rankTitle || "a higher rank"} in ${event.competitionTitle || "competition"}.`
-          : `You unlocked ${event.rankTitle || "a rank"} in ${event.competitionTitle || "competition"}.`,
+          ? `مبروك! وصلت ${event.rankTitle || "مرتبة أعلى"} في ${event.competitionTitle || "المسابقة"}. كمّل التوصيل.`
+          : `مبروك! فتحت ${event.rankTitle || "مرتبة"} في ${event.competitionTitle || "المسابقة"}.`,
+      textEn: {
+        title:
+          String(event.type) === "courier_competition_upgraded_rank"
+            ? "Competition rank upgraded"
+            : "Competition rank unlocked",
+        body:
+          String(event.type) === "courier_competition_upgraded_rank"
+            ? `You moved up to ${event.rankTitle || "a higher rank"} in ${event.competitionTitle || "competition"}.`
+            : `You unlocked ${event.rankTitle || "a rank"} in ${event.competitionTitle || "competition"}.`,
+      },
       orderId: Number(event.orderId || 0) || undefined,
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -170,10 +180,18 @@ async function buildCompetitionNotifications({ out, orderId }) {
     courierNotifications.push({
       userId: Number(event.courierUserId),
       type: "courier_competition_finished",
-      title: "Competition finished",
+      title: event.won
+        ? `مبروك! فزت في ${event.competitionTitle || "المسابقة"}`
+        : `انتهت ${event.competitionTitle || "المسابقة"}`,
       body: event.won
-        ? `You finished ${event.competitionTitle || "competition"} with ${event.rankTitle || "a winning rank"}.`
-        : `${event.competitionTitle || "Competition"} has ended.`,
+        ? `أنهيت ${event.competitionTitle || "المسابقة"} بمرتبة ${event.rankTitle || "فائزة"}.`
+        : `انتهت ${event.competitionTitle || "المسابقة"}. افتح المسابقات لمشاهدة النتائج.`,
+      textEn: {
+        title: event.won ? "Competition won" : "Competition finished",
+        body: event.won
+          ? `You finished ${event.competitionTitle || "competition"} with ${event.rankTitle || "a winning rank"}.`
+          : `${event.competitionTitle || "Competition"} has ended.`,
+      },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -195,8 +213,9 @@ async function buildCompetitionNotifications({ out, orderId }) {
   const adminEventRows = [
     ...adminEvents.map((event) => ({
       type: String(event.type || "admin_competition_new_winner"),
-      title: "Competition winner update",
-      body: `${event.rankTitle || "Rank"} unlocked in ${event.competitionTitle || "competition"}.`,
+      title: `فائز جديد في ${event.competitionTitle || "المسابقة"}`,
+      body: `تم فتح مرتبة ${event.rankTitle || "جديدة"} في ${event.competitionTitle || "المسابقة"}.`,
+      textEn: { title: "Competition winner update", body: `${event.rankTitle || "Rank"} unlocked in ${event.competitionTitle || "competition"}.` },
       payload: {
         target: "admin_competitions",
         targetModule: "admin",
@@ -218,8 +237,9 @@ async function buildCompetitionNotifications({ out, orderId }) {
     })),
     ...finalizedSummaryEvents.map((event) => ({
       type: "admin_competition_finished_summary",
-      title: "Competition finalized",
-      body: `${event.competitionTitle || "Competition"} finished with ${Number(event.winnersCount || 0)} winner(s).`,
+      title: `انتهت مسابقة ${event.competitionTitle || "الدلفري"}`,
+      body: `انتهت ${event.competitionTitle || "المسابقة"} بعدد فائزين ${Number(event.winnersCount || 0)}.`,
+      textEn: { title: "Competition finalized", body: `${event.competitionTitle || "Competition"} finished with ${Number(event.winnersCount || 0)} winner(s).` },
       payload: {
         target: "admin_competitions",
         targetModule: "admin",
@@ -303,8 +323,9 @@ export async function ownerStartPreparing(ownerUserId, orderId, body = {}) {
     {
       userId: Number(out.order.customer_user_id),
       type: "order_status_update",
-      title: "Order preparation started",
-      body: `Store started preparing order #${out.order.id}.`,
+      title: `طلبك #${out.order.id} قيد التحضير`,
+      body: `${out.merchantName || out.order.merchant_name || "المتجر"} بدأ يحضّر طلبك #${out.order.id}.`,
+      textEn: { title: "Order preparation started", body: `Store started preparing order #${out.order.id}.` },
       orderId: Number(out.order.id),
       merchantId: Number(out.order.merchant_id),
       payload: toOrderPayload(out.order, "order_tracking", {
@@ -317,11 +338,17 @@ export async function ownerStartPreparing(ownerUserId, orderId, body = {}) {
         ? "delivery_order_assigned"
         : "delivery_order_available",
       title: sendsDirectAssignmentNotice
-        ? "Order assigned"
-        : "New delivery request",
+        ? `تم إسناد الطلب #${out.order.id} إليك`
+        : `طلب توصيل جديد #${out.order.id}`,
       body: sendsDirectAssignmentNotice
-        ? `Order #${out.order.id} from ${out.merchantName || "store"} was assigned to you.`
-        : `Order #${out.order.id} from ${out.merchantName || "store"} is available.`,
+        ? `الطلب #${out.order.id} من ${out.merchantName || "المتجر"} صار من مهامك.`
+        : `الطلب #${out.order.id} من ${out.merchantName || "المتجر"} متاح، اقبله قبل غيرك.`,
+      textEn: {
+        title: sendsDirectAssignmentNotice ? "Order assigned" : "New delivery request",
+        body: sendsDirectAssignmentNotice
+          ? `Order #${out.order.id} from ${out.merchantName || "store"} was assigned to you.`
+          : `Order #${out.order.id} from ${out.merchantName || "store"} is available.`,
+      },
       orderId: Number(out.order.id),
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -425,8 +452,9 @@ export async function ownerReadyForPickup(ownerUserId, orderId, body = {}) {
     {
       userId: Number(out.order.customer_user_id),
       type: "order_status_update",
-      title: "Order ready for delivery",
-      body: `Order #${out.order.id} is ready for pickup.`,
+      title: `طلبك #${out.order.id} جاهز`,
+      body: `طلبك #${out.order.id} جاهز وبانتظار استلام الدلفري.`,
+      textEn: { title: "Order ready for delivery", body: `Order #${out.order.id} is ready for pickup.` },
       orderId: Number(out.order.id),
       merchantId: Number(out.order.merchant_id),
       payload: toOrderPayload(out.order, "order_tracking", {
@@ -436,8 +464,9 @@ export async function ownerReadyForPickup(ownerUserId, orderId, body = {}) {
     ...courierTargets.map((courier) => ({
       userId: Number(courier.id),
       type: "delivery_order_ready_for_pickup",
-      title: "Order ready for pickup",
-      body: `Order #${out.order.id} from ${out.merchantName || "store"} is ready.`,
+      title: `الطلب #${out.order.id} جاهز للاستلام`,
+      body: `الطلب #${out.order.id} من ${out.merchantName || "المتجر"} جاهز، توجّه لاستلامه.`,
+      textEn: { title: "Order ready for pickup", body: `Order #${out.order.id} from ${out.merchantName || "store"} is ready.` },
       orderId: Number(out.order.id),
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -466,8 +495,9 @@ export async function courierAcceptOrder(courierUserId, orderId, body = {}) {
     {
       userId: Number(out.order.owner_user_id),
       type: "owner_delivery_assigned",
-      title: "Courier accepted order",
-      body: `${out.courier.full_name || "Courier"} accepted order #${orderId}.`,
+      title: `${out.courier.full_name || "الدلفري"} قبل الطلب #${orderId}`,
+      body: `${out.courier.full_name || "الدلفري"} في الطريق لاستلام الطلب #${orderId} من متجرك.`,
+      textEn: { title: "Courier accepted order", body: `${out.courier.full_name || "Courier"} accepted order #${orderId}.` },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -481,8 +511,9 @@ export async function courierAcceptOrder(courierUserId, orderId, body = {}) {
     {
       userId: Number(out.order.customer_user_id),
       type: "order_courier_assigned",
-      title: "Courier assigned",
-      body: "Courier is heading to store for your order.",
+      title: `تم تعيين دلفري لطلبك #${orderId}`,
+      body: `${out.courier?.full_name || "الدلفري"} متوجه للمتجر لاستلام طلبك.`,
+      textEn: { title: "Courier assigned", body: "Courier is heading to store for your order." },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: toOrderPayload(out.order, "order_tracking", {
@@ -507,8 +538,9 @@ export async function courierRejectOrder(courierUserId, orderId, body = {}) {
       {
         userId: Number(out.order.owner_user_id),
         type: "owner_delivery_pool_empty",
-        title: "No courier accepted yet",
-        body: `No courier accepted order #${orderId} yet.`,
+        title: `لا يوجد دلفري للطلب #${orderId} بعد`,
+        body: `ما قبل أي دلفري الطلب #${orderId} لحد الآن. نكمل البحث.`,
+        textEn: { title: "No courier accepted yet", body: `No courier accepted order #${orderId} yet.` },
         orderId: Number(orderId),
         merchantId: Number(out.order.merchant_id),
         payload: {
@@ -547,8 +579,9 @@ export async function courierPickedUpOrder(courierUserId, orderId, body = {}) {
     {
       userId: Number(out.order.customer_user_id),
       type: "order_status_update",
-      title: "Order picked up",
-      body: `Courier picked up order #${orderId}.`,
+      title: `طلبك #${orderId} في الطريق`,
+      body: `الدلفري استلم طلبك #${orderId} من المتجر وهو بالطريق إليك.`,
+      textEn: { title: "Order picked up", body: `Courier picked up order #${orderId}.` },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: toOrderPayload(out.order, "order_tracking"),
@@ -556,8 +589,9 @@ export async function courierPickedUpOrder(courierUserId, orderId, body = {}) {
     {
       userId: Number(out.ownerUserId),
       type: "owner_order_picked_up",
-      title: "Order picked up by courier",
-      body: `Courier picked up order #${orderId}.`,
+      title: `الدلفري استلم الطلب #${orderId}`,
+      body: `تم استلام الطلب #${orderId} من متجرك من قبل الدلفري.`,
+      textEn: { title: "Order picked up by courier", body: `Courier picked up order #${orderId}.` },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: toOrderPayload(out.order, "owner_orders"),
@@ -579,8 +613,9 @@ export async function courierArrivedOrder(courierUserId, orderId, body = {}) {
     {
       userId: Number(out.order.customer_user_id),
       type: "order_status_update",
-      title: "Courier arrived",
-      body: `Courier arrived for order #${orderId}.`,
+      title: `الدلفري وصل بطلبك #${orderId}`,
+      body: `الدلفري وصل إلى موقعك بالطلب #${orderId}.`,
+      textEn: { title: "Courier arrived", body: `Courier arrived for order #${orderId}.` },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: toOrderPayload(out.order, "order_tracking"),
@@ -777,8 +812,9 @@ export async function courierRequestCancelOrder(
     {
       userId: Number(out.ownerUserId),
       type: "owner_courier_cancel_request",
-      title: "Courier requested cancellation",
-      body: `Courier requested cancelling order #${orderId}.`,
+      title: `الدلفري طلب إلغاء الطلب #${orderId}`,
+      body: `طلب الدلفري إلغاء الطلب #${orderId}. راجع الطلب.`,
+      textEn: { title: "Courier requested cancellation", body: `Courier requested cancelling order #${orderId}.` },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -793,8 +829,9 @@ export async function courierRequestCancelOrder(
     ...(out.adminRecipients || []).map((adminId) => ({
       userId: Number(adminId),
       type: "admin_courier_cancel_request",
-      title: "Courier cancel request",
-      body: `Order #${orderId} has a courier cancellation request.`,
+      title: `طلب إلغاء من الدلفري للطلب #${orderId}`,
+      body: `الدلفري طلب إلغاء الطلب #${orderId} ويحتاج قرار الإدارة.`,
+      textEn: { title: "Courier cancel request", body: `Order #${orderId} has a courier cancellation request.` },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -834,12 +871,19 @@ export async function ownerReviewCourierCancelRequest(
           : "courier_cancel_request_rejected",
       title:
         body?.approved === true
-          ? "Cancellation approved"
-          : "Cancellation rejected",
+          ? `تمت الموافقة على إلغاء الطلب #${orderId}`
+          : `رُفض طلب إلغاء الطلب #${orderId}`,
       body:
         body?.approved === true
-          ? `Store approved cancellation for order #${orderId}.`
-          : `Store rejected cancellation for order #${orderId}.`,
+          ? `المتجر وافق على إلغاء الطلب #${orderId}.`
+          : `المتجر رفض إلغاء الطلب #${orderId}، كمّل التوصيل.`,
+      textEn: {
+        title: body?.approved === true ? "Cancellation approved" : "Cancellation rejected",
+        body:
+          body?.approved === true
+            ? `Store approved cancellation for order #${orderId}.`
+            : `Store rejected cancellation for order #${orderId}.`,
+      },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -862,8 +906,9 @@ export async function ownerReviewCourierCancelRequest(
           {
             userId: Number(out.order.customer_user_id),
             type: "customer_order_cancelled",
-            title: "Order cancelled",
-            body: `Order #${orderId} has been cancelled.`,
+            title: `تم إلغاء طلبك #${orderId}`,
+            body: `أُلغي الطلب #${orderId}. افتح الطلب لمعرفة التفاصيل.`,
+            textEn: { title: "Order cancelled", body: `Order #${orderId} has been cancelled.` },
             orderId: Number(orderId),
             merchantId: Number(out.order.merchant_id),
             payload: toOrderPayload(out.order, "order_tracking", {
@@ -900,12 +945,19 @@ export async function adminReviewCourierCancelRequest(
           : "courier_cancel_request_rejected",
       title:
         body?.approved === true
-          ? "Cancellation approved"
-          : "Cancellation rejected",
+          ? `تمت الموافقة على إلغاء الطلب #${orderId}`
+          : `رُفض طلب إلغاء الطلب #${orderId}`,
       body:
         body?.approved === true
-          ? `Admin approved cancellation for order #${orderId}.`
-          : `Admin rejected cancellation for order #${orderId}.`,
+          ? `الإدارة وافق على إلغاء الطلب #${orderId}.`
+          : `الإدارة رفض إلغاء الطلب #${orderId}، كمّل التوصيل.`,
+      textEn: {
+        title: body?.approved === true ? "Cancellation approved" : "Cancellation rejected",
+        body:
+          body?.approved === true
+            ? `Admin approved cancellation for order #${orderId}.`
+            : `Admin rejected cancellation for order #${orderId}.`,
+      },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -924,8 +976,9 @@ export async function adminReviewCourierCancelRequest(
           {
             userId: Number(out.order.customer_user_id),
             type: "customer_order_cancelled",
-            title: "Order cancelled",
-            body: `Order #${orderId} has been cancelled.`,
+            title: `تم إلغاء طلبك #${orderId}`,
+            body: `أُلغي الطلب #${orderId}. افتح الطلب لمعرفة التفاصيل.`,
+            textEn: { title: "Order cancelled", body: `Order #${orderId} has been cancelled.` },
             orderId: Number(orderId),
             merchantId: Number(out.order.merchant_id),
             payload: toOrderPayload(out.order, "order_tracking", {
@@ -935,8 +988,9 @@ export async function adminReviewCourierCancelRequest(
           {
             userId: Number(out.order.owner_user_id),
             type: "owner_order_cancelled",
-            title: "Order cancelled",
-            body: `Order #${orderId} was cancelled by admin.`,
+            title: `الإدارة ألغت الطلب #${orderId}`,
+            body: `تم إلغاء الطلب #${orderId} من قبل الإدارة.`,
+            textEn: { title: "Order cancelled", body: `Order #${orderId} was cancelled by admin.` },
             orderId: Number(orderId),
             merchantId: Number(out.order.merchant_id),
             payload: toOrderPayload(out.order, "owner_orders", {
@@ -986,8 +1040,9 @@ export async function sendOrderChatMessage({
     notifications.push({
       userId: Number(participantId),
       type: "order_chat_message",
-      title: "New order message",
-      body: `New message for order #${orderId}.`,
+      title: `رسالة جديدة بخصوص الطلب #${orderId}`,
+      body: `${String(message || "").trim().slice(0, 110) || "افتح المحادثة لقراءة الرسالة."}`,
+      textEn: { title: "New order message", body: `New message for order #${orderId}.` },
       orderId: Number(orderId),
       merchantId: Number(out.order.merchant_id),
       payload: {
@@ -1332,8 +1387,9 @@ export async function confirmMerchantPaymentRequestReceived(
     adminIds.map((adminId) => ({
       userId: Number(adminId),
       type: "admin_merchant_payment_confirmed_received",
-      title: "Merchant confirmed receiving payment",
-      body: `${out.merchant?.name || "Merchant"} confirmed payout receipt.`,
+      title: `${out.merchant?.name || "المتجر"} أكد استلام المستحقات`,
+      body: `أكد ${out.merchant?.name || "المتجر"} استلام دفعة المستحقات.`,
+      textEn: { title: "Merchant confirmed receiving payment", body: `${out.merchant?.name || "Merchant"} confirmed payout receipt.` },
       merchantId: Number(out.merchant?.id || 0) || undefined,
       payload: {
         target: "admin_payment_requests",
@@ -1370,8 +1426,9 @@ export async function reportMerchantPaymentRequestIssue(
     adminIds.map((adminId) => ({
       userId: Number(adminId),
       type: "admin_merchant_payment_issue_reported",
-      title: "Merchant reported payout issue",
-      body: `${out.merchant?.name || "Merchant"} reported an issue on payment request #${out.request?.id || "-"}.`,
+      title: `${out.merchant?.name || "المتجر"} أبلغ عن مشكلة بالدفعة #${out.request?.id || "-"}`,
+      body: `طلب الدفع #${out.request?.id || "-"} فيه مشكلة حسب ${out.merchant?.name || "المتجر"}. راجعه.`,
+      textEn: { title: "Merchant reported payout issue", body: `${out.merchant?.name || "Merchant"} reported an issue on payment request #${out.request?.id || "-"}.` },
       merchantId: Number(out.merchant?.id || 0) || undefined,
       payload: {
         target: "admin_payment_requests",
@@ -1454,8 +1511,9 @@ export async function adminMarkPaymentRequestReceived(
       {
         userId: Number(out.merchant.owner_user_id),
         type: "owner_payment_request_confirmed_by_admin",
-        title: "Payment request confirmed",
-        body: `Payment request #${out.paymentRequest.id} was confirmed.`,
+        title: `تم تأكيد طلب الدفع #${out.paymentRequest.id}`,
+        body: `أكدت الإدارة طلب الدفع #${out.paymentRequest.id}.`,
+        textEn: { title: "Payment request confirmed", body: `Payment request #${out.paymentRequest.id} was confirmed.` },
         merchantId: Number(out.merchant.id),
         payload: {
           target: "merchant_receivables",
@@ -1495,8 +1553,9 @@ export async function adminRejectPaymentRequest(
       {
         userId: Number(out.merchant.owner_user_id),
         type: "owner_payment_request_rejected",
-        title: "Payment request rejected",
-        body: `Payment request #${out.paymentRequest.id} was rejected.`,
+        title: `تم رفض طلب الدفع #${out.paymentRequest.id}`,
+        body: `رفضت الإدارة طلب الدفع #${out.paymentRequest.id}. افتحه لمعرفة السبب.`,
+        textEn: { title: "Payment request rejected", body: `Payment request #${out.paymentRequest.id} was rejected.` },
         merchantId: Number(out.merchant.id),
         payload: {
           target: "merchant_receivables",
@@ -1537,8 +1596,9 @@ export async function adminApprovePaymentRequest(
       {
         userId: Number(out.merchant.owner_user_id),
         type: "owner_payment_request_approved",
-        title: "Payment request approved",
-        body: `Payment request #${out.paymentRequest.id} has been approved.`,
+        title: `تمت الموافقة على طلب الدفع #${out.paymentRequest.id}`,
+        body: `وافقت الإدارة على طلب الدفع #${out.paymentRequest.id} وسيُصرف قريباً.`,
+        textEn: { title: "Payment request approved", body: `Payment request #${out.paymentRequest.id} has been approved.` },
         merchantId: Number(out.merchant.id),
         payload: {
           target: "merchant_receivables",
@@ -1581,8 +1641,9 @@ export async function adminAssignPaymentRequest(
       {
         userId: Number(out.merchant.owner_user_id),
         type: "owner_payment_request_assigned",
-        title: "Payment execution assigned",
-        body: `Payment request #${out.paymentRequest.id} is assigned for execution.`,
+        title: `طلب الدفع #${out.paymentRequest.id} قيد التنفيذ`,
+        body: `تم تكليف موظف بتنفيذ طلب الدفع #${out.paymentRequest.id}.`,
+        textEn: { title: "Payment execution assigned", body: `Payment request #${out.paymentRequest.id} is assigned for execution.` },
         merchantId: Number(out.merchant.id),
         payload: {
           target: "merchant_receivables",
@@ -1630,8 +1691,9 @@ export async function adminMarkPaymentRequestPaid(
       {
         userId: Number(out.merchant.owner_user_id),
         type: "owner_payment_request_awaiting_confirmation",
-        title: "Payment marked as paid",
-        body: `Payment request #${out.paymentRequest.id} is awaiting your confirmation.`,
+        title: `تم صرف طلب الدفع #${out.paymentRequest.id}`,
+        body: `سجّلت الإدارة طلب الدفع #${out.paymentRequest.id} كمدفوع. أكّد الاستلام.`,
+        textEn: { title: "Payment marked as paid", body: `Payment request #${out.paymentRequest.id} is awaiting your confirmation.` },
         merchantId: Number(out.merchant.id),
         payload: {
           target: "merchant_receivables",
@@ -1671,8 +1733,9 @@ export async function adminReturnPaymentRequestForRevision(
       {
         userId: Number(out.merchant.owner_user_id),
         type: "owner_payment_request_returned_for_revision",
-        title: "Payment request returned for revision",
-        body: `Payment request #${out.paymentRequest.id} needs revision.`,
+        title: `طلب الدفع #${out.paymentRequest.id} يحتاج تعديل`,
+        body: `أعادت الإدارة طلب الدفع #${out.paymentRequest.id} للتعديل.`,
+        textEn: { title: "Payment request returned for revision", body: `Payment request #${out.paymentRequest.id} needs revision.` },
         merchantId: Number(out.merchant.id),
         payload: {
           target: "merchant_receivables",
@@ -1715,8 +1778,9 @@ export async function adminCreateAppPayablesAdjustment(
       {
         userId: Number(out.merchant.owner_user_id),
         type: "owner_app_payables_adjusted",
-        title: "Settlement balance adjusted",
-        body: `Your app payable balance was updated by admin.`,
+        title: "تعديل على رصيد مستحقات التطبيق",
+        body: "عدّلت الإدارة رصيد المستحقات المطلوب منك للتطبيق. افتح المستحقات للتفاصيل.",
+        textEn: { title: "Settlement balance adjusted", body: `Your app payable balance was updated by admin.` },
         merchantId: Number(out.merchant.id),
         payload: {
           target: "merchant_receivables",

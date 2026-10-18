@@ -423,7 +423,87 @@ function assignServiceEventI18n(normalizedType, payload) {
   return null;
 }
 
-export function attachNotificationI18n({ type, payload }) {
+/**
+ * Category-level templates ("Admin update", "New notification", ...) say
+ * nothing about the event. They may only fill a title/body the caller left
+ * empty — never replace the specific copy the caller wrote.
+ */
+export const GENERIC_NOTIFICATION_KEYS = new Set([
+  "notifications.generic.title",
+  "notifications.generic.body",
+  "notifications.orders.title",
+  "notifications.orders.body",
+  "notifications.delivery.title",
+  "notifications.delivery.body",
+  "notifications.taxi.title",
+  "notifications.taxi.body",
+  "notifications.services.title",
+  "notifications.services.body",
+  "notifications.jobs.title",
+  "notifications.jobs.body",
+  "notifications.real_estate.title",
+  "notifications.real_estate.body",
+  "notifications.paid_upgrades.title",
+  "notifications.paid_upgrades.body",
+  "notifications.company.title",
+  "notifications.company.body",
+  "notifications.admin.title",
+  "notifications.admin.body",
+  "notifications.hr.title",
+  "notifications.hr.body",
+  "notifications.profile.title",
+  "notifications.profile.body",
+  "notifications.social.activity.title",
+  "notifications.social.activity.body",
+  "notifications.social.post.like.title",
+  "notifications.social.post.like.body",
+  "notifications.social.reel.like.title",
+  "notifications.social.reel.like.body",
+  "notifications.social.comment.title",
+  "notifications.social.comment.body",
+  "notifications.social.mention.title",
+  "notifications.social.mention.body",
+  "notifications.social.relation.title",
+  "notifications.social.relation.body",
+  "notifications.social.story.title",
+  "notifications.social.story.body",
+  "notifications.social.report.title",
+  "notifications.social.report.body",
+  "notifications.social.community.title",
+  "notifications.social.community.body",
+  "notifications.social.call.title",
+  "notifications.social.call.body",
+  "notifications.chat.message.title",
+  "notifications.chat.message.body",
+]);
+
+export function isGenericNotificationKey(key) {
+  return GENERIC_NOTIFICATION_KEYS.has(String(key || "").trim());
+}
+
+/**
+ * Attaches i18n keys for the notification type, then drops any category-level
+ * key whose piece the caller already wrote, so the specific title/body wins in
+ * every locale (English copy travels in `payload.textEn`).
+ */
+export function attachNotificationI18n({ type, payload, title = null, body = null }) {
+  const input =
+    payload && typeof payload === "object" && !Array.isArray(payload) ? payload : {};
+  const out = deriveNotificationI18n({ type, payload: input });
+  const hasTitle = String(title ?? "").trim().length > 0;
+  const hasBody = String(body ?? "").trim().length > 0;
+  if (hasTitle && !input.i18nTitleKey && isGenericNotificationKey(out.i18nTitleKey)) {
+    delete out.i18nTitleKey;
+    delete out.i18nTitleArgs;
+  }
+  if (hasBody && !input.i18nBodyKey && isGenericNotificationKey(out.i18nBodyKey)) {
+    delete out.i18nBodyKey;
+    delete out.i18nBodyArgs;
+  }
+  return out;
+}
+
+function deriveNotificationI18n({ type, payload }) {
   const normalizedType = String(type || "").trim().toLowerCase();
   const out =
     payload && typeof payload === "object" && !Array.isArray(payload)

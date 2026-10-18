@@ -9,6 +9,7 @@ import 'package:jwt_decoder/jwt_decoder.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../features/auth/state/auth_controller.dart';
+import '../calls/incoming_call_service.dart';
 import '../../features/notifications/data/notifications_api.dart';
 import '../../features/orders/state/order_refresh_bus.dart';
 import '../network/session_invalidation.dart';
@@ -105,6 +106,74 @@ void _pushDebugLog(String message) {
   if (kDebugMode) debugPrint('[push] $message');
 }
 
+/// Package name → app flavor. The FCM background isolate never runs the
+/// flavor's `main`, so [AppFlavorContext.current] is still the `user` default
+/// there; without this the store / delivery / captain / company apps dropped
+/// every data-only push (ride requests, urgent assignments) while closed.
+@visibleForTesting
+AppFlavor? appFlavorForPackageName(String packageName) {
+  final normalized = packageName.trim().toLowerCase();
+  if (normalized.isEmpty) return null;
+  final suffix = normalized.split('.').last;
+  return switch (suffix) {
+    'user' => AppFlavor.user,
+    'store' || 'pharmacy' => AppFlavor.store,
+    'delivery' => AppFlavor.delivery,
+    'captain' => AppFlavor.taxiCaptain,
+    'company' => AppFlavor.company,
+    _ => null,
+  };
+}
+
+Future<AppFlavor> _resolveBackgroundAppFlavor() async {
+  try {
+    final info = await PackageInfo.fromPlatform();
+    final flavor = appFlavorForPackageName(info.packageName);
+    if (flavor != null) {
+      AppFlavorContext.setCurrent(flavor);
+      return flavor;
+    }
+  } catch (_) {
+    // Fall back to whatever the isolate already knows.
+  }
+  return AppFlavorContext.current;
+}
+
+bool _prefersEnglish(Map<String, dynamic> data) {
+  final title = '${data['title'] ?? ''}';
+  return title.isNotEmpty && !RegExp(r'[\u0600-\u06FF]').hasMatch(title);
+}
+
+/// Call invites ring through the native call UI; "call ended" dismisses it.
+/// Returns true when [data] was a call event and has been fully handled.
+Future<bool> handleCallPushData(
+  Map<String, dynamic> data, {
+  required AppFlavor flavor,
+}) async {
+  final isInvite = IncomingCallService.isCallInvite(data);
+  final isEnded = IncomingCallService.isCallEnded(data);
+  if (!isInvite && !isEnded) return false;
+  // In-app calls live in the user app only.
+  if (flavor != AppFlavor.user || !IncomingCallService.supported) return true;
+  if (isEnded) {
+    final sessionId = int.tryParse('${data['sessionId'] ?? ''}');
+    final uuid = '${data['callUuid'] ?? ''}'.trim();
+    if (uuid.isNotEmpty) {
+      await IncomingCallService.endCall(uuid);
+    } else {
+      await IncomingCallService.endCallForSession(sessionId);
+    }
+    return true;
+  }
+  final invite = IncomingCallInvite.fromPushData(data);
+  if (invite == null) return true;
+  await IncomingCallService.showIncoming(
+    invite,
+    english: _prefersEnglish(data),
+  );
+  return true;
+}
+
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (!appSupportsPushMessaging) return;
@@ -120,18 +189,17 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
     // For data-only pushes, render a local notification while app is backgrounded.
     if (message.notification == null && message.data.isNotEmpty) {
-      final local = LocalNotificationService();
-      await local.initialize();
+      final flavor = await _resolveBackgroundAppFlavor();
       final parsed = _parseRemoteMessagePayload(message);
-      if (!notificationPayloadMatchesAppFlavor(
-        parsed.$3,
-        AppFlavorContext.current,
-      )) {
+      if (!notificationPayloadMatchesAppFlavor(parsed.$3, flavor)) {
         _pushDebugLog(
           'background payload ignored for surface=${parsed.$3.appSurface}',
         );
         return;
       }
+      if (await handleCallPushData(message.data, flavor: flavor)) return;
+      final local = LocalNotificationService();
+      await local.initialize();
 
       await local.showRaw(
         title: parsed.$1,
@@ -239,6 +307,7 @@ class PushNotificationService {
   DateTime? _lastSyncedAt;
   bool _tokenSyncInFlight = false;
   int? _activeUserId;
+  String? _lastSyncedVoipToken;
 
   Stream<NotificationTapPayload> get tapStream => _tapController.stream;
 
@@ -290,7 +359,17 @@ class PushNotificationService {
         );
         return;
       }
-      if (!_shouldSuppressForegroundNotification(parsed.$3)) {
+      // Calls: the open app rings in-app (SSE + SocialCallScreen); never stack
+      // a second ringing notification on top. "Call ended" clears CallKit.
+      if (IncomingCallService.isCallEnded(message.data)) {
+        await handleCallPushData(
+          message.data,
+          flavor: AppFlavorContext.current,
+        );
+        return;
+      }
+      final isCallInvite = IncomingCallService.isCallInvite(message.data);
+      if (!isCallInvite && !_shouldSuppressForegroundNotification(parsed.$3)) {
         if (kIsWeb) {
           final urgent =
               parsed.$3.requiresAction ||
@@ -380,6 +459,7 @@ class PushNotificationService {
       );
       if (token == null || token.isEmpty) return false;
       await _registerTokenWithRetry(token, userId);
+      unawaited(_syncVoipToken(userId));
       _ensureHeartbeatTimer();
       return true;
     } finally {
@@ -387,8 +467,30 @@ class PushNotificationService {
     }
   }
 
+  /// iOS: registers the PushKit token so closed iPhones ring via CallKit.
+  Future<void> _syncVoipToken(int userId) async {
+    if (AppFlavorContext.current != AppFlavor.user) return;
+    final voipToken = await IncomingCallService.voipPushToken();
+    if (voipToken == null || voipToken == _lastSyncedVoipToken) return;
+    try {
+      await _registerToken(voipToken, userId, platformOverride: 'ios_voip');
+      _lastSyncedVoipToken = voipToken;
+    } catch (e) {
+      _pushDebugLog('voip token registration failed: $e');
+    }
+  }
+
   Future<void> unregisterCurrentToken() async {
     _activeUserId = null;
+    final voipToken = _lastSyncedVoipToken;
+    _lastSyncedVoipToken = null;
+    if (voipToken != null) {
+      try {
+        await api.unregisterPushToken(token: voipToken);
+      } catch (_) {
+        // Best effort only.
+      }
+    }
     if (!appSupportsPushMessaging) return;
     if (!_firebaseReady) return;
     final accessToken = await store.readToken();
@@ -428,14 +530,22 @@ class PushNotificationService {
     );
   }
 
-  Future<void> _registerToken(String token, int userId) async {
+  Future<void> _registerToken(
+    String token,
+    int userId, {
+    String? platformOverride,
+  }) async {
     final clean = token.trim();
     if (clean.isEmpty) return;
     final now = DateTime.now();
     final recentlySynced =
         _lastSyncedAt != null &&
         now.difference(_lastSyncedAt!) < _tokenForceResyncInterval;
-    if (_lastSyncedToken == clean && recentlySynced) return;
+    if (platformOverride == null &&
+        _lastSyncedToken == clean &&
+        recentlySynced) {
+      return;
+    }
 
     // Avoid unauthenticated push-token registration requests.
     final accessToken = await store.readToken();
@@ -469,11 +579,12 @@ class PushNotificationService {
       userId: session.userId,
       sessionId: session.sessionId,
       appFlavor: session.appSurface,
-      platform: _platformName(),
+      platform: platformOverride ?? _platformName(),
       appVersion: '${packageInfo.version}+${packageInfo.buildNumber}',
       deviceModel: deviceModel,
       localeCode: await _currentLocaleCode(),
     );
+    if (platformOverride != null) return;
     _lastSyncedToken = clean;
     _lastSyncedAt = now;
     _pushDebugLog(
@@ -635,6 +746,13 @@ bool _isOrderRefreshPayload(NotificationTapPayload payload) {
 bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
   if (!appInAppCallsEnabled) return false;
   final target = (payload.target ?? '').trim().toLowerCase();
+  final callType = (payload.type ?? '').trim().toLowerCase();
+  // Only a live invite opens the call screen; missed/ended calls never do.
+  if (target == 'social_call' &&
+      callType.startsWith('social.call.') &&
+      callType != 'social.call.incoming') {
+    return false;
+  }
   if (target == 'social_call' ||
       target == 'courier_orders_current' ||
       target == 'delivery_order_offer' ||
@@ -654,7 +772,7 @@ bool _isUrgentRealtimePayload(NotificationTapPayload payload) {
   }
 
   final type = (payload.type ?? '').trim().toLowerCase();
-  return type.startsWith('social.call.') ||
+  return type == 'social.call.incoming' ||
       type == 'delivery_order_available' ||
       type == 'delivery_order_offer' ||
       type == 'courier_order_offer' ||

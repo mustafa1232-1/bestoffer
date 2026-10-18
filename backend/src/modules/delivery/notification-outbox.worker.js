@@ -57,43 +57,74 @@ function describeEvent(row) {
     case "COURIER_MULTI_STORE_DELIVERY_ASSIGNED":
       return {
         type: "delivery_grouped_assigned",
-        title: "تم إسناد طلب توصيل إليك",
-        body: `تم إسناد طلب من ${stores} متاجر إليك.`,
+        title: `تم إسناد توصيل من ${stores} متاجر إليك`,
+        body: `مهمة توصيل مجمّعة${payload.orderGroupId ? ` #${payload.orderGroupId}` : ""}: استلم من ${stores} متاجر وسلّمها للزبون.`,
+        textEn: {
+          title: `Multi-store delivery assigned (${stores} stores)`,
+          body: `Grouped delivery${payload.orderGroupId ? ` #${payload.orderGroupId}` : ""}: pick up from ${stores} stores.`,
+        },
+        target: "courier_orders_current",
         urgentChannelId: "maslaki_courier_assignments_urgent_v2",
         surface: "delivery",
       };
     case "COURIER_DELIVERY_ASSIGNED":
       return {
         type: "delivery_grouped_assigned",
-        title: "تم إسناد طلب توصيل إليك",
-        body: "تم إسناد طلب توصيل إليك.",
+        title: `تم إسناد طلب توصيل إليك${payload.orderGroupId ? ` #${payload.orderGroupId}` : ""}`,
+        body: "افتح الطلبات الحالية لمشاهدة المتجر وعنوان الزبون.",
+        textEn: {
+          title: `Delivery assigned to you${payload.orderGroupId ? ` #${payload.orderGroupId}` : ""}`,
+          body: "Open current orders to see the store and customer address.",
+        },
+        target: "courier_orders_current",
         urgentChannelId: "maslaki_courier_assignments_urgent_v2",
         surface: "delivery",
       };
     case "STORE_NEW_ORDER":
     case "COURIER_ASSIGNED_TO_STORE_ORDER":
     case "COURIER_ARRIVED_AT_STORE":
-    case "COURIER_COLLECTED_STORE_ORDER":
+    case "COURIER_COLLECTED_STORE_ORDER": {
+      const orderRef = payload.orderId ? ` #${payload.orderId}` : "";
+      const storeCopy = {
+        STORE_NEW_ORDER: [`طلب جديد${orderRef}`, "افتح الطلب لقبوله وبدء التحضير.", `New order${orderRef}`, "Open the order to accept it."],
+        COURIER_ASSIGNED_TO_STORE_ORDER: [`تم تعيين دلفري للطلب${orderRef}`, "الدلفري في الطريق لاستلام الطلب.", `Courier assigned to order${orderRef}`, "The courier is on the way to pick it up."],
+        COURIER_ARRIVED_AT_STORE: [`الدلفري وصل لاستلام الطلب${orderRef}`, "سلّم الطلب للدلفري.", `Courier arrived for order${orderRef}`, "Hand the order to the courier."],
+        COURIER_COLLECTED_STORE_ORDER: [`الدلفري استلم الطلب${orderRef}`, "الطلب خرج من المتجر باتجاه الزبون.", `Courier collected order${orderRef}`, "The order left the store."],
+      }[row.event_type];
       return {
         type: String(row.event_type).toLowerCase(),
-        title: "تحديث طلب المتجر",
-        body: "لديك تحديث جديد على طلب المتجر.",
+        title: storeCopy[0],
+        body: storeCopy[1],
+        textEn: { title: storeCopy[2], body: storeCopy[3] },
+        target: "owner_orders",
         urgentChannelId: "maslaki_store_orders_urgent_v2",
         surface: "store",
       };
-    case "MERCHANT_REVIEW_CREATED":
+    }
+    case "MERCHANT_REVIEW_CREATED": {
+      const rating = Number(payload.rating || 0);
       return {
         type: "merchant_review_created",
-        title: "Ù…Ø±Ø§Ø¬Ø¹Ø© Ù…ØªØ¬Ø± Ø¬Ø¯ÙŠØ¯Ø©",
-        body: "Ù„Ø¯ÙŠÙƒ Ù…Ø±Ø§Ø¬Ø¹Ø© Ù…ÙˆØ«Ù‚Ø© Ø¬Ø¯ÙŠØ¯Ø© Ù…Ù† Ø¹Ù…ÙŠÙ„.",
+        title: rating > 0 ? `تقييم جديد لمتجرك: ${rating}/5` : "تقييم جديد لمتجرك",
+        body: payload.orderId
+          ? `زبون قيّم الطلب #${payload.orderId}. افتح الطلب لمشاهدة التقييم.`
+          : "زبون أضاف تقييماً موثقاً لمتجرك.",
+        textEn: {
+          title: rating > 0 ? `New store review: ${rating}/5` : "New store review",
+          body: payload.orderId
+            ? `A customer reviewed order #${payload.orderId}.`
+            : "A customer left a verified review for your store.",
+        },
+        target: payload.orderId ? "merchant_order_details" : "merchant_reports",
         urgentChannelId: null,
         surface: "store",
       };
+    }
     default:
       return {
         type: String(row.event_type || "delivery_event").toLowerCase(),
-        title: "تحديث التوصيل",
-        body: "لديك تحديث جديد على التوصيل.",
+        title: "تحديث على مهمة التوصيل",
+        body: "افتح الطلبات الحالية لمشاهدة آخر تحديث.",
         urgentChannelId: null,
         surface: null,
       };
@@ -265,7 +296,8 @@ export async function drainNotificationOutbox({ limit = DEFAULT_BATCH_SIZE } = {
         type: copy.type,
         title: copy.title,
         body: copy.body,
-        orderId: null,
+        textEn: copy.textEn || null,
+        orderId: Number(payload.orderId) > 0 ? Number(payload.orderId) : null,
         merchantId: null,
         eventId: row.event_id,
         payload: {
@@ -276,6 +308,7 @@ export async function drainNotificationOutbox({ limit = DEFAULT_BATCH_SIZE } = {
           appSurface: expectedSurface,
           targetSurface,
           urgentChannelId: copy.urgentChannelId || undefined,
+          ...(copy.target && !payload.target ? { target: copy.target } : {}),
           requiresAction: true,
           targetEntityType: row.target_entity_type,
           targetEntityId: Number(row.target_entity_id) || null,

@@ -1,3 +1,5 @@
+import { isGenericNotificationKey } from "./notification.i18n.js";
+
 function normalizeLocaleCode(raw) {
   return String(raw || "").trim().toLowerCase().startsWith("en") ? "en" : "ar";
 }
@@ -410,6 +412,24 @@ export function renderNotificationPiece({
   return interpolate(template, defaultArgsForLocale(normalizedLocale, args));
 }
 
+function readLocalizedOverride(payload, locale) {
+  if (normalizeLocaleCode(locale) !== "en") return {};
+  const raw = payload?.textEn;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const pick = (value) => {
+    const text = String(value ?? "").trim();
+    return text || null;
+  };
+  return { title: pick(raw.title), body: pick(raw.body) };
+}
+
+function renderPieceWithSpecificFallback({ locale, key, args, fallback }) {
+  const hasFallback = String(fallback ?? "").trim().length > 0;
+  // A stored category-level key (legacy rows) must not hide the specific copy.
+  if (hasFallback && isGenericNotificationKey(key)) return String(fallback);
+  return renderNotificationPiece({ locale, key, args, fallback });
+}
+
 export function renderNotificationTextForLocale({
   locale,
   title,
@@ -420,18 +440,19 @@ export function renderNotificationTextForLocale({
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? payload
       : {};
+  const override = readLocalizedOverride(normalizedPayload, locale);
   const renderedTitle =
-    renderNotificationPiece({
+    renderPieceWithSpecificFallback({
       locale,
       key: normalizedPayload.i18nTitleKey,
       args: normalizedPayload.i18nTitleArgs,
-      fallback: title,
+      fallback: override.title || title,
     }) || interpolate(TEMPLATES[normalizeLocaleCode(locale)]["notifications.generic.title"]);
-  const renderedBody = renderNotificationPiece({
+  const renderedBody = renderPieceWithSpecificFallback({
     locale,
     key: normalizedPayload.i18nBodyKey,
     args: normalizedPayload.i18nBodyArgs,
-    fallback: body,
+    fallback: override.body || body,
   });
   return {
     title: renderedTitle,

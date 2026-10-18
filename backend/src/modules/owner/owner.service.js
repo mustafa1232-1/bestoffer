@@ -2536,8 +2536,8 @@ export async function markOrderItemUnavailable(
     await createNotification({
       userId: target.delivery_user_id,
       type: "delivery_order_invoice_updated",
-      title: "Order invoice updated",
-      body: `Removed ${target.product_name} from order #${target.order_id} because it is unavailable.`,
+      title: `تعديل فاتورة الطلب #${target.order_id}`,
+      body: `${target.merchant_name || "المتجر"} حذف ${target.product_name} لعدم توفره. المبلغ الجديد ${Number(target.next_total_amount || 0).toFixed(0)} د.ع.`,
       orderId: Number(target.order_id),
       merchantId: Number(target.merchant_id),
       payload: {
@@ -2548,6 +2548,10 @@ export async function markOrderItemUnavailable(
         previousTotalAmount: Number(target.previous_total_amount || 0),
         nextTotalAmount: Number(target.next_total_amount || 0),
         target: "delivery_order_detail",
+        textEn: {
+          title: `Order #${target.order_id} invoice updated`,
+          body: `${target.merchant_name || "The store"} removed ${target.product_name} (unavailable). New total ${Number(target.next_total_amount || 0).toFixed(0)} IQD.`,
+        },
       },
     });
     invalidateOrderListCacheForUser(target.delivery_user_id);

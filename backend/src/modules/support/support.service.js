@@ -118,7 +118,123 @@ function supportPayload(ticketId, extra = {}) {
   };
 }
 
-function notifyTicketUser(ticket, type, title, body, extra = {}) {
+const TICKET_STATUS_LABELS = {
+  OPEN: { ar: "مفتوحة", en: "open" },
+  IN_PROGRESS: { ar: "قيد المعالجة", en: "in progress" },
+  WAITING_FOR_CUSTOMER: { ar: "بانتظار ردك", en: "waiting for your reply" },
+  ESCALATED: { ar: "مُصعّدة لفريق أعلى", en: "escalated" },
+  RESOLVED: { ar: "تم الحل", en: "resolved" },
+  CLOSED: { ar: "مغلقة", en: "closed" },
+  REOPENED: { ar: "أُعيد فتحها", en: "reopened" },
+};
+
+function clip(value, max = 90) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trim()}…`;
+}
+
+function withoutTextEn({ title, body }) {
+  return { title, body };
+}
+
+function ticketRef(ticket) {
+  return String(ticket?.ticket_number || `#${Number(ticket?.id) || ""}`).trim();
+}
+
+function ticketSubject(ticket) {
+  return clip(ticket?.subject || ticket?.description || "", 80) || "بدون موضوع";
+}
+
+/**
+ * Specific, human copy for every support notification: the ticket number and
+ * subject always appear so the reader knows exactly which ticket it is about.
+ * Returns { title, body, textEn } (Arabic title/body + English copy).
+ */
+export function supportNotificationCopy(kind, ticket, details = {}) {
+  const ref = ticketRef(ticket);
+  const subject = ticketSubject(ticket);
+  const urgent = String(ticket?.priority || "").toLowerCase() === "urgent";
+  const preview = clip(details.message, 110);
+  const reason = clip(details.reason, 110);
+  const team = String(details.team || "").trim();
+  const status = TICKET_STATUS_LABELS[String(details.status || "").toUpperCase()];
+  const copy = {
+    new_ticket: {
+      ar: [
+        urgent ? `🚨 تذكرة دعم عاجلة: ${subject}` : `تذكرة دعم جديدة ${ref}: ${subject}`,
+        urgent ? `${ref} — تحتاج تدخل فوري.` : `افتح التذكرة ${ref} للرد على صاحبها.`,
+      ],
+      en: [
+        urgent ? `🚨 Urgent support ticket: ${subject}` : `New support ticket ${ref}: ${subject}`,
+        urgent ? `${ref} needs immediate attention.` : `Open ticket ${ref} to reply.`,
+      ],
+    },
+    assigned: {
+      ar: [`تم إسناد التذكرة ${ref} إليك`, subject],
+      en: [`Ticket ${ref} was assigned to you`, subject],
+    },
+    customer_reply: {
+      ar: [`رد جديد من صاحب التذكرة ${ref}`, preview || subject],
+      en: [`New customer reply on ticket ${ref}`, preview || subject],
+    },
+    agent_reply: {
+      ar: [`رد فريق الدعم على تذكرتك ${ref}`, preview || subject],
+      en: [`Support replied to your ticket ${ref}`, preview || subject],
+    },
+    agent_joined: {
+      ar: [`موظف الدعم انضم لتذكرتك ${ref}`, `«${subject}» — فريق الدعم معك الآن بالمحادثة.`],
+      en: [`A support agent joined ticket ${ref}`, `"${subject}" — support is now in the conversation.`],
+    },
+    status_changed: {
+      ar: [`تحديث على تذكرتك ${ref}`, `حالة «${subject}» صارت: ${status?.ar || "محدّثة"}.`],
+      en: [`Update on your ticket ${ref}`, `"${subject}" is now ${status?.en || "updated"}.`],
+    },
+    resolved: {
+      ar: [`تم حل تذكرتك ${ref}`, `«${subject}» — أكّد الحل أو أعد فتح التذكرة إذا المشكلة باقية.`],
+      en: [`Your ticket ${ref} was resolved`, `"${subject}" — confirm the fix or reopen the ticket.`],
+    },
+    reopened: {
+      ar: [`أُعيد فتح التذكرة ${ref}`, reason || subject],
+      en: [`Ticket ${ref} was reopened`, reason || subject],
+    },
+    rated: {
+      ar: [`تقييم ${details.rating}/5 للتذكرة ${ref}`, subject],
+      en: [`Ticket ${ref} rated ${details.rating}/5`, subject],
+    },
+    escalated: {
+      ar: [`تم تصعيد التذكرة ${ref}`, team ? `«${subject}» حُوّلت إلى فريق ${team}.` : subject],
+      en: [`Ticket ${ref} was escalated`, team ? `"${subject}" moved to the ${team} team.` : subject],
+    },
+    sla_warning: {
+      ar: [`التذكرة ${ref} قريبة من تجاوز المهلة`, `«${subject}» — رد قبل ما تتجاوز مهلة الخدمة.`],
+      en: [`Ticket ${ref} is close to its SLA`, `"${subject}" — reply before the SLA is breached.`],
+    },
+    sla_breached: {
+      ar: [`التذكرة ${ref} تجاوزت المهلة`, team ? `«${subject}» صُعّدت إلى فريق ${team}.` : subject],
+      en: [`Ticket ${ref} breached its SLA`, team ? `"${subject}" escalated to the ${team} team.` : subject],
+    },
+    callback_scheduled: {
+      ar: [`موعد اتصال بصاحب التذكرة ${ref}`, details.when ? `${subject} — الموعد: ${details.when}` : subject],
+      en: [`Callback scheduled for ticket ${ref}`, details.when ? `${subject} — at ${details.when}` : subject],
+    },
+  }[kind];
+  if (!copy) {
+    return {
+      title: `تحديث على التذكرة ${ref}`,
+      body: subject,
+      textEn: { title: `Update on ticket ${ref}`, body: subject },
+    };
+  }
+  return {
+    title: copy.ar[0],
+    body: copy.ar[1],
+    textEn: { title: copy.en[0], body: copy.en[1] },
+  };
+}
+
+function notifyTicketUser(ticket, type, copy, extra = {}) {
+  const { title, body, textEn } = copy;
   queueNotification({
     userId: Number(ticket.user_id),
     type,
@@ -128,6 +244,7 @@ function notifyTicketUser(ticket, type, title, body, extra = {}) {
       targetModule: "customer",
       roleScope: "customer",
       ...extra,
+      textEn,
     }),
   });
   queueRealtime(Number(ticket.user_id), "support_ticket", {
@@ -138,7 +255,8 @@ function notifyTicketUser(ticket, type, title, body, extra = {}) {
   });
 }
 
-function notifyAssignee(ticket, type, title, body, extra = {}) {
+function notifyAssignee(ticket, type, copy, extra = {}) {
+  const { title, body, textEn } = copy;
   if (!ticket.assigned_user_id) return;
   queueNotification({
     userId: Number(ticket.assigned_user_id),
@@ -149,6 +267,7 @@ function notifyAssignee(ticket, type, title, body, extra = {}) {
       targetModule: "admin",
       roleScope: "admin",
       ...extra,
+      textEn,
     }),
   });
   queueRealtime(Number(ticket.assigned_user_id), "support_ticket", {
@@ -159,7 +278,8 @@ function notifyAssignee(ticket, type, title, body, extra = {}) {
   });
 }
 
-function notifyAgents(agents, type, title, body, extra = {}) {
+function notifyAgents(agents, type, copy, extra = {}) {
+  const { title, body, textEn } = copy;
   for (const agent of agents || []) {
     const userId = Number(agent.agent_user_id || agent.user_id || agent.id);
     if (!userId) continue;
@@ -172,6 +292,7 @@ function notifyAgents(agents, type, title, body, extra = {}) {
         targetModule: "admin",
         roleScope: "admin",
         ...extra,
+        textEn,
       }),
     });
     queueRealtime(userId, "support_ticket", {
@@ -192,9 +313,9 @@ async function notifyBackofficeNewTicket(ticket) {
       recipientUserIds.map((userId) => ({
         userId,
         type: "admin_support_ticket_created",
-        title: "طلب دعم جديد",
-        body: `${ticketNumber}: ${ticket.subject}`,
+        ...withoutTextEn(supportNotificationCopy("new_ticket", ticket)),
         payload: {
+          textEn: supportNotificationCopy("new_ticket", ticket).textEn,
           ticketId,
           requestId: ticketId,
           target: "admin_support_ticket",
@@ -283,9 +404,9 @@ async function autoRouteTicket(ticket) {
   queueNotification({
     userId: Number(agent.agent_user_id),
     type: "support.ticket.auto_assigned",
-    title: "طلب دعم جديد",
-    body: `تم إسناد التذكرة ${ticket.ticket_number || ticket.id} إليك.`,
+    ...withoutTextEn(supportNotificationCopy("assigned", ticket)),
     payload: supportPayload(ticket.id, {
+      textEn: supportNotificationCopy("assigned", ticket).textEn,
       team,
       strategy: "auto_least_busy",
       targetModule: "admin",
@@ -653,9 +774,9 @@ export async function createCallback({
     queueNotification({
       userId: Number(callback.assigned_user_id),
       type: "support.callback.scheduled",
-      title: "Support callback scheduled",
-      body: `Ticket ${ticket.ticket_number || ticket.id}`,
+      ...withoutTextEn(supportNotificationCopy("callback_scheduled", ticket, { when: scheduledAt })),
       payload: supportPayload(ticket.id, {
+        textEn: supportNotificationCopy("callback_scheduled", ticket, { when: scheduledAt }).textEn,
         callbackId: Number(callback.id),
         scheduledAt,
         targetModule: "admin",
@@ -709,8 +830,7 @@ export async function processSupportSlaBatch({
     notifyAssignee(
       marked,
       "support.ticket.sla_warning",
-      "SLA warning",
-      `Ticket ${marked.ticket_number} is close to SLA breach.`,
+      supportNotificationCopy("sla_warning", marked),
       { warning: true }
     );
   }
@@ -745,8 +865,7 @@ export async function processSupportSlaBatch({
     notifyAgents(
       recipients,
       "support.ticket.sla_escalated",
-      "SLA breached",
-      `Ticket ${result.ticket.ticket_number} was escalated to ${escalationTeam}.`,
+      supportNotificationCopy("sla_breached", result.ticket, { team: escalationTeam }),
       {
         ticketId: Number(ticket.id),
         ticketNumber: result.ticket.ticket_number,
@@ -757,8 +876,7 @@ export async function processSupportSlaBatch({
     notifyAssignee(
       result.ticket,
       "support.ticket.sla_escalated",
-      "Ticket escalated",
-      `Ticket ${result.ticket.ticket_number} breached SLA.`,
+      supportNotificationCopy("sla_breached", result.ticket, { team: escalationTeam }),
       { escalationTeam, reason: ticket.sla_breach_type || "sla_breached" }
     );
   }
@@ -827,8 +945,7 @@ export async function addCustomerMessage({ ticketId, userId, body, attachments =
   notifyAssignee(
     ticket,
     "support.ticket.customer_reply",
-    "New customer reply",
-    `Ticket ${ticket.ticket_number}`,
+    supportNotificationCopy("customer_reply", ticket, { message: body }),
     { messageId: Number(message.id) }
   );
   return message;
@@ -861,8 +978,7 @@ export async function agentReply({
   notifyTicketUser(
     ticket,
     "support.ticket.agent_reply",
-    "Support replied",
-    `Ticket ${ticket.ticket_number}`,
+    supportNotificationCopy("agent_reply", ticket, { message: body }),
     { messageId: Number(message.id), firstResponse }
   );
   return { message, firstResponse };
@@ -896,8 +1012,7 @@ export async function joinConversation({ ticketId, agentUserId, agentRole }) {
   notifyTicketUser(
     ticket,
     "support.ticket.agent_joined",
-    "Support joined",
-    `Ticket ${ticket.ticket_number}`,
+    supportNotificationCopy("agent_joined", ticket),
     { messageId: Number(message.id) }
   );
   return message;
@@ -931,9 +1046,13 @@ export async function assignTicket({
     queueNotification({
       userId: Number(assigneeUserId),
       type: "support.ticket.assigned",
-      title: "Ticket assigned",
-      body: `Ticket ${ticket.ticket_number}`,
-      payload: supportPayload(ticketId, { team }),
+      ...withoutTextEn(supportNotificationCopy("assigned", ticket)),
+      payload: supportPayload(ticketId, {
+        team,
+        targetModule: "admin",
+        roleScope: "admin",
+        textEn: supportNotificationCopy("assigned", ticket).textEn,
+      }),
     });
     queueRealtime(Number(assigneeUserId), "support_ticket", {
       type: "support.ticket.assigned",
@@ -1005,8 +1124,7 @@ export async function transitionTicket({
   notifyTicketUser(
     { ...ticket, id: ticketId },
     "support.ticket.status_changed",
-    "Ticket updated",
-    `Ticket ${ticket.ticket_number}`,
+    supportNotificationCopy("status_changed", ticket, { status: toStatus }),
     { status: toStatus }
   );
   return withSla(result.ticket);
@@ -1050,8 +1168,7 @@ export async function escalateTicket({
   notifyAgents(
     recipients,
     "support.ticket.escalated",
-    "Ticket escalated",
-    `Ticket ${finalTicket.ticket_number} was escalated to ${escalationTeam}.`,
+    supportNotificationCopy("escalated", finalTicket, { team: escalationTeam }),
     {
       ticketId: Number(ticketId),
       ticketNumber: finalTicket.ticket_number,
@@ -1063,8 +1180,7 @@ export async function escalateTicket({
   notifyAssignee(
     finalTicket,
     "support.ticket.escalated",
-    "Ticket escalated",
-    `Ticket ${finalTicket.ticket_number} was escalated to ${escalationTeam}.`,
+    supportNotificationCopy("escalated", finalTicket, { team: escalationTeam }),
     { escalationTeam, reason }
   );
   return withSla(finalTicket);
@@ -1118,8 +1234,7 @@ export async function resolveTicket({
   notifyTicketUser(
     ticket,
     "support.ticket.resolved",
-    "Ticket resolved",
-    `Ticket ${ticket.ticket_number} is ready for confirmation or reopening.`,
+    supportNotificationCopy("resolved", ticket),
     { reason: reason || null }
   );
   return withSla(result.ticket);
@@ -1158,7 +1273,7 @@ export async function reopenTicket({ ticketId, actorUserId, actorRole, reason = 
   if (result.code !== "OK") {
     throw new AppError("TICKET_NOT_REOPENABLE", { status: 409 });
   }
-  notifyAssignee(ticket, "support.ticket.reopened", "Ticket reopened", `Ticket ${ticket.ticket_number}`, {
+  notifyAssignee(ticket, "support.ticket.reopened", supportNotificationCopy("reopened", ticket, { reason }), {
     reason: reason || null,
   });
   return withSla(result.ticket);
@@ -1200,7 +1315,7 @@ export async function rateTicket({
   if (result.code !== "OK") {
     throw new AppError("TICKET_RATE_FAILED", { status: 409 });
   }
-  notifyAssignee(ticket, "support.ticket.rated", "Ticket rated", `Ticket ${ticket.ticket_number}`, {
+  notifyAssignee(ticket, "support.ticket.rated", supportNotificationCopy("rated", ticket, { rating: Number(rating) }), {
     rating: Number(rating),
   });
   return withSla(result.ticket);

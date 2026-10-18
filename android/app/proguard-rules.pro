@@ -39,3 +39,10 @@
 
 # Flutter references Play Core deferred components even when they are not used.
 -dontwarn com.google.android.play.core.**
+
+# flutter_callkit_incoming (incoming-call UI): Call/Data models are (de)serialised
+# with Jackson by field name, and MainApplication registers a CallkitEventCallback.
+-keep class com.hiennv.flutter_callkit_incoming.** { *; }
+-keep class com.fasterxml.jackson.** { *; }
+-dontwarn com.fasterxml.jackson.**
+-keep class com.maslaki.user.MainApplication { *; }

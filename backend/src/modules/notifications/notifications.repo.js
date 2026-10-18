@@ -363,6 +363,8 @@ function resolveNotificationTarget(notification, orderId) {
     return orderId == null ? "notifications" : "order_tracking";
   }
 
+  if (type === "admin_support_ticket_created") return "admin_support_ticket";
+  if (type.startsWith("support.")) return "support_ticket";
   if (type.includes("admin_delivery_pending")) return "admin_merchants_pending";
   if (type.includes("pending_approval") && type.includes("admin")) {
     return "admin_merchants_pending";
@@ -381,6 +383,11 @@ function resolveNotificationTarget(notification, orderId) {
   if (type.startsWith("residence.change.")) {
     if (type.includes("request_submitted")) return "admin_residence_requests";
     return "residence_change_request";
+  }
+  if (type.startsWith("social.report.")) {
+    if (type.endsWith(".created")) return "admin_social_reports";
+    if (type.startsWith("social.report.story.")) return "social_story";
+    if (type.startsWith("social.report.post.")) return "social_post";
   }
   if (type.startsWith("social.capability.")) {
     return type.includes("restricted")
@@ -581,12 +588,20 @@ function buildMulticastMessage(
   // (Android focus; iOS incoming calls need CallKit/VoIP push.)
   const fullScreenTarget = String(target || "").trim().toLowerCase();
   const normalizedNotificationType = String(notification?.type || "").toLowerCase();
+  // Only the live invite rings; "call ended" is a silent data push that
+  // dismisses the ringing UI. Missed-call notifications are ordinary alerts.
+  const isCallDismissPush =
+    normalizedNotificationType === "social.call.ended" ||
+    normalizedNotificationType === "social.call.cancelled";
   const isSocialCallPush =
-    normalizedNotificationType.startsWith("social.call") ||
-    normalizedNotificationType.startsWith("social_call") ||
-    fullScreenTarget === "social_call";
+    !isCallDismissPush &&
+    (normalizedNotificationType === "social.call.incoming" ||
+      normalizedNotificationType === "social_call.incoming" ||
+      (fullScreenTarget === "social_call" &&
+        !normalizedNotificationType.startsWith("social.call.")));
   const isFullScreenPush =
     isSocialCallPush ||
+    isCallDismissPush ||
     normalizedNotificationType.startsWith("services.central.sos.") ||
     fullScreenTarget === "admin_emergency_request" ||
     fullScreenTarget === "customer_emergency_request" ||
@@ -679,14 +694,24 @@ function buildMulticastMessage(
         payload.numberOfStores == null ? "" : String(payload.numberOfStores),
       route: payload.route == null ? "" : String(payload.route),
       createdAt: payload.createdAt == null ? "" : String(payload.createdAt),
+      // Incoming-call contract (social.call.*): rendered by the native
+      // CallKit / full-screen call UI even when the app is closed.
+      callUuid: payload.callUuid == null ? "" : String(payload.callUuid),
+      callerName: payload.callerName == null ? "" : String(payload.callerName),
+      callerAvatarUrl:
+        payload.callerAvatarUrl == null ? "" : String(payload.callerAvatarUrl),
+      callActionToken:
+        payload.callActionToken == null ? "" : String(payload.callActionToken),
+      callExpiresAt:
+        payload.callExpiresAt == null ? "" : String(payload.callExpiresAt),
       urgentChannelId: isUrgentChannel ? androidChannelId : "",
     },
     android: {
       priority: "high",
       // A delayed call alert is worse than no alert: never ring for a call that
       // has already timed out or been answered on another device.
-      ttl: isSocialCallPush ? 45 * 1000 : 60 * 60 * 1000,
-      ...(isSocialCallPush && Number.isFinite(sessionId) && sessionId > 0
+      ttl: isSocialCallPush || isCallDismissPush ? 45 * 1000 : 60 * 60 * 1000,
+      ...((isSocialCallPush || isCallDismissPush) && Number.isFinite(sessionId) && sessionId > 0
         ? { collapseKey: `social-call:${sessionId}` }
         : {}),
       ...(isFullScreenPush
@@ -710,8 +735,8 @@ function buildMulticastMessage(
     },
     apns: {
       headers: {
-        "apns-priority": "10",
-        "apns-push-type": "alert",
+        "apns-priority": isCallDismissPush ? "5" : "10",
+        "apns-push-type": isCallDismissPush ? "background" : "alert",
         ...(isSocialCallPush
           ? {
               "apns-expiration": String(Math.floor(Date.now() / 1000) + 45),
@@ -726,7 +751,9 @@ function buildMulticastMessage(
       },
       payload: {
         aps: {
-          sound: isUrgentChannel ? "maslaki_attention.caf" : "default",
+          ...(isCallDismissPush
+            ? {}
+            : { sound: isUrgentChannel ? "maslaki_attention.caf" : "default" }),
           contentAvailable: true,
           ...(isSocialCallPush
             ? {
@@ -745,7 +772,7 @@ function buildMulticastMessage(
   };
 }
 
-async function deactivatePushTokensByValue(tokens = []) {
+export async function deactivatePushTokensByValue(tokens = []) {
   if (!Array.isArray(tokens) || tokens.length === 0) return;
   await q(
     `UPDATE user_push_token
@@ -821,9 +848,14 @@ async function dispatchPushNotification(notification) {
     return emptyDeliveryResult({ invalidUser: true });
   }
 
+  const excludedPlatforms = new Set(
+    (notification.excludePlatforms || []).map((value) => String(value).toLowerCase())
+  );
   const selected = selectPushTargetsForSurface(
     notification,
-    await listActivePushTargets(userId)
+    (await listActivePushTargets(userId)).filter(
+      (target) => !excludedPlatforms.has(String(target.platform || "").toLowerCase())
+    )
   );
   const { intendedSurface, targets } = selected;
   // §5: no token matching the intended surface → suppressed (not accepted).
@@ -1146,6 +1178,7 @@ function prepareNotificationInsertRow({
   orderId,
   merchantId,
   payload,
+  textEn = null,
 }) {
   const normalizedUserId = Number(userId);
   if (!Number.isInteger(normalizedUserId) || normalizedUserId <= 0) {
@@ -1156,9 +1189,15 @@ function prepareNotificationInsertRow({
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? { ...payload }
       : {};
+  // English copy of the specific title/body, rendered for `en` devices.
+  if (textEn && typeof textEn === "object" && !basePayload.textEn) {
+    basePayload.textEn = textEn;
+  }
   const localizedPayload = attachNotificationI18n({
     type,
     payload: basePayload,
+    title,
+    body,
   });
   const derivedTarget = resolveNotificationTarget(
     { type, payload: localizedPayload },
@@ -1178,6 +1217,7 @@ function prepareNotificationInsertRow({
   if (derivedRideId != null && localizedPayload.rideId == null) {
     localizedPayload.rideId = derivedRideId;
   }
+  attachDeepLinkEntity(localizedPayload, { type });
 
   return {
     userId: normalizedUserId,
@@ -1193,26 +1233,134 @@ function prepareNotificationInsertRow({
   };
 }
 
+/**
+ * Deep-link contract: every notification carries the entity it is about
+ * (`targetEntity` + `entityId`) next to `target` (the screen key), so a tap
+ * can open that exact order/ride/conversation/ticket in every role's app.
+ * Existing explicit values always win.
+ */
+const DEEP_LINK_ENTITY_FIELDS = [
+  ["ticketId", "support_ticket"],
+  ["orderId", "order"],
+  ["rideId", "taxi_ride"],
+  ["threadId", "social_thread"],
+  ["postId", "social_post"],
+  ["reelId", "social_reel"],
+  ["storyId", "social_story"],
+  ["applicationId", "job_application"],
+  ["jobId", "job"],
+  ["conversationId", "pharmacy_conversation"],
+  ["listingId", "listing"],
+];
+
+function positiveId(value) {
+  const n = Number.parseInt(String(value ?? ""), 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export function attachDeepLinkEntity(payload, { type = null } = {}) {
+  if (!payload || typeof payload !== "object") return payload;
+  const normalizedType = String(type || "").trim().toLowerCase();
+  if (normalizedType.startsWith("support.") && payload.ticketId == null) {
+    const ticketId = positiveId(payload.requestId ?? payload.entityId);
+    if (ticketId) payload.ticketId = ticketId;
+  }
+  if (payload.targetEntity && positiveId(payload.entityId)) return payload;
+  for (const [field, entity] of DEEP_LINK_ENTITY_FIELDS) {
+    const id = positiveId(payload[field]);
+    if (!id) continue;
+    payload.targetEntity ||= entity;
+    if (!positiveId(payload.entityId)) payload.entityId = id;
+    return payload;
+  }
+  if (normalizedType.startsWith("services.")) {
+    const requestId = positiveId(payload.requestId);
+    if (requestId) {
+      payload.targetEntity ||= "service_request";
+      if (!positiveId(payload.entityId)) payload.entityId = requestId;
+    }
+  }
+  return payload;
+}
+
+const ROLE_AUDIENCE_OVERRIDES = {
+  hr: { roleScope: "hr", targetModule: "hr" },
+  accountant: { roleScope: "accountant", targetModule: "accountant" },
+};
+
 export function buildNotificationAudienceMetadata(role) {
   const appSurface = resolveRoleAppSurface(role);
   if (!appSurface) return null;
+  const override = ROLE_AUDIENCE_OVERRIDES[String(role || "").trim().toLowerCase()];
   return {
     appSurface,
-    roleScope: {
-      user: "customer",
-      store: "merchant",
-      delivery: "courier",
-      taxi: "taxi_captain",
-      company: "admin",
-    }[appSurface],
-    targetModule: {
-      user: "customer",
-      store: "merchant",
-      delivery: "courier",
-      taxi: "taxi",
-      company: "admin",
-    }[appSurface],
+    roleScope:
+      override?.roleScope ||
+      {
+        user: "customer",
+        store: "merchant",
+        delivery: "courier",
+        taxi: "taxi_captain",
+        company: "admin",
+      }[appSurface],
+    targetModule:
+      override?.targetModule ||
+      {
+        user: "customer",
+        store: "merchant",
+        delivery: "courier",
+        taxi: "taxi",
+        company: "admin",
+      }[appSurface],
   };
+}
+
+const ROLE_SCOPE_SURFACES = {
+  customer: "user",
+  user: "user",
+  merchant: "store",
+  owner: "store",
+  courier: "delivery",
+  delivery: "delivery",
+  taxi: "taxi",
+  taxi_captain: "taxi",
+  admin: "company",
+  deputy_admin: "company",
+  super_admin: "company",
+};
+
+const MODULE_SURFACES = {
+  customer: "user",
+  merchant: "store",
+  courier: "delivery",
+  taxi: "taxi",
+  admin: "company",
+};
+
+/**
+ * Role isolation: the recipient's role decides the app surface, role scope and
+ * module of a notification. A caller that reused a customer-shaped payload for
+ * an owner/courier/admin (or the reverse) must not leak another app's routing,
+ * so conflicting hints are rewritten to the recipient's own audience.
+ */
+export function applyRecipientAudience(payload, metadata) {
+  if (!payload || !metadata) return payload;
+  payload.appSurface = metadata.appSurface;
+  const scopeSurface = ROLE_SCOPE_SURFACES[String(payload.roleScope || "").trim().toLowerCase()];
+  if (!payload.roleScope || (scopeSurface && scopeSurface !== metadata.appSurface)) {
+    payload.roleScope = metadata.roleScope;
+  }
+  const moduleSurface = MODULE_SURFACES[String(payload.targetModule || "").trim().toLowerCase()];
+  if (!payload.targetModule || (moduleSurface && moduleSurface !== metadata.appSurface)) {
+    payload.targetModule = metadata.targetModule;
+  }
+  const target = String(payload.target || "").trim().toLowerCase();
+  if (metadata.appSurface === "company" && target === "support_ticket") {
+    payload.target = "admin_support_ticket";
+  } else if (metadata.appSurface !== "company" && target === "admin_support_ticket") {
+    payload.target = "support_ticket";
+  }
+  return payload;
 }
 
 async function enrichPreparedNotificationAudiences(rows) {
@@ -1229,9 +1377,7 @@ async function enrichPreparedNotificationAudiences(rows) {
     const metadata = metadataByUserId.get(Number(row.userId));
     if (!metadata) return row;
     const payload = row.payloadJson ? JSON.parse(row.payloadJson) : {};
-    payload.appSurface = metadata.appSurface;
-    payload.roleScope ||= metadata.roleScope;
-    payload.targetModule ||= metadata.targetModule;
+    applyRecipientAudience(payload, metadata);
     return { ...row, payloadJson: JSON.stringify(payload) };
   });
 }
@@ -1270,6 +1416,44 @@ async function insertPreparedNotifications(rows) {
 }
 
 /**
+ * Push-only event (no inbox row): incoming-call invites and "call ended"
+ * dismissals. Goes through the same recipient-audience isolation and token
+ * surface filtering as stored notifications.
+ */
+export async function sendTransientPush({
+  userId,
+  type,
+  title,
+  body,
+  payload,
+  textEn = null,
+  excludePlatforms = [],
+}) {
+  const prepared = prepareNotificationInsertRow({
+    userId,
+    type,
+    title,
+    body,
+    orderId: null,
+    merchantId: null,
+    payload,
+    textEn,
+  });
+  if (!prepared) return emptyDeliveryResult({ invalidUser: true });
+  const [enriched] = await enrichPreparedNotificationAudiences([prepared]);
+  return dispatchNotificationWithResult({
+    id: null,
+    user_id: Number(enriched.userId),
+    type: enriched.type,
+    title: enriched.title,
+    body: enriched.body,
+    order_id: null,
+    payload: enriched.payloadJson ? JSON.parse(enriched.payloadJson) : {},
+    excludePlatforms,
+  });
+}
+
+/**
  * ينشئ إشعاراً واحداً ويطبّق enrichment موحداً للعنوان/النص/الـ i18n payload.
  */
 export async function createNotification({
@@ -1280,6 +1464,7 @@ export async function createNotification({
   orderId,
   merchantId,
   payload,
+  textEn = null,
 }) {
   const prepared = prepareNotificationInsertRow({
     userId,
@@ -1289,6 +1474,7 @@ export async function createNotification({
     orderId,
     merchantId,
     payload,
+    textEn,
   });
   if (!prepared) return null;
   const enriched = await enrichPreparedNotificationAudiences([prepared]);
@@ -1313,6 +1499,7 @@ export async function createNotificationAndAwaitDelivery({
   merchantId,
   payload,
   eventId,
+  textEn = null,
 }) {
   if (!eventId) {
     throw new Error("createNotificationAndAwaitDelivery requires eventId");
@@ -1325,6 +1512,7 @@ export async function createNotificationAndAwaitDelivery({
     orderId,
     merchantId,
     payload: { ...(payload || {}), eventId },
+    textEn,
   });
   if (!prepared) {
     return { notificationId: null, created: false, delivery: emptyDeliveryResult() };
@@ -1439,31 +1627,49 @@ export async function createManyNotifications(rows) {
   return created;
 }
 
+// Inbox isolation: a row tagged for another app surface (e.g. customer rows
+// kept after the account became a courier) never shows in this role's inbox.
+// Untagged legacy rows stay visible.
+const SURFACE_FILTER_SQL = `(payload->>'appSurface' IS NULL OR payload->>'appSurface' = $SURFACE)`;
+
+function surfaceFilter(appSurface, paramIndex) {
+  const surface = normalizeAppSurface(appSurface);
+  if (!surface) return { sql: "", params: [] };
+  return {
+    sql: `AND ${SURFACE_FILTER_SQL.replace("$SURFACE", `$${paramIndex}`)}`,
+    params: [surface],
+  };
+}
+
 export async function listUserNotifications(
   userId,
-  { limit = 50, unreadOnly = false } = {}
+  { limit = 50, unreadOnly = false, appSurface = null } = {}
 ) {
   const safeLimit = Math.max(1, Math.min(100, Number(limit) || 50));
+  const filter = surfaceFilter(appSurface, 3);
   const r = await q(
     `SELECT *
      FROM app_notification
      WHERE user_id = $1
        ${unreadOnly ? "AND is_read = FALSE" : ""}
+       ${filter.sql}
      ORDER BY created_at DESC, id DESC
      LIMIT $2`,
-    [Number(userId), safeLimit]
+    [Number(userId), safeLimit, ...filter.params]
   );
 
   return r.rows.map(toNotificationRow);
 }
 
-export async function countUnreadNotifications(userId) {
+export async function countUnreadNotifications(userId, { appSurface = null } = {}) {
+  const filter = surfaceFilter(appSurface, 2);
   const r = await q(
     `SELECT COUNT(*)::int AS unread_count
      FROM app_notification
      WHERE user_id = $1
-       AND is_read = FALSE`,
-    [Number(userId)]
+       AND is_read = FALSE
+       ${filter.sql}`,
+    [Number(userId), ...filter.params]
   );
 
   return Number(r.rows[0]?.unread_count || 0);
@@ -1670,6 +1876,7 @@ export async function listActivePushTokens(userId) {
       AND us.expires_at > NOW()
      WHERE upt.user_id = $1
        AND upt.is_active = TRUE
+       AND COALESCE(upt.platform, '') <> '${VOIP_PUSH_PLATFORM}'
      ORDER BY upt.last_seen_at DESC`,
     [Number(userId)]
   );
@@ -1679,7 +1886,41 @@ export async function listActivePushTokens(userId) {
     .filter(Boolean);
 }
 
+export const VOIP_PUSH_PLATFORM = "ios_voip";
+
 async function listActivePushTargets(userId) {
+  const r = await q(
+    `SELECT upt.push_token, upt.locale, upt.app_surface, upt.platform, u.role
+     FROM user_push_token upt
+     JOIN app_user u ON u.id = upt.user_id
+     JOIN user_session us
+       ON us.id = upt.auth_session_id
+      AND us.user_id = upt.user_id
+      AND us.revoked_at IS NULL
+      AND us.expires_at > NOW()
+     WHERE upt.user_id = $1
+       AND upt.is_active = TRUE
+       AND COALESCE(upt.platform, '') <> '${VOIP_PUSH_PLATFORM}'
+     ORDER BY upt.last_seen_at DESC`,
+    [Number(userId)]
+  );
+
+  return r.rows
+    .map((row) => ({
+      token: String(row.push_token || "").trim(),
+      locale: normalizeNotificationLocale(row.locale),
+      appSurface: normalizeAppSurface(row.app_surface),
+      platform: String(row.platform || "").trim().toLowerCase(),
+      recipientSurface: resolveRoleAppSurface(row.role),
+    }))
+    .filter((row) => row.token && row.appSurface && row.recipientSurface);
+}
+
+/**
+ * Active PushKit tokens for the recipient, restricted to their own app surface
+ * and live sessions (same isolation as FCM targets).
+ */
+export async function listActiveVoipTargets(userId) {
   const r = await q(
     `SELECT upt.push_token, upt.locale, upt.app_surface, u.role
      FROM user_push_token upt
@@ -1691,10 +1932,10 @@ async function listActivePushTargets(userId) {
       AND us.expires_at > NOW()
      WHERE upt.user_id = $1
        AND upt.is_active = TRUE
+       AND upt.platform = '${VOIP_PUSH_PLATFORM}'
      ORDER BY upt.last_seen_at DESC`,
     [Number(userId)]
   );
-
   return r.rows
     .map((row) => ({
       token: String(row.push_token || "").trim(),
@@ -1702,7 +1943,9 @@ async function listActivePushTargets(userId) {
       appSurface: normalizeAppSurface(row.app_surface),
       recipientSurface: resolveRoleAppSurface(row.role),
     }))
-    .filter((row) => row.token && row.appSurface && row.recipientSurface);
+    .filter(
+      (row) => row.token && row.appSurface && row.appSurface === row.recipientSurface
+    );
 }
 
 export async function deactivatePushTokensForSession(userId, sessionId) {
@@ -1727,6 +1970,10 @@ export async function deactivatePushTokensForUser(userId) {
 
 export const __notificationsRepoTestables = {
   buildMulticastMessage,
+  prepareNotificationInsertRow,
+  resolveNotificationTarget,
+  applyRecipientAudience,
+  attachDeepLinkEntity,
   buildNotificationAudienceMetadata,
   selectPushTargetsForSurface,
   notificationActionEventInsertSql,

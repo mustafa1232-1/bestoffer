@@ -112,9 +112,13 @@ export async function registerDelivery(dto) {
     approvers.map((approverId) => ({
       userId: Number(approverId),
       type: "admin_delivery_pending_approval",
-      title: "Delivery account pending approval",
-      body: `New delivery request: ${dto.fullName.trim()} (${dto.phone.trim()})`,
+      title: `طلب حساب دلفري جديد: ${dto.fullName.trim()}`,
+      body: `${dto.fullName.trim()} (${dto.phone.trim()}) سجّل كدلفري وينتظر موافقتك.`,
       payload: {
+        textEn: {
+          title: `New courier account request: ${dto.fullName.trim()}`,
+          body: `${dto.fullName.trim()} (${dto.phone.trim()}) registered as a courier and is waiting for approval.`,
+        },
         deliveryUserId: Number(user.id),
       },
     }))

@@ -106,6 +106,8 @@ android {
         targetSdk = maxOf(flutter.targetSdkVersion, 35)
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Custom Application: native decline of incoming calls while the app is closed.
+        manifestPlaceholders["applicationName"] = "com.maslaki.user.MainApplication"
         manifestPlaceholders["appLabel"] = flavorConfigs.getValue("user").appLabel
         manifestPlaceholders["deepLinkScheme"] = flavorConfigs.getValue("user").deepLinkScheme
     }

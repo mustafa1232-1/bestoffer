@@ -6,6 +6,8 @@ import 'package:app_links/app_links.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_callkit_incoming/entities/entities.dart';
+import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
@@ -13,6 +15,7 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
 
 import 'core/calls/in_app_call_overlay_coordinator.dart';
+import 'core/calls/incoming_call_service.dart';
 import 'core/constants/api.dart';
 import 'core/diagnostics/build_identity_guard.dart';
 import 'core/diagnostics/build_info.dart';
@@ -384,6 +387,7 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
   Timer? _socialCallReconnectTimer;
   NotificationTapPayload? _pendingTapPayload;
   _PendingIncomingSocialCall? _pendingIncomingSocialCall;
+  StreamSubscription<CallEvent?>? _callKitEventSub;
   int? _pushSyncedUserId;
   int? _socialCallLastEventId;
   bool _pushSyncInFlight = false;
@@ -439,9 +443,12 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
       _notificationTapSub = localNotifications.tapStream.listen(
         _handleNotificationTap,
       );
+      _bindCallKitEvents();
       await authBootstrap;
       if (!mounted) return;
       final auth = ref.read(authControllerProvider);
+      // Cold start from the lock-screen "Answer" button: join that call now.
+      unawaited(_restoreAcceptedCallKitCall());
       if (_hasVerifiedSession(auth)) {
         await _guardedStartupStep(
           'realtime_bind',
@@ -547,7 +554,53 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     _appLinkSub?.cancel();
     _socialCallSub?.cancel();
     _socialCallReconnectTimer?.cancel();
+    _callKitEventSub?.cancel();
     super.dispose();
+  }
+
+  /// Native Answer / Decline buttons (CallKit / Android call UI).
+  void _bindCallKitEvents() {
+    if (!IncomingCallService.supported || _callKitEventSub != null) return;
+    _callKitEventSub = FlutterCallkitIncoming.onEvent.listen((event) {
+      switch (event) {
+        case CallEventActionCallAccept(:final callKitParams):
+          final call = CallKitCallRef.fromParams(callKitParams);
+          if (call == null) return;
+          unawaited(
+            _openIncomingSocialCall(
+              threadId: call.threadId,
+              sessionId: call.sessionId,
+              remoteDisplayName: call.callerName,
+              initialAction: 'accept',
+              callUuid: call.callUuid,
+            ),
+          );
+        case CallEventActionCallDecline(:final callKitParams):
+          // Native layers post the same token when the app is closed; the
+          // server ignores the second decline.
+          final call = CallKitCallRef.fromParams(callKitParams);
+          unawaited(
+            IncomingCallService.declineWithToken(call?.callActionToken),
+          );
+        default:
+          break;
+      }
+    });
+  }
+
+  Future<void> _restoreAcceptedCallKitCall() async {
+    final calls = await IncomingCallService.activeCalls();
+    for (final call in calls) {
+      if (!call.accepted) continue;
+      await _openIncomingSocialCall(
+        threadId: call.threadId,
+        sessionId: call.sessionId,
+        remoteDisplayName: call.callerName,
+        initialAction: 'accept',
+        callUuid: call.callUuid,
+      );
+      return;
+    }
   }
 
   /// ÙŠØ¹ÙŠØ¯ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù… Ø¥Ù„Ù‰ Ø´Ø§Ø´Ø© Ø§Ù„Ø¯Ø®ÙˆÙ„ Ø¨Ø¹Ø¯ logout Ø£Ùˆ Ø§Ù†ØªÙ‡Ø§Ø¡ Ø§Ù„Ø¬Ù„Ø³Ø©.
@@ -987,15 +1040,35 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     required int threadId,
     int? sessionId,
     String? remoteDisplayName,
+    String? initialAction,
+    String? callUuid,
   }) async {
     final nav = _navigatorKey.currentState;
-    if (nav == null) {
+    if (nav == null || !_hasVerifiedSession(ref.read(authControllerProvider))) {
       _pendingIncomingSocialCall = _PendingIncomingSocialCall(
         threadId: threadId,
         sessionId: sessionId,
         remoteDisplayName: remoteDisplayName,
+        initialAction: initialAction,
+        callUuid: callUuid,
       );
       return;
+    }
+    var action = initialAction;
+    var nativeCallUuid = callUuid;
+    if (nativeCallUuid == null && sessionId != null) {
+      // The app opened while the native UI was ringing for this call: reuse an
+      // "Answer" already tapped there, otherwise stop the native ring because
+      // the in-app call screen takes over.
+      final native = (await IncomingCallService.activeCalls())
+          .where((call) => call.sessionId == sessionId)
+          .firstOrNull;
+      if (native != null && native.accepted) {
+        action ??= 'accept';
+        nativeCallUuid = native.callUuid;
+      } else {
+        await IncomingCallService.endCallForSession(sessionId);
+      }
     }
     final key = InAppCallOverlayCoordinator.socialKey(
       threadId: threadId,
@@ -1003,6 +1076,15 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
     );
     if (!InAppCallOverlayCoordinator.tryOpen(key)) return;
     try {
+      if (nativeCallUuid != null && action == 'accept') {
+        // Keeps the platform call (and its microphone foreground service /
+        // CallKit audio session) alive for the duration of the WebRTC call.
+        unawaited(
+          FlutterCallkitIncoming.setCallConnected(
+            nativeCallUuid,
+          ).catchError((_) {}),
+        );
+      }
       await nav.push(
         MaterialPageRoute<void>(
           builder: (_) => SocialCallScreen(
@@ -1010,11 +1092,15 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
             isCaller: false,
             initialSessionId: sessionId,
             remoteDisplayName: remoteDisplayName,
+            initialAction: action,
           ),
         ),
       );
     } finally {
       InAppCallOverlayCoordinator.close(key);
+      if (nativeCallUuid != null) {
+        unawaited(IncomingCallService.endCall(nativeCallUuid));
+      }
     }
   }
 
@@ -1070,6 +1156,8 @@ class _MaslakiAppState extends ConsumerState<MaslakiApp>
               threadId: pendingSocialCall.threadId,
               sessionId: pendingSocialCall.sessionId,
               remoteDisplayName: pendingSocialCall.remoteDisplayName,
+              initialAction: pendingSocialCall.initialAction,
+              callUuid: pendingSocialCall.callUuid,
             ),
           );
         });
@@ -1197,11 +1285,15 @@ class _PendingIncomingSocialCall {
   final int threadId;
   final int? sessionId;
   final String? remoteDisplayName;
+  final String? initialAction;
+  final String? callUuid;
 
   const _PendingIncomingSocialCall({
     required this.threadId,
     required this.sessionId,
     required this.remoteDisplayName,
+    this.initialAction,
+    this.callUuid,
   });
 }
 

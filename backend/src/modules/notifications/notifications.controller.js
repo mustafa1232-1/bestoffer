@@ -23,7 +23,7 @@ import {
  */
 export async function list(req, res, next) {
   try {
-    const data = await service.listUserNotifications(req.userId, req.query);
+    const data = await service.listUserNotifications(req.userId, req.query, req.userRole);
     res.json(data);
   } catch (e) {
     next(e);
@@ -35,7 +35,7 @@ export async function list(req, res, next) {
  */
 export async function unreadCount(req, res, next) {
   try {
-    const out = await service.unreadCount(req.userId);
+    const out = await service.unreadCount(req.userId, req.userRole);
     res.json(out);
   } catch (e) {
     next(e);

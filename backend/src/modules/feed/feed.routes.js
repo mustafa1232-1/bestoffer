@@ -6,11 +6,19 @@ import {
   imageUpload,
   mediaUpload,
 } from "../../shared/utils/upload.js";
+import { createRateLimiter } from "../../shared/middleware/rate-limit.middleware.js";
 import * as c from "./feed.controller.js";
 
 export const feedRouter = Router();
 
 feedRouter.post("/media/stream/webhook", c.streamWebhook);
+// Decline from the lock-screen call UI while the app is closed: authorised by
+// the short-lived signed token in the call push, not by a session.
+feedRouter.post(
+  "/chats/calls/decline",
+  createRateLimiter({ windowMs: 60_000, maxRequests: 30, keyPrefix: "social-call-decline" }),
+  c.declineCallByToken
+);
 // Numeric constraint: this public route is declared before the authenticated
 // block, so an unconstrained ":reelId" also swallowed GET /reels/explore
 // (reelId="explore" -> validatePostId fails -> 400) and the Reels page could

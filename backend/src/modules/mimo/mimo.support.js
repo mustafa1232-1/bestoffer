@@ -221,14 +221,33 @@ export async function escalate(deps, userId, { domain, problem, stepsTried = [],
   const admins = await deps.admins().catch(() => []);
   const recipients = new Set(admins);
   if (ticket.assigned_user_id) recipients.add(Number(ticket.assigned_user_id));
+  const ticketRef = ticket.ticket_number || `#${Number(ticket.id)}`;
+  const problemLine = clean(problem, 110);
+  const who = clean(userName, 40) || "مستخدم";
+  const whoEn = clean(userName, 40) || "A user";
+  const urgentCopy = priority === "urgent";
+  const copy = {
+    title: urgentCopy ? `🚨 تذكرة دعم عاجلة: ${problemLine}` : `تذكرة دعم من ميمو: ${problemLine}`,
+    body: `${ticketRef} — ${who} يحتاج مساعدة، ميمو ما گدر يحلها.`,
+    textEn: {
+      title: urgentCopy ? `🚨 Urgent support ticket: ${problemLine}` : `Support ticket from Mimo: ${problemLine}`,
+      body: `${ticketRef} — ${whoEn} needs help that Mimo could not solve.`,
+    },
+  };
   const payload = {
     ticketId: Number(ticket.id),
     ticketNumber: ticket.ticket_number,
+    requestId: Number(ticket.id),
+    entityId: Number(ticket.id),
+    targetEntity: "support_ticket",
+    target: "admin_support_ticket",
     targetModule: "admin",
     roleScope: "admin",
     route: "support_ticket",
     source: "mimo",
     priority,
+    requiresAction: urgentCopy,
+    textEn: copy.textEn,
   };
   await Promise.allSettled(
     [...recipients].map((adminId) =>
@@ -236,8 +255,8 @@ export async function escalate(deps, userId, { domain, problem, stepsTried = [],
         deps.notify({
           userId: adminId,
           type: "support.mimo.escalation",
-          title: priority === "urgent" ? "🚨 ميمو يحتاج مساعدتك فوراً" : "🤖 ميمو يحتاج مساعدتك",
-          body: `عمو مشكلة: ${clean(problem, 110)}`,
+          title: copy.title,
+          body: copy.body,
           payload,
         }),
         deps.realtime(adminId, "support_ticket", { type: "support.mimo.escalation", ...payload }),

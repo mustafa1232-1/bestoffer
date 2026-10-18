@@ -29,13 +29,13 @@ AppNotificationModel _notification({
 
 void main() {
   group('notification localizer', () {
-    test('uses i18n payload keys when present', () {
+    test('uses i18n payload keys when the stored text is empty', () {
       final l10n = lookupAppLocalizations(const Locale('en'));
       final result = resolveNotificationText(
         l10n: l10n,
         notification: _notification(
-          title: 'fallback title',
-          body: 'fallback body',
+          title: '',
+          body: null,
           payload: {
             'i18nTitleKey': 'notifications.chat.message.title',
             'i18nBodyKey': 'notifications.chat.message.body',
@@ -46,6 +46,25 @@ void main() {
 
       expect(result.title, 'New message');
       expect(result.body, 'Sara sent you a message.');
+    });
+
+    test('generic chat keys never replace the stored sender/preview', () {
+      final l10n = lookupAppLocalizations(const Locale('en'));
+      final result = resolveNotificationText(
+        l10n: l10n,
+        notification: _notification(
+          title: 'رسالة جديدة من سارة',
+          body: 'وين صرت؟',
+          payload: {
+            'i18nTitleKey': 'notifications.chat.message.title',
+            'i18nBodyKey': 'notifications.chat.message.body',
+            'i18nBodyArgs': {'senderName': 'Sara'},
+          },
+        ),
+      );
+
+      expect(result.title, 'رسالة جديدة من سارة');
+      expect(result.body, 'وين صرت؟');
     });
 
     test('falls back to raw title and body when no i18n keys exist', () {

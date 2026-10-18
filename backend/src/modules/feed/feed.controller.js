@@ -2019,6 +2019,20 @@ export async function sendThreadCallSignal(req, res, next) {
   }
 }
 
+/** Public: decline from the native call UI with the signed push token. */
+export async function declineCallByToken(req, res, next) {
+  try {
+    const token = String(req.body?.token || req.body?.callActionToken || "").trim();
+    if (!token || token.length > 512) {
+      return badRequest(res, [{ field: "token", message: "TOKEN_REQUIRED" }]);
+    }
+    const out = await service.declineThreadCallByToken({ token });
+    return res.json(out);
+  } catch (error) {
+    return next(error);
+  }
+}
+
 export async function endThreadCall(req, res, next) {
   try {
     const thread = validateThreadId(req.params.threadId);

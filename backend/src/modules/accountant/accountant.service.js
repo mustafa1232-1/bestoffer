@@ -367,9 +367,13 @@ export async function acknowledgePayrollBatch(actorOrUserId, batchId) {
       [...new Set(hrUsers)].map((userId) => ({
         userId,
         type: "hr.payroll.acknowledged",
-        title: "Payroll acknowledged",
-        body: `Accountant acknowledged payroll batch #${Number(updated.id)}.`,
+        title: `المحاسب استلم دفعة الرواتب #${Number(updated.id)}`,
+        body: `تم تأكيد استلام دفعة رواتب ${merchant.name} وبدأت المعالجة.`,
         payload: {
+          textEn: {
+            title: `Accountant acknowledged payroll batch #${Number(updated.id)}`,
+            body: `The payroll batch for ${merchant.name} is now being processed.`,
+          },
           target: "hr_dashboard",
           payrollBatchId: Number(updated.id),
           merchantId: Number(merchant.id),
@@ -410,9 +414,13 @@ export async function markPayrollItemPaid(actorOrUserId, itemId, { payoutNote })
         ? {
             userId: Number(out.employeeUserId),
             type: "employee.payroll.paid",
-            title: "Salary delivered",
-            body: `Your salary payment of ${Number(out.netSalary || 0).toFixed(0)} IQD was marked as paid.`,
+            title: `تم صرف راتبك: ${Number(out.netSalary || 0).toFixed(0)} د.ع`,
+            body: `سجّل محاسب ${merchant.name} راتبك كمدفوع.`,
             payload: {
+              textEn: {
+                title: `Salary paid: ${Number(out.netSalary || 0).toFixed(0)} IQD`,
+                body: `The ${merchant.name} accountant marked your salary as paid.`,
+              },
               target: "notifications",
               payrollItemId: Number(out.item.id || itemId),
               payrollBatchId: Number(out.batchId || 0),
@@ -424,8 +432,9 @@ export async function markPayrollItemPaid(actorOrUserId, itemId, { payoutNote })
         ? {
             userId: Number(merchant.owner_user_id),
             type: "owner.payroll.item_paid",
-            title: "Payroll item paid",
-            body: `A payroll item was paid for merchant ${merchant.name}.`,
+            title: `تم صرف راتب موظف في ${merchant.name}`,
+            body: `سجّل المحاسب صرف راتب ${Number(out.netSalary || 0).toFixed(0)} د.ع ضمن رواتب ${merchant.name}.`,
+            textEn: { title: "Payroll item paid", body: `A payroll item was paid for merchant ${merchant.name}.` },
             payload: {
               target: "owner_dashboard",
               payrollItemId: Number(out.item.id || itemId),
