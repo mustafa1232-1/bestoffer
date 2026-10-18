@@ -376,6 +376,7 @@ async function getCourierActiveOrderCountTx(client, courierUserId, { exceptOrder
 async function notifyMonitoringCourierChange({
   order,
   previousDriver = null,
+  previousDrivers = null,
   newDriver = null,
   activeOrderCountBefore = 0,
   removed = false,
@@ -386,9 +387,24 @@ async function notifyMonitoringCourierChange({
   const merchantId = Number(order.merchant_id);
   const merchantName = order.merchant_name || "المتجر";
 
-  if (previousDriver?.id && (!newDriver?.id || Number(previousDriver.id) !== Number(newDriver.id))) {
+  const removedDrivers = Array.from(
+    new Map(
+      (Array.isArray(previousDrivers) && previousDrivers.length > 0
+        ? previousDrivers
+        : previousDriver
+          ? [previousDriver]
+          : [])
+        .filter(
+          (driver) =>
+            Number(driver?.id || 0) > 0 &&
+            (!newDriver?.id || Number(driver.id) !== Number(newDriver.id)),
+        )
+        .map((driver) => [Number(driver.id), driver]),
+    ).values(),
+  );
+  for (const removedDriver of removedDrivers) {
     notifications.push({
-      userId: Number(previousDriver.id),
+      userId: Number(removedDriver.id),
       type: "delivery_order_removed",
       title: "تمت إزالة طلب من جدولك",
       body: `تمت إزالة الطلب #${orderId} من جدولك بواسطة متابعة الطلبات.`,
@@ -522,6 +538,8 @@ export async function assignOrderCourierForMonitoring({
          o.id,
          o.merchant_id,
          o.status,
+         o.order_group_id,
+         o.order_scope,
          o.customer_user_id,
          o.customer_block,
          o.delivery_user_id,
@@ -544,6 +562,45 @@ export async function assignOrderCourierForMonitoring({
     const previousDriver = previousDriverFromOrder(current);
 
     if (nextCourierId == null) {
+      if (
+        Number(current.order_group_id || 0) > 0 &&
+        String(current.order_scope || "") === "group_child"
+      ) {
+        const { setGroupedOrderCourierTx } = await import(
+          "../delivery/delivery-job.service.js"
+        );
+        const grouped = await setGroupedOrderCourierTx(client, {
+          orderGroupId: Number(current.order_group_id),
+          mode: "release",
+          assignedByStore: false,
+          reason: "MONITORING_REMOVED",
+        });
+        const pendingOrder = (
+          await client.query("SELECT * FROM customer_order WHERE id = $1", [id])
+        ).rows[0] || current;
+        await client.query("COMMIT");
+        const groupedPreviousDrivers = (grouped.previousCourierUserIds || []).map(
+          (driverId) => ({ id: Number(driverId) }),
+        );
+        notificationContext = {
+          order: { ...current, ...pendingOrder },
+          previousDriver,
+          previousDrivers: groupedPreviousDrivers,
+          removed: true,
+        };
+        return {
+          order: pendingOrder,
+          assignmentStatus: "PENDING_NO_DRIVER",
+          driver: null,
+          previousDriver,
+          previousDrivers: groupedPreviousDrivers,
+          removed: true,
+          grouped: true,
+          orderGroupId: Number(current.order_group_id),
+          deliveryJobId: grouped.job?.id ? Number(grouped.job.id) : null,
+        };
+      }
+
       await client.query(
         `UPDATE courier_assignment
          SET ended_at = COALESCE(ended_at, NOW()),
@@ -612,6 +669,11 @@ export async function assignOrderCourierForMonitoring({
     notificationContext = {
       order: { ...current, ...assignmentResult.order },
       previousDriver: assignmentResult.previousDriver || previousDriver,
+      previousDrivers:
+        assignmentResult.previousDrivers ||
+        (assignmentResult.previousDriver || previousDriver
+          ? [assignmentResult.previousDriver || previousDriver]
+          : []),
       newDriver: assignmentResult.driver || null,
       activeOrderCountBefore,
       removed: false,
@@ -622,8 +684,12 @@ export async function assignOrderCourierForMonitoring({
       assignmentStatus: assignmentResult.assignmentStatus,
       driver: assignmentResult.driver || null,
       previousDriver: assignmentResult.previousDriver || previousDriver,
+      previousDrivers: assignmentResult.previousDrivers || [],
       activeOrderCountBefore,
       assigned: assignmentResult.assignmentCreated,
+      grouped: Boolean(assignmentResult.grouped),
+      orderGroupId: assignmentResult.orderGroupId || null,
+      deliveryJobId: assignmentResult.deliveryJobId || null,
     };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});

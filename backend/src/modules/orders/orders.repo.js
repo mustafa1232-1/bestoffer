@@ -37,6 +37,7 @@ import { requestDeliveryAssignmentRecovery } from "./delivery-assignment.worker.
 import {
   ensureDeliveryJobForGroup,
   recomputeGroupReadiness,
+  setGroupedOrderCourierTx,
   settleGroupedJobIfChildrenTerminalTx,
 } from "../delivery/delivery-job.service.js";
 import {
@@ -5105,6 +5106,8 @@ export async function assignDeliveryToOwnerOrder(
       `SELECT
          o.id,
          o.merchant_id,
+         o.order_group_id,
+         o.order_scope,
          o.status,
          o.customer_user_id,
          o.customer_block,
@@ -5134,6 +5137,82 @@ export async function assignDeliveryToOwnerOrder(
     }
 
     if (deliveryUserId == null) {
+      if (
+        Number(current.order_group_id || 0) > 0 &&
+        String(current.order_scope || "") === "group_child"
+      ) {
+        const grouped = await setGroupedOrderCourierTx(client, {
+          orderGroupId: Number(current.order_group_id),
+          mode: "release",
+          assignedByStore: false,
+          reason: "MANUAL_REASSIGNMENT",
+        });
+        const pendingOrder = (
+          await client.query("SELECT * FROM customer_order WHERE id = $1", [
+            Number(orderId),
+          ])
+        ).rows[0] || current;
+        await client.query("COMMIT");
+
+        await createManyNotifications(
+          [
+            {
+              userId: pendingOrder.customer_user_id,
+              type: "customer_delivery_pending",
+              title: "بانتظار دلفري متاح",
+              body: `طلبات عملية الشراء #${current.order_group_id} بانتظار دلفري متاح حالياً.`,
+              orderId: pendingOrder.id,
+              merchantId: pendingOrder.merchant_id,
+              payload: {
+                orderId: pendingOrder.id,
+                orderGroupId: Number(current.order_group_id),
+                assignmentStatus: "PENDING_NO_DRIVER",
+                releaseReason: "MANUAL_REASSIGNMENT",
+              },
+            },
+            ...(grouped.previousCourierUserIds || []).map((driverId) => ({
+              userId: Number(driverId),
+              type: "delivery_order_removed",
+              title: "تم تحرير مجموعة الطلبات",
+              body: `تم تحرير طلبات عملية الشراء #${current.order_group_id} من جدولك.`,
+              orderId: pendingOrder.id,
+              merchantId: pendingOrder.merchant_id,
+              payload: {
+                orderId: pendingOrder.id,
+                orderGroupId: Number(current.order_group_id),
+                deliveryJobId: grouped.job?.id ? Number(grouped.job.id) : null,
+                target: "courier_orders_current",
+                targetModule: "courier",
+                target_module: "courier",
+                roleScope: "courier",
+                role_scope: "courier",
+                action: "refresh_orders",
+                releaseReason: "MANUAL_REASSIGNMENT",
+                requiresAction: true,
+              },
+            })),
+          ].filter(Boolean),
+        );
+
+        void requestDeliveryAssignmentRecovery({ limit: 25 }).catch((error) => {
+          console.error("[delivery-assignment] grouped recovery trigger failed", {
+            orderGroupId: Number(current.order_group_id),
+            error: error?.message || String(error),
+          });
+        });
+
+        return {
+          ...current,
+          ...pendingOrder,
+          deliveryAssignment: buildDeliveryAssignmentPresentation({
+            order: pendingOrder,
+          }),
+          driver: null,
+          grouped: true,
+          deliveryJobId: grouped.job?.id ? Number(grouped.job.id) : null,
+        };
+      }
+
       await client.query(
         `UPDATE courier_assignment
          SET ended_at = COALESCE(ended_at, NOW()),

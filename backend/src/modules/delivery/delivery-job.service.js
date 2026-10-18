@@ -283,7 +283,11 @@ export async function settleGroupedJobIfChildrenTerminalTx(client, orderGroupId)
 export async function assertCourierEligibleForAssignment(
   client,
   courierUserId,
-  { presenceFreshnessSec = DEFAULT_PRESENCE_FRESHNESS_SEC, ignoreDeliveryJobId = null } = {}
+  {
+    presenceFreshnessSec = DEFAULT_PRESENCE_FRESHNESS_SEC,
+    ignoreDeliveryJobId = null,
+    ignoreOrderGroupId = null,
+  } = {}
 ) {
   const uid = Number(courierUserId);
   // Lock the account + profile rows.
@@ -341,18 +345,29 @@ export async function assertCourierEligibleForAssignment(
   const legacyBusy =
     (
       await client.query(
-        `SELECT 1 FROM courier_assignment
-          WHERE courier_user_id=$1 AND order_id IS NOT NULL AND ended_at IS NULL
-            AND status IN ('pending','assigned','accepted') LIMIT 1`,
-        [uid]
+        `SELECT 1
+           FROM courier_assignment ca
+           JOIN customer_order o ON o.id = ca.order_id
+          WHERE ca.courier_user_id=$1
+            AND ca.order_id IS NOT NULL
+            AND ca.ended_at IS NULL
+            AND ca.status IN ('pending','assigned','accepted')
+            AND ($2::bigint IS NULL OR o.order_group_id IS DISTINCT FROM $2)
+          LIMIT 1`,
+        [uid, ignoreOrderGroupId == null ? null : Number(ignoreOrderGroupId)]
       )
     ).rows.length > 0 ||
     (
       await client.query(
         `SELECT 1 FROM customer_order
           WHERE delivery_user_id=$1 AND delivery_assignment_status='ASSIGNED'
-            AND order_group_id IS NULL LIMIT 1`,
-        [uid]
+            AND (
+              order_group_id IS NULL
+              OR $2::bigint IS NULL
+              OR order_group_id IS DISTINCT FROM $2
+            )
+          LIMIT 1`,
+        [uid, ignoreOrderGroupId == null ? null : Number(ignoreOrderGroupId)]
       )
     ).rows.length > 0;
   if (legacyBusy) fail("busy_legacy_order");
@@ -510,7 +525,12 @@ export async function selectEligibleCourier(
  */
 export async function assignDeliveryJobTx(
   client,
-  { orderGroupId, courierUserId, idempotencyKey = null }
+  {
+    orderGroupId,
+    courierUserId,
+    idempotencyKey = null,
+    assignmentType = "grouped",
+  }
 ) {
   const job = (
     await client.query(
@@ -574,11 +594,14 @@ export async function assignDeliveryJobTx(
   await client.query(
     `UPDATE customer_order
         SET delivery_user_id=$2, delivery_assignment_status='ASSIGNED',
-            courier_assigned_at=NOW()
+            courier_assigned_at=COALESCE(courier_assigned_at, NOW()),
+            courier_requested_at=COALESCE(courier_requested_at, NOW()),
+            updated_at=NOW()
       WHERE id IN (
         SELECT child_order_id FROM delivery_pickup_stop
-         WHERE delivery_job_id=$1 AND pickup_status<>'CANCELLED')`,
-    [job.id, courierUserId]
+         WHERE delivery_job_id=$1 AND pickup_status<>'CANCELLED')
+        AND status::text <> ALL($3::text[])`,
+    [job.id, courierUserId, TERMINAL_CHILD_STATUSES]
   );
 
   // §6: the ONE authoritative grouped courier_assignment (order_id NULL,
@@ -594,11 +617,16 @@ export async function assignDeliveryJobTx(
       `INSERT INTO courier_assignment
          (delivery_job_id, courier_user_id, assignment_type, status,
           assigned_at, requested_at, requested_by_user_id, correlation_id)
-       VALUES ($1,$2,'grouped','assigned',NOW(),NOW(),NULL,$3)
+       VALUES ($1,$2,$4,'assigned',NOW(),NOW(),NULL,$3)
        ON CONFLICT (delivery_job_id) WHERE delivery_job_id IS NOT NULL AND ended_at IS NULL
        DO NOTHING
        RETURNING id`,
-      [job.id, courierUserId, `job-${job.id}-assign`]
+      [
+        job.id,
+        courierUserId,
+        `job-${job.id}-assign`,
+        String(assignmentType || "grouped").slice(0, 30),
+      ]
     )
   ).rows[0];
   let assignmentId;
@@ -790,6 +818,351 @@ export async function runGroupedAssignmentForGroupTx(
     [orderGroupId]
   );
   return { status: "PENDING_NO_DRIVER", excluded: lastExcluded };
+}
+
+const GROUP_ASSIGNMENT_TERMINAL_STATUSES = new Set([
+  "COMPLETED",
+  "CANCELLED",
+  "FAILED",
+]);
+
+async function closeLegacyChildAssignmentsTx(
+  client,
+  orderGroupId,
+  reason = "GROUP_ASSIGNMENT_SYNC",
+) {
+  const closed = await client.query(
+    `UPDATE courier_assignment ca
+        SET ended_at = COALESCE(ca.ended_at, NOW()),
+            ended_reason = COALESCE(ca.ended_reason, $2),
+            responded_at = COALESCE(ca.responded_at, NOW()),
+            status = CASE
+              WHEN ca.status IN ('pending','assigned','accepted') THEN 'released'
+              ELSE ca.status
+            END
+       FROM customer_order o
+      WHERE o.id = ca.order_id
+        AND o.order_group_id = $1
+        AND ca.ended_at IS NULL
+      RETURNING ca.courier_user_id`,
+    [Number(orderGroupId), String(reason || "GROUP_ASSIGNMENT_SYNC").slice(0, 60)],
+  );
+  return closed.rows
+    .map((row) => Number(row.courier_user_id || 0))
+    .filter((id) => Number.isFinite(id) && id > 0);
+}
+
+async function syncGroupedChildCourierTx(
+  client,
+  {
+    orderGroupId,
+    courierUserId,
+    assignedByStore = false,
+    pending = false,
+  },
+) {
+  return client.query(
+    `UPDATE customer_order
+        SET delivery_user_id = $2,
+            delivery_assignment_status = CASE
+              WHEN $3::boolean THEN 'PENDING_NO_DRIVER'
+              ELSE 'ASSIGNED'
+            END,
+            courier_assigned_at = CASE
+              WHEN $3::boolean THEN courier_assigned_at
+              ELSE COALESCE(courier_assigned_at, NOW())
+            END,
+            courier_requested_at = COALESCE(courier_requested_at, NOW()),
+            courier_source = 'app',
+            is_merchant_delivery = FALSE,
+            assigned_by_store = $4::boolean,
+            updated_at = NOW()
+      WHERE order_group_id = $1
+        AND status::text <> ALL($5::text[])
+      RETURNING id, merchant_id, customer_user_id, delivery_user_id,
+                delivery_assignment_status, status`,
+    [
+      Number(orderGroupId),
+      courierUserId == null ? null : Number(courierUserId),
+      Boolean(pending),
+      Boolean(assignedByStore),
+      TERMINAL_CHILD_STATUSES,
+    ],
+  );
+}
+
+async function loadGroupedAssignmentSnapshotTx(client, orderGroupId) {
+  const snapshot = await client.query(
+    `SELECT j.*,
+            ca.id AS assignment_id,
+            ca.status AS courier_assignment_status,
+            ca.assignment_type AS courier_assignment_type,
+            ca.assigned_at AS courier_assignment_assigned_at,
+            ca.ended_at AS courier_assignment_ended_at,
+            u.full_name AS courier_name,
+            u.phone AS courier_phone,
+            u.image_url AS courier_image_url,
+            cp.rating AS courier_rating,
+            cp.availability_status AS courier_availability_status,
+            cp.coverage_block AS courier_coverage_block,
+            cp.vehicle_type AS courier_vehicle_type
+       FROM delivery_job j
+       LEFT JOIN courier_assignment ca
+         ON ca.delivery_job_id = j.id
+        AND ca.ended_at IS NULL
+       LEFT JOIN app_user u ON u.id = j.delivery_user_id
+       LEFT JOIN courier_profile cp ON cp.user_id = j.delivery_user_id
+      WHERE j.order_group_id = $1
+      ORDER BY ca.id DESC
+      LIMIT 1`,
+    [Number(orderGroupId)],
+  );
+  return snapshot.rows[0] || null;
+}
+
+/**
+ * Single entry point for every per-order screen that assigns, changes, or
+ * releases a courier for a multi-store checkout. The order group is the unit of
+ * work: one delivery_job, one open courier_assignment, and the same courier
+ * mirrored to every active child order in the transaction.
+ */
+export async function setGroupedOrderCourierTx(
+  client,
+  {
+    orderGroupId,
+    courierUserId = null,
+    mode = courierUserId == null ? "auto" : "assign",
+    replaceExistingAssignment = false,
+    assignedByStore = false,
+    reason = "GROUP_ASSIGNMENT_SYNC",
+    assignmentType = "grouped",
+  } = {},
+) {
+  const groupId = Number(orderGroupId);
+  if (!Number.isFinite(groupId) || groupId <= 0) {
+    throw new AppError("ORDER_GROUP_NOT_FOUND", { status: 404 });
+  }
+  if (!["auto", "assign", "release"].includes(mode)) {
+    throw new AppError("INVALID_GROUP_ASSIGNMENT_MODE", { status: 400 });
+  }
+
+  await ensureDeliveryJobForGroup(client, groupId);
+  const readiness = await recomputeGroupReadiness(client, groupId);
+  const job = (
+    await client.query(
+      "SELECT * FROM delivery_job WHERE order_group_id=$1 FOR UPDATE",
+      [groupId],
+    )
+  ).rows[0];
+  if (!job) throw new AppError("DELIVERY_JOB_NOT_FOUND", { status: 404 });
+  if (
+    GROUP_ASSIGNMENT_TERMINAL_STATUSES.has(String(job.assignment_status)) ||
+    TERMINAL_LIFECYCLE.includes(String(job.lifecycle_status))
+  ) {
+    throw new AppError("DELIVERY_JOB_NOT_READY", {
+      status: 409,
+      details: { assignmentStatus: job.assignment_status },
+    });
+  }
+
+  const previousCourierIds = new Set();
+  if (Number(job.delivery_user_id || 0) > 0) {
+    previousCourierIds.add(Number(job.delivery_user_id));
+  }
+  const childCouriers = await client.query(
+    `SELECT DISTINCT delivery_user_id
+       FROM customer_order
+      WHERE order_group_id = $1
+        AND delivery_user_id IS NOT NULL`,
+    [groupId],
+  );
+  for (const row of childCouriers.rows) {
+    const id = Number(row.delivery_user_id || 0);
+    if (id > 0) previousCourierIds.add(id);
+  }
+
+  if (mode === "release") {
+    const closedLegacyIds = await closeLegacyChildAssignmentsTx(
+      client,
+      groupId,
+      reason,
+    );
+    closedLegacyIds.forEach((id) => previousCourierIds.add(id));
+    await client.query(
+      `UPDATE courier_assignment
+          SET ended_at = COALESCE(ended_at, NOW()),
+              ended_reason = COALESCE(ended_reason, $2),
+              responded_at = COALESCE(responded_at, NOW()),
+              status = CASE
+                WHEN status IN ('pending','assigned','accepted') THEN 'released'
+                ELSE status
+              END
+        WHERE delivery_job_id = $1
+          AND ended_at IS NULL`,
+      [Number(job.id), String(reason || "GROUP_ASSIGNMENT_RELEASED").slice(0, 60)],
+    );
+    const nextStatus = readiness === "READY_FOR_ASSIGNMENT"
+      ? "PENDING_NO_DRIVER"
+      : readiness;
+    await client.query(
+      `UPDATE delivery_job
+          SET delivery_user_id = NULL,
+              assignment_status = $2,
+              lifecycle_status = $2,
+              version = version + 1,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [Number(job.id), nextStatus],
+    );
+    const children = await syncGroupedChildCourierTx(client, {
+      orderGroupId: groupId,
+      courierUserId: null,
+      pending: true,
+      assignedByStore: false,
+    });
+    return {
+      status: nextStatus,
+      job: await loadGroupedAssignmentSnapshotTx(client, groupId),
+      children: children.rows,
+      previousCourierUserIds: [...previousCourierIds],
+      assignmentCreated: false,
+      alreadyAssigned: false,
+      released: true,
+    };
+  }
+
+  const requestedCourierId = Number(courierUserId || 0);
+  const hasRequestedCourier = Number.isFinite(requestedCourierId) && requestedCourierId > 0;
+
+  if (
+    job.assignment_status === "ASSIGNED" &&
+    Number(job.delivery_user_id || 0) > 0 &&
+    (
+      mode === "auto" ||
+      (!replaceExistingAssignment &&
+        Number(job.delivery_user_id) !== requestedCourierId) ||
+      Number(job.delivery_user_id) === requestedCourierId
+    )
+  ) {
+    const closedLegacyIds = await closeLegacyChildAssignmentsTx(
+      client,
+      groupId,
+      reason,
+    );
+    closedLegacyIds.forEach((id) => previousCourierIds.add(id));
+    const children = await syncGroupedChildCourierTx(client, {
+      orderGroupId: groupId,
+      courierUserId: Number(job.delivery_user_id),
+      assignedByStore,
+    });
+    return {
+      status: "ASSIGNED",
+      job: await loadGroupedAssignmentSnapshotTx(client, groupId),
+      children: children.rows,
+      previousCourierUserIds: [...previousCourierIds],
+      assignmentCreated: false,
+      alreadyAssigned: true,
+    };
+  }
+
+  if (mode === "assign") {
+    if (!hasRequestedCourier) {
+      throw new AppError("COURIER_NOT_FOUND", { status: 404 });
+    }
+    await assertCourierEligibleForAssignment(client, requestedCourierId, {
+      ignoreDeliveryJobId: Number(job.id),
+      ignoreOrderGroupId: groupId,
+    });
+  }
+
+  const closedLegacyIds = await closeLegacyChildAssignmentsTx(
+    client,
+    groupId,
+    reason,
+  );
+  closedLegacyIds.forEach((id) => previousCourierIds.add(id));
+
+  if (job.assignment_status === "ASSIGNED") {
+    await client.query(
+      `UPDATE courier_assignment
+          SET ended_at = COALESCE(ended_at, NOW()),
+              cancelled_at = COALESCE(cancelled_at, NOW()),
+              ended_reason = COALESCE(ended_reason, $2),
+              status = CASE
+                WHEN status IN ('pending','assigned','accepted') THEN 'released'
+                ELSE status
+              END
+        WHERE delivery_job_id = $1
+          AND ended_at IS NULL`,
+      [Number(job.id), String(reason || "GROUP_COURIER_REASSIGNED").slice(0, 60)],
+    );
+    await client.query(
+      `UPDATE delivery_job
+          SET delivery_user_id = NULL,
+              assignment_status = 'READY_FOR_ASSIGNMENT',
+              lifecycle_status = 'READY_FOR_ASSIGNMENT',
+              version = version + 1,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [Number(job.id)],
+    );
+  }
+
+  await syncGroupedChildCourierTx(client, {
+    orderGroupId: groupId,
+    courierUserId: null,
+    pending: true,
+    assignedByStore: false,
+  });
+
+  let outcome;
+  if (mode === "assign") {
+    await client.query(
+      `UPDATE delivery_job
+          SET assignment_status = 'READY_FOR_ASSIGNMENT',
+              lifecycle_status = 'READY_FOR_ASSIGNMENT',
+              updated_at = NOW()
+        WHERE id = $1
+          AND delivery_user_id IS NULL`,
+      [Number(job.id)],
+    );
+    const assigned = await assignDeliveryJobTx(client, {
+      orderGroupId: groupId,
+      courierUserId: requestedCourierId,
+      assignmentType,
+    });
+    outcome = {
+      status: "ASSIGNED",
+      assignmentCreated: !assigned.alreadyAssigned,
+      alreadyAssigned: Boolean(assigned.alreadyAssigned),
+    };
+  } else {
+    outcome = await runGroupedAssignmentForGroupTx(client, groupId);
+  }
+
+  const snapshot = await loadGroupedAssignmentSnapshotTx(client, groupId);
+  const assignedCourierId = Number(snapshot?.delivery_user_id || 0);
+  const isAssigned =
+    String(snapshot?.assignment_status || outcome?.status) === "ASSIGNED" &&
+    assignedCourierId > 0;
+  const children = await syncGroupedChildCourierTx(client, {
+    orderGroupId: groupId,
+    courierUserId: isAssigned ? assignedCourierId : null,
+    assignedByStore,
+    pending: !isAssigned,
+  });
+
+  return {
+    status: isAssigned
+      ? "ASSIGNED"
+      : String(snapshot?.assignment_status || outcome?.status || readiness),
+    job: snapshot,
+    children: children.rows,
+    previousCourierUserIds: [...previousCourierIds],
+    assignmentCreated: Boolean(outcome?.assignmentCreated ?? outcome?.status === "ASSIGNED"),
+    alreadyAssigned: Boolean(outcome?.alreadyAssigned ?? outcome?.status === "ALREADY_ASSIGNED"),
+    released: false,
+  };
 }
 
 /**
@@ -1378,46 +1751,20 @@ export const reassignGroupedJob = withTx(async (client, { orderGroupId, newCouri
   if (Number(newCourierUserId) === Number(job.delivery_user_id)) {
     throw new AppError("SAME_COURIER_REASSIGNMENT", { status: 409 });
   }
-  await client.query(
-    "SELECT id FROM courier_assignment WHERE delivery_job_id=$1 AND ended_at IS NULL FOR UPDATE",
-    [job.id]
-  );
-  // §1A: prove the NEW courier is eligible (with row locks) BEFORE closing the
-  // old assignment. If ineligible this throws now, so the job keeps its old
-  // courier — a bad newCourierUserId never leaves the job driverless.
-  await assertCourierEligibleForAssignment(client, Number(newCourierUserId), {
-    ignoreDeliveryJobId: Number(job.id),
-  });
-  // 3-4. Close the old assignment with an audited ended reason.
-  await client.query(
-    `UPDATE courier_assignment
-        SET ended_at=NOW(), cancelled_at=NOW(), status='released', ended_reason=$2
-      WHERE delivery_job_id=$1 AND ended_at IS NULL`,
-    [job.id, String(reason).slice(0, 60)]
-  );
-  // 5-7. Release the job so assignDeliveryJobTx can re-assign it authoritatively.
-  await client.query(
-    `UPDATE delivery_job
-        SET delivery_user_id=NULL, assignment_status='READY_FOR_ASSIGNMENT',
-            lifecycle_status='READY_FOR_ASSIGNMENT', version=version+1, updated_at=NOW()
-      WHERE id=$1`,
-    [job.id]
-  );
-  // 8. Clear child compatibility fields for the old courier.
-  await client.query(
-    `UPDATE customer_order
-        SET delivery_user_id=NULL, delivery_assignment_status='PENDING_NO_DRIVER', updated_at=NOW()
-      WHERE order_group_id=$1 AND status NOT IN ('cancelled','delivered')`,
-    [Number(orderGroupId)]
-  );
-  // 9-11. Assign the new courier (creates assignment + child mirror + outbox).
-  const result = await assignDeliveryJobTx(client, {
+  const result = await setGroupedOrderCourierTx(client, {
     orderGroupId: Number(orderGroupId),
     courierUserId: Number(newCourierUserId),
+    mode: "assign",
+    replaceExistingAssignment: true,
+    assignedByStore: false,
+    reason,
+    assignmentType: "grouped_reassignment",
   });
   return {
     deliveryJobId: Number(job.id),
-    assignmentId: result.assignmentId,
+    assignmentId: result.job?.assignment_id
+      ? Number(result.job.assignment_id)
+      : null,
     courierUserId: Number(newCourierUserId),
   };
 });

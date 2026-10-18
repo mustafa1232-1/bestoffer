@@ -1166,6 +1166,158 @@ async function lockEligibleCourierCandidateTx(
   };
 }
 
+async function assignGroupedDeliveryOrderTx(
+  client,
+  current,
+  {
+    requestedByUserId = null,
+    assignmentType = "store_auto",
+    explicitCourierUserId = null,
+    replaceExistingAssignment = false,
+    changedByRole = "owner",
+    assignedByStore = true,
+    note = null,
+  } = {},
+) {
+  const { setGroupedOrderCourierTx } = await import(
+    "../delivery/delivery-job.service.js"
+  );
+  const explicitCourierId = Number(explicitCourierUserId || 0);
+  const mode = explicitCourierId > 0 ? "assign" : "auto";
+  const grouped = await setGroupedOrderCourierTx(client, {
+    orderGroupId: Number(current.order_group_id),
+    courierUserId: explicitCourierId > 0 ? explicitCourierId : null,
+    mode,
+    replaceExistingAssignment: Boolean(replaceExistingAssignment),
+    assignedByStore: Boolean(assignedByStore),
+    reason:
+      mode === "assign"
+        ? `GROUP_COURIER_CHANGED_BY_${String(changedByRole || "owner").toUpperCase()}`
+        : "GROUP_AUTO_ASSIGNMENT_SYNC",
+    assignmentType:
+      mode === "assign"
+        ? `grouped_${String(assignmentType || "manual")}`
+        : "grouped_auto",
+  });
+
+  const refreshed = (
+    await client.query(
+      `SELECT
+         o.*,
+         d.full_name AS delivery_full_name,
+         d.phone AS delivery_phone,
+         d.image_url AS delivery_image_url,
+         cp.driver_type AS delivery_driver_type,
+         cp.rating AS delivery_rating,
+         cp.availability_status AS delivery_availability_status,
+         cp.coverage_block AS delivery_coverage_block,
+         cp.vehicle_type AS delivery_vehicle_type,
+         m.name AS merchant_name
+       FROM customer_order o
+       JOIN merchant m ON m.id = o.merchant_id
+       LEFT JOIN app_user d ON d.id = o.delivery_user_id
+       LEFT JOIN courier_profile cp ON cp.user_id = d.id
+       WHERE o.id = $1`,
+      [Number(current.id)],
+    )
+  ).rows[0] || current;
+
+  const assignment = grouped.job?.assignment_id
+    ? {
+        id: Number(grouped.job.assignment_id),
+        delivery_job_id: Number(grouped.job.id),
+        courier_user_id: Number(grouped.job.delivery_user_id),
+        assignment_type: grouped.job.courier_assignment_type || "grouped",
+        status: grouped.job.courier_assignment_status || "assigned",
+        assigned_at: grouped.job.courier_assignment_assigned_at || null,
+        ended_at: grouped.job.courier_assignment_ended_at || null,
+      }
+    : null;
+  const presentation = buildDeliveryAssignmentPresentation({
+    order: {
+      ...refreshed,
+      delivery_assignment_id: assignment?.id || null,
+      delivery_assignment_row_status: assignment?.status || null,
+      delivery_assignment_assigned_at: assignment?.assigned_at || null,
+      delivery_assignment_ended_at: assignment?.ended_at || null,
+      delivery_assignment_ended_reason: null,
+    },
+    openAssignmentRow: assignment,
+    latestAssignmentRow: assignment,
+  });
+
+  const previousCourierIds = (grouped.previousCourierUserIds || [])
+    .map((id) => Number(id))
+    .filter(
+      (id) =>
+        Number.isFinite(id) &&
+        id > 0 &&
+        id !== Number(refreshed.delivery_user_id || 0),
+    );
+  let previousDrivers = [];
+  if (previousCourierIds.length > 0) {
+    previousDrivers = (
+      await client.query(
+        `SELECT id, full_name, phone, image_url
+           FROM app_user
+          WHERE id = ANY($1::bigint[])
+          ORDER BY id`,
+        [previousCourierIds],
+      )
+    ).rows.map((row) => ({
+      id: Number(row.id),
+      full_name: row.full_name || null,
+      phone: row.phone || null,
+      image_url: row.image_url || null,
+    }));
+  }
+
+  if (grouped.assignmentCreated) {
+    let changedByUserId = null;
+    if (requestedByUserId != null) {
+      const actor = await client.query(
+        "SELECT id FROM app_user WHERE id = $1 LIMIT 1",
+        [Number(requestedByUserId)],
+      );
+      changedByUserId = actor.rows[0]?.id
+        ? Number(actor.rows[0].id)
+        : null;
+    }
+    await insertStatusHistoryTx(client, {
+      orderId: Number(current.id),
+      oldStatus: String(current.status),
+      newStatus: String(current.status),
+      lifecycleOld: lifecycleFromStatus(current.status),
+      lifecycleNew: "DELIVERY_ASSIGNED",
+      changedByUserId,
+      changedByRole,
+      note,
+    });
+  }
+
+  const isAssigned =
+    grouped.status === DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED &&
+    Number(refreshed.delivery_user_id || 0) > 0;
+  return {
+    order: refreshed,
+    driver: isAssigned ? presentation.driver : null,
+    deliveryAssignment: presentation,
+    alreadyAssigned: Boolean(grouped.alreadyAssigned),
+    assignmentStatus: isAssigned
+      ? DELIVERY_ASSIGNMENT_STATUSES.ASSIGNED
+      : DELIVERY_ASSIGNMENT_STATUSES.PENDING_NO_DRIVER,
+    pendingNoDriver: !isAssigned,
+    assignmentCreated: Boolean(grouped.assignmentCreated),
+    assignment,
+    previousDriver: previousDrivers[0] || null,
+    previousDrivers,
+    grouped: true,
+    orderGroupId: Number(current.order_group_id),
+    deliveryJobId: grouped.job?.id ? Number(grouped.job.id) : null,
+    groupedAssignmentStatus: grouped.status,
+  };
+}
+
 export async function directAssignDeliveryOrderTx(
   client,
   {
@@ -1190,6 +1342,8 @@ export async function directAssignDeliveryOrderTx(
        o.id,
        o.merchant_id,
        o.status,
+       o.order_group_id,
+       o.order_scope,
        o.customer_user_id,
        o.customer_block,
        o.delivery_user_id,
@@ -1219,6 +1373,21 @@ export async function directAssignDeliveryOrderTx(
   const current = currentResult.rows[0] || null;
   if (!current) {
     throw new AppError("ORDER_NOT_FOUND", { status: 404 });
+  }
+
+  if (
+    Number(current.order_group_id || 0) > 0 &&
+    String(current.order_scope || "") === "group_child"
+  ) {
+    return assignGroupedDeliveryOrderTx(client, current, {
+      requestedByUserId,
+      assignmentType,
+      explicitCourierUserId,
+      replaceExistingAssignment,
+      changedByRole,
+      assignedByStore,
+      note,
+    });
   }
 
   const normalizedStatus = normalizeDeliveryAssignmentStatus(
