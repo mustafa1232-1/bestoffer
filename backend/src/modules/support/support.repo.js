@@ -152,6 +152,19 @@ export async function createTicket({
         [row.id, entityType, Number(entityId), entityLabel, Number(userId)]
       );
     }
+    if (description && String(description).trim()) {
+      await client.query(
+        `INSERT INTO support_ticket_message
+           (ticket_id, author_user_id, author_role, is_internal, body, attachments_json)
+         VALUES ($1,$2,$3,FALSE,$4,'[]'::jsonb)`,
+        [
+          row.id,
+          createdByUserId != null ? Number(createdByUserId) : Number(userId),
+          createdByUserId != null ? "agent" : "customer",
+          String(description).trim(),
+        ]
+      );
+    }
     const attachmentRows = await insertAttachments(client, {
       ticketId: row.id,
       uploadedByUserId: userId,
@@ -1067,6 +1080,11 @@ export async function listLinkSuggestionsForUser(userId, { limit = 5 } = {}) {
             COALESCE(customer_confirmed_at, delivered_at) AS ended_at
      FROM customer_order
      WHERE customer_user_id = $1
+       AND LOWER(status::text) NOT IN (
+         'delivered', 'delivered_by_courier', 'received_by_customer',
+         'completed', 'cancelled', 'cancelled_by_store',
+         'cancelled_by_admin', 'cancelled_by_customer'
+       )
      ORDER BY created_at DESC
      LIMIT $2`,
     [Number(userId), safeLimit]
@@ -1076,28 +1094,27 @@ export async function listLinkSuggestionsForUser(userId, { limit = 5 } = {}) {
             COALESCE(completed_at, cancelled_at) AS ended_at
      FROM taxi_ride_request
      WHERE customer_user_id = $1
+       AND LOWER(status::text) IN (
+         'searching', 'price_raise_required', 'captain_assigned',
+         'captain_arriving', 'ride_started'
+       )
      ORDER BY created_at DESC
      LIMIT $2`,
     [Number(userId), safeLimit]
   );
-  // حالات منتهية للطلب/الرحلة — ما عداها يُعتبر جارياً.
-  const ORDER_ENDED = new Set([
-    "delivered",
-    "delivered_by_courier",
-    "received_by_customer",
-    "completed",
-    "cancelled",
-    "cancelled_by_store",
-    "cancelled_by_admin",
-    "cancelled_by_customer",
-  ]);
-  const RIDE_ONGOING = new Set([
-    "searching",
-    "price_raise_required",
-    "captain_assigned",
-    "captain_arriving",
-    "ride_started",
-  ]);
+  const services = await q(
+    `SELECT id, request_code, status::text AS status, created_at
+     FROM service_requests
+     WHERE customer_user_id = $1
+       AND LOWER(status::text) IN (
+         'pending', 'awaiting_provider', 'accepted', 'scheduled', 'in_progress',
+         'pending_provider_confirmation', 'confirmed', 'provider_completed',
+         'disputed'
+       )
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [Number(userId), safeLimit]
+  );
   return {
     orders: orders.rows.map((o) => ({
       entityType: "order",
@@ -1107,7 +1124,7 @@ export async function listLinkSuggestionsForUser(userId, { limit = 5 } = {}) {
       total: o.total_amount,
       createdAt: o.created_at,
       endedAt: o.ended_at,
-      ongoing: !ORDER_ENDED.has(String(o.status || "")),
+      ongoing: true,
     })),
     rides: rides.rows.map((r) => ({
       entityType: "ride",
@@ -1117,7 +1134,18 @@ export async function listLinkSuggestionsForUser(userId, { limit = 5 } = {}) {
       route: [r.pickup_label, r.dropoff_label].filter(Boolean).join(" → "),
       createdAt: r.created_at,
       endedAt: r.ended_at,
-      ongoing: RIDE_ONGOING.has(String(r.status || "")),
+      ongoing: true,
+    })),
+    services: services.rows.map((request) => ({
+      entityType: "service",
+      entityId: Number(request.id),
+      label: request.request_code
+        ? `طلب خدمة ${request.request_code}`
+        : `طلب خدمة #${request.id}`,
+      status: request.status,
+      createdAt: request.created_at,
+      endedAt: null,
+      ongoing: true,
     })),
   };
 }

@@ -140,7 +140,9 @@ class CartState {
   }
 
   double get deliveryFee {
-    return storeSections.fold(0, (sum, section) => sum + section.deliveryFee);
+    return calcGroupedDeliveryFee(
+      storeSections.map((section) => section.deliveryFee),
+    );
   }
 
   double get total => subtotal + serviceFee + deliveryFee;

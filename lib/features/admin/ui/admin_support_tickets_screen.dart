@@ -589,14 +589,21 @@ class _AdminSupportTicketDetailsScreenState
           final data = snapshot.data!;
           final ticket = _map(data.ticket['ticket']);
           final order = _map(data.orderContext['order']);
-          final revisions = _list(
-            data.orderContext['revisions'],
-          ).map(OrderRevisionModel.fromJson).toList(growable: false);
+          final revisions = _list(data.orderContext['revisions'])
+              .map(OrderRevisionModel.fromJson)
+              .toList(growable: false);
           return ListView(
             padding: const EdgeInsets.all(12),
             children: [
               _TicketSummary(ticket: ticket),
               const SizedBox(height: 12),
+              if (_can('support.tickets.assign')) ...[
+                _LinkSuggestionsSection(
+                  ticketId: widget.ticketId,
+                  onLinked: () async => _refresh(),
+                ),
+                const SizedBox(height: 12),
+              ],
               _ConversationSection(
                 detail: data.ticket,
                 ticketId: widget.ticketId,
@@ -619,13 +626,6 @@ class _AdminSupportTicketDetailsScreenState
                   onChanged: () async => _refresh(),
                 ),
               ],
-              const SizedBox(height: 12),
-              if (_can('support.tickets.assign'))
-                _LinkSuggestionsSection(
-                  ticketId: widget.ticketId,
-                  onLinked: () async => _refresh(),
-                ),
-              const SizedBox(height: 12),
               _LinkedOrderSection(contextData: data.orderContext),
               const SizedBox(height: 12),
               OrderRevisionPanel(
@@ -676,9 +676,9 @@ class _AdminSupportTicketDetailsScreenState
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Row(
@@ -1098,7 +1098,10 @@ class _ConversationSection extends StatelessWidget {
                   body: '${n['body'] ?? ''}',
                   author: '${n['author_role'] ?? ''}',
                   internal: true,
-                  attachments: _attachmentsFor(int.tryParse('${n['id']}'), true),
+                  attachments: _attachmentsFor(
+                    int.tryParse('${n['id']}'),
+                    true,
+                  ),
                 ),
               const SizedBox(height: 4),
               Align(
@@ -1183,10 +1186,12 @@ class _ConversationScreenState extends ConsumerState<_ConversationScreen> {
     bool internal,
   ) {
     final key = internal ? 'internal_note_id' : 'message_id';
-    return _rows(d, 'attachments').where((a) {
-      final ref = int.tryParse('${a[key] ?? ''}');
-      return id != null && ref != null && ref == id;
-    }).toList(growable: false);
+    return _rows(d, 'attachments')
+        .where((a) {
+          final ref = int.tryParse('${a[key] ?? ''}');
+          return id != null && ref != null && ref == id;
+        })
+        .toList(growable: false);
   }
 
   Future<void> _send() async {
@@ -1196,7 +1201,11 @@ class _ConversationScreenState extends ConsumerState<_ConversationScreen> {
     try {
       await ref
           .read(adminApiProvider)
-          .replySupportTicket(widget.ticketId, body: body, isInternal: _internal);
+          .replySupportTicket(
+            widget.ticketId,
+            body: body,
+            isInternal: _internal,
+          );
       if (!mounted) return;
       _replyCtrl.clear();
       setState(() {
@@ -1207,9 +1216,8 @@ class _ConversationScreenState extends ConsumerState<_ConversationScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _sending = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر إرسال الرسالة.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('تعذّر إرسال الرسالة.')));
     }
   }
 
@@ -1252,24 +1260,28 @@ class _ConversationScreenState extends ConsumerState<_ConversationScreen> {
                     );
                   }
                   final d = snap.data!;
-                  final items = <Map<String, dynamic>>[
-                    for (final m in _rows(d, 'messages')) {...m, '_internal': false},
-                    for (final n in _rows(d, 'internalNotes'))
-                      {...n, '_internal': true},
-                  ]..sort((a, b) {
-                      final ta =
-                          DateTime.tryParse('${a['created_at'] ?? ''}') ??
-                          DateTime.fromMillisecondsSinceEpoch(0);
-                      final tb =
-                          DateTime.tryParse('${b['created_at'] ?? ''}') ??
-                          DateTime.fromMillisecondsSinceEpoch(0);
-                      return ta.compareTo(tb);
-                    });
+                  final items =
+                      <Map<String, dynamic>>[
+                        for (final m in _rows(d, 'messages'))
+                          {...m, '_internal': false},
+                        for (final n in _rows(d, 'internalNotes'))
+                          {...n, '_internal': true},
+                      ]..sort((a, b) {
+                        final ta =
+                            DateTime.tryParse('${a['created_at'] ?? ''}') ??
+                            DateTime.fromMillisecondsSinceEpoch(0);
+                        final tb =
+                            DateTime.tryParse('${b['created_at'] ?? ''}') ??
+                            DateTime.fromMillisecondsSinceEpoch(0);
+                        return ta.compareTo(tb);
+                      });
                   if (items.isEmpty) {
                     return const Center(
                       child: Padding(
                         padding: EdgeInsets.all(24),
-                        child: Text('لا توجد رسائل بعد. ابدأ المحادثة بالأسفل.'),
+                        child: Text(
+                          'لا توجد رسائل بعد. ابدأ المحادثة بالأسفل.',
+                        ),
                       ),
                     );
                   }
@@ -1679,6 +1691,14 @@ class _LinkSuggestionsSectionState
   String? _error;
   List<Map<String, dynamic>> _items = const [];
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _load();
+    });
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -1694,7 +1714,10 @@ class _LinkSuggestionsSectionState
       final rides = ((data['rides'] as List?) ?? const []).map(
         (e) => Map<String, dynamic>.from(e as Map),
       );
-      final merged = [...orders, ...rides]
+      final services = ((data['services'] as List?) ?? const []).map(
+        (e) => Map<String, dynamic>.from(e as Map),
+      );
+      final merged = [...orders, ...rides, ...services]
         ..sort((a, b) {
           final ta =
               DateTime.tryParse('${a['createdAt'] ?? ''}') ??
@@ -1704,11 +1727,13 @@ class _LinkSuggestionsSectionState
               DateTime.fromMillisecondsSinceEpoch(0);
           return tb.compareTo(ta); // الأحدث أولاً
         });
+      if (!mounted) return;
       setState(() {
         _items = merged;
         _loaded = true;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(
         () => _error = e is DioException
             ? mapDioError(e, fallback: 'تعذّر تحميل الاقتراحات.')
@@ -1732,9 +1757,8 @@ class _LinkSuggestionsSectionState
             reason: 'linked from suggestions',
           );
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('تم الربط بنجاح.')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('تم الربط بنجاح.')));
       }
       await widget.onLinked();
     } catch (e) {
@@ -1783,7 +1807,9 @@ class _LinkSuggestionsSectionState
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(
-            ongoing ? Icons.play_circle_fill_rounded : Icons.check_circle_rounded,
+            ongoing
+                ? Icons.play_circle_fill_rounded
+                : Icons.check_circle_rounded,
             size: 13,
             color: fg,
           ),
@@ -1804,7 +1830,7 @@ class _LinkSuggestionsSectionState
   @override
   Widget build(BuildContext context) {
     return _Panel(
-      title: 'ربط بطلب/رحلة',
+      title: 'ربط بطلب أو رحلة أو خدمة نشطة',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -1820,20 +1846,20 @@ class _LinkSuggestionsSectionState
             OutlinedButton.icon(
               onPressed: _loading ? null : _load,
               icon: const Icon(Icons.link_rounded),
-              label: const Text('اقترح طلبات/رحلات صاحب التذكرة'),
+              label: const Text('تحميل العمليات النشطة لصاحب التذكرة'),
             )
           else if (_items.isEmpty)
-            const Text('لا توجد طلبات أو رحلات حديثة لصاحب التذكرة.')
+            const Text('لا توجد طلبات أو رحلات أو خدمات نشطة لصاحب التذكرة.')
           else
             ..._items.map(
               (item) => ListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                leading: Icon(
-                  item['entityType'] == 'ride'
-                      ? Icons.local_taxi_rounded
-                      : Icons.receipt_long_rounded,
-                ),
+                leading: Icon(switch ('${item['entityType']}') {
+                  'ride' => Icons.local_taxi_rounded,
+                  'service' => Icons.handyman_rounded,
+                  _ => Icons.receipt_long_rounded,
+                }),
                 title: Text('${item['label'] ?? ''}'),
                 subtitle: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

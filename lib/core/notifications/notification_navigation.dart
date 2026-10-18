@@ -13,6 +13,7 @@ import '../../features/admin/ui/admin_merchant_approvals_screen.dart';
 import '../../features/admin/ui/admin_receivables_screen.dart';
 import '../../features/admin/ui/admin_services_hub_screen.dart';
 import '../../features/admin/ui/admin_social_reports_screen.dart';
+import '../../features/admin/ui/admin_support_tickets_screen.dart';
 import '../../features/admin/ui/admin_taxi_captain_requests_screen.dart';
 import '../../features/admin/ui/admin_taxi_cash_payments_screen.dart';
 import '../../features/admin/ui/admin_taxi_governance_screen.dart';
@@ -66,7 +67,9 @@ import '../../features/tracking/ui/delivery_live_tracking_screen.dart';
 import '../../features/tracking/ui/taxi_live_tracking_screen.dart';
 import '../../features/admin/ui/admin_residence_change_requests_screen.dart';
 import '../../features/admin/ui/admin_social_restrictions_screen.dart';
+
 import 'package:maslaki/features/ai_dev_support/screens/incident_details_screen.dart';
+
 import '../../pages/map_page.dart';
 import '../sections/section_access_guard.dart';
 import '../sections/section_availability_targets.dart';
@@ -1267,6 +1270,17 @@ class NotificationNavigation {
       }
       if (target == 'admin_competitions') {
         return MaterialPageRoute(builder: (_) => const AdminCompetitionsPage());
+      }
+      if (target == 'admin_support_ticket') {
+        final ticketId = entityId ?? payload.requestId;
+        if (ticketId != null && ticketId > 0) {
+          return MaterialPageRoute(
+            builder: (_) => AdminSupportTicketDetailsScreen(ticketId: ticketId),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const AdminSupportTicketsScreen(),
+        );
       }
       if (target == 'admin_support' ||
           target == 'support_ticket' ||

@@ -45,6 +45,17 @@ class NotificationTypeRegistry {
       );
     }
 
+    if (normalizedTarget == 'admin_support_ticket' ||
+        normalizedType == 'admin_support_ticket_created') {
+      return const NotificationRouteSpec(
+        targetModule: 'admin',
+        targetScreen: 'admin_support_ticket',
+        fallbackScreen: 'admin_support',
+        allowedRoleScopes: {'admin', 'super_admin', 'deputy_admin', 'staff'},
+        expectedPayloadKeys: {'ticketId'},
+      );
+    }
+
     if (normalizedType == 'delivery_order_available' ||
         normalizedType == 'delivery_order_offer' ||
         normalizedType == 'courier_order_offer') {

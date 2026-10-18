@@ -310,6 +310,8 @@ function roundMoney(value) {
   return Math.round((parsed + Number.EPSILON) * 100) / 100;
 }
 
+const GROUPED_DELIVERY_FEE_CAP_IQD = 2000;
+
 function normalizePositiveInteger(value) {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
@@ -398,6 +400,8 @@ function buildGroupedDeliveryFeePlan(entries) {
   const plansByOriginalIndex = new Array(normalized.length);
   let rawDeliveryFeeTotal = 0;
   let allocatedDeliveryFeeTotal = 0;
+  const groupedDeliveryFeeCap =
+    normalized.length > 1 ? GROUPED_DELIVERY_FEE_CAP_IQD : Number.POSITIVE_INFINITY;
 
   for (
     let sortedIndex = 0;
@@ -410,7 +414,14 @@ function buildGroupedDeliveryFeePlan(entries) {
     const customerDeliveryFee = roundMoney(
       entry.customerDeliveryFee ?? rawDeliveryFee,
     );
-    const allocatedDeliveryFee = roundMoney(customerDeliveryFee * multiplier);
+    const discountedDeliveryFee = roundMoney(customerDeliveryFee * multiplier);
+    const remainingGroupedFee = Math.max(
+      0,
+      groupedDeliveryFeeCap - allocatedDeliveryFeeTotal,
+    );
+    const allocatedDeliveryFee = roundMoney(
+      Math.min(discountedDeliveryFee, remainingGroupedFee),
+    );
     const totalAmount = roundMoney(
       Number(entry.subtotalAfterAllDiscounts || 0) +
         Number(entry.serviceFee || 0) +

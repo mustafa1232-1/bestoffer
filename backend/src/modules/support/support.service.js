@@ -1,6 +1,10 @@
 import { AppError } from "../../shared/utils/errors.js";
 import { emitRealtimeToUser } from "../../shared/realtime/realtime-gateway.js";
-import { createNotification } from "../notifications/notifications.repo.js";
+import {
+  createManyNotifications,
+  createNotification,
+} from "../notifications/notifications.repo.js";
+import { listBackofficeNotificationUserIds } from "../admin/admin-notification-recipients.js";
 import * as repo from "./support.repo.js";
 import {
   canTransition,
@@ -177,6 +181,57 @@ function notifyAgents(agents, type, title, body, extra = {}) {
   }
 }
 
+async function notifyBackofficeNewTicket(ticket) {
+  try {
+    const recipientUserIds = await listBackofficeNotificationUserIds({
+      permissionKey: "support.tickets.read",
+    });
+    const ticketId = Number(ticket.id);
+    const ticketNumber = ticket.ticket_number || `#${ticketId}`;
+    await createManyNotifications(
+      recipientUserIds.map((userId) => ({
+        userId,
+        type: "admin_support_ticket_created",
+        title: "طلب دعم جديد",
+        body: `${ticketNumber}: ${ticket.subject}`,
+        payload: {
+          ticketId,
+          requestId: ticketId,
+          target: "admin_support_ticket",
+          targetModule: "admin",
+          target_module: "admin",
+          roleScope: "admin",
+          role_scope: "admin",
+          action: "open_admin_support_ticket",
+          targetEntity: "support_ticket",
+          target_entity: "support_ticket",
+          entityId: ticketId,
+          entity_id: ticketId,
+          customerUserId: Number(ticket.user_id),
+          domain: ticket.domain,
+          priority: ticket.priority,
+          requiresAction: true,
+          notificationType: "admin_support_ticket_created",
+          notification_type: "admin_support_ticket_created",
+        },
+      })),
+    );
+    for (const userId of recipientUserIds) {
+      queueRealtime(userId, "support_ticket", {
+        type: "admin_support_ticket_created",
+        ticketId,
+        ticketNumber,
+        customerUserId: Number(ticket.user_id),
+      });
+    }
+  } catch (error) {
+    console.warn(
+      "[support] backoffice new-ticket notification failed",
+      error?.message || error,
+    );
+  }
+}
+
 function agentCanRead(ticket, viewer) {
   if (!viewer?.isAgent) return false;
   const scope = viewer.permissionScope || "assigned";
@@ -282,9 +337,15 @@ export async function createTicket({
     createdByUserId,
     callOutcome,
   });
-  if (!autoRoute || createdByUserId) return withSla(ticket);
-  const routed = await autoRouteTicket(ticket);
-  return withSla(routed.ticket);
+  let finalTicket = ticket;
+  if (autoRoute && !createdByUserId) {
+    const routed = await autoRouteTicket(ticket);
+    finalTicket = routed.ticket;
+  }
+  if (!createdByUserId) {
+    await notifyBackofficeNewTicket(finalTicket);
+  }
+  return withSla(finalTicket);
 }
 
 /**

@@ -438,6 +438,16 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                       0,
                                 ),
                               ),
+                              if (stores.length > 1)
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    '1000 د.ع لأول متجر، و500 د.ع لكل متجر إضافي، بحد أقصى 2000 د.ع.',
+                                    textAlign: TextAlign.right,
+                                    textDirection: TextDirection.rtl,
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                ),
                               const Divider(),
                               _SummaryRow(
                                 'الإجمالي النهائي',
@@ -524,8 +534,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
           setState(() => _outOfStockDetails = outOfStock);
         }
         final localeMessage = outOfStock?.messageForLanguageCode(
-                Localizations.localeOf(context).languageCode,
-              );
+          Localizations.localeOf(context).languageCode,
+        );
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -571,9 +581,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
 
     ref.listen<OrdersState>(ordersControllerProvider, (prev, next) {
       if (next.error != null && next.error != prev?.error) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(next.error!)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(next.error!)));
       }
     });
 
@@ -840,9 +849,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                     Text(
                                       _outOfStockDetails
                                               ?.messageForLanguageCode(
-                                                Localizations.localeOf(
-                                                  context,
-                                                ).languageCode,
+                                                Localizations.localeOf(context)
+                                                    .languageCode,
                                               ) ??
                                           'هذا الخيار غير متوفر حالياً — احذف المنتج أو اختر لوناً/مقاساً آخر.',
                                       textDirection: TextDirection.rtl,
@@ -869,8 +877,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                                   item.selectedModifiers,
                                               selectedVariantId:
                                                   item.selectedVariantId,
-                                              selectedVariantSelections:
-                                                  item.selectedVariantSelections,
+                                              selectedVariantSelections: item
+                                                  .selectedVariantSelections,
                                             ),
                                         icon: const Icon(
                                           Icons.remove_circle_outline,
@@ -889,8 +897,8 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                                   item.selectedModifiers,
                                               selectedVariantId:
                                                   item.selectedVariantId,
-                                              selectedVariantSelections:
-                                                  item.selectedVariantSelections,
+                                              selectedVariantSelections: item
+                                                  .selectedVariantSelections,
                                             ),
                                         icon: const Icon(
                                           Icons.add_circle_outline,
@@ -908,12 +916,10 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                                   item.selectedModifiers,
                                               selectedVariantId:
                                                   item.selectedVariantId,
-                                              selectedVariantSelections:
-                                                  item.selectedVariantSelections,
+                                              selectedVariantSelections: item
+                                                  .selectedVariantSelections,
                                             ),
-                                        icon: const Icon(
-                                          Icons.delete_outline,
-                                        ),
+                                        icon: const Icon(Icons.delete_outline),
                                       ),
                                     ],
                                   ),
@@ -1178,6 +1184,16 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                                   : 'أجور التوصيل',
                               formatIqd(cart.deliveryFee),
                             ),
+                            if (cart.storesCount > 1)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 4),
+                                child: Text(
+                                  '1000 د.ع لأول متجر، و500 د.ع لكل متجر إضافي، بحد أقصى 2000 د.ع.',
+                                  textAlign: TextAlign.right,
+                                  textDirection: TextDirection.rtl,
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ),
                             if (_couponDiscount > 0)
                               _SummaryRow(
                                 'خصم الكوبون',

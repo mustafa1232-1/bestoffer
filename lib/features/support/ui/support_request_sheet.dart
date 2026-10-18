@@ -4,19 +4,50 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/i18n/locale_text.dart';
 import '../data/customer_support_api.dart';
 import '../models/support_context.dart';
+import 'support_tickets_screen.dart' show SupportTicketDetailsScreen;
 
 /// يفتح نموذج «طلب دعم / مشكلة» مهيّأً حسب السياق. يعيد true إذا أُنشئت تذكرة.
 Future<bool> showSupportRequestSheet(
   BuildContext context, {
   SupportContext supportContext = const SupportContext.general(),
 }) async {
-  final result = await showModalBottomSheet<bool>(
+  final result = await showModalBottomSheet<Map<String, dynamic>>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
     builder: (_) => _SupportRequestSheet(supportContext: supportContext),
   );
-  return result == true;
+  if (result == null) return false;
+  if (!context.mounted) return true;
+
+  final ticketId =
+      (result['id'] as num?)?.toInt() ??
+      int.tryParse('${result['ticketId'] ?? ''}') ??
+      0;
+  final ticketNumber =
+      '${result['ticket_number'] ?? result['ticketNumber'] ?? ''}'.trim();
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        context.lt(
+          ar: ticketNumber.isEmpty
+              ? 'تم إرسال طلب الدعم.'
+              : 'تم إرسال طلب الدعم. رقم التذكرة: $ticketNumber',
+          en: ticketNumber.isEmpty
+              ? 'Support request sent.'
+              : 'Support request sent. Ticket: $ticketNumber',
+        ),
+      ),
+    ),
+  );
+  if (ticketId > 0) {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SupportTicketDetailsScreen(ticketId: ticketId),
+      ),
+    );
+  }
+  return true;
 }
 
 class _DomainOption {
@@ -28,11 +59,21 @@ class _DomainOption {
 }
 
 const _domains = <_DomainOption>[
-  _DomainOption('SHOPPING', Icons.shopping_bag_rounded, 'طلبات وتسوّق', 'Shopping'),
+  _DomainOption(
+    'SHOPPING',
+    Icons.shopping_bag_rounded,
+    'طلبات وتسوّق',
+    'Shopping',
+  ),
   _DomainOption('DELIVERY', Icons.delivery_dining_rounded, 'توصيل', 'Delivery'),
   _DomainOption('TAXI', Icons.local_taxi_rounded, 'تكسي', 'Taxi'),
   _DomainOption('SERVICES', Icons.handyman_rounded, 'خدمات', 'Services'),
-  _DomainOption('REAL_ESTATE', Icons.apartment_rounded, 'عقارات', 'Real estate'),
+  _DomainOption(
+    'REAL_ESTATE',
+    Icons.apartment_rounded,
+    'عقارات',
+    'Real estate',
+  ),
   _DomainOption('CARS', Icons.directions_car_rounded, 'سيارات', 'Cars'),
   _DomainOption('JOBS', Icons.work_rounded, 'وظائف', 'Jobs'),
   _DomainOption('COMMUNITY', Icons.groups_rounded, 'المجتمع', 'Community'),
@@ -43,11 +84,31 @@ const _domains = <_DomainOption>[
 
 const _types = <_DomainOption>[
   _DomainOption('PROBLEM', Icons.report_problem_rounded, 'مشكلة', 'Problem'),
-  _DomainOption('COMPLAINT', Icons.sentiment_dissatisfied_rounded, 'شكوى', 'Complaint'),
+  _DomainOption(
+    'COMPLAINT',
+    Icons.sentiment_dissatisfied_rounded,
+    'شكوى',
+    'Complaint',
+  ),
   _DomainOption('QUESTION', Icons.help_outline_rounded, 'استفسار', 'Question'),
-  _DomainOption('SUGGESTION', Icons.lightbulb_outline_rounded, 'اقتراح', 'Suggestion'),
-  _DomainOption('SAFETY', Icons.health_and_safety_rounded, 'بلاغ سلامة', 'Safety'),
-  _DomainOption('REFUND', Icons.currency_exchange_rounded, 'استرجاع مبلغ', 'Refund'),
+  _DomainOption(
+    'SUGGESTION',
+    Icons.lightbulb_outline_rounded,
+    'اقتراح',
+    'Suggestion',
+  ),
+  _DomainOption(
+    'SAFETY',
+    Icons.health_and_safety_rounded,
+    'بلاغ سلامة',
+    'Safety',
+  ),
+  _DomainOption(
+    'REFUND',
+    Icons.currency_exchange_rounded,
+    'استرجاع مبلغ',
+    'Refund',
+  ),
 ];
 
 class _SupportRequestSheet extends ConsumerStatefulWidget {
@@ -80,17 +141,21 @@ class _SupportRequestSheetState extends ConsumerState<_SupportRequestSheet> {
   Future<void> _submit() async {
     final subject = _subjectCtrl.text.trim();
     if (_domain == null || _domain!.isEmpty) {
-      setState(() => _error = context.lt(
-            ar: 'اختر نوع الخدمة أولاً.',
-            en: 'Choose a service first.',
-          ));
+      setState(
+        () => _error = context.lt(
+          ar: 'اختر نوع الخدمة أولاً.',
+          en: 'Choose a service first.',
+        ),
+      );
       return;
     }
     if (subject.isEmpty) {
-      setState(() => _error = context.lt(
-            ar: 'اكتب عنواناً مختصراً للمشكلة.',
-            en: 'Write a short subject.',
-          ));
+      setState(
+        () => _error = context.lt(
+          ar: 'اكتب عنواناً مختصراً للمشكلة.',
+          en: 'Write a short subject.',
+        ),
+      );
       return;
     }
     setState(() {
@@ -99,29 +164,22 @@ class _SupportRequestSheetState extends ConsumerState<_SupportRequestSheet> {
     });
     try {
       final ctx = widget.supportContext;
-      final ticket = await ref.read(customerSupportApiProvider).createTicket(
+      final ticket = await ref
+          .read(customerSupportApiProvider)
+          .createTicket(
             domain: _domain!,
             type: _type,
             subject: subject,
             description: _descCtrl.text,
-            priority: _domain == 'TAXI' && _type == 'SAFETY' ? 'urgent' : 'normal',
+            priority: _domain == 'TAXI' && _type == 'SAFETY'
+                ? 'urgent'
+                : 'normal',
             entityType: ctx.entityType,
             entityId: ctx.entityId,
             entityLabel: ctx.entityLabel,
           );
       if (!mounted) return;
-      final number = '${ticket['ticket_number'] ?? ticket['ticketNumber'] ?? ''}';
-      Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            context.lt(
-              ar: 'تم إرسال طلب الدعم. رقم التذكرة: $number',
-              en: 'Support request sent. Ticket: $number',
-            ),
-          ),
-        ),
-      );
+      Navigator.of(context).pop(ticket);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -157,24 +215,31 @@ class _SupportRequestSheetState extends ConsumerState<_SupportRequestSheet> {
                 Expanded(
                   child: Text(
                     context.lt(ar: 'طلب دعم', en: 'Get support'),
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
+                    style: Theme.of(context).textTheme.titleLarge
+                        ?.copyWith(fontWeight: FontWeight.w800),
                   ),
                 ),
               ],
             ),
-            if (ctx.entityLabel != null && ctx.entityLabel!.trim().isNotEmpty) ...[
+            if (ctx.entityLabel != null &&
+                ctx.entityLabel!.trim().isNotEmpty) ...[
               const SizedBox(height: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: scheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.link_rounded, size: 16, color: scheme.onSurfaceVariant),
+                    Icon(
+                      Icons.link_rounded,
+                      size: 16,
+                      color: scheme.onSurfaceVariant,
+                    ),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
@@ -200,15 +265,17 @@ class _SupportRequestSheetState extends ConsumerState<_SupportRequestSheet> {
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: _domains.map((o) {
-                  final selected = _domain == o.value;
-                  return ChoiceChip(
-                    avatar: Icon(o.icon, size: 18),
-                    label: Text(_label(context, o)),
-                    selected: selected,
-                    onSelected: (_) => setState(() => _domain = o.value),
-                  );
-                }).toList(growable: false),
+                children: _domains
+                    .map((o) {
+                      final selected = _domain == o.value;
+                      return ChoiceChip(
+                        avatar: Icon(o.icon, size: 18),
+                        label: Text(_label(context, o)),
+                        selected: selected,
+                        onSelected: (_) => setState(() => _domain = o.value),
+                      );
+                    })
+                    .toList(growable: false),
               ),
               const SizedBox(height: 14),
             ],
@@ -220,15 +287,17 @@ class _SupportRequestSheetState extends ConsumerState<_SupportRequestSheet> {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: _types.map((o) {
-                final selected = _type == o.value;
-                return ChoiceChip(
-                  avatar: Icon(o.icon, size: 18),
-                  label: Text(_label(context, o)),
-                  selected: selected,
-                  onSelected: (_) => setState(() => _type = o.value),
-                );
-              }).toList(growable: false),
+              children: _types
+                  .map((o) {
+                    final selected = _type == o.value;
+                    return ChoiceChip(
+                      avatar: Icon(o.icon, size: 18),
+                      label: Text(_label(context, o)),
+                      selected: selected,
+                      onSelected: (_) => setState(() => _type = o.value),
+                    );
+                  })
+                  .toList(growable: false),
             ),
             const SizedBox(height: 14),
             TextField(
@@ -256,10 +325,7 @@ class _SupportRequestSheetState extends ConsumerState<_SupportRequestSheet> {
             ),
             if (_error != null) ...[
               const SizedBox(height: 10),
-              Text(
-                _error!,
-                style: TextStyle(color: scheme.error),
-              ),
+              Text(_error!, style: TextStyle(color: scheme.error)),
             ],
             const SizedBox(height: 16),
             FilledButton.icon(
