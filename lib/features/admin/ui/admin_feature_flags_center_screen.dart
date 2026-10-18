@@ -193,57 +193,60 @@ class _AdminFeatureFlagsCenterScreenState
         icon: const Icon(Icons.add_rounded),
         label: Text(l10n.adminOpsFeatureFlagsCreateAction),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : _flags.isEmpty
-          ? Center(child: Text(l10n.adminOpsFeatureFlagsEmpty))
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-                itemCount: _flags.length,
-                itemBuilder: (context, index) {
-                  final item = _flags[index];
-                  final key = '${item['flag_key'] ?? ''}'.trim();
-                  final enabled = item['is_enabled'] == true;
-                  final rollout =
-                      int.tryParse('${item['rollout_percent']}') ?? 0;
-                  final description = '${item['description'] ?? ''}'.trim();
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    child: ListTile(
-                      leading: const Icon(Icons.tune_rounded),
-                      title: Text(key.isEmpty ? '-' : key),
-                      subtitle: Text(
-                        '${description.isEmpty ? l10n.adminOpsFeatureFlagsNoDescription : description}\n${l10n.adminOpsFeatureFlagsRollout}: $rollout%',
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(child: Text(_error!))
+            : _flags.isEmpty
+            ? Center(child: Text(l10n.adminOpsFeatureFlagsEmpty))
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+                  itemCount: _flags.length,
+                  itemBuilder: (context, index) {
+                    final item = _flags[index];
+                    final key = '${item['flag_key'] ?? ''}'.trim();
+                    final enabled = item['is_enabled'] == true;
+                    final rollout =
+                        int.tryParse('${item['rollout_percent']}') ?? 0;
+                    final description = '${item['description'] ?? ''}'.trim();
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        leading: const Icon(Icons.tune_rounded),
+                        title: Text(key.isEmpty ? '-' : key),
+                        subtitle: Text(
+                          '${description.isEmpty ? l10n.adminOpsFeatureFlagsNoDescription : description}\n${l10n.adminOpsFeatureFlagsRollout}: $rollout%',
+                        ),
+                        isThreeLine: true,
+                        trailing: Switch(
+                          value: enabled,
+                          onChanged: (value) {
+                            _saveFlag(
+                              flagKey: key,
+                              enabled: value,
+                              rolloutPercent: rollout,
+                              description: description.isEmpty
+                                  ? null
+                                  : description,
+                              roles: List<String>.from(
+                                item['target_roles'] as List? ?? const [],
+                              ),
+                              config: Map<String, dynamic>.from(
+                                item['config_json'] as Map? ?? const {},
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                      isThreeLine: true,
-                      trailing: Switch(
-                        value: enabled,
-                        onChanged: (value) {
-                          _saveFlag(
-                            flagKey: key,
-                            enabled: value,
-                            rolloutPercent: rollout,
-                            description: description.isEmpty
-                                ? null
-                                : description,
-                            roles: List<String>.from(
-                              item['target_roles'] as List? ?? const [],
-                            ),
-                            config: Map<String, dynamic>.from(
-                              item['config_json'] as Map? ?? const {},
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
+      ),
     );
   }
 }

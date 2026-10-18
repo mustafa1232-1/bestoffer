@@ -722,189 +722,197 @@ class _MerchantProductDetailsScreenState
       bottomNavigationBar: widget.onAddToCart != null
           ? _buildBottomActionBar(context)
           : null,
-      body: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          14,
-          12,
-          14,
-          widget.onAddToCart != null ? 148 : 18,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            ProductSummaryCard(
-              data: summaryData,
-              appearance: appearance,
-              compact: false,
-              heroAspectRatio: 1.08,
-              interactiveGallery: true,
-              showVariantControls: true,
-              showDetailedSpecifications: true,
-              maxAttributeBadges: 5,
-              maxVariantBadges: 4,
-              maxStatusBadges: 4,
-              onSelectionChanged: _applyCardSelection,
-            ),
-            const SizedBox(height: 12),
-            _buildVariantSection(context),
-            const SizedBox(height: 12),
-            if (widget.product.hasVariants && !canSubmitCurrentSelection) ...[
+      body: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(
+            14,
+            12,
+            14,
+            widget.onAddToCart != null ? 148 : 18,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              ProductSummaryCard(
+                data: summaryData,
+                appearance: appearance,
+                compact: false,
+                heroAspectRatio: 1.08,
+                interactiveGallery: true,
+                showVariantControls: true,
+                showDetailedSpecifications: true,
+                maxAttributeBadges: 5,
+                maxVariantBadges: 4,
+                maxStatusBadges: 4,
+                onSelectionChanged: _applyCardSelection,
+              ),
+              const SizedBox(height: 12),
+              _buildVariantSection(context),
+              const SizedBox(height: 12),
+              if (widget.product.hasVariants && !canSubmitCurrentSelection) ...[
+                Text(
+                  submitUnavailableLabel,
+                  textDirection: textDirection,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.orangeAccent.withValues(alpha: 0.96),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (widget.onAddToCart != null) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.18),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          IconButton(
+                            tooltip: context.lt(ar: 'زيادة', en: 'Increase'),
+                            icon: const Icon(Icons.add_rounded),
+                            onPressed: () => setState(() => _quantity += 1),
+                          ),
+                          Text(
+                            '$_quantity',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: context.lt(ar: 'تنقيص', en: 'Decrease'),
+                            icon: const Icon(Icons.remove_rounded),
+                            onPressed: () => setState(
+                              () =>
+                                  _quantity = _quantity > 1 ? _quantity - 1 : 1,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: widget.canOrder && canSubmitCurrentSelection
+                            ? _addCurrentProduct
+                            : null,
+                        icon: _submitting
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Icon(
+                                _usesPharmacyConversation
+                                    ? Icons.chat_bubble_outline_rounded
+                                    : widget.product.hasVariants
+                                    ? Icons.tune_rounded
+                                    : Icons.add_shopping_cart_rounded,
+                              ),
+                        label: Text(
+                          widget.canOrder && canSubmitCurrentSelection
+                              ? submitLabel
+                              : widget.canOrder
+                              ? submitUnavailableLabel
+                              : widget.unavailableLabel,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 12),
               Text(
-                submitUnavailableLabel,
+                context.lt(
+                  ar: 'مواد مشابهة من نفس المتجر',
+                  en: 'Similar items from this store',
+                ),
                 textDirection: textDirection,
-                textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.orangeAccent.withValues(alpha: 0.96),
+                  fontSize: 14,
                   fontWeight: FontWeight.w700,
+                  color: Colors.white.withValues(alpha: 0.92),
                 ),
               ),
               const SizedBox(height: 8),
-            ],
-            if (widget.onAddToCart != null) ...[
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.18),
+              if (widget.similarProducts.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(
+                      context.lt(
+                        ar: 'لا توجد مواد مشابهة حالياً.',
+                        en: 'No similar items available right now.',
+                      ),
+                      textDirection: textDirection,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.72),
                       ),
                     ),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          tooltip: context.lt(ar: 'زيادة', en: 'Increase'),
-                          icon: const Icon(Icons.add_rounded),
-                          onPressed: () => setState(() => _quantity += 1),
-                        ),
-                        Text(
-                          '$_quantity',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: context.lt(ar: 'تنقيص', en: 'Decrease'),
-                          icon: const Icon(Icons.remove_rounded),
-                          onPressed: () => setState(
-                            () => _quantity = _quantity > 1 ? _quantity - 1 : 1,
-                          ),
-                        ),
-                      ],
-                    ),
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: widget.canOrder && canSubmitCurrentSelection
-                          ? _addCurrentProduct
+                )
+              else
+                ListView.separated(
+                  itemCount: widget.similarProducts.length,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final item = widget.similarProducts[index];
+                    final canOrderSimilar =
+                        widget.merchant.isOpen && item.canBeOrdered;
+                    return ProductSummaryCard.fromProduct(
+                      item,
+                      appearance: appearance,
+                      locale: locale,
+                      onTap: widget.onOpenProduct == null
+                          ? null
+                          : () => widget.onOpenProduct!(item),
+                      showDescription: false,
+                      compact: true,
+                      maxAttributeBadges: 2,
+                      maxVariantBadges: 3,
+                      maxStatusBadges: 2,
+                      imageSize: 56,
+                      trailing: widget.onAddToCart != null
+                          ? canOrderSimilar
+                                ? IconButton(
+                                    tooltip: context.lt(
+                                      ar: 'إضافة إلى السلة',
+                                      en: 'Add to cart',
+                                    ),
+                                    onPressed: () => _addSimilar(item),
+                                    icon: Icon(
+                                      item.hasVariants
+                                          ? Icons.tune_rounded
+                                          : Icons.add_shopping_cart_rounded,
+                                    ),
+                                  )
+                                : Text(
+                                    widget.unavailableLabel,
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.72,
+                                      ),
+                                      fontSize: 12,
+                                    ),
+                                  )
                           : null,
-                      icon: _submitting
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Icon(
-                              _usesPharmacyConversation
-                                  ? Icons.chat_bubble_outline_rounded
-                                  : widget.product.hasVariants
-                                  ? Icons.tune_rounded
-                                  : Icons.add_shopping_cart_rounded,
-                            ),
-                      label: Text(
-                        widget.canOrder && canSubmitCurrentSelection
-                            ? submitLabel
-                            : widget.canOrder
-                            ? submitUnavailableLabel
-                            : widget.unavailableLabel,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 12),
-            Text(
-              context.lt(
-                ar: 'مواد مشابهة من نفس المتجر',
-                en: 'Similar items from this store',
-              ),
-              textDirection: textDirection,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Colors.white.withValues(alpha: 0.92),
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (widget.similarProducts.isEmpty)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    context.lt(
-                      ar: 'لا توجد مواد مشابهة حالياً.',
-                      en: 'No similar items available right now.',
-                    ),
-                    textDirection: textDirection,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.72),
-                    ),
-                  ),
+                    );
+                  },
                 ),
-              )
-            else
-              ListView.separated(
-                itemCount: widget.similarProducts.length,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                itemBuilder: (context, index) {
-                  final item = widget.similarProducts[index];
-                  final canOrderSimilar =
-                      widget.merchant.isOpen && item.canBeOrdered;
-                  return ProductSummaryCard.fromProduct(
-                    item,
-                    appearance: appearance,
-                    locale: locale,
-                    onTap: widget.onOpenProduct == null
-                        ? null
-                        : () => widget.onOpenProduct!(item),
-                    showDescription: false,
-                    compact: true,
-                    maxAttributeBadges: 2,
-                    maxVariantBadges: 3,
-                    maxStatusBadges: 2,
-                    imageSize: 56,
-                    trailing: widget.onAddToCart != null
-                        ? canOrderSimilar
-                              ? IconButton(
-                                  tooltip: context.lt(
-                                    ar: 'إضافة إلى السلة',
-                                    en: 'Add to cart',
-                                  ),
-                                  onPressed: () => _addSimilar(item),
-                                  icon: Icon(
-                                    item.hasVariants
-                                        ? Icons.tune_rounded
-                                        : Icons.add_shopping_cart_rounded,
-                                  ),
-                                )
-                              : Text(
-                                  widget.unavailableLabel,
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.72),
-                                    fontSize: 12,
-                                  ),
-                                )
-                        : null,
-                  );
-                },
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

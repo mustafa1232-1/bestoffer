@@ -21,6 +21,8 @@ import '../../../core/notifications/local_notification_service.dart';
 import '../../../core/realtime/maslaki_realtime_service.dart';
 import '../../../core/theme/app_colors.dart';
 import 'package:core_maps/core_maps.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 import '../../../core/utils/parsers.dart';
 import '../../../core/widgets/app_user_drawer.dart';
 import '../../../core/widgets/desktop_dashboard_frame.dart';
@@ -1464,7 +1466,7 @@ class _TaxiCaptainDashboardScreenState
     final scrollCoordinator = FormScrollCoordinator();
 
     try {
-      final ok = await showModalBottomSheet<bool>(
+      final ok = await showMaslakiBottomSheet<bool>(
         context: context,
         isScrollControlled: true,
         useSafeArea: true,
@@ -1978,7 +1980,7 @@ class _TaxiCaptainDashboardScreenState
     }
 
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -2643,97 +2645,102 @@ class _TaxiCaptainDashboardScreenState
           ),
         ],
       ),
-      body: useDesktop
-          ? Padding(
-              padding: const EdgeInsets.all(14),
-              child: DesktopDashboardFrame(
-                sidebar: _DesktopCaptainSidebar(
-                  captainName:
-                      ref.read(authControllerProvider).user?.fullName ??
-                      _t('كابتن التكسي', 'Taxi Captain'),
-                  online: _online,
-                  streamConnected: _streamConnected,
-                  followMe: _followMe,
-                  locked: _locked,
-                  activeTab: _tab,
-                  onSelectTab: _setTab,
-                  onRefresh: _sending
-                      ? null
-                      : () async {
-                          await _refreshMeta();
-                          await _tick(full: true);
-                        },
-                  onToggleFollow: () => setState(() => _followMe = !_followMe),
-                  onLogout: () =>
-                      ref.read(authControllerProvider.notifier).logout(),
-                ),
-                title: pageTitle,
-                subtitle: pageSubtitle,
-                quickActions: [
-                  DesktopQuickActionButton(
-                    icon: Icons.local_taxi,
-                    label: _t('الرحلات', 'Rides'),
-                    selected: _tab == 0,
-                    onPressed: () => _setTab(0),
-                  ),
-                  DesktopQuickActionButton(
-                    icon: Icons.insights,
-                    label: _t('اللوحة', 'Dashboard'),
-                    selected: _tab == 1,
-                    onPressed: () => _setTab(1),
-                  ),
-                  DesktopQuickActionButton(
-                    icon: Icons.person,
-                    label: _t('الملف الشخصي', 'Profile'),
-                    selected: _tab == 2,
-                    onPressed: () => _setTab(2),
-                  ),
-                  DesktopQuickActionButton(
-                    icon: Icons.emoji_events_outlined,
-                    label: _t('المسابقات', 'Competitions'),
-                    onPressed: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const TaxiCaptainCompetitionsScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  DesktopQuickActionButton(
-                    icon: Icons.notifications_active_outlined,
-                    label: _t('الإشعارات', 'Notifications'),
-                    onPressed: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) =>
-                              const TaxiCaptainNotificationsScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  DesktopQuickActionButton(
-                    icon: _followMe ? Icons.gps_fixed : Icons.gps_not_fixed,
-                    label: _followMe
-                        ? _t('تتبع الخريطة', 'Map Tracking')
-                        : _t('وضع حر', 'Free Mode'),
-                    selected: _followMe,
-                    onPressed: () => setState(() => _followMe = !_followMe),
-                  ),
-                  DesktopQuickActionButton(
-                    icon: Icons.refresh,
-                    label: _t('تحديث', 'Refresh'),
-                    onPressed: _sending
+      body: SafeArea(
+        top: false,
+        child: useDesktop
+            ? Padding(
+                padding: const EdgeInsets.all(14),
+                child: DesktopDashboardFrame(
+                  sidebar: _DesktopCaptainSidebar(
+                    captainName:
+                        ref.read(authControllerProvider).user?.fullName ??
+                        _t('كابتن التكسي', 'Taxi Captain'),
+                    online: _online,
+                    streamConnected: _streamConnected,
+                    followMe: _followMe,
+                    locked: _locked,
+                    activeTab: _tab,
+                    onSelectTab: _setTab,
+                    onRefresh: _sending
                         ? null
                         : () async {
                             await _refreshMeta();
                             await _tick(full: true);
                           },
+                    onToggleFollow: () =>
+                        setState(() => _followMe = !_followMe),
+                    onLogout: () =>
+                        ref.read(authControllerProvider.notifier).logout(),
                   ),
-                ],
-                child: bodyContent,
-              ),
-            )
-          : bodyContent,
+                  title: pageTitle,
+                  subtitle: pageSubtitle,
+                  quickActions: [
+                    DesktopQuickActionButton(
+                      icon: Icons.local_taxi,
+                      label: _t('الرحلات', 'Rides'),
+                      selected: _tab == 0,
+                      onPressed: () => _setTab(0),
+                    ),
+                    DesktopQuickActionButton(
+                      icon: Icons.insights,
+                      label: _t('اللوحة', 'Dashboard'),
+                      selected: _tab == 1,
+                      onPressed: () => _setTab(1),
+                    ),
+                    DesktopQuickActionButton(
+                      icon: Icons.person,
+                      label: _t('الملف الشخصي', 'Profile'),
+                      selected: _tab == 2,
+                      onPressed: () => _setTab(2),
+                    ),
+                    DesktopQuickActionButton(
+                      icon: Icons.emoji_events_outlined,
+                      label: _t('المسابقات', 'Competitions'),
+                      onPressed: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                const TaxiCaptainCompetitionsScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    DesktopQuickActionButton(
+                      icon: Icons.notifications_active_outlined,
+                      label: _t('الإشعارات', 'Notifications'),
+                      onPressed: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                const TaxiCaptainNotificationsScreen(),
+                          ),
+                        );
+                      },
+                    ),
+                    DesktopQuickActionButton(
+                      icon: _followMe ? Icons.gps_fixed : Icons.gps_not_fixed,
+                      label: _followMe
+                          ? _t('تتبع الخريطة', 'Map Tracking')
+                          : _t('وضع حر', 'Free Mode'),
+                      selected: _followMe,
+                      onPressed: () => setState(() => _followMe = !_followMe),
+                    ),
+                    DesktopQuickActionButton(
+                      icon: Icons.refresh,
+                      label: _t('تحديث', 'Refresh'),
+                      onPressed: _sending
+                          ? null
+                          : () async {
+                              await _refreshMeta();
+                              await _tick(full: true);
+                            },
+                    ),
+                  ],
+                  child: bodyContent,
+                ),
+              )
+            : bodyContent,
+      ),
       bottomNavigationBar: useDesktop
           ? null
           : NavigationBar(

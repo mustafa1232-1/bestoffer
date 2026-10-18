@@ -363,7 +363,7 @@ class _AdminSocialUsersScreenState
           widget.selectionMode ? 'اختيار مستخدم' : 'إدارة مستخدمي السوشل',
         ),
       ),
-      body: RefreshIndicator(
+      body: SafeArea(top: false, child: RefreshIndicator(
         onRefresh: () => _load(refresh: true),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -430,7 +430,7 @@ class _AdminSocialUsersScreenState
             ],
           ],
         ),
-      ),
+      )),
     );
   }
 }

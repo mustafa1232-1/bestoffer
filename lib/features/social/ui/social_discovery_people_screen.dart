@@ -153,152 +153,155 @@ class _SocialDiscoveryPeopleScreenState
       appBar: AppBar(
         title: Text(widget.title ?? l10n.socialDiscoveryPeopleSuggestedTitle),
       ),
-      body: _people.isEmpty
-          ? ListView(
-              padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
-              children: [
-                Icon(
-                  Icons.people_alt_outlined,
-                  size: 54,
-                  color: scheme.primary,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  l10n.socialDiscoveryPeopleEmpty,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
-                ),
-              ],
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-              itemCount: _people.length,
-              separatorBuilder: (_, index) => const SizedBox(height: 10),
-              itemBuilder: (_, index) {
-                final person = _people[index];
-                final username = (person.user.username ?? '').trim();
-                final busy = _busyUserIds.contains(person.user.id);
-                final relation = person.relation;
-                final canAct = !relation.isBlocked && !relation.isAccepted;
-                return InkWell(
-                  borderRadius: BorderRadius.circular(20),
-                  onTap: () {
-                    openSocialProfileGuarded(
-                      context,
-                      userId: person.user.id,
-                      initialName: person.user.fullName,
-                    );
-                  },
-                  child: Ink(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerHigh,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: scheme.outlineVariant.withValues(alpha: 0.28),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 26,
-                          backgroundImage:
-                              (person.user.imageUrl ?? '').trim().isNotEmpty
-                              ? AppCachedImageProvider(person.user.imageUrl!)
-                              : null,
-                          child: (person.user.imageUrl ?? '').trim().isEmpty
-                              ? const Icon(Icons.person_outline)
-                              : null,
+      body: SafeArea(
+        top: false,
+        child: _people.isEmpty
+            ? ListView(
+                padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+                children: [
+                  Icon(
+                    Icons.people_alt_outlined,
+                    size: 54,
+                    color: scheme.primary,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    l10n.socialDiscoveryPeopleEmpty,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ],
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                itemCount: _people.length,
+                separatorBuilder: (_, index) => const SizedBox(height: 10),
+                itemBuilder: (_, index) {
+                  final person = _people[index];
+                  final username = (person.user.username ?? '').trim();
+                  final busy = _busyUserIds.contains(person.user.id);
+                  final relation = person.relation;
+                  final canAct = !relation.isBlocked && !relation.isAccepted;
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () {
+                      openSocialProfileGuarded(
+                        context,
+                        userId: person.user.id,
+                        initialName: person.user.fullName,
+                      );
+                    },
+                    child: Ink(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerHigh,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: scheme.outlineVariant.withValues(alpha: 0.28),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                person.user.fullName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w900,
-                                  fontSize: 15,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                _relationStatusText(person),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: scheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (username.isNotEmpty &&
-                                  _relationStatusText(person) !=
-                                      '@$username') ...[
-                                const SizedBox(height: 2),
+                      ),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 26,
+                            backgroundImage:
+                                (person.user.imageUrl ?? '').trim().isNotEmpty
+                                ? AppCachedImageProvider(person.user.imageUrl!)
+                                : null,
+                            child: (person.user.imageUrl ?? '').trim().isEmpty
+                                ? const Icon(Icons.person_outline)
+                                : null,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Text(
-                                  '@$username',
-                                  style: TextStyle(
-                                    color: scheme.primary,
-                                    fontWeight: FontWeight.w700,
+                                  person.user.fullName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w900,
+                                    fontSize: 15,
                                   ),
                                 ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        if (canAct)
-                          FilledButton(
-                            onPressed: busy
-                                ? null
-                                : () => _onRelationPressed(person),
-                            style: FilledButton.styleFrom(
-                              minimumSize: const Size(110, 42),
-                            ),
-                            child: busy
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                                const SizedBox(height: 2),
+                                Text(
+                                  _relationStatusText(person),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: scheme.onSurfaceVariant,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                if (username.isNotEmpty &&
+                                    _relationStatusText(person) !=
+                                        '@$username') ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '@$username',
+                                    style: TextStyle(
+                                      color: scheme.primary,
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                  )
-                                : Text(_relationButtonLabel(relation)),
-                          )
-                        else
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
+                                  ),
+                                ],
+                              ],
                             ),
-                            decoration: BoxDecoration(
-                              color: scheme.surface,
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: scheme.outlineVariant.withValues(
-                                  alpha: 0.34,
+                          ),
+                          const SizedBox(width: 8),
+                          if (canAct)
+                            FilledButton(
+                              onPressed: busy
+                                  ? null
+                                  : () => _onRelationPressed(person),
+                              style: FilledButton.styleFrom(
+                                minimumSize: const Size(110, 42),
+                              ),
+                              child: busy
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Text(_relationButtonLabel(relation)),
+                            )
+                          else
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 10,
+                              ),
+                              decoration: BoxDecoration(
+                                color: scheme.surface,
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: scheme.outlineVariant.withValues(
+                                    alpha: 0.34,
+                                  ),
+                                ),
+                              ),
+                              child: Text(
+                                _relationButtonLabel(relation),
+                                style: TextStyle(
+                                  color: relation.isBlocked
+                                      ? scheme.error
+                                      : scheme.onSurfaceVariant,
+                                  fontWeight: FontWeight.w800,
                                 ),
                               ),
                             ),
-                            child: Text(
-                              _relationButtonLabel(relation),
-                              style: TextStyle(
-                                color: relation.isBlocked
-                                    ? scheme.error
-                                    : scheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
+      ),
     );
   }
 }

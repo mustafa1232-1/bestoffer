@@ -17,6 +17,8 @@ import '../../settings/ui/pages/settings_support_screen.dart';
 import '../state/hr_controller.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 enum _HrTab {
   dashboard,
@@ -981,7 +983,7 @@ class _HrDashboardScreenState extends ConsumerState<HrDashboardScreen> {
 
   Future<void> _openEmployeeActionsSheet(Map<String, dynamic> employee) async {
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       showDragHandle: true,
       useSafeArea: true,

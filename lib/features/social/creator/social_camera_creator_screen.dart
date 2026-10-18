@@ -5,6 +5,8 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:video_player/video_player.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/widgets/maslaki_back_button.dart';
@@ -892,7 +894,7 @@ class _SocialCameraCreatorScreenState extends State<SocialCameraCreatorScreen>
     final searchController = TextEditingController(
       text: _placePulseLabel ?? '',
     );
-    final result = await showModalBottomSheet<String>(
+    final result = await showMaslakiBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF111C2B),

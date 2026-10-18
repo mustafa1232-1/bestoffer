@@ -156,111 +156,121 @@ class _RealEstateWorkspaceScreenState
                     : l10n.realEstateActivatePlan,
               ),
             ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(child: Text(_error!)),
-                ],
-              )
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                children: [
-                  if (workspace != null && !workspace.propertySellerMonthly)
-                    _PlanInactiveBanner(onOpenUpgrade: _openUpgrade),
-                  if (workspace != null)
-                    _WorkspaceSummary(workspace: workspace),
-                  const SizedBox(height: 12),
-                  if (workspace == null || workspace.listings.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 80),
-                      child: Center(child: Text(l10n.realEstateNoListings)),
-                    )
-                  else
-                    ...workspace.listings.map(
-                      (listing) => Padding(
-                        padding: const EdgeInsets.only(bottom: 14),
-                        child: Column(
-                          children: [
-                            RealEstateListingCard(
-                              listing: listing,
-                              compact: true,
-                              onTap: () async {
-                                await Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        RealEstateListingDetailsScreen(
-                                          listingId: listing.id,
-                                          initialListing: listing,
-                                        ),
-                                  ),
-                                );
-                                if (mounted) {
-                                  await _load();
-                                }
-                              },
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              alignment: WrapAlignment.start,
-                              children: [
-                                FilledButton.tonalIcon(
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _openEditor(listing: listing),
-                                  icon: const Icon(Icons.edit_outlined),
-                                  label: Text(l10n.commonEdit),
-                                ),
-                                if (listing.status == 'active')
-                                  OutlinedButton.icon(
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(child: Text(_error!)),
+                  ],
+                )
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                  children: [
+                    if (workspace != null && !workspace.propertySellerMonthly)
+                      _PlanInactiveBanner(onOpenUpgrade: _openUpgrade),
+                    if (workspace != null)
+                      _WorkspaceSummary(workspace: workspace),
+                    const SizedBox(height: 12),
+                    if (workspace == null || workspace.listings.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 80),
+                        child: Center(child: Text(l10n.realEstateNoListings)),
+                      )
+                    else
+                      ...workspace.listings.map(
+                        (listing) => Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: Column(
+                            children: [
+                              RealEstateListingCard(
+                                listing: listing,
+                                compact: true,
+                                onTap: () async {
+                                  await Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          RealEstateListingDetailsScreen(
+                                            listingId: listing.id,
+                                            initialListing: listing,
+                                          ),
+                                    ),
+                                  );
+                                  if (mounted) {
+                                    await _load();
+                                  }
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                alignment: WrapAlignment.start,
+                                children: [
+                                  FilledButton.tonalIcon(
                                     onPressed: _busy
                                         ? null
-                                        : () => _markStatus(listing, 'sold'),
-                                    icon: const Icon(Icons.sell_outlined),
-                                    label: Text(l10n.realEstateSold),
+                                        : () => _openEditor(listing: listing),
+                                    icon: const Icon(Icons.edit_outlined),
+                                    label: Text(l10n.commonEdit),
                                   ),
-                                if (listing.status == 'active')
-                                  OutlinedButton.icon(
-                                    onPressed: _busy
-                                        ? null
-                                        : () => _markStatus(listing, 'rented'),
-                                    icon: const Icon(Icons.key_outlined),
-                                    label: Text(l10n.realEstateRented),
-                                  ),
-                                if (listing.status == 'active' ||
-                                    listing.status == 'pending_admin_review' ||
-                                    listing.status ==
-                                        'hidden_due_subscription_expiry')
-                                  OutlinedButton.icon(
-                                    onPressed: _busy
-                                        ? null
-                                        : () =>
-                                              _markStatus(listing, 'archived'),
-                                    icon: const Icon(Icons.archive_outlined),
-                                    label: Text(l10n.realEstateArchived),
-                                  ),
-                                if (listing.status == 'archived')
-                                  OutlinedButton.icon(
-                                    onPressed: _busy
-                                        ? null
-                                        : () => _markStatus(listing, 'active'),
-                                    icon: const Icon(Icons.unarchive_outlined),
-                                    label: Text(l10n.realEstateAvailable),
-                                  ),
-                              ],
-                            ),
-                          ],
+                                  if (listing.status == 'active')
+                                    OutlinedButton.icon(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _markStatus(listing, 'sold'),
+                                      icon: const Icon(Icons.sell_outlined),
+                                      label: Text(l10n.realEstateSold),
+                                    ),
+                                  if (listing.status == 'active')
+                                    OutlinedButton.icon(
+                                      onPressed: _busy
+                                          ? null
+                                          : () =>
+                                                _markStatus(listing, 'rented'),
+                                      icon: const Icon(Icons.key_outlined),
+                                      label: Text(l10n.realEstateRented),
+                                    ),
+                                  if (listing.status == 'active' ||
+                                      listing.status ==
+                                          'pending_admin_review' ||
+                                      listing.status ==
+                                          'hidden_due_subscription_expiry')
+                                    OutlinedButton.icon(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _markStatus(
+                                              listing,
+                                              'archived',
+                                            ),
+                                      icon: const Icon(Icons.archive_outlined),
+                                      label: Text(l10n.realEstateArchived),
+                                    ),
+                                  if (listing.status == 'archived')
+                                    OutlinedButton.icon(
+                                      onPressed: _busy
+                                          ? null
+                                          : () =>
+                                                _markStatus(listing, 'active'),
+                                      icon: const Icon(
+                                        Icons.unarchive_outlined,
+                                      ),
+                                      label: Text(l10n.realEstateAvailable),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              ),
+                  ],
+                ),
+        ),
       ),
     );
   }

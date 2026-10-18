@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../coupons/data/coupons_api.dart';
 
@@ -133,7 +135,7 @@ class _AdminReferralCouponsScreenState
           .getAgentCouponRedemptions(couponId);
     } catch (_) {}
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Padding(

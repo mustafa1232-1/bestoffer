@@ -40,5 +40,6 @@ mimoRouter.get("/admin/dashboard", requireAuth, requireAdmin, c.adminDashboard);
 mimoRouter.get("/admin/knowledge", requireAuth, requireAdmin, c.adminKnowledge);
 mimoRouter.patch("/admin/knowledge/:id", requireAuth, requireAdmin, c.adminUpdateKnowledge);
 mimoRouter.delete("/admin/knowledge/:id", requireAuth, requireAdmin, c.adminDeleteKnowledge);
+mimoRouter.get("/directory", requireAuth, signals, c.directory);
 mimoRouter.get("/nudge", requireAuth, requireCustomer, signals, c.nudge);
 mimoRouter.post("/proactive", requireAuth, requireCustomer, signals, c.proactiveEvent);

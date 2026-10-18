@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:social_core/local_media_file.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/locale_text.dart';
@@ -413,7 +415,7 @@ Future<bool?> openPostComposerV3MerchantReview(BuildContext context) async {
 Future<MerchantReviewDraft?> _pickCompletedOrderForReview(
   BuildContext context,
 ) {
-  return showModalBottomSheet<MerchantReviewDraft>(
+  return showMaslakiBottomSheet<MerchantReviewDraft>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
@@ -504,7 +506,7 @@ class _MerchantReviewPickerSheetState
       _finishSelection(order);
       return;
     }
-    final choice = await showModalBottomSheet<Object?>(
+    final choice = await showMaslakiBottomSheet<Object?>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(

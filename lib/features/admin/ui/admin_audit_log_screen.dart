@@ -63,98 +63,105 @@ class _AdminAuditLogScreenState extends ConsumerState<AdminAuditLogScreen> {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(adminControllerProvider.notifier).bootstrap(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextField(
-              controller: _searchCtrl,
-              onChanged: (value) => setState(() => _query = value),
-              decoration: InputDecoration(
-                labelText: l10n.adminAuditLogSearch,
-                prefixIcon: const Icon(Icons.search_rounded),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(adminControllerProvider.notifier).bootstrap(),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              TextField(
+                controller: _searchCtrl,
+                onChanged: (value) => setState(() => _query = value),
+                decoration: InputDecoration(
+                  labelText: l10n.adminAuditLogSearch,
+                  prefixIcon: const Icon(Icons.search_rounded),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            if (items.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 28),
-                child: Center(child: Text(l10n.adminAuditLogEmpty)),
-              )
-            else
-              ...items.map(
-                (item) => Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ExpansionTile(
-                    tilePadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    title: Text(
-                      item.summary,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
+              const SizedBox(height: 16),
+              if (items.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 28),
+                  child: Center(child: Text(l10n.adminAuditLogEmpty)),
+                )
+              else
+                ...items.map(
+                  (item) => Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ExpansionTile(
+                      tilePadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
                       ),
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(l10n.adminAuditLogAction(item.actionKey)),
-                          Text(
-                            l10n.adminAuditLogActor(item.actorFullName ?? '-'),
+                      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      title: Text(
+                        item.summary,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(l10n.adminAuditLogAction(item.actionKey)),
+                            Text(
+                              l10n.adminAuditLogActor(
+                                item.actorFullName ?? '-',
+                              ),
+                            ),
+                            Text(_formatDate(item.createdAt)),
+                          ],
+                        ),
+                      ),
+                      children: [
+                        if ((item.targetType ?? '').trim().isNotEmpty)
+                          _AuditRow(
+                            label: l10n.adminAuditLogTarget,
+                            value:
+                                '${item.targetType} ${item.targetLabel ?? ''}'
+                                    .trim(),
                           ),
-                          Text(_formatDate(item.createdAt)),
-                        ],
-                      ),
+                        if ((item.actorPhone ?? '').trim().isNotEmpty)
+                          _AuditRow(
+                            label: l10n.adminAuditLogActorPhone,
+                            value: item.actorPhone!,
+                          ),
+                        if (item.metadata.isNotEmpty)
+                          _AuditRow(
+                            label: l10n.adminAuditLogMetadata,
+                            value: item.metadata.entries
+                                .map((entry) => '${entry.key}: ${entry.value}')
+                                .join('\n'),
+                          ),
+                      ],
                     ),
-                    children: [
-                      if ((item.targetType ?? '').trim().isNotEmpty)
-                        _AuditRow(
-                          label: l10n.adminAuditLogTarget,
-                          value: '${item.targetType} ${item.targetLabel ?? ''}'
-                              .trim(),
-                        ),
-                      if ((item.actorPhone ?? '').trim().isNotEmpty)
-                        _AuditRow(
-                          label: l10n.adminAuditLogActorPhone,
-                          value: item.actorPhone!,
-                        ),
-                      if (item.metadata.isNotEmpty)
-                        _AuditRow(
-                          label: l10n.adminAuditLogMetadata,
-                          value: item.metadata.entries
-                              .map((entry) => '${entry.key}: ${entry.value}')
-                              .join('\n'),
-                        ),
-                    ],
                   ),
                 ),
-              ),
-            if (state.auditFeedNextCursor != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: OutlinedButton.icon(
-                  onPressed: state.auditFeedLoadingMore
-                      ? null
-                      : () => ref
-                            .read(adminControllerProvider.notifier)
-                            .loadMoreAuditFeed(),
-                  icon: state.auditFeedLoadingMore
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.expand_more_rounded),
-                  label: Text(l10n.adminAuditLogLoadMore),
+              if (state.auditFeedNextCursor != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: OutlinedButton.icon(
+                    onPressed: state.auditFeedLoadingMore
+                        ? null
+                        : () => ref
+                              .read(adminControllerProvider.notifier)
+                              .loadMoreAuditFeed(),
+                    icon: state.auditFeedLoadingMore
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.expand_more_rounded),
+                    label: Text(l10n.adminAuditLogLoadMore),
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

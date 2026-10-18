@@ -148,121 +148,130 @@ class _CustomerCarsWorkspaceScreenState
                     : l10n.carsActivateSelling,
               ),
             ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(child: Text(_error!)),
-                ],
-              )
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                children: [
-                  if (workspace != null && !workspace.carSellerMonthly)
-                    _PlanInactiveBanner(onOpenUpgrade: _openUpgrade),
-                  if (workspace != null)
-                    _WorkspaceSummary(workspace: workspace),
-                  const SizedBox(height: 12),
-                  if (workspace != null &&
-                      workspace.syncChangedListingIds.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 14),
-                      child: Text(
-                        context.l10n.carsWorkspaceSyncedHint,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  if (workspace == null || workspace.listings.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 80),
-                      child: Center(child: Text(l10n.carsNoListings)),
-                    )
-                  else
-                    ...workspace.listings.map(
-                      (listing) => Padding(
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(child: Text(_error!)),
+                  ],
+                )
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                  children: [
+                    if (workspace != null && !workspace.carSellerMonthly)
+                      _PlanInactiveBanner(onOpenUpgrade: _openUpgrade),
+                    if (workspace != null)
+                      _WorkspaceSummary(workspace: workspace),
+                    const SizedBox(height: 12),
+                    if (workspace != null &&
+                        workspace.syncChangedListingIds.isNotEmpty)
+                      Padding(
                         padding: const EdgeInsets.only(bottom: 14),
-                        child: Column(
-                          children: [
-                            CustomerCarListingCard(
-                              listing: listing,
-                              compact: true,
-                              onTap: () async {
-                                await Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) =>
-                                        CustomerCarListingDetailsScreen(
-                                          listingId: listing.id,
-                                          initialListing: listing,
-                                        ),
-                                  ),
-                                );
-                                if (mounted) {
-                                  await _load();
-                                }
-                              },
-                            ),
-                            const SizedBox(height: 8),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              alignment: WrapAlignment.start,
-                              children: [
-                                FilledButton.tonalIcon(
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _openEditor(listing: listing),
-                                  icon: const Icon(Icons.edit_outlined),
-                                  label: Text(l10n.commonEdit),
-                                ),
-                                if (listing.status == 'active')
-                                  OutlinedButton.icon(
-                                    onPressed: _busy
-                                        ? null
-                                        : () => _markStatus(listing, 'sold'),
-                                    icon: const Icon(Icons.sell_outlined),
-                                    label: Text(l10n.carsStatusSold),
-                                  ),
-                                if (listing.status == 'active')
-                                  OutlinedButton.icon(
-                                    onPressed: _busy
-                                        ? null
-                                        : () =>
-                                              _markStatus(listing, 'archived'),
-                                    icon: const Icon(Icons.archive_outlined),
-                                    label: Text(l10n.carsStatusArchived),
-                                  ),
-                                if (listing.status == 'archived' ||
-                                    listing.status ==
-                                        'hidden_due_subscription_expiry')
-                                  OutlinedButton.icon(
-                                    onPressed: _busy
-                                        ? null
-                                        : () => _markStatus(listing, 'active'),
-                                    icon: const Icon(Icons.unarchive_outlined),
-                                    label: Text(l10n.carsStatusActive),
-                                  ),
-                                FilledButton.tonalIcon(
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _call(listing.phone),
-                                  icon: const Icon(Icons.call_outlined),
-                                  label: Text(l10n.commonCall),
-                                ),
-                              ],
-                            ),
-                          ],
+                        child: Text(
+                          context.l10n.carsWorkspaceSyncedHint,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                fontWeight: FontWeight.w800,
+                              ),
                         ),
                       ),
-                    ),
-                ],
-              ),
+                    if (workspace == null || workspace.listings.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 80),
+                        child: Center(child: Text(l10n.carsNoListings)),
+                      )
+                    else
+                      ...workspace.listings.map(
+                        (listing) => Padding(
+                          padding: const EdgeInsets.only(bottom: 14),
+                          child: Column(
+                            children: [
+                              CustomerCarListingCard(
+                                listing: listing,
+                                compact: true,
+                                onTap: () async {
+                                  await Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          CustomerCarListingDetailsScreen(
+                                            listingId: listing.id,
+                                            initialListing: listing,
+                                          ),
+                                    ),
+                                  );
+                                  if (mounted) {
+                                    await _load();
+                                  }
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                alignment: WrapAlignment.start,
+                                children: [
+                                  FilledButton.tonalIcon(
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _openEditor(listing: listing),
+                                    icon: const Icon(Icons.edit_outlined),
+                                    label: Text(l10n.commonEdit),
+                                  ),
+                                  if (listing.status == 'active')
+                                    OutlinedButton.icon(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _markStatus(listing, 'sold'),
+                                      icon: const Icon(Icons.sell_outlined),
+                                      label: Text(l10n.carsStatusSold),
+                                    ),
+                                  if (listing.status == 'active')
+                                    OutlinedButton.icon(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _markStatus(
+                                              listing,
+                                              'archived',
+                                            ),
+                                      icon: const Icon(Icons.archive_outlined),
+                                      label: Text(l10n.carsStatusArchived),
+                                    ),
+                                  if (listing.status == 'archived' ||
+                                      listing.status ==
+                                          'hidden_due_subscription_expiry')
+                                    OutlinedButton.icon(
+                                      onPressed: _busy
+                                          ? null
+                                          : () =>
+                                                _markStatus(listing, 'active'),
+                                      icon: const Icon(
+                                        Icons.unarchive_outlined,
+                                      ),
+                                      label: Text(l10n.carsStatusActive),
+                                    ),
+                                  FilledButton.tonalIcon(
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _call(listing.phone),
+                                    icon: const Icon(Icons.call_outlined),
+                                    label: Text(l10n.commonCall),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+        ),
       ),
     );
   }

@@ -187,130 +187,133 @@ class _AdminCustomerReliabilityPolicyScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('سياسة موثوقية العملاء')),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (_error != null) ...[
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.red.withValues(alpha: 0.35),
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    if (_error != null) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.red.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Text(_error!),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'إعدادات عامة',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            _numberField(
+                              _windowDaysController,
+                              'نافذة التحليل بالأيام',
+                            ),
+                            _numberField(
+                              _baseScoreController,
+                              'النتيجة الأساسية',
+                            ),
+                            _numberField(
+                              _warningThresholdController,
+                              'حد التحذير للمتجر',
+                            ),
+                          ],
                         ),
                       ),
-                      child: Text(_error!),
                     ),
                     const SizedBox(height: 12),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'الأوزان',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            _numberField(
+                              _weightCompletedController,
+                              'وزن الطلبات المكتملة',
+                            ),
+                            _numberField(
+                              _weightCancelledController,
+                              'وزن إلغاء العميل',
+                            ),
+                            _numberField(
+                              _weightFailedDeliveryController,
+                              'وزن تعذر التسليم',
+                            ),
+                            _numberField(
+                              _weightNoAnswerController,
+                              'وزن عدم الرد',
+                            ),
+                            _numberField(
+                              _weightComplaintsController,
+                              'وزن الشكاوى',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'حدود التصنيف',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 8),
+                            _numberField(
+                              _thresholdTrustedController,
+                              'Trusted >=',
+                            ),
+                            _numberField(
+                              _thresholdNeedsAttentionController,
+                              'Needs Attention <=',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: _saving ? null : _save,
+                      icon: _saving
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.save_outlined),
+                      label: Text(_saving ? 'جارٍ الحفظ...' : 'حفظ السياسة'),
+                    ),
                   ],
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'إعدادات عامة',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 8),
-                          _numberField(
-                            _windowDaysController,
-                            'نافذة التحليل بالأيام',
-                          ),
-                          _numberField(
-                            _baseScoreController,
-                            'النتيجة الأساسية',
-                          ),
-                          _numberField(
-                            _warningThresholdController,
-                            'حد التحذير للمتجر',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'الأوزان',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 8),
-                          _numberField(
-                            _weightCompletedController,
-                            'وزن الطلبات المكتملة',
-                          ),
-                          _numberField(
-                            _weightCancelledController,
-                            'وزن إلغاء العميل',
-                          ),
-                          _numberField(
-                            _weightFailedDeliveryController,
-                            'وزن تعذر التسليم',
-                          ),
-                          _numberField(
-                            _weightNoAnswerController,
-                            'وزن عدم الرد',
-                          ),
-                          _numberField(
-                            _weightComplaintsController,
-                            'وزن الشكاوى',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'حدود التصنيف',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(height: 8),
-                          _numberField(
-                            _thresholdTrustedController,
-                            'Trusted >=',
-                          ),
-                          _numberField(
-                            _thresholdNeedsAttentionController,
-                            'Needs Attention <=',
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _saving ? null : _save,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.save_outlined),
-                    label: Text(_saving ? 'جارٍ الحفظ...' : 'حفظ السياسة'),
-                  ),
-                ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/state/auth_controller.dart';
@@ -16,7 +18,7 @@ Future<bool> requireAuthBeforeAction(
   if (auth.isAuthed) return true;
 
   final sheetContext = context;
-  await showModalBottomSheet<void>(
+  await showMaslakiBottomSheet<void>(
     context: sheetContext,
     useRootNavigator: true,
     isScrollControlled: true,

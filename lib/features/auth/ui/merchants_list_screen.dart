@@ -14,6 +14,8 @@ import '../../../core/utils/parsers.dart';
 import '../../../core/utils/currency.dart';
 import '../../../core/widgets/maslaki_user_drawer.dart';
 import '../../behavior/data/behavior_api.dart';
+import '../../merchants/shopping_groups.dart';
+import '../../mimo/guide/mimo_target.dart';
 import '../../merchants/models/merchant_discovery_model.dart';
 import '../../merchants/models/merchant_model.dart';
 import '../../merchants/models/store_activity_model.dart';
@@ -600,62 +602,14 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
     final group = selectedShoppingGroup;
     if (group == null || group.isEmpty) return list;
     return list
-        .where((merchant) {
-          final type = normalizeText(merchant.type).trim().toLowerCase();
-          final activity = normalizeText(
-            merchant.activityType,
-          ).trim().toLowerCase();
-          switch (group) {
-            case 'food':
-              return type == 'restaurant' ||
-                  {
-                    'restaurant',
-                    'sweets_bakery',
-                    'coffee_drinks',
-                    'bakery',
-                    'dessert',
-                  }.contains(activity);
-            case 'fashion':
-              return {
-                'fashion_clothing',
-                'kids_clothing',
-                'personal_care_beauty',
-              }.contains(activity);
-            case 'supermarket':
-              return type == 'market' &&
-                  {
-                    'market',
-                    'supermarket',
-                    'fruits_vegetables',
-                    'meat_poultry',
-                    'seafood',
-                    'nuts_snacks',
-                    'mineral_water',
-                  }.contains(activity);
-            case 'pharmacy':
-              return activity == 'pharmacy' ||
-                  activity == 'dietary_supplements' ||
-                  merchant.supportsPharmacyWorkflow;
-            case 'electronics':
-              return {
-                'electronics_mobile',
-                'electrical_lighting',
-                'phone_maintenance',
-                'phones_technology',
-                'home_kitchen',
-              }.contains(activity);
-            case 'home':
-              return {
-                'furnishings',
-                'home_furniture',
-                'home_kitchen',
-                'kitchens_decor',
-                'construction',
-              }.contains(activity);
-            default:
-              return true;
-          }
-        })
+        .where(
+          (merchant) => storeInShoppingGroup(
+            group,
+            type: normalizeText(merchant.type),
+            activityType: normalizeText(merchant.activityType),
+            supportsPharmacy: merchant.supportsPharmacyWorkflow,
+          ),
+        )
         .toList(growable: false);
   }
 
@@ -1220,544 +1174,561 @@ class _MerchantsListScreenState extends ConsumerState<MerchantsListScreen> {
               icon: const Icon(Icons.add_business_rounded),
             )
           : null,
-      body: merchants.when(
-        data: (list) {
-          if (!showCustomerActions) {
-            return _BackofficeMerchantsView(
-              merchants: list,
-              selectedType: filterType,
-              onSelectType: _onChangeType,
-              onRefresh: _refresh,
-              onOpenMerchant: (merchant) {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => MerchantProductsScreen(merchant: merchant),
-                  ),
-                );
-              },
-            );
-          }
+      body: SafeArea(
+        top: false,
+        child: merchants.when(
+          data: (list) {
+            if (!showCustomerActions) {
+              return _BackofficeMerchantsView(
+                merchants: list,
+                selectedType: filterType,
+                onSelectType: _onChangeType,
+                onRefresh: _refresh,
+                onOpenMerchant: (merchant) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          MerchantProductsScreen(merchant: merchant),
+                    ),
+                  );
+                },
+              );
+            }
 
-          final userId = auth.user?.id;
-          final discoveryData = discovery.maybeWhen(
-            data: (value) => value,
-            orElse: () => null,
-          );
-          final insightScoreByMerchantId =
-              discoveryData?.insightsByMerchantId.map(
-                (key, value) => MapEntry(key, value.compositeScore),
-              ) ??
-              const <int, double>{};
-          final filtered = _applySearch(
-            list,
-            prefs.favoriteMerchantIds,
-            insightScoreByMerchantId,
-          );
-          final normalizedUserSearch = normalizeText(searchQuery).trim();
-          final hasUserSearch = normalizedUserSearch.isNotEmpty;
-          final hasUserFilters = hasUserSearch || openNowOnly || favoritesOnly;
-          final showEmptyInventory = list.isEmpty;
-          final showFilteredEmpty = list.isNotEmpty && filtered.isEmpty;
-          final recommended = _recommendedMerchants(
-            list,
-            prefs.favoriteMerchantIds,
-            insightScoreByMerchantId,
-          );
-          final storyMerchants = _storyMerchants(
-            list,
-            prefs.favoriteMerchantIds,
-            insightScoreByMerchantId,
-          );
-          final recentViewed = _recentlyViewedMerchants(
-            list,
-            prefs.recentMerchantIds,
-          );
-          final byMerchantId = <int, MerchantModel>{
-            for (final merchant in list) merchant.id: merchant,
-          };
-          final categoryDiscoveryEnabled =
-              widget.showCategoryIntelligence &&
-              widget.compactCustomerMode &&
-              !showShoppingCards &&
-              (filterType ?? widget.initialType) != null;
-          final fastestMerchants = discoveryData == null
-              ? const <MerchantModel>[]
-              : _resolveRankedMerchants(
-                  discoveryData.ranking.fastest,
-                  byMerchantId,
-                );
-          final topRatedMerchants = discoveryData == null
-              ? const <MerchantModel>[]
-              : _resolveRankedMerchants(
-                  discoveryData.ranking.topRated,
-                  byMerchantId,
-                );
-          final bestOffersMerchants = discoveryData == null
-              ? const <MerchantModel>[]
-              : _resolveRankedMerchants(
-                  discoveryData.ranking.bestOffers,
-                  byMerchantId,
-                );
-          final bestValueMerchants = discoveryData == null
-              ? const <MerchantModel>[]
-              : _resolveRankedMerchants(
-                  discoveryData.ranking.bestValue,
-                  byMerchantId,
-                );
-          final mostOrderedMerchants = discoveryData == null
-              ? const <MerchantModel>[]
-              : _resolveRankedMerchants(
-                  discoveryData.ranking.mostOrdered,
-                  byMerchantId,
-                );
-          final reorderMerchants = discoveryData == null
-              ? const <MerchantModel>[]
-              : _resolveReorderMerchants(
-                  discoveryData.ranking.reorder,
-                  byMerchantId,
-                );
-          final openCount = list.where((merchant) => merchant.isOpen).length;
-          final offersCount = list
-              .where(
-                (merchant) =>
-                    merchant.hasDiscountOffer || merchant.hasFreeDeliveryOffer,
-              )
-              .length;
-          final cityPulse = _cityPulse(
-            context,
-            hour: DateTime.now().hour,
-            openCount: openCount,
-            offersCount: offersCount,
-            totalCount: list.length,
-          );
-          final categoryAdActivityType =
-              (selectedActivityType ?? widget.initialActivityType)?.trim();
-          final categoryAdKey =
-              (selectedDiscoverySubcategory ??
-                      widget.initialDiscoverySubcategory ??
-                      widget.initialDepartment ??
-                      selectedActivityType ??
-                      widget.initialActivityType)
-                  ?.trim();
-          final hasMarketplaceCategoryContext =
-              (categoryAdActivityType?.isNotEmpty ?? false) ||
-              (categoryAdKey?.isNotEmpty ?? false);
-          final marketplaceAdPlacement = hasMarketplaceCategoryContext
-              ? 'MARKETPLACE_CATEGORY'
-              : 'MARKETPLACE_HOME';
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: ListView(
-              padding: EdgeInsets.fromLTRB(
-                12,
-                showShoppingCards ? 12 : 8,
-                12,
-                22,
-              ),
-              children: [
-                if (showShoppingCards) ...[
-                  _ShoppingMarketHeader(
-                    title:
-                        widget.overrideTitle ??
-                        context.lt(ar: 'السوق الرئيسي', en: 'Main Market'),
-                    onOpenDrawer: () =>
-                        _scaffoldKey.currentState?.openEndDrawer(),
-                    onOpenAddresses: _openAddresses,
-                    onOpenNotifications: _openNotifications,
-                    onOpenCart: _openCart,
-                    cartItems: cart.totalItems,
-                    notificationCount: unreadNotifications,
-                  ),
-                  MarketplaceAdCard(
-                    request: MarketplaceAdRequest(
-                      placement: marketplaceAdPlacement,
-                      type:
-                          (filterType ?? widget.initialType)
-                                  ?.trim()
-                                  .isNotEmpty ==
-                              true
-                          ? (filterType ?? widget.initialType)!.trim()
-                          : null,
-                      categoryKey:
-                          hasMarketplaceCategoryContext &&
-                              categoryAdKey?.isNotEmpty == true
-                          ? categoryAdKey
-                          : null,
-                      activityType:
-                          hasMarketplaceCategoryContext &&
-                              categoryAdActivityType?.isNotEmpty == true
-                          ? categoryAdActivityType
-                          : null,
-                    ),
-                    onTapAd: _handleCategoryAdTap,
-                    height: 178,
-                    margin: const EdgeInsets.only(top: 8, bottom: 16),
-                    showEmptyState: false,
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                if (!showShoppingCards) ...[
-                  _BasmayaLocationStrip(onOpenAddresses: _openAddresses),
-                  const SizedBox(height: 12),
-                ],
-                if (showRichDiscovery) ...[
-                  _CityPulseCard(
-                    greeting: _greetingByHour(context, DateTime.now().hour),
-                    totalMerchants: list.length,
-                    openMerchants: openCount,
-                    offersCount: offersCount,
-                    favoritesCount: prefs.favoriteMerchantIds.length,
-                    recentCount: prefs.recentMerchantIds.length,
-                    pulseLabel: cityPulse.label,
-                    pulseColor: cityPulse.color,
-                    pulseScore: cityPulse.score,
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                if (!showShoppingCards) ...[
-                  _CustomerQuickActions(
-                    openNowOnly: openNowOnly,
-                    onToggleOpenNowOnly: (value) =>
-                        setState(() => openNowOnly = value),
-                    onOpenAddresses: () => _openAddresses(),
-                    onOpenOrders: _openOrders,
-                    onOpenCart: _openCart,
-                    showOpenNowToggle: showRichDiscovery,
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                if (showRichDiscovery) ...[
-                  _DiscoveryModesPanel(
-                    activeMode: activeDiscoveryMode,
-                    surprisePicking: surprisePicking,
-                    onSelectMode: (mode) => _applyDiscoveryMode(
-                      mode,
-                      source: list,
-                      favoriteMerchantIds: prefs.favoriteMerchantIds,
-                      insightScoreByMerchantId: insightScoreByMerchantId,
-                      userId: userId,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (!showShoppingCards) ...[
-                  // Admin-managed marketplace ad only. It sits above search and
-                  // collapses fully when the admin has not published one.
-                  MarketplaceAdCard(
-                    request: MarketplaceAdRequest(
-                      placement: marketplaceAdPlacement,
-                      type:
-                          (filterType ?? widget.initialType)
-                                  ?.trim()
-                                  .isNotEmpty ==
-                              true
-                          ? (filterType ?? widget.initialType)!.trim()
-                          : null,
-                      categoryKey:
-                          hasMarketplaceCategoryContext &&
-                              categoryAdKey?.isNotEmpty == true
-                          ? categoryAdKey
-                          : null,
-                      activityType:
-                          hasMarketplaceCategoryContext &&
-                              categoryAdActivityType?.isNotEmpty == true
-                          ? categoryAdActivityType
-                          : null,
-                    ),
-                    onTapAd: _handleCategoryAdTap,
-                    showEmptyState: true,
-                  ),
-                ],
-                if (showShoppingCards) ...[
-                  _ShoppingCategoryCardsRail(
-                    items: _shoppingCategoryCards(context),
-                    activeGroup: selectedShoppingGroup,
-                    onSelect: _onSelectShoppingCategory,
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                _ShoppingSearchField(
-                  controller: searchCtrl,
-                  hintText: showShoppingCards
-                      ? context.lt(
-                          ar: 'ابحث عن المتاجر أو المنتجات في بسمّاية ...',
-                          en: 'Search stores or products in Basmaya ...',
-                        )
-                      : _resolvedSearchHintText(),
-                  onChanged: (value) => setState(() => searchQuery = value),
-                  onClear: searchQuery.isEmpty
-                      ? null
-                      : () {
-                          searchCtrl.clear();
-                          setState(() => searchQuery = '');
-                        },
+            final userId = auth.user?.id;
+            final discoveryData = discovery.maybeWhen(
+              data: (value) => value,
+              orElse: () => null,
+            );
+            final insightScoreByMerchantId =
+                discoveryData?.insightsByMerchantId.map(
+                  (key, value) => MapEntry(key, value.compositeScore),
+                ) ??
+                const <int, double>{};
+            final filtered = _applySearch(
+              list,
+              prefs.favoriteMerchantIds,
+              insightScoreByMerchantId,
+            );
+            final normalizedUserSearch = normalizeText(searchQuery).trim();
+            final hasUserSearch = normalizedUserSearch.isNotEmpty;
+            final hasUserFilters =
+                hasUserSearch || openNowOnly || favoritesOnly;
+            final showEmptyInventory = list.isEmpty;
+            final showFilteredEmpty = list.isNotEmpty && filtered.isEmpty;
+            final recommended = _recommendedMerchants(
+              list,
+              prefs.favoriteMerchantIds,
+              insightScoreByMerchantId,
+            );
+            final storyMerchants = _storyMerchants(
+              list,
+              prefs.favoriteMerchantIds,
+              insightScoreByMerchantId,
+            );
+            final recentViewed = _recentlyViewedMerchants(
+              list,
+              prefs.recentMerchantIds,
+            );
+            final byMerchantId = <int, MerchantModel>{
+              for (final merchant in list) merchant.id: merchant,
+            };
+            final categoryDiscoveryEnabled =
+                widget.showCategoryIntelligence &&
+                widget.compactCustomerMode &&
+                !showShoppingCards &&
+                (filterType ?? widget.initialType) != null;
+            final fastestMerchants = discoveryData == null
+                ? const <MerchantModel>[]
+                : _resolveRankedMerchants(
+                    discoveryData.ranking.fastest,
+                    byMerchantId,
+                  );
+            final topRatedMerchants = discoveryData == null
+                ? const <MerchantModel>[]
+                : _resolveRankedMerchants(
+                    discoveryData.ranking.topRated,
+                    byMerchantId,
+                  );
+            final bestOffersMerchants = discoveryData == null
+                ? const <MerchantModel>[]
+                : _resolveRankedMerchants(
+                    discoveryData.ranking.bestOffers,
+                    byMerchantId,
+                  );
+            final bestValueMerchants = discoveryData == null
+                ? const <MerchantModel>[]
+                : _resolveRankedMerchants(
+                    discoveryData.ranking.bestValue,
+                    byMerchantId,
+                  );
+            final mostOrderedMerchants = discoveryData == null
+                ? const <MerchantModel>[]
+                : _resolveRankedMerchants(
+                    discoveryData.ranking.mostOrdered,
+                    byMerchantId,
+                  );
+            final reorderMerchants = discoveryData == null
+                ? const <MerchantModel>[]
+                : _resolveReorderMerchants(
+                    discoveryData.ranking.reorder,
+                    byMerchantId,
+                  );
+            final openCount = list.where((merchant) => merchant.isOpen).length;
+            final offersCount = list
+                .where(
+                  (merchant) =>
+                      merchant.hasDiscountOffer ||
+                      merchant.hasFreeDeliveryOffer,
+                )
+                .length;
+            final cityPulse = _cityPulse(
+              context,
+              hour: DateTime.now().hour,
+              openCount: openCount,
+              offersCount: offersCount,
+              totalCount: list.length,
+            );
+            final categoryAdActivityType =
+                (selectedActivityType ?? widget.initialActivityType)?.trim();
+            final categoryAdKey =
+                (selectedDiscoverySubcategory ??
+                        widget.initialDiscoverySubcategory ??
+                        widget.initialDepartment ??
+                        selectedActivityType ??
+                        widget.initialActivityType)
+                    ?.trim();
+            final hasMarketplaceCategoryContext =
+                (categoryAdActivityType?.isNotEmpty ?? false) ||
+                (categoryAdKey?.isNotEmpty ?? false);
+            final marketplaceAdPlacement = hasMarketplaceCategoryContext
+                ? 'MARKETPLACE_CATEGORY'
+                : 'MARKETPLACE_HOME';
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                  12,
+                  showShoppingCards ? 12 : 8,
+                  12,
+                  22,
                 ),
-                if (showShoppingCards) ...[
-                  const SizedBox(height: 12),
-                  _ShoppingFilterRow(
-                    favoritesOnly: favoritesOnly,
-                    sortBy: sortBy,
-                    onToggleFavoritesOnly: (value) =>
-                        setState(() => favoritesOnly = value),
-                    onChangeSort: (value) => setState(() => sortBy = value),
-                    onOpenNearby: _openAddresses,
-                  ),
-                  const SizedBox(height: 18),
-                ] else if (showMerchantToolbar) ...[
-                  const SizedBox(height: 10),
-                  _MerchantDiscoveryToolbar(
-                    favoritesOnly: favoritesOnly,
-                    sortBy: sortBy,
-                    onToggleFavoritesOnly: (value) =>
-                        setState(() => favoritesOnly = value),
-                    onChangeSort: (value) => setState(() => sortBy = value),
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                if (showActivityFilters) ...[
-                  _ActivityDiscoveryRail(
-                    activities: _activities,
-                    discoveryOptions: _discoveryOptions,
-                    selectedActivityType: selectedActivityType,
-                    selectedDiscoverySubcategory: selectedDiscoverySubcategory,
-                    isArabic: Directionality.of(context) == TextDirection.rtl,
-                    onSelectActivityType: _onSelectActivityType,
-                    onSelectDiscoverySubcategory: _onSelectDiscoverySubcategory,
-                  ),
-                  const SizedBox(height: 10),
-                ],
-                if (categoryDiscoveryEnabled) ...[
-                  const SizedBox(height: 14),
-                  if (discovery.isLoading)
-                    const _CategoryIntelligenceLoadingCard()
-                  else if (discovery.hasError)
-                    _CategoryIntelligenceErrorCard(
-                      onRetry: () => _loadDiscoveryForType(
-                        auth: auth,
-                        type: filterType ?? widget.initialType,
-                        force: true,
+                children: [
+                  if (showShoppingCards) ...[
+                    _ShoppingMarketHeader(
+                      title:
+                          widget.overrideTitle ??
+                          context.lt(ar: 'السوق الرئيسي', en: 'Main Market'),
+                      onOpenDrawer: () =>
+                          _scaffoldKey.currentState?.openEndDrawer(),
+                      onOpenAddresses: _openAddresses,
+                      onOpenNotifications: _openNotifications,
+                      onOpenCart: _openCart,
+                      cartItems: cart.totalItems,
+                      notificationCount: unreadNotifications,
+                    ),
+                    MarketplaceAdCard(
+                      request: MarketplaceAdRequest(
+                        placement: marketplaceAdPlacement,
+                        type:
+                            (filterType ?? widget.initialType)
+                                    ?.trim()
+                                    .isNotEmpty ==
+                                true
+                            ? (filterType ?? widget.initialType)!.trim()
+                            : null,
+                        categoryKey:
+                            hasMarketplaceCategoryContext &&
+                                categoryAdKey?.isNotEmpty == true
+                            ? categoryAdKey
+                            : null,
+                        activityType:
+                            hasMarketplaceCategoryContext &&
+                                categoryAdActivityType?.isNotEmpty == true
+                            ? categoryAdActivityType
+                            : null,
                       ),
-                    )
-                  else if (discoveryData case final data?) ...[
-                    _CategoryProfileCard(
-                      profile: data.profile,
-                      spendingBandText: _spendingBandText(
-                        data.profile.spendingBand,
+                      onTapAd: _handleCategoryAdTap,
+                      height: 178,
+                      margin: const EdgeInsets.only(top: 8, bottom: 16),
+                      showEmptyState: false,
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  if (!showShoppingCards) ...[
+                    _BasmayaLocationStrip(onOpenAddresses: _openAddresses),
+                    const SizedBox(height: 12),
+                  ],
+                  if (showRichDiscovery) ...[
+                    _CityPulseCard(
+                      greeting: _greetingByHour(context, DateTime.now().hour),
+                      totalMerchants: list.length,
+                      openMerchants: openCount,
+                      offersCount: offersCount,
+                      favoritesCount: prefs.favoriteMerchantIds.length,
+                      recentCount: prefs.recentMerchantIds.length,
+                      pulseLabel: cityPulse.label,
+                      pulseColor: cityPulse.color,
+                      pulseScore: cityPulse.score,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (!showShoppingCards) ...[
+                    _CustomerQuickActions(
+                      openNowOnly: openNowOnly,
+                      onToggleOpenNowOnly: (value) =>
+                          setState(() => openNowOnly = value),
+                      onOpenAddresses: () => _openAddresses(),
+                      onOpenOrders: _openOrders,
+                      onOpenCart: _openCart,
+                      showOpenNowToggle: showRichDiscovery,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (showRichDiscovery) ...[
+                    _DiscoveryModesPanel(
+                      activeMode: activeDiscoveryMode,
+                      surprisePicking: surprisePicking,
+                      onSelectMode: (mode) => _applyDiscoveryMode(
+                        mode,
+                        source: list,
+                        favoriteMerchantIds: prefs.favoriteMerchantIds,
+                        insightScoreByMerchantId: insightScoreByMerchantId,
+                        userId: userId,
                       ),
-                      priceSensitivityText: _priceSensitivityText(
-                        data.profile.priceSensitivity,
-                      ),
-                      merchantCount: list.length,
                     ),
                     const SizedBox(height: 12),
-                    if (fastestMerchants.isNotEmpty) ...[
-                      _MiniSectionHeader(
-                        title: l10n.customerDiscoveryFastestDelivery,
-                        subtitle: l10n.merchantListFastestDeliverySubtitle,
+                  ],
+                  if (!showShoppingCards) ...[
+                    // Admin-managed marketplace ad only. It sits above search and
+                    // collapses fully when the admin has not published one.
+                    MarketplaceAdCard(
+                      request: MarketplaceAdRequest(
+                        placement: marketplaceAdPlacement,
+                        type:
+                            (filterType ?? widget.initialType)
+                                    ?.trim()
+                                    .isNotEmpty ==
+                                true
+                            ? (filterType ?? widget.initialType)!.trim()
+                            : null,
+                        categoryKey:
+                            hasMarketplaceCategoryContext &&
+                                categoryAdKey?.isNotEmpty == true
+                            ? categoryAdKey
+                            : null,
+                        activityType:
+                            hasMarketplaceCategoryContext &&
+                                categoryAdActivityType?.isNotEmpty == true
+                            ? categoryAdActivityType
+                            : null,
                       ),
-                      const SizedBox(height: 8),
-                      _MerchantQuickRail(
-                        merchants: fastestMerchants,
-                        favoriteIds: prefs.favoriteMerchantIds,
-                        onOpen: (merchant) =>
-                            _openMerchant(merchant, userId: userId),
+                      onTapAd: _handleCategoryAdTap,
+                      showEmptyState: true,
+                    ),
+                  ],
+                  if (showShoppingCards) ...[
+                    _ShoppingCategoryCardsRail(
+                      items: _shoppingCategoryCards(context),
+                      activeGroup: selectedShoppingGroup,
+                      onSelect: _onSelectShoppingCategory,
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  _ShoppingSearchField(
+                    controller: searchCtrl,
+                    hintText: showShoppingCards
+                        ? context.lt(
+                            ar: 'ابحث عن المتاجر أو المنتجات في بسمّاية ...',
+                            en: 'Search stores or products in Basmaya ...',
+                          )
+                        : _resolvedSearchHintText(),
+                    onChanged: (value) => setState(() => searchQuery = value),
+                    onClear: searchQuery.isEmpty
+                        ? null
+                        : () {
+                            searchCtrl.clear();
+                            setState(() => searchQuery = '');
+                          },
+                  ),
+                  if (showShoppingCards) ...[
+                    const SizedBox(height: 12),
+                    _ShoppingFilterRow(
+                      favoritesOnly: favoritesOnly,
+                      sortBy: sortBy,
+                      onToggleFavoritesOnly: (value) =>
+                          setState(() => favoritesOnly = value),
+                      onChangeSort: (value) => setState(() => sortBy = value),
+                      onOpenNearby: _openAddresses,
+                    ),
+                    const SizedBox(height: 18),
+                  ] else if (showMerchantToolbar) ...[
+                    const SizedBox(height: 10),
+                    _MerchantDiscoveryToolbar(
+                      favoritesOnly: favoritesOnly,
+                      sortBy: sortBy,
+                      onToggleFavoritesOnly: (value) =>
+                          setState(() => favoritesOnly = value),
+                      onChangeSort: (value) => setState(() => sortBy = value),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  if (showActivityFilters) ...[
+                    _ActivityDiscoveryRail(
+                      activities: _activities,
+                      discoveryOptions: _discoveryOptions,
+                      selectedActivityType: selectedActivityType,
+                      selectedDiscoverySubcategory:
+                          selectedDiscoverySubcategory,
+                      isArabic: Directionality.of(context) == TextDirection.rtl,
+                      onSelectActivityType: _onSelectActivityType,
+                      onSelectDiscoverySubcategory:
+                          _onSelectDiscoverySubcategory,
+                    ),
+                    const SizedBox(height: 10),
+                  ],
+                  if (categoryDiscoveryEnabled) ...[
+                    const SizedBox(height: 14),
+                    if (discovery.isLoading)
+                      const _CategoryIntelligenceLoadingCard()
+                    else if (discovery.hasError)
+                      _CategoryIntelligenceErrorCard(
+                        onRetry: () => _loadDiscoveryForType(
+                          auth: auth,
+                          type: filterType ?? widget.initialType,
+                          force: true,
+                        ),
+                      )
+                    else if (discoveryData case final data?) ...[
+                      _CategoryProfileCard(
+                        profile: data.profile,
+                        spendingBandText: _spendingBandText(
+                          data.profile.spendingBand,
+                        ),
+                        priceSensitivityText: _priceSensitivityText(
+                          data.profile.priceSensitivity,
+                        ),
+                        merchantCount: list.length,
                       ),
-                      const SizedBox(height: 10),
-                    ],
-                    if (topRatedMerchants.isNotEmpty) ...[
-                      _MiniSectionHeader(
-                        title: l10n.customerDiscoveryTopRated,
-                        subtitle: l10n.merchantListTopRatedSubtitle,
-                      ),
-                      const SizedBox(height: 8),
-                      _MerchantQuickRail(
-                        merchants: topRatedMerchants,
-                        favoriteIds: prefs.favoriteMerchantIds,
-                        onOpen: (merchant) =>
-                            _openMerchant(merchant, userId: userId),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-                    if (bestValueMerchants.isNotEmpty) ...[
-                      _MiniSectionHeader(
-                        title: l10n.customerDiscoveryBestPrice,
-                        subtitle: l10n.merchantListBestPriceSubtitle,
-                      ),
-                      const SizedBox(height: 8),
-                      _MerchantQuickRail(
-                        merchants: bestValueMerchants,
-                        favoriteIds: prefs.favoriteMerchantIds,
-                        onOpen: (merchant) =>
-                            _openMerchant(merchant, userId: userId),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-                    if (bestOffersMerchants.isNotEmpty) ...[
-                      _MiniSectionHeader(
-                        title: l10n.customerDiscoveryTodayOffers,
-                        subtitle: l10n.merchantListTodayOffersSubtitle,
-                      ),
-                      const SizedBox(height: 8),
-                      _MerchantQuickRail(
-                        merchants: bestOffersMerchants,
-                        favoriteIds: prefs.favoriteMerchantIds,
-                        onOpen: (merchant) =>
-                            _openMerchant(merchant, userId: userId),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-                    if (mostOrderedMerchants.isNotEmpty) ...[
-                      _MiniSectionHeader(
-                        title: l10n.merchantListMostOrderedTitle,
-                        subtitle: l10n.merchantListMostOrderedSubtitle,
-                      ),
-                      const SizedBox(height: 8),
-                      _MerchantQuickRail(
-                        merchants: mostOrderedMerchants,
-                        favoriteIds: prefs.favoriteMerchantIds,
-                        onOpen: (merchant) =>
-                            _openMerchant(merchant, userId: userId),
-                      ),
-                      const SizedBox(height: 10),
-                    ],
-                    if (reorderMerchants.isNotEmpty) ...[
-                      _MiniSectionHeader(
-                        title: l10n.customerDiscoveryReorder,
-                        subtitle: l10n.merchantListReorderSubtitle,
-                      ),
-                      const SizedBox(height: 8),
-                      _MerchantQuickRail(
-                        merchants: reorderMerchants,
-                        favoriteIds: prefs.favoriteMerchantIds,
-                        onOpen: (merchant) =>
-                            _openMerchant(merchant, userId: userId),
-                      ),
+                      const SizedBox(height: 12),
+                      if (fastestMerchants.isNotEmpty) ...[
+                        _MiniSectionHeader(
+                          title: l10n.customerDiscoveryFastestDelivery,
+                          subtitle: l10n.merchantListFastestDeliverySubtitle,
+                        ),
+                        const SizedBox(height: 8),
+                        _MerchantQuickRail(
+                          merchants: fastestMerchants,
+                          favoriteIds: prefs.favoriteMerchantIds,
+                          onOpen: (merchant) =>
+                              _openMerchant(merchant, userId: userId),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      if (topRatedMerchants.isNotEmpty) ...[
+                        _MiniSectionHeader(
+                          title: l10n.customerDiscoveryTopRated,
+                          subtitle: l10n.merchantListTopRatedSubtitle,
+                        ),
+                        const SizedBox(height: 8),
+                        _MerchantQuickRail(
+                          merchants: topRatedMerchants,
+                          favoriteIds: prefs.favoriteMerchantIds,
+                          onOpen: (merchant) =>
+                              _openMerchant(merchant, userId: userId),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      if (bestValueMerchants.isNotEmpty) ...[
+                        _MiniSectionHeader(
+                          title: l10n.customerDiscoveryBestPrice,
+                          subtitle: l10n.merchantListBestPriceSubtitle,
+                        ),
+                        const SizedBox(height: 8),
+                        _MerchantQuickRail(
+                          merchants: bestValueMerchants,
+                          favoriteIds: prefs.favoriteMerchantIds,
+                          onOpen: (merchant) =>
+                              _openMerchant(merchant, userId: userId),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      if (bestOffersMerchants.isNotEmpty) ...[
+                        _MiniSectionHeader(
+                          title: l10n.customerDiscoveryTodayOffers,
+                          subtitle: l10n.merchantListTodayOffersSubtitle,
+                        ),
+                        const SizedBox(height: 8),
+                        _MerchantQuickRail(
+                          merchants: bestOffersMerchants,
+                          favoriteIds: prefs.favoriteMerchantIds,
+                          onOpen: (merchant) =>
+                              _openMerchant(merchant, userId: userId),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      if (mostOrderedMerchants.isNotEmpty) ...[
+                        _MiniSectionHeader(
+                          title: l10n.merchantListMostOrderedTitle,
+                          subtitle: l10n.merchantListMostOrderedSubtitle,
+                        ),
+                        const SizedBox(height: 8),
+                        _MerchantQuickRail(
+                          merchants: mostOrderedMerchants,
+                          favoriteIds: prefs.favoriteMerchantIds,
+                          onOpen: (merchant) =>
+                              _openMerchant(merchant, userId: userId),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      if (reorderMerchants.isNotEmpty) ...[
+                        _MiniSectionHeader(
+                          title: l10n.customerDiscoveryReorder,
+                          subtitle: l10n.merchantListReorderSubtitle,
+                        ),
+                        const SizedBox(height: 8),
+                        _MerchantQuickRail(
+                          merchants: reorderMerchants,
+                          favoriteIds: prefs.favoriteMerchantIds,
+                          onOpen: (merchant) =>
+                              _openMerchant(merchant, userId: userId),
+                        ),
+                      ],
                     ],
                   ],
-                ],
-                const SizedBox(height: 18),
-                _SectionHeader(
-                  title: l10n.merchantListSectionTitle,
-                  subtitle: l10n.merchantListSectionSubtitle(
-                    filtered.length.toString(),
-                    filtered.where((m) => m.isOpen).length.toString(),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (showRichDiscovery && storyMerchants.isNotEmpty) ...[
-                  _MiniSectionHeader(
-                    title: l10n.merchantListQuickStatesTitle,
-                    subtitle: l10n.merchantListQuickStatesSubtitle,
-                  ),
-                  const SizedBox(height: 8),
-                  _MerchantStoriesRail(
-                    merchants: storyMerchants,
-                    favoriteIds: prefs.favoriteMerchantIds,
-                    onOpen: (merchant) =>
-                        _openMerchant(merchant, userId: userId),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (showRichDiscovery && recommended.isNotEmpty) ...[
-                  _MiniSectionHeader(
-                    title: l10n.merchantListSuggestedTitle,
-                    subtitle: l10n.merchantListSuggestedSubtitle,
-                  ),
-                  const SizedBox(height: 8),
-                  _MerchantQuickRail(
-                    merchants: recommended,
-                    favoriteIds: prefs.favoriteMerchantIds,
-                    onOpen: (merchant) =>
-                        _openMerchant(merchant, userId: userId),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (showRichDiscovery && recentViewed.isNotEmpty) ...[
-                  _MiniSectionHeader(
-                    title: l10n.merchantListRecentlyViewedTitle,
-                    subtitle: l10n.merchantListRecentlyViewedSubtitle,
-                    trailing: TextButton(
-                      onPressed: userId == null
-                          ? null
-                          : () => ref
-                                .read(customerMerchantPrefsProvider.notifier)
-                                .clearRecent(userId: userId),
-                      child: Text(l10n.commonClear),
+                  const SizedBox(height: 18),
+                  _SectionHeader(
+                    title: l10n.merchantListSectionTitle,
+                    subtitle: l10n.merchantListSectionSubtitle(
+                      filtered.length.toString(),
+                      filtered.where((m) => m.isOpen).length.toString(),
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _MerchantQuickRail(
-                    merchants: recentViewed,
-                    favoriteIds: prefs.favoriteMerchantIds,
-                    onOpen: (merchant) =>
-                        _openMerchant(merchant, userId: userId),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                if (showEmptyInventory)
-                  _MerchantListEmptyState(
-                    title: l10n.merchantListNoStores,
-                    subtitle: l10n.merchantListNoStoresSubtitle,
-                  )
-                else if (showFilteredEmpty)
-                  _MerchantListEmptyState(
-                    title: l10n.merchantListNoMatching,
-                    subtitle: hasUserFilters
-                        ? l10n.merchantListTryChangingFilters
-                        : l10n.merchantListNoStoresSubtitle,
-                    actionLabel: hasUserFilters ? l10n.commonReset : null,
-                    onAction: hasUserFilters ? _clearCustomerFilters : null,
-                  )
-                else
-                  ...List.generate(filtered.length, (index) {
-                    final merchant = filtered[index];
-                    final isFavorite = prefs.favoriteMerchantIds.contains(
-                      merchant.id,
-                    );
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: TweenAnimationBuilder<double>(
-                        duration: Duration(milliseconds: 260 + (index * 55)),
-                        curve: Curves.easeOutCubic,
-                        tween: Tween(begin: 0, end: 1),
-                        builder: (context, value, child) {
-                          return Opacity(
-                            opacity: value,
-                            child: Transform.translate(
-                              offset: Offset(0, (1 - value) * 14),
-                              child: child,
-                            ),
-                          );
-                        },
-                        child: _MerchantTalabatCard(
-                          merchant: merchant,
-                          isFavorite: isFavorite,
-                          compactMarketStyle: showShoppingCards,
-                          highlightPulse: highlightedMerchantId == merchant.id,
-                          onToggleFavorite:
-                              !showCustomerActions || userId == null
-                              ? null
-                              : () => ref
-                                    .read(
-                                      customerMerchantPrefsProvider.notifier,
-                                    )
-                                    .toggleFavorite(
-                                      userId: userId,
-                                      merchantId: merchant.id,
-                                    ),
-                          onTap: () => _openMerchant(merchant, userId: userId),
-                        ),
+                  if (showRichDiscovery && storyMerchants.isNotEmpty) ...[
+                    _MiniSectionHeader(
+                      title: l10n.merchantListQuickStatesTitle,
+                      subtitle: l10n.merchantListQuickStatesSubtitle,
+                    ),
+                    const SizedBox(height: 8),
+                    _MerchantStoriesRail(
+                      merchants: storyMerchants,
+                      favoriteIds: prefs.favoriteMerchantIds,
+                      onOpen: (merchant) =>
+                          _openMerchant(merchant, userId: userId),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (showRichDiscovery && recommended.isNotEmpty) ...[
+                    _MiniSectionHeader(
+                      title: l10n.merchantListSuggestedTitle,
+                      subtitle: l10n.merchantListSuggestedSubtitle,
+                    ),
+                    const SizedBox(height: 8),
+                    _MerchantQuickRail(
+                      merchants: recommended,
+                      favoriteIds: prefs.favoriteMerchantIds,
+                      onOpen: (merchant) =>
+                          _openMerchant(merchant, userId: userId),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (showRichDiscovery && recentViewed.isNotEmpty) ...[
+                    _MiniSectionHeader(
+                      title: l10n.merchantListRecentlyViewedTitle,
+                      subtitle: l10n.merchantListRecentlyViewedSubtitle,
+                      trailing: TextButton(
+                        onPressed: userId == null
+                            ? null
+                            : () => ref
+                                  .read(customerMerchantPrefsProvider.notifier)
+                                  .clearRecent(userId: userId),
+                        child: Text(l10n.commonClear),
                       ),
-                    );
-                  }),
-              ],
-            ),
-          );
-        },
-        loading: () => const StoreListSkeleton(),
-        error: (error, _) => MaslakiErrorRetry(
-          message: 'تعذّر تحميل المتاجر. تحقق من اتصالك ثم أعد المحاولة.',
-          onRetry: _refresh,
+                    ),
+                    const SizedBox(height: 8),
+                    _MerchantQuickRail(
+                      merchants: recentViewed,
+                      favoriteIds: prefs.favoriteMerchantIds,
+                      onOpen: (merchant) =>
+                          _openMerchant(merchant, userId: userId),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (showEmptyInventory)
+                    _MerchantListEmptyState(
+                      title: l10n.merchantListNoStores,
+                      subtitle: l10n.merchantListNoStoresSubtitle,
+                    )
+                  else if (showFilteredEmpty)
+                    _MerchantListEmptyState(
+                      title: l10n.merchantListNoMatching,
+                      subtitle: hasUserFilters
+                          ? l10n.merchantListTryChangingFilters
+                          : l10n.merchantListNoStoresSubtitle,
+                      actionLabel: hasUserFilters ? l10n.commonReset : null,
+                      onAction: hasUserFilters ? _clearCustomerFilters : null,
+                    )
+                  else
+                    ...List.generate(filtered.length, (index) {
+                      final merchant = filtered[index];
+                      final isFavorite = prefs.favoriteMerchantIds.contains(
+                        merchant.id,
+                      );
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: TweenAnimationBuilder<double>(
+                          duration: Duration(milliseconds: 260 + (index * 55)),
+                          curve: Curves.easeOutCubic,
+                          tween: Tween(begin: 0, end: 1),
+                          builder: (context, value, child) {
+                            return Opacity(
+                              opacity: value,
+                              child: Transform.translate(
+                                offset: Offset(0, (1 - value) * 14),
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: MimoTarget(
+                            id: 'store:${merchant.id}',
+                            label: merchant.name,
+                            onTap: () =>
+                                _openMerchant(merchant, userId: userId),
+                            child: _MerchantTalabatCard(
+                              merchant: merchant,
+                              isFavorite: isFavorite,
+                              compactMarketStyle: showShoppingCards,
+                              highlightPulse:
+                                  highlightedMerchantId == merchant.id,
+                              onToggleFavorite:
+                                  !showCustomerActions || userId == null
+                                  ? null
+                                  : () => ref
+                                        .read(
+                                          customerMerchantPrefsProvider
+                                              .notifier,
+                                        )
+                                        .toggleFavorite(
+                                          userId: userId,
+                                          merchantId: merchant.id,
+                                        ),
+                              onTap: () =>
+                                  _openMerchant(merchant, userId: userId),
+                            ),
+                          ),
+                        ),
+                      );
+                    }),
+                ],
+              ),
+            );
+          },
+          loading: () => const StoreListSkeleton(),
+          error: (error, _) => MaslakiErrorRetry(
+            message: 'تعذّر تحميل المتاجر. تحقق من اتصالك ثم أعد المحاولة.',
+            onRetry: _refresh,
+          ),
         ),
       ),
     );
@@ -2279,10 +2250,15 @@ class _ShoppingCategoryCardsRail extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 10),
         itemBuilder: (context, index) {
           final item = items[index];
-          return _ShoppingCategoryCard(
-            item: item,
-            selected: _isActive(item),
+          return MimoTarget(
+            id: 'shop-group:${item.groupKey ?? 'all'}',
+            label: item.title,
             onTap: () => onSelect(item),
+            child: _ShoppingCategoryCard(
+              item: item,
+              selected: _isActive(item),
+              onTap: () => onSelect(item),
+            ),
           );
         },
       ),

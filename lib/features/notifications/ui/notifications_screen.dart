@@ -139,107 +139,110 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-            child: MaslakiCard(
-              elevated: false,
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    reverse: true,
-                    child: Row(
-                      children: [
-                        ..._filterSpecs(stats, l10n).map(
-                          (spec) => Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 8),
-                            child: MaslakiChip(
-                              label: '${spec.label} ${spec.count}',
-                              icon: spec.icon,
-                              selected: _filter == spec.key,
-                              onTap: () {
-                                setState(() => _filter = spec.key);
-                              },
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: MaslakiCard(
+                elevated: false,
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      reverse: true,
+                      child: Row(
+                        children: [
+                          ..._filterSpecs(stats, l10n).map(
+                            (spec) => Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 8),
+                              child: MaslakiChip(
+                                label: '${spec.label} ${spec.count}',
+                                icon: spec.icon,
+                                selected: _filter == spec.key,
+                                onTap: () {
+                                  setState(() => _filter = spec.key);
+                                },
+                              ),
                             ),
                           ),
-                        ),
-                        MaslakiChip(
-                          label: l10n.notificationsUnread,
-                          icon: Icons.mark_email_unread_outlined,
-                          selected: _unreadOnly,
-                          onTap: () {
-                            setState(() => _unreadOnly = !_unreadOnly);
-                          },
-                        ),
-                      ],
+                          MaslakiChip(
+                            label: l10n.notificationsUnread,
+                            icon: Icons.mark_email_unread_outlined,
+                            selected: _unreadOnly,
+                            onTap: () {
+                              setState(() => _unreadOnly = !_unreadOnly);
+                            },
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: AlignmentDirectional.centerEnd,
-                    child: _RealtimeBadge(
-                      label: _realtimeLabel(state.realtimeStatus, l10n),
-                      icon: _realtimeIcon(state.realtimeStatus),
-                      color: _realtimeColor(state.realtimeStatus),
+                    const SizedBox(height: 10),
+                    Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: _RealtimeBadge(
+                        label: _realtimeLabel(state.realtimeStatus, l10n),
+                        icon: _realtimeIcon(state.realtimeStatus),
+                        color: _realtimeColor(state.realtimeStatus),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-          if (kIsWeb && _webPermission != 'granted')
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: _WebNotificationPrompt(
-                needsInstall:
-                    WebNotificationService.instance.needsHomeScreenInstall,
-                permission: _webPermission,
-                busy: _webPermissionBusy,
-                onEnable: _enableWebNotifications,
+            if (kIsWeb && _webPermission != 'granted')
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: _WebNotificationPrompt(
+                  needsInstall:
+                      WebNotificationService.instance.needsHomeScreenInstall,
+                  permission: _webPermission,
+                  busy: _webPermissionBusy,
+                  onEnable: _enableWebNotifications,
+                ),
+              ),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: () => ref
+                    .read(notificationsControllerProvider.notifier)
+                    .loadNotifications(),
+                child: state.loading
+                    ? ListView(
+                        padding: const EdgeInsets.only(top: 120),
+                        children: const [
+                          Center(child: CircularProgressIndicator()),
+                        ],
+                      )
+                    : filtered.isEmpty
+                    ? ListView(
+                        padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
+                        children: [
+                          _EmptyNotificationsState(
+                            title: _emptyTitle(l10n),
+                            body: _emptyBody(l10n),
+                          ),
+                        ],
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+                        itemBuilder: (context, index) {
+                          final notification = filtered[index];
+                          return _NotificationCard(
+                            notification: notification,
+                            onTap: () => _openNotification(notification),
+                          );
+                        },
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: 10),
+                        itemCount: filtered.length,
+                      ),
               ),
             ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: () => ref
-                  .read(notificationsControllerProvider.notifier)
-                  .loadNotifications(),
-              child: state.loading
-                  ? ListView(
-                      padding: const EdgeInsets.only(top: 120),
-                      children: const [
-                        Center(child: CircularProgressIndicator()),
-                      ],
-                    )
-                  : filtered.isEmpty
-                  ? ListView(
-                      padding: const EdgeInsets.fromLTRB(20, 80, 20, 20),
-                      children: [
-                        _EmptyNotificationsState(
-                          title: _emptyTitle(l10n),
-                          body: _emptyBody(l10n),
-                        ),
-                      ],
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
-                      itemBuilder: (context, index) {
-                        final notification = filtered[index];
-                        return _NotificationCard(
-                          notification: notification,
-                          onTap: () => _openNotification(notification),
-                        );
-                      },
-                      separatorBuilder: (context, index) =>
-                          const SizedBox(height: 10),
-                      itemCount: filtered.length,
-                    ),
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

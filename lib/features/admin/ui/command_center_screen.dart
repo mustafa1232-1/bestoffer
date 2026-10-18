@@ -302,50 +302,53 @@ class CommandCenterScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: overview.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _ErrorView(
-          onRetry: () => ref.invalidate(commandCenterOverviewProvider),
-        ),
-        data: (data) {
-          final cards = ((data['cards'] as List?) ?? const [])
-              .whereType<Map>()
-              .map((raw) => Map<String, dynamic>.from(raw))
-              .toList(growable: false);
-          if (cards.isEmpty) {
-            return MaslakiEmptyState(
-              icon: Icons.dashboard_customize_outlined,
-              title: context.lt(
-                ar: 'لا توجد بطاقات متاحة',
-                en: 'No cards available',
-              ),
-              body: context.lt(
-                ar: 'لا تملك صلاحية لعرض أي بطاقة متابعة حالياً.',
-                en: 'You do not have permission to view any monitoring card yet.',
+      body: SafeArea(
+        top: false,
+        child: overview.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, _) => _ErrorView(
+            onRetry: () => ref.invalidate(commandCenterOverviewProvider),
+          ),
+          data: (data) {
+            final cards = ((data['cards'] as List?) ?? const [])
+                .whereType<Map>()
+                .map((raw) => Map<String, dynamic>.from(raw))
+                .toList(growable: false);
+            if (cards.isEmpty) {
+              return MaslakiEmptyState(
+                icon: Icons.dashboard_customize_outlined,
+                title: context.lt(
+                  ar: 'لا توجد بطاقات متاحة',
+                  en: 'No cards available',
+                ),
+                body: context.lt(
+                  ar: 'لا تملك صلاحية لعرض أي بطاقة متابعة حالياً.',
+                  en: 'You do not have permission to view any monitoring card yet.',
+                ),
+              );
+            }
+
+            final alerts = _collectAlerts(cards);
+            return RefreshIndicator(
+              onRefresh: () async =>
+                  ref.invalidate(commandCenterOverviewProvider),
+              child: ListView(
+                padding: const EdgeInsets.all(MaslakiSpacing.md),
+                children: [
+                  _AlertsBanner(alerts: alerts),
+                  const SizedBox(height: MaslakiSpacing.md),
+                  _SectionsHeader(count: cards.length),
+                  const SizedBox(height: MaslakiSpacing.sm),
+                  for (final card in cards)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: MaslakiSpacing.md),
+                      child: _MonitoringCard(card: card),
+                    ),
+                ],
               ),
             );
-          }
-
-          final alerts = _collectAlerts(cards);
-          return RefreshIndicator(
-            onRefresh: () async =>
-                ref.invalidate(commandCenterOverviewProvider),
-            child: ListView(
-              padding: const EdgeInsets.all(MaslakiSpacing.md),
-              children: [
-                _AlertsBanner(alerts: alerts),
-                const SizedBox(height: MaslakiSpacing.md),
-                _SectionsHeader(count: cards.length),
-                const SizedBox(height: MaslakiSpacing.sm),
-                for (final card in cards)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: MaslakiSpacing.md),
-                    child: _MonitoringCard(card: card),
-                  ),
-              ],
-            ),
-          );
-        },
+          },
+        ),
       ),
     );
   }

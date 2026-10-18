@@ -1272,332 +1272,346 @@ class _MerchantProductsScreenState
               ),
             )
           : null,
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: state.when(
-          data: (data) {
-            final visibleCategoryIds = data.categories.map((c) => c.id).toSet();
-            final visibleProducts = _buildVisibleProducts(
-              data.products,
-              orders.favoriteProductIds,
-              visibleCategoryIds,
-            );
-            final productCounts = _countProductsByCategory(visibleProducts);
-            final productSections = _buildProductSections(
-              visibleProducts,
-              visibleProducts,
-              data.categories,
-              orders.favoriteProductIds,
-            );
-            final discountHighlights = _buildDiscountHighlights(
-              visibleProducts,
-            );
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: state.when(
+            data: (data) {
+              final visibleCategoryIds = data.categories
+                  .map((c) => c.id)
+                  .toSet();
+              final visibleProducts = _buildVisibleProducts(
+                data.products,
+                orders.favoriteProductIds,
+                visibleCategoryIds,
+              );
+              final productCounts = _countProductsByCategory(visibleProducts);
+              final productSections = _buildProductSections(
+                visibleProducts,
+                visibleProducts,
+                data.categories,
+                orders.favoriteProductIds,
+              );
+              final discountHighlights = _buildDiscountHighlights(
+                visibleProducts,
+              );
 
-            return ListView(
-              controller: _catalogScroll,
-              padding: const EdgeInsets.all(12),
-              children: [
-                _MerchantHeader(merchant: widget.merchant),
-                if (widget.merchant.supportsPharmacyWorkflow) ...[
+              return ListView(
+                controller: _catalogScroll,
+                padding: const EdgeInsets.all(12),
+                children: [
+                  _MerchantHeader(merchant: widget.merchant),
+                  if (widget.merchant.supportsPharmacyWorkflow) ...[
+                    const SizedBox(height: 12),
+                    _PharmacyWorkflowCard(
+                      onOpenConversation: _openPharmacyConversation,
+                    ),
+                  ],
                   const SizedBox(height: 12),
-                  _PharmacyWorkflowCard(
-                    onOpenConversation: _openPharmacyConversation,
+                  _CategoryFilterRow(
+                    categories: data.categories,
+                    selectedCategoryId: selectedCategoryId,
+                    totalProductsCount: visibleProducts.length,
+                    productCounts: productCounts,
+                    onSelect: (id) =>
+                        _changeCatalogFilter(() => selectedCategoryId = id),
                   ),
-                ],
-                const SizedBox(height: 12),
-                _CategoryFilterRow(
-                  categories: data.categories,
-                  selectedCategoryId: selectedCategoryId,
-                  totalProductsCount: visibleProducts.length,
-                  productCounts: productCounts,
-                  onSelect: (id) =>
-                      _changeCatalogFilter(() => selectedCategoryId = id),
-                ),
-                const SizedBox(height: 12),
-                MaslakiSearchField(
-                  controller: productSearchCtrl,
-                  onChanged: (value) => _changeCatalogFilter(
-                    () => productSearchQuery = value,
-                    debounce: true,
+                  const SizedBox(height: 12),
+                  MaslakiSearchField(
+                    controller: productSearchCtrl,
+                    onChanged: (value) => _changeCatalogFilter(
+                      () => productSearchQuery = value,
+                      debounce: true,
+                    ),
+                    hintText: 'ابحث عن المنتجات',
+                    trailing: productSearchQuery.isEmpty
+                        ? null
+                        : IconButton(
+                            onPressed: () {
+                              productSearchCtrl.clear();
+                              _changeCatalogFilter(
+                                () => productSearchQuery = '',
+                              );
+                            },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
                   ),
-                  hintText: 'ابحث عن المنتجات',
-                  trailing: productSearchQuery.isEmpty
-                      ? null
-                      : IconButton(
-                          onPressed: () {
-                            productSearchCtrl.clear();
-                            _changeCatalogFilter(() => productSearchQuery = '');
-                          },
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                ),
-                const SizedBox(height: 10),
-                _ProductsDiscoveryToolbar(
-                  onlyAvailable: onlyAvailable,
-                  onlyOffers: onlyOffers,
-                  favoritesOnly: favoritesOnly,
-                  sortMode: sortMode,
-                  onOnlyAvailableChanged: (value) =>
-                      _changeCatalogFilter(() => onlyAvailable = value),
-                  onOnlyOffersChanged: (value) =>
-                      _changeCatalogFilter(() => onlyOffers = value),
-                  onFavoritesOnlyChanged: (value) =>
-                      _changeCatalogFilter(() => favoritesOnly = value),
-                  onSortChanged: (value) =>
-                      _changeCatalogFilter(() => sortMode = value),
-                ),
-                const SizedBox(height: 8),
-                _ProductViewModeToggle(
-                  mode: productViewMode,
-                  onChanged: _setViewMode,
-                ),
-                const SizedBox(height: 12),
-                if (discountHighlights.isNotEmpty) ...[
-                  _CategorySectionHeader(
-                    title: 'العروض',
-                    countLabel: '${discountHighlights.length} منتجات مخفضة',
+                  const SizedBox(height: 10),
+                  _ProductsDiscoveryToolbar(
+                    onlyAvailable: onlyAvailable,
+                    onlyOffers: onlyOffers,
+                    favoritesOnly: favoritesOnly,
+                    sortMode: sortMode,
+                    onOnlyAvailableChanged: (value) =>
+                        _changeCatalogFilter(() => onlyAvailable = value),
+                    onOnlyOffersChanged: (value) =>
+                        _changeCatalogFilter(() => onlyOffers = value),
+                    onFavoritesOnlyChanged: (value) =>
+                        _changeCatalogFilter(() => favoritesOnly = value),
+                    onSortChanged: (value) =>
+                        _changeCatalogFilter(() => sortMode = value),
                   ),
                   const SizedBox(height: 8),
-                  SizedBox(
-                    height: 214,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      reverse: true,
-                      itemCount: discountHighlights.length,
-                      separatorBuilder: (_, _) => const SizedBox(width: 8),
-                      itemBuilder: (context, index) {
-                        final product = discountHighlights[index];
-                        final finalPrice = _effectivePrice(product);
-                        return InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () => _openProductDetails(
-                            product: product,
-                            allProducts: visibleProducts,
-                          ),
-                          child: Ink(
-                            width: 164,
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(12),
-                              color: Colors.white.withValues(alpha: 0.04),
-                              border: Border.all(
-                                color: Colors.orange.withValues(alpha: 0.35),
-                              ),
+                  _ProductViewModeToggle(
+                    mode: productViewMode,
+                    onChanged: _setViewMode,
+                  ),
+                  const SizedBox(height: 12),
+                  if (discountHighlights.isNotEmpty) ...[
+                    _CategorySectionHeader(
+                      title: 'العروض',
+                      countLabel: '${discountHighlights.length} منتجات مخفضة',
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      height: 214,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        reverse: true,
+                        itemCount: discountHighlights.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 8),
+                        itemBuilder: (context, index) {
+                          final product = discountHighlights[index];
+                          final finalPrice = _effectivePrice(product);
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => _openProductDetails(
+                              product: product,
+                              allProducts: visibleProducts,
                             ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Stack(
-                                    children: [
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(10),
-                                        child: AspectRatio(
-                                          aspectRatio: 1.45,
-                                          child:
-                                              (product.imageUrl?.isNotEmpty ??
-                                                  false)
-                                              ? CachedAppImage(
-                                                  imageUrl: product.imageUrl!,
-                                                  cacheIdentity:
-                                                      'product_${product.id}',
-                                                  fit: BoxFit.cover,
-                                                )
-                                              : Container(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.08),
-                                                  alignment: Alignment.center,
-                                                  child: const Icon(
-                                                    Icons.local_offer_outlined,
-                                                  ),
-                                                ),
-                                        ),
-                                      ),
-                                      PositionedDirectional(
-                                        top: 6,
-                                        start: 6,
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 7,
-                                            vertical: 3,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            borderRadius: BorderRadius.circular(
-                                              999,
-                                            ),
-                                            color: Colors.black.withValues(
-                                              alpha: 0.52,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            '-${product.discountPercent ?? 0}%',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 11,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 7),
-                                  Text(
-                                    product.name,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    textDirection: TextDirection.rtl,
-                                    textAlign: TextAlign.right,
-                                    style: const TextStyle(
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w800,
-                                      height: 1.15,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 5),
-                                  FittedBox(
-                                    fit: BoxFit.scaleDown,
-                                    alignment: AlignmentDirectional.centerEnd,
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      textDirection: TextDirection.rtl,
+                            child: Ink(
+                              width: 164,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: Colors.white.withValues(alpha: 0.04),
+                                border: Border.all(
+                                  color: Colors.orange.withValues(alpha: 0.35),
+                                ),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Stack(
                                       children: [
-                                        Text(
-                                          formatIqd(finalPrice),
-                                          textDirection: TextDirection.rtl,
-                                          style: const TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w900,
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                          child: AspectRatio(
+                                            aspectRatio: 1.45,
+                                            child:
+                                                (product.imageUrl?.isNotEmpty ??
+                                                    false)
+                                                ? CachedAppImage(
+                                                    imageUrl: product.imageUrl!,
+                                                    cacheIdentity:
+                                                        'product_${product.id}',
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                : Container(
+                                                    color: Colors.white
+                                                        .withValues(
+                                                          alpha: 0.08,
+                                                        ),
+                                                    alignment: Alignment.center,
+                                                    child: const Icon(
+                                                      Icons
+                                                          .local_offer_outlined,
+                                                    ),
+                                                  ),
                                           ),
                                         ),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          formatIqd(product.price),
-                                          textDirection: TextDirection.rtl,
-                                          style: TextStyle(
-                                            decoration:
-                                                TextDecoration.lineThrough,
-                                            color: Colors.white.withValues(
-                                              alpha: 0.62,
+                                        PositionedDirectional(
+                                          top: 6,
+                                          start: 6,
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 7,
+                                              vertical: 3,
                                             ),
-                                            fontSize: 11,
+                                            decoration: BoxDecoration(
+                                              borderRadius:
+                                                  BorderRadius.circular(999),
+                                              color: Colors.black.withValues(
+                                                alpha: 0.52,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              '-${product.discountPercent ?? 0}%',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
                                           ),
                                         ),
                                       ],
                                     ),
-                                  ),
-                                  const Spacer(),
-                                  if (_canCustomerActions)
-                                    SizedBox(
-                                      height: 34,
-                                      child: FilledButton.icon(
-                                        onPressed:
-                                            widget.merchant.isOpen &&
-                                                product.canBeOrdered
-                                            ? () => _addToCart(
-                                                product,
-                                                quantity: 1,
-                                                initialVariantSelections:
-                                                    _cardSelections[product.id]
-                                                        ?.selectedVariantSelections ??
-                                                    const [],
-                                                initialSelectedVariantId:
-                                                    _cardSelections[product.id]
-                                                        ?.variantId,
-                                              )
-                                            : null,
-                                        icon: const Icon(
-                                          Icons.add_shopping_cart_rounded,
-                                          size: 16,
-                                        ),
-                                        label: const Text(
-                                          'إضافة',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        style: FilledButton.styleFrom(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
+                                    const SizedBox(height: 7),
+                                    Text(
+                                      product.name,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      textDirection: TextDirection.rtl,
+                                      textAlign: TextAlign.right,
+                                      style: const TextStyle(
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w800,
+                                        height: 1.15,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 5),
+                                    FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: AlignmentDirectional.centerEnd,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        textDirection: TextDirection.rtl,
+                                        children: [
+                                          Text(
+                                            formatIqd(finalPrice),
+                                            textDirection: TextDirection.rtl,
+                                            style: const TextStyle(
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w900,
+                                            ),
                                           ),
-                                          visualDensity: VisualDensity.compact,
-                                          tapTargetSize:
-                                              MaterialTapTargetSize.shrinkWrap,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              12,
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            formatIqd(product.price),
+                                            textDirection: TextDirection.rtl,
+                                            style: TextStyle(
+                                              decoration:
+                                                  TextDecoration.lineThrough,
+                                              color: Colors.white.withValues(
+                                                alpha: 0.62,
+                                              ),
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    if (_canCustomerActions)
+                                      SizedBox(
+                                        height: 34,
+                                        child: FilledButton.icon(
+                                          onPressed:
+                                              widget.merchant.isOpen &&
+                                                  product.canBeOrdered
+                                              ? () => _addToCart(
+                                                  product,
+                                                  quantity: 1,
+                                                  initialVariantSelections:
+                                                      _cardSelections[product
+                                                              .id]
+                                                          ?.selectedVariantSelections ??
+                                                      const [],
+                                                  initialSelectedVariantId:
+                                                      _cardSelections[product
+                                                              .id]
+                                                          ?.variantId,
+                                                )
+                                              : null,
+                                          icon: const Icon(
+                                            Icons.add_shopping_cart_rounded,
+                                            size: 16,
+                                          ),
+                                          label: const Text(
+                                            'إضافة',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          style: FilledButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 10,
+                                            ),
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            tapTargetSize: MaterialTapTargetSize
+                                                .shrinkWrap,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
                                             ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                SizedBox(
-                  height: 3,
-                  child: _refreshingCatalog
-                      ? const LinearProgressIndicator()
-                      : null,
-                ),
-                if (_catalogRefreshFailed)
-                  TextButton(
-                    onPressed: () => _load(reuseCategories: true),
-                    child: Text(
-                      context.lt(
-                        ar: 'تعذر تحديث المنتجات. اضغط لإعادة المحاولة',
-                        en: 'Could not update products. Tap to retry',
+                          );
+                        },
                       ),
                     ),
+                    const SizedBox(height: 12),
+                  ],
+                  SizedBox(
+                    height: 3,
+                    child: _refreshingCatalog
+                        ? const LinearProgressIndicator()
+                        : null,
                   ),
-                ...productSections,
-                if (_loadingMore)
-                  const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                if (_hasMore &&
-                    !_loadingMore &&
-                    !_refreshingCatalog &&
-                    !_catalogRefreshFailed)
-                  TextButton(
-                    onPressed: () => _loadNextPage(retry: true),
-                    child: Text(
-                      _pageFailed
-                          ? context.lt(
-                              ar: 'تعذر تحميل المزيد. أعد المحاولة',
-                              en: 'Could not load more. Retry',
-                            )
-                          : context.lt(ar: 'عرض المزيد', en: 'Load more'),
+                  if (_catalogRefreshFailed)
+                    TextButton(
+                      onPressed: () => _load(reuseCategories: true),
+                      child: Text(
+                        context.lt(
+                          ar: 'تعذر تحديث المنتجات. اضغط لإعادة المحاولة',
+                          en: 'Could not update products. Tap to retry',
+                        ),
+                      ),
                     ),
-                  ),
+                  ...productSections,
+                  if (_loadingMore)
+                    const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  if (_hasMore &&
+                      !_loadingMore &&
+                      !_refreshingCatalog &&
+                      !_catalogRefreshFailed)
+                    TextButton(
+                      onPressed: () => _loadNextPage(retry: true),
+                      child: Text(
+                        _pageFailed
+                            ? context.lt(
+                                ar: 'تعذر تحميل المزيد. أعد المحاولة',
+                                en: 'Could not load more. Retry',
+                              )
+                            : context.lt(ar: 'عرض المزيد', en: 'Load more'),
+                      ),
+                    ),
+                ],
+              );
+            },
+            loading: () => ListView(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 22),
+              children: const [
+                SkeletonBox(
+                  height: 150,
+                  borderRadius: BorderRadius.all(Radius.circular(16)),
+                ),
+                SizedBox(height: 14),
+                ProductRowSkeleton(),
+                ProductRowSkeleton(),
+                ProductRowSkeleton(),
+                ProductRowSkeleton(),
               ],
-            );
-          },
-          loading: () => ListView(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 22),
-            children: const [
-              SkeletonBox(
-                height: 150,
-                borderRadius: BorderRadius.all(Radius.circular(16)),
-              ),
-              SizedBox(height: 14),
-              ProductRowSkeleton(),
-              ProductRowSkeleton(),
-              ProductRowSkeleton(),
-              ProductRowSkeleton(),
-            ],
-          ),
-          error: (error, _) => MaslakiErrorRetry(
-            message:
-                'تعذّر تحميل منتجات المتجر. تحقق من اتصالك ثم أعد المحاولة.',
-            onRetry: _load,
+            ),
+            error: (error, _) => MaslakiErrorRetry(
+              message:
+                  'تعذّر تحميل منتجات المتجر. تحقق من اتصالك ثم أعد المحاولة.',
+              onRetry: _load,
+            ),
           ),
         ),
       ),
@@ -1675,7 +1689,7 @@ class _MerchantHeader extends StatelessWidget {
       if (_etaLabel(context) != null)
         (Icons.timer_rounded, 'وقت التوصيل', _etaLabel(context)!),
     ];
-    showModalBottomSheet<void>(
+    showMaslakiBottomSheet<void>(
       context: context,
       backgroundColor: tokens.surfacePrimary,
       showDragHandle: true,

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/sections/section_availability_controller.dart';
 import '../../../core/sections/section_availability_models.dart';
@@ -440,7 +442,7 @@ class _ServiceRequestDetailsScreenState
   }
 
   Future<void> _openRequestChat(bool isProvider) async {
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -563,29 +565,58 @@ class _ServiceRequestDetailsScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
-          children: [
-            if (!isProvider && request.urgency == 'emergency') ...[
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52),
-                  backgroundColor: Theme.of(context).colorScheme.error,
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 28),
+            children: [
+              if (!isProvider && request.urgency == 'emergency') ...[
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                  ),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          EmergencyRequestTrackingScreen(requestId: request.id),
+                    ),
+                  ),
+                  icon: const Icon(Icons.location_searching_rounded),
+                  label: const Text('فتح الموقع الحي ومحادثة الطوارئ'),
                 ),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        EmergencyRequestTrackingScreen(requestId: request.id),
+                const SizedBox(height: 12),
+              ],
+              if (servicesSection.isBlocked)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          servicesSection.badgeLabel ?? 'غير متاح',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(servicesSection.effectiveMessage),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'تم إبقاء هذا الطلب متاحًا لأنه ما زال ضمن معاملة نشطة.',
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                icon: const Icon(Icons.location_searching_rounded),
-                label: const Text('فتح الموقع الحي ومحادثة الطوارئ'),
-              ),
-              const SizedBox(height: 12),
-            ],
-            if (servicesSection.isBlocked)
+              if (request.serviceKey != null && !isV2Booking) ...[
+                _CentralRoutingCard(request: request),
+                const SizedBox(height: 12),
+              ],
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
@@ -593,435 +624,420 @@ class _ServiceRequestDetailsScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        servicesSection.badgeLabel ?? 'غير متاح',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary,
+                        request.serviceTitle ??
+                            request.offeringName ??
+                            'طلب خدمة',
+                        style: const TextStyle(
+                          fontSize: 18,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
                       const SizedBox(height: 8),
-                      Text(servicesSection.effectiveMessage),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'تم إبقاء هذا الطلب متاحًا لأنه ما زال ضمن معاملة نشطة.',
+                      Text(
+                        'الحالة الحالية: ${serviceRequestStatusLabel(_serviceRequestLifecycleStatus(request))}',
                       ),
-                    ],
-                  ),
-                ),
-              ),
-            if (request.serviceKey != null && !isV2Booking) ...[
-              _CentralRoutingCard(request: request),
-              const SizedBox(height: 12),
-            ],
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      request.serviceTitle ??
-                          request.offeringName ??
-                          'طلب خدمة',
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'الحالة الحالية: ${serviceRequestStatusLabel(_serviceRequestLifecycleStatus(request))}',
-                    ),
-                    if ((request.providerBusinessName ?? '').trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          isProvider
-                              ? 'العميل رقم #${request.customerUserId}'
-                              : 'مقدم الخدمة: ${request.providerBusinessName}',
+                      if ((request.providerBusinessName ?? '')
+                          .trim()
+                          .isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            isProvider
+                                ? 'العميل رقم #${request.customerUserId}'
+                                : 'مقدم الخدمة: ${request.providerBusinessName}',
+                          ),
                         ),
-                      ),
-                    if ((request.city ?? '').trim().isNotEmpty ||
-                        (request.area ?? '').trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          'الموقع: ${request.city ?? ''} ${request.area ?? ''}',
+                      if ((request.city ?? '').trim().isNotEmpty ||
+                          (request.area ?? '').trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'الموقع: ${request.city ?? ''} ${request.area ?? ''}',
+                          ),
                         ),
-                      ),
-                    if ((request.addressLine ?? '').trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text('العنوان: ${request.addressLine}'),
-                      ),
-                    if ((request.requestedDate ?? '').trim().isNotEmpty ||
-                        (request.requestedTime ?? '').trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          'الموعد المطلوب: ${request.requestedDate ?? ''} ${request.requestedTime ?? ''}'
-                              .trim(),
+                      if ((request.addressLine ?? '').trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text('العنوان: ${request.addressLine}'),
                         ),
-                      ),
-                    if ((request.notes ?? '').trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text('ملاحظات: ${request.notes}'),
-                      ),
-                    if ((request.contactPhone ?? '').trim().isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'طريقة التواصل: ${request.preferredContact} - ${request.contactPhone}',
-                            ),
-                            if (isProvider)
-                              Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  OutlinedButton.icon(
-                                    onPressed: () => launchUrl(
-                                      Uri.parse('tel:${request.contactPhone}'),
-                                    ),
-                                    icon: const Icon(Icons.call_outlined),
-                                    label: const Text('اتصال'),
-                                  ),
-                                  OutlinedButton.icon(
-                                    onPressed: () => launchUrl(
-                                      Uri.parse(
-                                        'https://wa.me/${_whatsAppPhone(request.contactPhone!)}',
-                                      ),
-                                      mode: LaunchMode.externalApplication,
-                                    ),
-                                    icon: const Icon(Icons.chat_outlined),
-                                    label: const Text('واتساب'),
-                                  ),
-                                ],
-                              ),
-                          ],
+                      if ((request.requestedDate ?? '').trim().isNotEmpty ||
+                          (request.requestedTime ?? '').trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'الموعد المطلوب: ${request.requestedDate ?? ''} ${request.requestedTime ?? ''}'
+                                .trim(),
+                          ),
                         ),
-                      ),
-                    if (request.medicalInfo.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(
-                          'المعلومات الطبية الاختيارية: ${request.medicalInfo.values.where((value) => '$value'.trim().isNotEmpty).join('، ')}',
+                      if ((request.notes ?? '').trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text('ملاحظات: ${request.notes}'),
                         ),
-                      ),
-                    if (request.finalPrice != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          'السعر النهائي: ${request.finalPrice} ${request.finalCurrency ?? 'IQD'}',
-                        ),
-                      ),
-                    if (amount > 0) ...[
-                      const SizedBox(height: 10),
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          color: Colors.black.withValues(alpha: 0.04),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(10),
+                      if ((request.contactPhone ?? '').trim().isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text('قيمة الحجز: ${_formatIqd(amount)}'),
                               Text(
-                                'استقطاع مسلكي 10%: ${_formatIqd(commission)}',
+                                'طريقة التواصل: ${request.preferredContact} - ${request.contactPhone}',
                               ),
-                              Text(
-                                'صافي مقدم الخدمة: ${_formatIqd(amount - commission)}',
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'الدفع نقداً عبر المكتب، ويتم تسليم الصافي لصاحب الخدمة بعد انتهاء الخدمة.',
-                                style: TextStyle(fontSize: 12),
-                              ),
+                              if (isProvider)
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    OutlinedButton.icon(
+                                      onPressed: () => launchUrl(
+                                        Uri.parse(
+                                          'tel:${request.contactPhone}',
+                                        ),
+                                      ),
+                                      icon: const Icon(Icons.call_outlined),
+                                      label: const Text('اتصال'),
+                                    ),
+                                    OutlinedButton.icon(
+                                      onPressed: () => launchUrl(
+                                        Uri.parse(
+                                          'https://wa.me/${_whatsAppPhone(request.contactPhone!)}',
+                                        ),
+                                        mode: LaunchMode.externalApplication,
+                                      ),
+                                      icon: const Icon(Icons.chat_outlined),
+                                      label: const Text('واتساب'),
+                                    ),
+                                  ],
+                                ),
                             ],
                           ),
                         ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            if (<String>{
-              'accepted',
-              'confirmed',
-              'in_progress',
-              'provider_completed',
-              'completed',
-            }.contains(lifecycleStatus)) ...[
-              const SizedBox(height: 12),
-              _ServiceInvoiceCard(
-                request: request,
-                invoiceAmount: invoiceAmount,
-                isProvider: isProvider,
-                busy: _busy,
-                onApplyCoupon: _applyCoupon,
-                onAdjust: _adjustInvoice,
-                onSubmitPayment: _submitPayment,
-                onConfirmPayment: _confirmPayment,
-              ),
-            ],
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => _openRequestChat(isProvider),
-              icon: const Icon(Icons.chat_bubble_outline_rounded),
-              label: const Text('محادثة طلب الخدمة'),
-            ),
-            if (request.attachments.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              const Text(
-                'المرفقات',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 110,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: request.attachments.length,
-                  separatorBuilder: (_, _) => const SizedBox(width: 8),
-                  itemBuilder: (context, index) {
-                    final attachment = request.attachments[index];
-                    final mediaUrl = resolveMediaUrl(
-                      '${attachment['mediaUrl'] ?? ''}'.trim(),
-                    );
-                    return ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        width: 140,
-                        color: Colors.black12,
-                        child: mediaUrl == null || mediaUrl.isEmpty
-                            ? const Icon(Icons.image_not_supported_outlined)
-                            : Image.network(
-                                mediaUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, _, _) =>
-                                    const Icon(Icons.broken_image_outlined),
-                              ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'عروض السعر',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-                  ),
-                ),
-                if (isProvider)
-                  OutlinedButton.icon(
-                    onPressed: _busy ? null : _sendProviderQuote,
-                    icon: const Icon(Icons.price_change_outlined),
-                    label: const Text('إرسال عرض'),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (request.quotes.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(14),
-                  child: Text('لا توجد عروض سعر على هذا الطلب حتى الآن.'),
-                ),
-              ),
-            ...request.quotes.map(
-              (quote) => Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'الجولة ${quote.roundNo}',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        'الحالة: ${serviceQuoteStatusLabel(quote.quoteStatus)}',
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'التسعير: ${quote.amount ?? quote.minAmount ?? '-'} ${quote.currency} / ${quote.pricingUnit}',
-                      ),
-                      if ((quote.note ?? '').trim().isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text('ملاحظة: ${quote.note}'),
-                      ],
-                      if (pendingCustomerQuote?.id == quote.id) ...[
+                      if (request.medicalInfo.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'المعلومات الطبية الاختيارية: ${request.medicalInfo.values.where((value) => '$value'.trim().isNotEmpty).join('، ')}',
+                          ),
+                        ),
+                      if (request.finalPrice != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            'السعر النهائي: ${request.finalPrice} ${request.finalCurrency ?? 'IQD'}',
+                          ),
+                        ),
+                      if (amount > 0) ...[
                         const SizedBox(height: 10),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            FilledButton(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _respondToQuote(quote, 'accepted'),
-                              child: const Text('قبول العرض'),
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(12),
+                            color: Colors.black.withValues(alpha: 0.04),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(10),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('قيمة الحجز: ${_formatIqd(amount)}'),
+                                Text(
+                                  'استقطاع مسلكي 10%: ${_formatIqd(commission)}',
+                                ),
+                                Text(
+                                  'صافي مقدم الخدمة: ${_formatIqd(amount - commission)}',
+                                ),
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'الدفع نقداً عبر المكتب، ويتم تسليم الصافي لصاحب الخدمة بعد انتهاء الخدمة.',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                              ],
                             ),
-                            OutlinedButton(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _respondToQuote(quote, 'rejected'),
-                              child: const Text('رفض العرض'),
-                            ),
-                          ],
+                          ),
                         ),
                       ],
                     ],
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'الخط الزمني',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 8),
-            if (request.history.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(14),
-                  child: Text('لا توجد تحديثات مسجلة بعد.'),
+              if (<String>{
+                'accepted',
+                'confirmed',
+                'in_progress',
+                'provider_completed',
+                'completed',
+              }.contains(lifecycleStatus)) ...[
+                const SizedBox(height: 12),
+                _ServiceInvoiceCard(
+                  request: request,
+                  invoiceAmount: invoiceAmount,
+                  isProvider: isProvider,
+                  busy: _busy,
+                  onApplyCoupon: _applyCoupon,
+                  onAdjust: _adjustInvoice,
+                  onSubmitPayment: _submitPayment,
+                  onConfirmPayment: _confirmPayment,
                 ),
+              ],
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: () => _openRequestChat(isProvider),
+                icon: const Icon(Icons.chat_bubble_outline_rounded),
+                label: const Text('محادثة طلب الخدمة'),
               ),
-            ...request.history.map(
-              (item) => Card(
-                child: ListTile(
-                  title: Text(
-                    '${item['toStatus'] ?? item['status'] ?? 'تحديث'}',
+              if (request.attachments.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  'المرفقات',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 110,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: request.attachments.length,
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final attachment = request.attachments[index];
+                      final mediaUrl = resolveMediaUrl(
+                        '${attachment['mediaUrl'] ?? ''}'.trim(),
+                      );
+                      return ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          width: 140,
+                          color: Colors.black12,
+                          child: mediaUrl == null || mediaUrl.isEmpty
+                              ? const Icon(Icons.image_not_supported_outlined)
+                              : Image.network(
+                                  mediaUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) =>
+                                      const Icon(Icons.broken_image_outlined),
+                                ),
+                        ),
+                      );
+                    },
                   ),
-                  subtitle: Text('${item['note'] ?? item['createdAt'] ?? ''}'),
                 ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            if (allowCustomerReview)
-              FilledButton.icon(
-                onPressed: _busy ? null : _createReview,
-                icon: const Icon(Icons.star_outline_rounded),
-                label: const Text('إرسال تقييم للخدمة'),
-              ),
-            if (!isProvider) ...[
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
+              ],
+              const SizedBox(height: 12),
+              Row(
                 children: [
-                  if (<String>{
-                    'pending',
-                    'awaiting_provider',
-                    'pending_provider_confirmation',
-                    'accepted',
-                    'confirmed',
-                    'scheduled',
-                    'in_progress',
-                  }.contains(lifecycleStatus))
-                    OutlinedButton.icon(
-                      onPressed: _busy || !canCustomerCancel
-                          ? null
-                          : () => _updateCustomerStatus('cancelled'),
-                      icon: const Icon(Icons.cancel_outlined),
-                      label: Text(
-                        canCustomerCancel
-                            ? 'إلغاء الطلب'
-                            : 'الإلغاء متاح بعد 15 دقيقة',
+                  const Expanded(
+                    child: Text(
+                      'عروض السعر',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                ],
-              ),
-            ],
-            if (isProvider) ...[
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  if (<String>{
-                    'pending',
-                    'awaiting_provider',
-                    'pending_provider_confirmation',
-                  }.contains(lifecycleStatus))
-                    OutlinedButton(
-                      onPressed: _busy
-                          ? null
-                          : () => _updateProviderStatus('CONFIRMED'),
-                      child: const Text('تأكيد الحجز بالسعر الظاهر'),
-                    ),
-                  if (<String>{
-                    'accepted',
-                    'awaiting_provider',
-                    'confirmed',
-                  }.contains(lifecycleStatus))
-                    OutlinedButton(
-                      onPressed: _busy
-                          ? null
-                          : () => _showScheduleDialog(
-                              context,
-                              _updateProviderStatus,
-                            ),
-                      child: const Text('جدولة'),
-                    ),
-                  if (<String>{
-                    'accepted',
-                    'scheduled',
-                    'confirmed',
-                  }.contains(lifecycleStatus))
-                    OutlinedButton(
-                      onPressed: _busy
-                          ? null
-                          : () => _updateProviderStatus('IN_PROGRESS'),
-                      child: const Text('التوجه إلى الزبون'),
-                    ),
-                  if (lifecycleStatus == 'in_progress')
-                    OutlinedButton(
-                      onPressed: _busy
-                          ? null
-                          : () => _updateProviderStatus(
-                              isV2Booking ? 'PROVIDER_COMPLETED' : 'completed',
-                            ),
-                      child: const Text('إتمام الخدمة وإظهار الفاتورة'),
-                    ),
-                  if (<String>{
-                    'pending',
-                    'awaiting_provider',
-                    'pending_provider_confirmation',
-                  }.contains(lifecycleStatus))
-                    OutlinedButton(
-                      onPressed: _busy
-                          ? null
-                          : () => _updateProviderStatus('rejected'),
-                      child: const Text('رفض'),
-                    ),
-                  if (<String>{
-                    'accepted',
-                    'confirmed',
-                    'scheduled',
-                    'in_progress',
-                  }.contains(lifecycleStatus))
+                  ),
+                  if (isProvider)
                     OutlinedButton.icon(
-                      onPressed: _busy ? null : _cancelByProvider,
-                      icon: const Icon(Icons.cancel_outlined),
-                      label: const Text('إلغاء الحجز'),
+                      onPressed: _busy ? null : _sendProviderQuote,
+                      icon: const Icon(Icons.price_change_outlined),
+                      label: const Text('إرسال عرض'),
                     ),
                 ],
               ),
+              const SizedBox(height: 8),
+              if (request.quotes.isEmpty)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Text('لا توجد عروض سعر على هذا الطلب حتى الآن.'),
+                  ),
+                ),
+              ...request.quotes.map(
+                (quote) => Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'الجولة ${quote.roundNo}',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'الحالة: ${serviceQuoteStatusLabel(quote.quoteStatus)}',
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'التسعير: ${quote.amount ?? quote.minAmount ?? '-'} ${quote.currency} / ${quote.pricingUnit}',
+                        ),
+                        if ((quote.note ?? '').trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text('ملاحظة: ${quote.note}'),
+                        ],
+                        if (pendingCustomerQuote?.id == quote.id) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              FilledButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _respondToQuote(quote, 'accepted'),
+                                child: const Text('قبول العرض'),
+                              ),
+                              OutlinedButton(
+                                onPressed: _busy
+                                    ? null
+                                    : () => _respondToQuote(quote, 'rejected'),
+                                child: const Text('رفض العرض'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'الخط الزمني',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              if (request.history.isEmpty)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Text('لا توجد تحديثات مسجلة بعد.'),
+                  ),
+                ),
+              ...request.history.map(
+                (item) => Card(
+                  child: ListTile(
+                    title: Text(
+                      '${item['toStatus'] ?? item['status'] ?? 'تحديث'}',
+                    ),
+                    subtitle: Text(
+                      '${item['note'] ?? item['createdAt'] ?? ''}',
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (allowCustomerReview)
+                FilledButton.icon(
+                  onPressed: _busy ? null : _createReview,
+                  icon: const Icon(Icons.star_outline_rounded),
+                  label: const Text('إرسال تقييم للخدمة'),
+                ),
+              if (!isProvider) ...[
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (<String>{
+                      'pending',
+                      'awaiting_provider',
+                      'pending_provider_confirmation',
+                      'accepted',
+                      'confirmed',
+                      'scheduled',
+                      'in_progress',
+                    }.contains(lifecycleStatus))
+                      OutlinedButton.icon(
+                        onPressed: _busy || !canCustomerCancel
+                            ? null
+                            : () => _updateCustomerStatus('cancelled'),
+                        icon: const Icon(Icons.cancel_outlined),
+                        label: Text(
+                          canCustomerCancel
+                              ? 'إلغاء الطلب'
+                              : 'الإلغاء متاح بعد 15 دقيقة',
+                        ),
+                      ),
+                  ],
+                ),
+              ],
+              if (isProvider) ...[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (<String>{
+                      'pending',
+                      'awaiting_provider',
+                      'pending_provider_confirmation',
+                    }.contains(lifecycleStatus))
+                      OutlinedButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _updateProviderStatus('CONFIRMED'),
+                        child: const Text('تأكيد الحجز بالسعر الظاهر'),
+                      ),
+                    if (<String>{
+                      'accepted',
+                      'awaiting_provider',
+                      'confirmed',
+                    }.contains(lifecycleStatus))
+                      OutlinedButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _showScheduleDialog(
+                                context,
+                                _updateProviderStatus,
+                              ),
+                        child: const Text('جدولة'),
+                      ),
+                    if (<String>{
+                      'accepted',
+                      'scheduled',
+                      'confirmed',
+                    }.contains(lifecycleStatus))
+                      OutlinedButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _updateProviderStatus('IN_PROGRESS'),
+                        child: const Text('التوجه إلى الزبون'),
+                      ),
+                    if (lifecycleStatus == 'in_progress')
+                      OutlinedButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _updateProviderStatus(
+                                isV2Booking
+                                    ? 'PROVIDER_COMPLETED'
+                                    : 'completed',
+                              ),
+                        child: const Text('إتمام الخدمة وإظهار الفاتورة'),
+                      ),
+                    if (<String>{
+                      'pending',
+                      'awaiting_provider',
+                      'pending_provider_confirmation',
+                    }.contains(lifecycleStatus))
+                      OutlinedButton(
+                        onPressed: _busy
+                            ? null
+                            : () => _updateProviderStatus('rejected'),
+                        child: const Text('رفض'),
+                      ),
+                    if (<String>{
+                      'accepted',
+                      'confirmed',
+                      'scheduled',
+                      'in_progress',
+                    }.contains(lifecycleStatus))
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _cancelByProvider,
+                        icon: const Icon(Icons.cancel_outlined),
+                        label: const Text('إلغاء الحجز'),
+                      ),
+                  ],
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

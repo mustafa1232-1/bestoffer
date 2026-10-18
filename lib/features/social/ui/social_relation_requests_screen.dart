@@ -249,71 +249,74 @@ class _SocialRelationRequestsScreenState
             ],
           ),
         ),
-        body: Column(
-          children: [
-            if (_error != null)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  color: Theme.of(context).colorScheme.errorContainer,
-                ),
-                child: Text(
-                  _error!,
-                  textDirection: Directionality.of(context),
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onErrorContainer,
-                    fontWeight: FontWeight.w700,
+        body: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              if (_error != null)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    color: Theme.of(context).colorScheme.errorContainer,
                   ),
-                ),
-              ),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _RequestsList(
-                    loading: _loadingIncoming,
-                    requests: _incoming,
-                    emptyText: l10n.socialRelationRequestsEmptyIncoming,
-                    dateFormatter: _formatRequestedAt,
-                    onOpenProfile: _openProfile,
-                    actionsBuilder: (request) => Wrap(
-                      spacing: 8,
-                      children: [
-                        OutlinedButton(
-                          onPressed: _actionBusy
-                              ? null
-                              : () => _rejectRequest(request),
-                          child: Text(l10n.commonReject),
-                        ),
-                        FilledButton(
-                          onPressed: _actionBusy
-                              ? null
-                              : () => _acceptRequest(request),
-                          child: Text(l10n.commonAccept),
-                        ),
-                      ],
+                  child: Text(
+                    _error!,
+                    textDirection: Directionality.of(context),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  _RequestsList(
-                    loading: _loadingOutgoing,
-                    requests: _outgoing,
-                    emptyText: l10n.socialRelationRequestsEmptyOutgoing,
-                    dateFormatter: _formatRequestedAt,
-                    onOpenProfile: _openProfile,
-                    actionsBuilder: (request) => FilledButton.tonal(
-                      onPressed: _actionBusy
-                          ? null
-                          : () => _cancelRequest(request),
-                      child: Text(l10n.socialRelationRequestsCancelAction),
+                ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _RequestsList(
+                      loading: _loadingIncoming,
+                      requests: _incoming,
+                      emptyText: l10n.socialRelationRequestsEmptyIncoming,
+                      dateFormatter: _formatRequestedAt,
+                      onOpenProfile: _openProfile,
+                      actionsBuilder: (request) => Wrap(
+                        spacing: 8,
+                        children: [
+                          OutlinedButton(
+                            onPressed: _actionBusy
+                                ? null
+                                : () => _rejectRequest(request),
+                            child: Text(l10n.commonReject),
+                          ),
+                          FilledButton(
+                            onPressed: _actionBusy
+                                ? null
+                                : () => _acceptRequest(request),
+                            child: Text(l10n.commonAccept),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    _RequestsList(
+                      loading: _loadingOutgoing,
+                      requests: _outgoing,
+                      emptyText: l10n.socialRelationRequestsEmptyOutgoing,
+                      dateFormatter: _formatRequestedAt,
+                      onOpenProfile: _openProfile,
+                      actionsBuilder: (request) => FilledButton.tonal(
+                        onPressed: _actionBusy
+                            ? null
+                            : () => _cancelRequest(request),
+                        child: Text(l10n.socialRelationRequestsCancelAction),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

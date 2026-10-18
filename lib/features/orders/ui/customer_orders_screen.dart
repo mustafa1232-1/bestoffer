@@ -125,46 +125,53 @@ class _CustomerOrdersScreenState extends ConsumerState<CustomerOrdersScreen> {
         title: Text(context.lt(ar: 'طلباتي', en: 'My orders')),
         actions: const [AppBarQuickActions(compact: true)],
       ),
-      body: RefreshIndicator(
-        onRefresh: () =>
-            ref.read(ordersControllerProvider.notifier).loadMyOrders(),
-        child: state.loading
-            ? const Center(child: CircularProgressIndicator())
-            : filteredOrders.isEmpty
-            ? ListView(
-                children: [
-                  SizedBox(height: 140),
-                  Center(
-                    child: Text(
-                      context.lt(
-                        ar: 'لا توجد طلبات حاليًا',
-                        en: 'No orders right now',
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(ordersControllerProvider.notifier).loadMyOrders(),
+          child: state.loading
+              ? const Center(child: CircularProgressIndicator())
+              : filteredOrders.isEmpty
+              ? ListView(
+                  children: [
+                    SizedBox(height: 140),
+                    Center(
+                      child: Text(
+                        context.lt(
+                          ar: 'لا توجد طلبات حاليًا',
+                          en: 'No orders right now',
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              )
-            : ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  _OrdersFilterStrip(
-                    selected: _statusFilter,
-                    totalCount: orders.length,
-                    activeCount: activeCount,
-                    deliveredCount: deliveredCount,
-                    cancelledCount: cancelledCount,
-                    onSelect: (value) => setState(() => _statusFilter = value),
-                  ),
-                  const SizedBox(height: 10),
-                  ...filteredOrders.map((order) {
-                    final highlighted = _focusedOrderId == order.id;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: _OrderCard(order: order, highlighted: highlighted),
-                    );
-                  }),
-                ],
-              ),
+                  ],
+                )
+              : ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    _OrdersFilterStrip(
+                      selected: _statusFilter,
+                      totalCount: orders.length,
+                      activeCount: activeCount,
+                      deliveredCount: deliveredCount,
+                      cancelledCount: cancelledCount,
+                      onSelect: (value) =>
+                          setState(() => _statusFilter = value),
+                    ),
+                    const SizedBox(height: 10),
+                    ...filteredOrders.map((order) {
+                      final highlighted = _focusedOrderId == order.id;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _OrderCard(
+                          order: order,
+                          highlighted: highlighted,
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -901,7 +908,7 @@ class _OrderTrackingDetailsScreenState
           (entry) => Map<String, dynamic>.from(entry as Map),
         ),
       );
-      await showModalBottomSheet<void>(
+      await showMaslakiBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         builder: (context) => SafeArea(

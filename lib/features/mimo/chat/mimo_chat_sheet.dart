@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/files/local_image_file.dart';
 import '../../../core/i18n/locale_text.dart';
@@ -16,6 +18,7 @@ import '../../products/models/product_model.dart';
 import '../mimo_character.dart';
 import '../mimo_navigation.dart';
 import '../mimo_voice.dart';
+import '../brain/mimo_directory.dart';
 import 'mimo_chat_api.dart';
 import 'mimo_chat_controller.dart';
 import 'mimo_speech.dart';
@@ -31,7 +34,7 @@ const _muted = Color(0xFF5B6470);
 /// Opens Mimo's half-screen chat.
 Future<void> showMimoChat(BuildContext context) {
   HapticFeedback.selectionClick();
-  return showModalBottomSheet<void>(
+  return showMaslakiBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -124,6 +127,10 @@ class _MimoChatSheetState extends ConsumerState<MimoChatSheet> {
   @override
   void initState() {
     super.initState();
+    // Fresh directory in the background so answers stay instant.
+    Future.microtask(() {
+      if (mounted) ref.read(mimoDirectoryProvider.notifier).refresh();
+    });
     _focus.addListener(() => setState(() {}));
     _input.addListener(() {
       final typing = _input.text.trim().isNotEmpty;
@@ -153,7 +160,7 @@ class _MimoChatSheetState extends ConsumerState<MimoChatSheet> {
 
   Future<void> _pickPhoto() async {
     if (_photos.length >= 4) return;
-    final camera = await showModalBottomSheet<bool>(
+    final camera = await showMaslakiBottomSheet<bool>(
       context: context,
       builder: (context) => SafeArea(
         child: Column(

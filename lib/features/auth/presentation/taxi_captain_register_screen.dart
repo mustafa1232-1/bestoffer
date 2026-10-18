@@ -497,7 +497,7 @@ class _TaxiCaptainRegisterScreenState
     required bool Function(T item) isSelected,
     required String emptyText,
   }) async {
-    return showModalBottomSheet<T>(
+    return showMaslakiBottomSheet<T>(
       context: context,
       isScrollControlled: true,
       backgroundColor: const Color(0xFF12263A),
@@ -1361,7 +1361,7 @@ class _TaxiCaptainRegisterScreenState
 
   Future<void> _showConsentInfo(BuildContext context) async {
     final l10n = context.l10n;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       builder: (_) => Directionality(
         textDirection: Directionality.of(context),

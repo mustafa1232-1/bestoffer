@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
@@ -379,7 +381,7 @@ class _AdminMerchantOrdersListScreenState
             .toSet()
             .length >
         1;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (bottomSheetContext) => SafeArea(

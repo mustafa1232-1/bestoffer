@@ -1051,446 +1051,456 @@ class _AdminCompaniesScreenState extends ConsumerState<AdminCompaniesScreen> {
           ),
         ],
       ),
-      body: !canManageCompanies
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.lock_outline_rounded, size: 32),
-                    const SizedBox(height: 12),
-                    Text(
-                      l10n.adminCompaniesPermissionDenied,
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : FutureBuilder<_AdminCompaniesPayload>(
-              future: _future,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.error_outline_rounded, size: 32),
-                          const SizedBox(height: 12),
-                          Text(
-                            mapAnyError(
-                              snapshot.error!,
-                              fallback: l10n.adminCompaniesLoadFailed,
-                              customMessages: _actionErrorMessages(context),
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 12),
-                          FilledButton(
-                            onPressed: _refresh,
-                            child: Text(l10n.commonRetry),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-                final payload = snapshot.data;
-                if (payload == null) {
-                  return Center(child: Text(l10n.adminCompaniesNoData));
-                }
-                return RefreshIndicator(
-                  onRefresh: _refresh,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
+      body: SafeArea(
+        top: false,
+        child: !canManageCompanies
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      l10n.adminCompaniesPortalTitle,
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(l10n.adminCompaniesPortalSubtitle),
-                                  ],
-                                ),
+                      const Icon(Icons.lock_outline_rounded, size: 32),
+                      const SizedBox(height: 12),
+                      Text(
+                        l10n.adminCompaniesPermissionDenied,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : FutureBuilder<_AdminCompaniesPayload>(
+                future: _future,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.error_outline_rounded, size: 32),
+                            const SizedBox(height: 12),
+                            Text(
+                              mapAnyError(
+                                snapshot.error!,
+                                fallback: l10n.adminCompaniesLoadFailed,
+                                customMessages: _actionErrorMessages(context),
                               ),
-                              const SizedBox(width: 12),
-                              FilledButton.icon(
-                                onPressed: () => _showCompanyEditor(),
-                                icon: const Icon(Icons.add_business_rounded),
-                                label: Text(l10n.adminCompaniesCreateAction),
-                              ),
-                            ],
-                          ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              onPressed: _refresh,
+                              child: Text(l10n.commonRetry),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      if (payload.companies.isEmpty)
+                    );
+                  }
+                  final payload = snapshot.data;
+                  if (payload == null) {
+                    return Center(child: Text(l10n.adminCompaniesNoData));
+                  }
+                  return RefreshIndicator(
+                    onRefresh: _refresh,
+                    child: ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
                         Card(
                           child: Padding(
-                            padding: const EdgeInsets.all(20),
-                            child: Text(l10n.adminCompaniesEmpty),
-                          ),
-                        )
-                      else
-                        ...payload.companies.map(
-                          (company) => Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
+                            padding: const EdgeInsets.all(16),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              company.name,
-                                              style: const TextStyle(
-                                                fontSize: 18,
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                            ),
-                                            if ((company.brandName ?? '')
-                                                .isNotEmpty) ...[
-                                              const SizedBox(height: 4),
-                                              Text(company.brandName!),
-                                            ],
-                                          ],
+                                      Text(
+                                        l10n.adminCompaniesPortalTitle,
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w800,
                                         ),
                                       ),
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          Chip(
-                                            label: Directionality(
-                                              textDirection: TextDirection.ltr,
-                                              child: Text(company.code),
-                                            ),
-                                          ),
-                                          Chip(
-                                            label: Text(
-                                              companyStatusLabel(
-                                                context,
-                                                company.status,
-                                              ),
-                                            ),
-                                          ),
-                                          if ((company.businessType ?? '')
-                                              .isNotEmpty)
-                                            Chip(
-                                              label: Text(
-                                                company.businessType!,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(l10n.adminCompaniesPortalSubtitle),
                                     ],
                                   ),
-                                  const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      _metricPill(
-                                        l10n.adminCompaniesBranchesMetric,
-                                        company.branchesCount,
-                                      ),
-                                      _metricPill(
-                                        l10n.adminCompaniesUsersMetric,
-                                        company.usersCount,
-                                      ),
-                                      _metricPill(
-                                        l10n.adminCompaniesActiveUsersMetric,
-                                        company.activeUsersCount,
-                                      ),
-                                    ],
-                                  ),
-                                  if ((company.summary ?? '').isNotEmpty) ...[
-                                    const SizedBox(height: 12),
-                                    Text(company.summary!),
-                                  ],
-                                  const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 16,
-                                    runSpacing: 12,
-                                    children: [
-                                      if ((company.legalName ?? '').isNotEmpty)
-                                        SizedBox(
-                                          width: 320,
-                                          child: _companyInfoRow(
-                                            Icons.gavel_rounded,
-                                            l10n.adminCompaniesLegalNameLabel,
-                                            company.legalName!,
-                                          ),
-                                        ),
-                                      if ((company.primaryContactName ?? '')
-                                          .isNotEmpty)
-                                        SizedBox(
-                                          width: 320,
-                                          child: _companyInfoRow(
-                                            Icons.person_outline_rounded,
-                                            l10n.adminCompaniesPrimaryContactShort,
-                                            company.primaryContactName!,
-                                          ),
-                                        ),
-                                      if ((company.contactPhone ?? '')
-                                          .isNotEmpty)
-                                        SizedBox(
-                                          width: 320,
-                                          child: _companyInfoRow(
-                                            Icons.phone_rounded,
-                                            l10n.commonPhone,
-                                            company.contactPhone!,
-                                          ),
-                                        ),
-                                      if ((company.supportPhone ?? '')
-                                          .isNotEmpty)
-                                        SizedBox(
-                                          width: 320,
-                                          child: _companyInfoRow(
-                                            Icons.support_agent_rounded,
-                                            l10n.adminCompaniesSupportPhoneLabel,
-                                            company.supportPhone!,
-                                          ),
-                                        ),
-                                      if ((company.contactEmail ?? '')
-                                          .isNotEmpty)
-                                        SizedBox(
-                                          width: 320,
-                                          child: _companyInfoRow(
-                                            Icons.alternate_email_rounded,
-                                            l10n.commonEmail,
-                                            company.contactEmail!,
-                                          ),
-                                        ),
-                                      if ((company.websiteUrl ?? '').isNotEmpty)
-                                        SizedBox(
-                                          width: 320,
-                                          child: _companyInfoRow(
-                                            Icons.language_rounded,
-                                            l10n.adminCompaniesWebsiteShort,
-                                            company.websiteUrl!,
-                                          ),
-                                        ),
-                                      if ((company.headquartersAddress ?? '')
-                                          .isNotEmpty)
-                                        SizedBox(
-                                          width: 320,
-                                          child: _companyInfoRow(
-                                            Icons.location_on_outlined,
-                                            l10n.adminCompaniesHeadquartersShort,
-                                            company.headquartersAddress!,
-                                          ),
-                                        ),
-                                      if ((company.registrationNumber ?? '')
-                                          .isNotEmpty)
-                                        SizedBox(
-                                          width: 320,
-                                          child: _companyInfoRow(
-                                            Icons.badge_outlined,
-                                            l10n.adminCompaniesRegistrationNumberLabel,
-                                            company.registrationNumber!,
-                                          ),
-                                        ),
-                                      if ((company.taxNumber ?? '').isNotEmpty)
-                                        SizedBox(
-                                          width: 320,
-                                          child: _companyInfoRow(
-                                            Icons.receipt_long_outlined,
-                                            l10n.adminCompaniesTaxNumberLabel,
-                                            company.taxNumber!,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  if ((company.notes ?? '').isNotEmpty) ...[
-                                    const SizedBox(height: 10),
-                                    _companyInfoRow(
-                                      Icons.notes_rounded,
-                                      l10n.adminCompaniesAdminNotesShort,
-                                      company.notes!,
-                                    ),
-                                  ],
-                                  const SizedBox(height: 14),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: [
-                                      FilledButton.icon(
-                                        onPressed: () => _showCompanyEditor(
-                                          company: company,
-                                        ),
-                                        icon: const Icon(Icons.edit_rounded),
-                                        label: Text(
-                                          l10n.adminCompaniesEditInfoAction,
-                                        ),
-                                      ),
-                                      OutlinedButton.icon(
-                                        onPressed: () => _showLinkBranch(
-                                          company,
-                                          payload.merchants,
-                                        ),
-                                        icon: const Icon(Icons.link_rounded),
-                                        label: Text(
-                                          l10n.adminCompaniesLinkBranchAction,
-                                        ),
-                                      ),
-                                      OutlinedButton.icon(
-                                        onPressed: () =>
-                                            _showDeleteCompany(company),
-                                        icon: const Icon(
-                                          Icons.delete_outline_rounded,
-                                        ),
-                                        label: Text(
-                                          l10n.adminCompaniesDeleteAction,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
+                                ),
+                                const SizedBox(width: 12),
+                                FilledButton.icon(
+                                  onPressed: () => _showCompanyEditor(),
+                                  icon: const Icon(Icons.add_business_rounded),
+                                  label: Text(l10n.adminCompaniesCreateAction),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      const SizedBox(height: 16),
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                l10n.adminCompaniesPendingBranchRequestsTitle,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              if (payload.requests.isEmpty)
-                                Text(
-                                  l10n.adminCompaniesPendingBranchRequestsEmpty,
-                                )
-                              else
-                                ...payload.requests.map(
-                                  (request) => Container(
-                                    margin: const EdgeInsets.only(bottom: 12),
-                                    padding: const EdgeInsets.all(14),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.outlineVariant,
-                                      ),
-                                    ),
-                                    child: Column(
+                        const SizedBox(height: 16),
+                        if (payload.companies.isEmpty)
+                          Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(20),
+                              child: Text(l10n.adminCompaniesEmpty),
+                            ),
+                          )
+                        else
+                          ...payload.companies.map(
+                            (company) => Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
                                       children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                request.requestedName,
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                company.name,
                                                 style: const TextStyle(
+                                                  fontSize: 18,
                                                   fontWeight: FontWeight.w800,
                                                 ),
+                                              ),
+                                              if ((company.brandName ?? '')
+                                                  .isNotEmpty) ...[
+                                                const SizedBox(height: 4),
+                                                Text(company.brandName!),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            Chip(
+                                              label: Directionality(
+                                                textDirection:
+                                                    TextDirection.ltr,
+                                                child: Text(company.code),
                                               ),
                                             ),
                                             Chip(
                                               label: Text(
                                                 companyStatusLabel(
                                                   context,
-                                                  request.status,
+                                                  company.status,
                                                 ),
                                               ),
                                             ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 8),
-                                        Text(
-                                          l10n.adminCompaniesBranchRequestLocationLine(
-                                            companyBranchTypeLabel(
-                                              context,
-                                              request.requestedType,
-                                            ),
-                                            request.branchLocationLabel ??
-                                                l10n.adminCompaniesNoLocation,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          l10n.adminCompaniesSuggestedOwnerLine(
-                                            request.ownerFullName ??
-                                                l10n.commonNotSet,
-                                            request.ownerPhone ??
-                                                l10n.adminCompaniesNoPhone,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 12),
-                                        Wrap(
-                                          spacing: 8,
-                                          runSpacing: 8,
-                                          children: [
-                                            FilledButton.icon(
-                                              onPressed: () =>
-                                                  _reviewRequest(request, true),
-                                              icon: const Icon(
-                                                Icons.check_rounded,
+                                            if ((company.businessType ?? '')
+                                                .isNotEmpty)
+                                              Chip(
+                                                label: Text(
+                                                  company.businessType!,
+                                                ),
                                               ),
-                                              label: Text(l10n.commonApprove),
-                                            ),
-                                            OutlinedButton.icon(
-                                              onPressed: () => _reviewRequest(
-                                                request,
-                                                false,
-                                              ),
-                                              icon: const Icon(
-                                                Icons.close_rounded,
-                                              ),
-                                              label: Text(l10n.commonReject),
-                                            ),
                                           ],
                                         ),
                                       ],
                                     ),
+                                    const SizedBox(height: 12),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        _metricPill(
+                                          l10n.adminCompaniesBranchesMetric,
+                                          company.branchesCount,
+                                        ),
+                                        _metricPill(
+                                          l10n.adminCompaniesUsersMetric,
+                                          company.usersCount,
+                                        ),
+                                        _metricPill(
+                                          l10n.adminCompaniesActiveUsersMetric,
+                                          company.activeUsersCount,
+                                        ),
+                                      ],
+                                    ),
+                                    if ((company.summary ?? '').isNotEmpty) ...[
+                                      const SizedBox(height: 12),
+                                      Text(company.summary!),
+                                    ],
+                                    const SizedBox(height: 12),
+                                    Wrap(
+                                      spacing: 16,
+                                      runSpacing: 12,
+                                      children: [
+                                        if ((company.legalName ?? '')
+                                            .isNotEmpty)
+                                          SizedBox(
+                                            width: 320,
+                                            child: _companyInfoRow(
+                                              Icons.gavel_rounded,
+                                              l10n.adminCompaniesLegalNameLabel,
+                                              company.legalName!,
+                                            ),
+                                          ),
+                                        if ((company.primaryContactName ?? '')
+                                            .isNotEmpty)
+                                          SizedBox(
+                                            width: 320,
+                                            child: _companyInfoRow(
+                                              Icons.person_outline_rounded,
+                                              l10n.adminCompaniesPrimaryContactShort,
+                                              company.primaryContactName!,
+                                            ),
+                                          ),
+                                        if ((company.contactPhone ?? '')
+                                            .isNotEmpty)
+                                          SizedBox(
+                                            width: 320,
+                                            child: _companyInfoRow(
+                                              Icons.phone_rounded,
+                                              l10n.commonPhone,
+                                              company.contactPhone!,
+                                            ),
+                                          ),
+                                        if ((company.supportPhone ?? '')
+                                            .isNotEmpty)
+                                          SizedBox(
+                                            width: 320,
+                                            child: _companyInfoRow(
+                                              Icons.support_agent_rounded,
+                                              l10n.adminCompaniesSupportPhoneLabel,
+                                              company.supportPhone!,
+                                            ),
+                                          ),
+                                        if ((company.contactEmail ?? '')
+                                            .isNotEmpty)
+                                          SizedBox(
+                                            width: 320,
+                                            child: _companyInfoRow(
+                                              Icons.alternate_email_rounded,
+                                              l10n.commonEmail,
+                                              company.contactEmail!,
+                                            ),
+                                          ),
+                                        if ((company.websiteUrl ?? '')
+                                            .isNotEmpty)
+                                          SizedBox(
+                                            width: 320,
+                                            child: _companyInfoRow(
+                                              Icons.language_rounded,
+                                              l10n.adminCompaniesWebsiteShort,
+                                              company.websiteUrl!,
+                                            ),
+                                          ),
+                                        if ((company.headquartersAddress ?? '')
+                                            .isNotEmpty)
+                                          SizedBox(
+                                            width: 320,
+                                            child: _companyInfoRow(
+                                              Icons.location_on_outlined,
+                                              l10n.adminCompaniesHeadquartersShort,
+                                              company.headquartersAddress!,
+                                            ),
+                                          ),
+                                        if ((company.registrationNumber ?? '')
+                                            .isNotEmpty)
+                                          SizedBox(
+                                            width: 320,
+                                            child: _companyInfoRow(
+                                              Icons.badge_outlined,
+                                              l10n.adminCompaniesRegistrationNumberLabel,
+                                              company.registrationNumber!,
+                                            ),
+                                          ),
+                                        if ((company.taxNumber ?? '')
+                                            .isNotEmpty)
+                                          SizedBox(
+                                            width: 320,
+                                            child: _companyInfoRow(
+                                              Icons.receipt_long_outlined,
+                                              l10n.adminCompaniesTaxNumberLabel,
+                                              company.taxNumber!,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                    if ((company.notes ?? '').isNotEmpty) ...[
+                                      const SizedBox(height: 10),
+                                      _companyInfoRow(
+                                        Icons.notes_rounded,
+                                        l10n.adminCompaniesAdminNotesShort,
+                                        company.notes!,
+                                      ),
+                                    ],
+                                    const SizedBox(height: 14),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        FilledButton.icon(
+                                          onPressed: () => _showCompanyEditor(
+                                            company: company,
+                                          ),
+                                          icon: const Icon(Icons.edit_rounded),
+                                          label: Text(
+                                            l10n.adminCompaniesEditInfoAction,
+                                          ),
+                                        ),
+                                        OutlinedButton.icon(
+                                          onPressed: () => _showLinkBranch(
+                                            company,
+                                            payload.merchants,
+                                          ),
+                                          icon: const Icon(Icons.link_rounded),
+                                          label: Text(
+                                            l10n.adminCompaniesLinkBranchAction,
+                                          ),
+                                        ),
+                                        OutlinedButton.icon(
+                                          onPressed: () =>
+                                              _showDeleteCompany(company),
+                                          icon: const Icon(
+                                            Icons.delete_outline_rounded,
+                                          ),
+                                          label: Text(
+                                            l10n.adminCompaniesDeleteAction,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(height: 16),
+                        Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  l10n.adminCompaniesPendingBranchRequestsTitle,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
                                   ),
                                 ),
-                            ],
+                                const SizedBox(height: 12),
+                                if (payload.requests.isEmpty)
+                                  Text(
+                                    l10n.adminCompaniesPendingBranchRequestsEmpty,
+                                  )
+                                else
+                                  ...payload.requests.map(
+                                    (request) => Container(
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      padding: const EdgeInsets.all(14),
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.outlineVariant,
+                                        ),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Expanded(
+                                                child: Text(
+                                                  request.requestedName,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                              ),
+                                              Chip(
+                                                label: Text(
+                                                  companyStatusLabel(
+                                                    context,
+                                                    request.status,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            l10n.adminCompaniesBranchRequestLocationLine(
+                                              companyBranchTypeLabel(
+                                                context,
+                                                request.requestedType,
+                                              ),
+                                              request.branchLocationLabel ??
+                                                  l10n.adminCompaniesNoLocation,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            l10n.adminCompaniesSuggestedOwnerLine(
+                                              request.ownerFullName ??
+                                                  l10n.commonNotSet,
+                                              request.ownerPhone ??
+                                                  l10n.adminCompaniesNoPhone,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 12),
+                                          Wrap(
+                                            spacing: 8,
+                                            runSpacing: 8,
+                                            children: [
+                                              FilledButton.icon(
+                                                onPressed: () => _reviewRequest(
+                                                  request,
+                                                  true,
+                                                ),
+                                                icon: const Icon(
+                                                  Icons.check_rounded,
+                                                ),
+                                                label: Text(l10n.commonApprove),
+                                              ),
+                                              OutlinedButton.icon(
+                                                onPressed: () => _reviewRequest(
+                                                  request,
+                                                  false,
+                                                ),
+                                                icon: const Icon(
+                                                  Icons.close_rounded,
+                                                ),
+                                                label: Text(l10n.commonReject),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+      ),
     );
   }
 }

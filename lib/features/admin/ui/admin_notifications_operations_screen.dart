@@ -88,99 +88,102 @@ class _AdminNotificationsOperationsScreenState
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [6, 24, 72, 168]
-                        .map(
-                          (hours) => ChoiceChip(
-                            label: Text(l10n.adminOpsWindowHours(hours)),
-                            selected: _windowHours == hours,
-                            onSelected: (_) {
-                              setState(() => _windowHours = hours);
-                              _load();
-                            },
-                          ),
-                        )
-                        .toList(growable: false),
-                  ),
-                  const SizedBox(height: 12),
-                  _SummaryCardGrid(
-                    cards: [
-                      _SummaryCardData(
-                        title: l10n.adminOpsDeliverySent,
-                        value: _count('sent').toString(),
-                        color: const Color(0xFF22C55E),
-                        icon: Icons.send_rounded,
-                      ),
-                      _SummaryCardData(
-                        title: l10n.adminOpsDeliveryRetry,
-                        value: _count('retry').toString(),
-                        color: const Color(0xFFF59E0B),
-                        icon: Icons.refresh_rounded,
-                      ),
-                      _SummaryCardData(
-                        title: l10n.adminOpsDeliveryFailed,
-                        value: _count('failed').toString(),
-                        color: const Color(0xFFEF4444),
-                        icon: Icons.error_outline_rounded,
-                      ),
-                      _SummaryCardData(
-                        title: l10n.adminOpsDeliveryDeadTokens,
-                        value: _count('dead_token').toString(),
-                        color: const Color(0xFFF97316),
-                        icon: Icons.block_rounded,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.speed_rounded),
-                      title: Text(l10n.adminOpsLatencyTitle),
-                      subtitle: Text(
-                        '${l10n.adminOpsLatencyAverage}: ${_avgLatency.toStringAsFixed(1)} ms\n${l10n.adminOpsLatencyP95}: ${_p95Latency.toStringAsFixed(1)} ms',
-                      ),
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(child: Text(_error!))
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [6, 24, 72, 168]
+                          .map(
+                            (hours) => ChoiceChip(
+                              label: Text(l10n.adminOpsWindowHours(hours)),
+                              selected: _windowHours == hours,
+                              onSelected: (_) {
+                                setState(() => _windowHours = hours);
+                                _load();
+                              },
+                            ),
+                          )
+                          .toList(growable: false),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    l10n.adminOpsTopErrorsTitle,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (_topErrors.isEmpty)
-                    Text(l10n.adminOpsTopErrorsEmpty)
-                  else
-                    ..._topErrors.map((row) {
-                      final code = '${row['code'] ?? ''}'.trim();
-                      final count = int.tryParse('${row['count']}') ?? 0;
-                      return Card(
-                        child: ListTile(
-                          leading: const Icon(Icons.warning_amber_rounded),
-                          title: Text(code.isEmpty ? '-' : code),
-                          trailing: Text(
-                            '$count',
-                            style: Theme.of(context).textTheme.titleMedium
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
+                    const SizedBox(height: 12),
+                    _SummaryCardGrid(
+                      cards: [
+                        _SummaryCardData(
+                          title: l10n.adminOpsDeliverySent,
+                          value: _count('sent').toString(),
+                          color: const Color(0xFF22C55E),
+                          icon: Icons.send_rounded,
                         ),
-                      );
-                    }),
-                ],
+                        _SummaryCardData(
+                          title: l10n.adminOpsDeliveryRetry,
+                          value: _count('retry').toString(),
+                          color: const Color(0xFFF59E0B),
+                          icon: Icons.refresh_rounded,
+                        ),
+                        _SummaryCardData(
+                          title: l10n.adminOpsDeliveryFailed,
+                          value: _count('failed').toString(),
+                          color: const Color(0xFFEF4444),
+                          icon: Icons.error_outline_rounded,
+                        ),
+                        _SummaryCardData(
+                          title: l10n.adminOpsDeliveryDeadTokens,
+                          value: _count('dead_token').toString(),
+                          color: const Color(0xFFF97316),
+                          icon: Icons.block_rounded,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.speed_rounded),
+                        title: Text(l10n.adminOpsLatencyTitle),
+                        subtitle: Text(
+                          '${l10n.adminOpsLatencyAverage}: ${_avgLatency.toStringAsFixed(1)} ms\n${l10n.adminOpsLatencyP95}: ${_p95Latency.toStringAsFixed(1)} ms',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      l10n.adminOpsTopErrorsTitle,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    if (_topErrors.isEmpty)
+                      Text(l10n.adminOpsTopErrorsEmpty)
+                    else
+                      ..._topErrors.map((row) {
+                        final code = '${row['code'] ?? ''}'.trim();
+                        final count = int.tryParse('${row['count']}') ?? 0;
+                        return Card(
+                          child: ListTile(
+                            leading: const Icon(Icons.warning_amber_rounded),
+                            title: Text(code.isEmpty ? '-' : code),
+                            trailing: Text(
+                              '$count',
+                              style: Theme.of(context).textTheme.titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                        );
+                      }),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }

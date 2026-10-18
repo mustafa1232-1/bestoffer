@@ -37,7 +37,7 @@ class _AdminEmployeeActivityScreenState
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
         ],
       ),
-      body: FutureBuilder<Map<String, dynamic>>(
+      body: SafeArea(top: false, child: FutureBuilder<Map<String, dynamic>>(
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) {
@@ -82,7 +82,7 @@ class _AdminEmployeeActivityScreenState
             ),
           );
         },
-      ),
+      )),
     );
   }
 }

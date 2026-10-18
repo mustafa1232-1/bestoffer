@@ -264,230 +264,236 @@ class _RealEstateListingDetailsScreenState
             ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(child: Text(_error!)),
-                ],
-              )
-            : listing == null
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(child: Text(l10n.realEstateNoListings)),
-                ],
-              )
-            : ListView(
-                padding: const EdgeInsets.only(bottom: 24),
-                children: [
-                  _ListingGallery(listing: listing),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          listing.title,
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          formatIqd(listing.price),
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                color: Theme.of(context).colorScheme.primary,
-                              ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _InfoBadge(
-                              label: purposeLabel(context, listing.purpose),
-                            ),
-                            _InfoBadge(
-                              label: statusLabel(context, listing.status),
-                            ),
-                            _InfoBadge(
-                              label:
-                                  '${listing.areaSqm} ${context.l10n.realEstateAreaLabel}',
-                            ),
-                            _InfoBadge(
-                              label: listing.furnished
-                                  ? l10n.realEstateFurnished
-                                  : l10n.realEstateUnfurnished,
-                            ),
-                            _InfoBadge(
-                              label: paymentMethodLabel(
-                                context,
-                                listing.paymentMethod,
-                              ),
-                            ),
-                            _InfoBadge(
-                              label: settlementModeLabel(
-                                context,
-                                listing.bankSettlementMode,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        _InfoSection(
-                          title: l10n.realEstateLocation,
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              if ((listing.city ?? '').isNotEmpty)
-                                _InfoBadge(label: listing.city!),
-                              if ((listing.block ?? '').isNotEmpty)
-                                _InfoBadge(
-                                  label:
-                                      '${l10n.realEstateBlock}: ${listing.block!}',
-                                ),
-                              if ((listing.buildingNumber ?? '').isNotEmpty)
-                                _InfoBadge(
-                                  label:
-                                      '${l10n.realEstateBuildingNumber}: ${listing.buildingNumber!}',
-                                ),
-                              if ((listing.apartmentNumber ?? '').isNotEmpty)
-                                _InfoBadge(
-                                  label:
-                                      '${l10n.realEstateApartmentNumber}: ${listing.apartmentNumber!}',
-                                ),
-                            ],
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(child: Text(_error!)),
+                  ],
+                )
+              : listing == null
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(child: Text(l10n.realEstateNoListings)),
+                  ],
+                )
+              : ListView(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  children: [
+                    _ListingGallery(listing: listing),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            listing.title,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w900),
                           ),
-                        ),
-                        _InfoSection(
-                          title: l10n.realEstateSpecsStep,
-                          child: Wrap(
+                          const SizedBox(height: 6),
+                          Text(
+                            formatIqd(listing.price),
+                            style: Theme.of(context).textTheme.headlineMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: [
                               _InfoBadge(
+                                label: purposeLabel(context, listing.purpose),
+                              ),
+                              _InfoBadge(
+                                label: statusLabel(context, listing.status),
+                              ),
+                              _InfoBadge(
                                 label:
-                                    '${listing.areaSqm} ${l10n.realEstateArea}',
+                                    '${listing.areaSqm} ${context.l10n.realEstateAreaLabel}',
                               ),
-                              if (listing.roomsCount != null)
-                                _InfoBadge(
-                                  label:
-                                      '${listing.roomsCount} ${l10n.realEstateRooms}',
+                              _InfoBadge(
+                                label: listing.furnished
+                                    ? l10n.realEstateFurnished
+                                    : l10n.realEstateUnfurnished,
+                              ),
+                              _InfoBadge(
+                                label: paymentMethodLabel(
+                                  context,
+                                  listing.paymentMethod,
                                 ),
-                              if (listing.bathroomsCount != null)
-                                _InfoBadge(
-                                  label:
-                                      '${listing.bathroomsCount} ${l10n.realEstateBathrooms}',
+                              ),
+                              _InfoBadge(
+                                label: settlementModeLabel(
+                                  context,
+                                  listing.bankSettlementMode,
                                 ),
-                              if (listing.floorNumber != null)
-                                _InfoBadge(
-                                  label:
-                                      '${l10n.realEstateFloor}: ${listing.floorNumber}',
-                                ),
+                              ),
                             ],
                           ),
-                        ),
-                        if ((listing.description ?? '').trim().isNotEmpty)
+                          const SizedBox(height: 18),
                           _InfoSection(
-                            title: l10n.realEstateDescription,
-                            child: Text(
-                              listing.description!,
-                              style: Theme.of(
-                                context,
-                              ).textTheme.bodyLarge?.copyWith(height: 1.5),
+                            title: l10n.realEstateLocation,
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if ((listing.city ?? '').isNotEmpty)
+                                  _InfoBadge(label: listing.city!),
+                                if ((listing.block ?? '').isNotEmpty)
+                                  _InfoBadge(
+                                    label:
+                                        '${l10n.realEstateBlock}: ${listing.block!}',
+                                  ),
+                                if ((listing.buildingNumber ?? '').isNotEmpty)
+                                  _InfoBadge(
+                                    label:
+                                        '${l10n.realEstateBuildingNumber}: ${listing.buildingNumber!}',
+                                  ),
+                                if ((listing.apartmentNumber ?? '').isNotEmpty)
+                                  _InfoBadge(
+                                    label:
+                                        '${l10n.realEstateApartmentNumber}: ${listing.apartmentNumber!}',
+                                  ),
+                              ],
                             ),
                           ),
-                        if (listing.furnished &&
-                            (listing.furnishingDescription ?? '')
-                                .trim()
-                                .isNotEmpty)
                           _InfoSection(
-                            title: l10n.realEstateFurnishingDescription,
-                            child: Text(listing.furnishingDescription!),
-                          ),
-                        _InfoSection(
-                          title: l10n.realEstateContact,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                listing.ownerFullName?.trim().isNotEmpty == true
-                                    ? listing.ownerFullName!
-                                    : l10n.realEstateListingOwnerUnknown,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
+                            title: l10n.realEstateSpecsStep,
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _InfoBadge(
+                                  label:
+                                      '${listing.areaSqm} ${l10n.realEstateArea}',
                                 ),
+                                if (listing.roomsCount != null)
+                                  _InfoBadge(
+                                    label:
+                                        '${listing.roomsCount} ${l10n.realEstateRooms}',
+                                  ),
+                                if (listing.bathroomsCount != null)
+                                  _InfoBadge(
+                                    label:
+                                        '${listing.bathroomsCount} ${l10n.realEstateBathrooms}',
+                                  ),
+                                if (listing.floorNumber != null)
+                                  _InfoBadge(
+                                    label:
+                                        '${l10n.realEstateFloor}: ${listing.floorNumber}',
+                                  ),
+                              ],
+                            ),
+                          ),
+                          if ((listing.description ?? '').trim().isNotEmpty)
+                            _InfoSection(
+                              title: l10n.realEstateDescription,
+                              child: Text(
+                                listing.description!,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.bodyLarge?.copyWith(height: 1.5),
                               ),
-                              const SizedBox(height: 6),
-                              const SizedBox(height: 12),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: FilledButton.icon(
-                                      onPressed: _busy ? null : _messageOwner,
-                                      icon: const Icon(
-                                        Icons.chat_bubble_outline,
+                            ),
+                          if (listing.furnished &&
+                              (listing.furnishingDescription ?? '')
+                                  .trim()
+                                  .isNotEmpty)
+                            _InfoSection(
+                              title: l10n.realEstateFurnishingDescription,
+                              child: Text(listing.furnishingDescription!),
+                            ),
+                          _InfoSection(
+                            title: l10n.realEstateContact,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  listing.ownerFullName?.trim().isNotEmpty ==
+                                          true
+                                      ? listing.ownerFullName!
+                                      : l10n.realEstateListingOwnerUnknown,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: _busy ? null : _messageOwner,
+                                        icon: const Icon(
+                                          Icons.chat_bubble_outline,
+                                        ),
+                                        label: Text(
+                                          l10n.realEstateMessageOwner,
+                                        ),
                                       ),
-                                      label: Text(l10n.realEstateMessageOwner),
                                     ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: _busy ? null : _callOwner,
-                                      icon: const Icon(Icons.call_outlined),
-                                      label: Text(l10n.commonCall),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: OutlinedButton.icon(
+                                        onPressed: _busy ? null : _callOwner,
+                                        icon: const Icon(Icons.call_outlined),
+                                        label: Text(l10n.commonCall),
+                                      ),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (_similar.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            l10n.realEstateSimilar,
-                            style: Theme.of(context).textTheme.titleLarge
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 12),
-                          ..._similar.map(
-                            (item) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: RealEstateListingCard(
-                                listing: item,
-                                compact: true,
-                                onTap: () async {
-                                  await Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          RealEstateListingDetailsScreen(
-                                            listingId: item.id,
-                                            initialListing: item,
-                                          ),
-                                    ),
-                                  );
-                                  if (mounted) {
-                                    await _load();
-                                  }
-                                },
-                              ),
+                                  ],
+                                ),
+                              ],
                             ),
                           ),
+                          if (_similar.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              l10n.realEstateSimilar,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w900),
+                            ),
+                            const SizedBox(height: 12),
+                            ..._similar.map(
+                              (item) => Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: RealEstateListingCard(
+                                  listing: item,
+                                  compact: true,
+                                  onTap: () async {
+                                    await Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            RealEstateListingDetailsScreen(
+                                              listingId: item.id,
+                                              initialListing: item,
+                                            ),
+                                      ),
+                                    );
+                                    if (mounted) {
+                                      await _load();
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+        ),
       ),
     );
   }

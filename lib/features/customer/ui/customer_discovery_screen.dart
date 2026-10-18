@@ -1059,7 +1059,7 @@ class _CustomerDiscoveryScreenState
           ),
         ],
       ),
-      body: bodyContent,
+      body: SafeArea(top: false, child: bodyContent),
     );
   }
 }

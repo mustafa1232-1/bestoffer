@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
@@ -141,7 +143,7 @@ class _CustomerCarsMarketplaceScreenState
   }
 
   Future<void> _openFilters() async {
-    final next = await showModalBottomSheet<CarListingQuery>(
+    final next = await showMaslakiBottomSheet<CarListingQuery>(
       context: context,
       isScrollControlled: true,
       builder: (_) =>
@@ -256,163 +258,168 @@ class _CustomerCarsMarketplaceScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: TextField(
-              controller: _searchCtrl,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search_rounded),
-                hintText: l10n.carsSearchHint,
-                suffixIcon: IconButton(
-                  onPressed: _openFilters,
-                  icon: const Icon(Icons.tune_rounded),
-                  tooltip: l10n.commonFilters,
-                ),
-              ),
-            ),
-          ),
-          if (auth.isAuthed)
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-              child: _SellerBanner(
-                loading: _loadingEntitlement,
-                canSellCars: _canSellCars,
-                premiumUnlocksCars: _premiumUnlocksCars,
-                onPrimaryAction: _canSellCars ? _openWorkspace : _openUpgrade,
-              ),
-            ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Row(
-              children: [
-                ActionChip(
-                  label: Text(l10n.carsQuickNewest),
-                  onPressed: () => _applyQuickPreset(sort: 'recent'),
-                ),
-                const SizedBox(width: 8),
-                ActionChip(
-                  label: Text(l10n.carsQuickSedan),
-                  onPressed: () => _applyQuickPreset(bodyType: 'sedan'),
-                ),
-                const SizedBox(width: 8),
-                ActionChip(
-                  label: Text(l10n.carsQuickSuv),
-                  onPressed: () => _applyQuickPreset(bodyType: 'suv'),
-                ),
-                const SizedBox(width: 8),
-                ActionChip(
-                  label: Text(l10n.carsQuickUsed),
-                  onPressed: () => _applyQuickPreset(condition: 'used'),
-                ),
-                const SizedBox(width: 8),
-                ActionChip(
-                  label: Text(l10n.carsQuickPriceLow),
-                  onPressed: () => _applyQuickPreset(sort: 'price_low'),
-                ),
-              ],
-            ),
-          ),
-          if (activeChips.isNotEmpty)
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                child: Wrap(spacing: 8, runSpacing: 8, children: activeChips),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.carsResultsCount(_items.length),
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: TextField(
+                controller: _searchCtrl,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  hintText: l10n.carsSearchHint,
+                  suffixIcon: IconButton(
+                    onPressed: _openFilters,
+                    icon: const Icon(Icons.tune_rounded),
+                    tooltip: l10n.commonFilters,
                   ),
                 ),
-                if ((_query.brand ?? '').isEmpty && brands.isNotEmpty)
-                  Flexible(
+              ),
+            ),
+            if (auth.isAuthed)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: _SellerBanner(
+                  loading: _loadingEntitlement,
+                  canSellCars: _canSellCars,
+                  premiumUnlocksCars: _premiumUnlocksCars,
+                  onPrimaryAction: _canSellCars ? _openWorkspace : _openUpgrade,
+                ),
+              ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Row(
+                children: [
+                  ActionChip(
+                    label: Text(l10n.carsQuickNewest),
+                    onPressed: () => _applyQuickPreset(sort: 'recent'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: Text(l10n.carsQuickSedan),
+                    onPressed: () => _applyQuickPreset(bodyType: 'sedan'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: Text(l10n.carsQuickSuv),
+                    onPressed: () => _applyQuickPreset(bodyType: 'suv'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: Text(l10n.carsQuickUsed),
+                    onPressed: () => _applyQuickPreset(condition: 'used'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: Text(l10n.carsQuickPriceLow),
+                    onPressed: () => _applyQuickPreset(sort: 'price_low'),
+                  ),
+                ],
+              ),
+            ),
+            if (activeChips.isNotEmpty)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: Wrap(spacing: 8, runSpacing: 8, children: activeChips),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: Row(
+                children: [
+                  Expanded(
                     child: Text(
-                      brands.take(3).join(' • '),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      l10n.carsResultsCount(_items.length),
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
                   ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? ListView(
-                      children: [
-                        const SizedBox(height: 140),
-                        Center(child: Text(_error!)),
-                      ],
-                    )
-                  : _items.isEmpty
-                  ? ListView(
-                      padding: const EdgeInsets.fromLTRB(16, 80, 16, 24),
-                      children: [
-                        Icon(
-                          Icons.directions_car_filled_outlined,
-                          size: 54,
-                          color: Theme.of(context).colorScheme.primary,
+                  if ((_query.brand ?? '').isEmpty && brands.isNotEmpty)
+                    Flexible(
+                      child: Text(
+                        brands.take(3).join(' • '),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          l10n.carsNoListings,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          l10n.commonNoResults,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 18),
-                        Center(
-                          child: OutlinedButton(
-                            onPressed: () {
-                              _searchCtrl.clear();
-                              setState(() => _query = const CarListingQuery());
-                              _load();
-                            },
-                            child: Text(l10n.commonReset),
-                          ),
-                        ),
-                      ],
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      itemCount: _items.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 14),
-                      itemBuilder: (context, index) {
-                        final item = _items[index];
-                        return CustomerCarListingCard(
-                          listing: item,
-                          onTap: () => _openDetails(item),
-                        );
-                      },
+                      ),
                     ),
+                ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _error != null
+                    ? ListView(
+                        children: [
+                          const SizedBox(height: 140),
+                          Center(child: Text(_error!)),
+                        ],
+                      )
+                    : _items.isEmpty
+                    ? ListView(
+                        padding: const EdgeInsets.fromLTRB(16, 80, 16, 24),
+                        children: [
+                          Icon(
+                            Icons.directions_car_filled_outlined,
+                            size: 54,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            l10n.carsNoListings,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            l10n.commonNoResults,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 18),
+                          Center(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                setState(
+                                  () => _query = const CarListingQuery(),
+                                );
+                                _load();
+                              },
+                              child: Text(l10n.commonReset),
+                            ),
+                          ),
+                        ],
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                        itemCount: _items.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 14),
+                        itemBuilder: (context, index) {
+                          final item = _items[index];
+                          return CustomerCarListingCard(
+                            listing: item,
+                            onTap: () => _openDetails(item),
+                          );
+                        },
+                      ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

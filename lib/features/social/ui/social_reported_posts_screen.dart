@@ -11,6 +11,8 @@ import '../data/social_api.dart';
 import '../state/social_controller.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 class SocialReportedPostsScreen extends ConsumerStatefulWidget {
   const SocialReportedPostsScreen({super.key});
@@ -85,7 +87,7 @@ class _SocialReportedPostsScreenState
     LocalMediaFile? pickedMedia;
     var clearExistingMedia = false;
 
-    return showModalBottomSheet<_ResubmitDraft>(
+    return showMaslakiBottomSheet<_ResubmitDraft>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -298,11 +300,14 @@ class _SocialReportedPostsScreenState
           ),
           actions: const [AppBarQuickActions()],
         ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? _ErrorState(message: _error!, onRetry: _load)
-            : TabBarView(children: [_buildPostsTab(), _buildStoriesTab()]),
+        body: SafeArea(
+          top: false,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? _ErrorState(message: _error!, onRetry: _load)
+              : TabBarView(children: [_buildPostsTab(), _buildStoriesTab()]),
+        ),
       ),
     );
   }

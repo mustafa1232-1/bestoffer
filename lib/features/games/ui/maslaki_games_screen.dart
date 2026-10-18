@@ -161,7 +161,7 @@ class _MaslakiGamesScreenState extends ConsumerState<MaslakiGamesScreen> {
 
   Future<void> _createMafia() async {
     if (_acting) return;
-    final setup = await showModalBottomSheet<_MafiaSetupResult>(
+    final setup = await showMaslakiBottomSheet<_MafiaSetupResult>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -250,7 +250,7 @@ class _MaslakiGamesScreenState extends ConsumerState<MaslakiGamesScreen> {
     final previousRuleset = '${previous['ruleset']}' == 'advanced'
         ? 'advanced'
         : 'standard';
-    final ruleset = await showModalBottomSheet<String>(
+    final ruleset = await showMaslakiBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
@@ -327,7 +327,7 @@ class _MaslakiGamesScreenState extends ConsumerState<MaslakiGamesScreen> {
     }
   }
 
-  Future<void> _showGuide() => showModalBottomSheet<void>(
+  Future<void> _showGuide() => showMaslakiBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
@@ -380,22 +380,25 @@ class _MaslakiGamesScreenState extends ConsumerState<MaslakiGamesScreen> {
             ),
           ],
         ),
-        body: switch (_view) {
-          _GamesView.picker => _buildPicker(
-            activeTeamRoom: activeRoom.isNotEmpty,
-            activeMafiaRoom: activeMafia.isNotEmpty,
-          ),
-          _GamesView.mafia => _buildMafia(
-            activeMafia: activeMafia,
-            rooms: _mafiaHistory,
-          ),
-          _GamesView.teamCode => _buildTeamCode(
-            statusKnown: statusKnown,
-            enabled: enabled,
-            activeRoom: activeRoom,
-            campaign: campaign,
-          ),
-        },
+        body: SafeArea(
+          top: false,
+          child: switch (_view) {
+            _GamesView.picker => _buildPicker(
+              activeTeamRoom: activeRoom.isNotEmpty,
+              activeMafiaRoom: activeMafia.isNotEmpty,
+            ),
+            _GamesView.mafia => _buildMafia(
+              activeMafia: activeMafia,
+              rooms: _mafiaHistory,
+            ),
+            _GamesView.teamCode => _buildTeamCode(
+              statusKnown: statusKnown,
+              enabled: enabled,
+              activeRoom: activeRoom,
+              campaign: campaign,
+            ),
+          },
+        ),
       ),
     );
   }

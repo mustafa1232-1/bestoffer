@@ -6,6 +6,8 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../../core/files/file_downloader.dart';
 import '../../../../core/i18n/app_localizations_context.dart';
@@ -25,7 +27,7 @@ class AdminFinancialPrintActions extends StatelessWidget {
       await onPrintPdf();
       return;
     }
-    final action = await showModalBottomSheet<_AdminReportAction>(
+    final action = await showMaslakiBottomSheet<_AdminReportAction>(
       context: context,
       showDragHandle: true,
       builder: (context) {

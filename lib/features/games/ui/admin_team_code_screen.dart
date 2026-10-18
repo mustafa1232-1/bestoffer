@@ -629,288 +629,296 @@ class _AdminTeamCodeScreenState extends ConsumerState<AdminTeamCodeScreen> {
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh_rounded),
-                label: Text(_error!),
-              ),
-            )
-          : ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          children: [
-                            const Expanded(
-                              child: Text(
-                                'بطولات خريطة المعرفة',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w900,
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(
+                child: FilledButton.icon(
+                  onPressed: _load,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(_error!),
+                ),
+              )
+            : ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'بطولات خريطة المعرفة',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w900,
+                                  ),
                                 ),
                               ),
-                            ),
-                            Text(
-                              'أسئلة: ${_knowledgeOverview['bankSize'] ?? 0}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
+                              Text(
+                                'أسئلة: ${_knowledgeOverview['bankSize'] ?? 0}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'بطولات ${knowledgeStats['events'] ?? 0} • فرق ${knowledgeStats['teams'] ?? 0} • نشطة ${knowledgeStats['active_events'] ?? 0}',
+                          ),
+                          const SizedBox(height: 8),
+                          FilledButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : _createKnowledgeTournament,
+                            icon: const Icon(Icons.add_rounded),
+                            label: const Text('إنشاء بطولة'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : _createKnowledgeQuestion,
+                            icon: const Icon(Icons.quiz_outlined),
+                            label: const Text('إضافة سؤال وخيارات'),
+                          ),
+                          for (final question in _knowledgeQuestions.take(8))
+                            ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                '${question['question']}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '${question['category']} · ${question['difficulty']} · ${question['timeLimitSeconds']} ثانية',
+                              ),
+                              trailing: Switch(
+                                value: question['active'] == true,
+                                onChanged: _saving
+                                    ? null
+                                    : (value) => _setKnowledgeQuestionActive(
+                                        question,
+                                        value,
+                                      ),
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'بطولات ${knowledgeStats['events'] ?? 0} • فرق ${knowledgeStats['teams'] ?? 0} • نشطة ${knowledgeStats['active_events'] ?? 0}',
-                        ),
-                        const SizedBox(height: 8),
-                        FilledButton.icon(
-                          onPressed: _saving
-                              ? null
-                              : _createKnowledgeTournament,
-                          icon: const Icon(Icons.add_rounded),
-                          label: const Text('إنشاء بطولة'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: _saving ? null : _createKnowledgeQuestion,
-                          icon: const Icon(Icons.quiz_outlined),
-                          label: const Text('إضافة سؤال وخيارات'),
-                        ),
-                        for (final question in _knowledgeQuestions.take(8))
-                          ListTile(
-                            dense: true,
-                            contentPadding: EdgeInsets.zero,
-                            title: Text(
-                              '${question['question']}',
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                          if (knowledgeEvents.isEmpty)
+                            const ListTile(
+                              title: Text('لا توجد بطولات معرفة حالياً.'),
                             ),
-                            subtitle: Text(
-                              '${question['category']} · ${question['difficulty']} · ${question['timeLimitSeconds']} ثانية',
-                            ),
-                            trailing: Switch(
-                              value: question['active'] == true,
-                              onChanged: _saving
-                                  ? null
-                                  : (value) => _setKnowledgeQuestionActive(
-                                      question,
-                                      value,
-                                    ),
-                            ),
-                          ),
-                        if (knowledgeEvents.isEmpty)
-                          const ListTile(
-                            title: Text('لا توجد بطولات معرفة حالياً.'),
-                          ),
-                        for (final event in knowledgeEvents)
-                          ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(
-                              Icons.emoji_events_outlined,
-                              color: Color(0xFFC18B2F),
-                            ),
-                            title: Text('${event['title']}'),
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    KnowledgeEventScreen(event: event),
+                          for (final event in knowledgeEvents)
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(
+                                Icons.emoji_events_outlined,
+                                color: Color(0xFFC18B2F),
                               ),
+                              title: Text('${event['title']}'),
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) =>
+                                      KnowledgeEventScreen(event: event),
+                                ),
+                              ),
+                              subtitle: Text(
+                                '${event['teams'] ?? 0}/${event['max_teams'] ?? 0} فريق • ${event['team_size'] ?? 1} لاعب/فريق • ${event['status']}',
+                              ),
+                              trailing: event['status'] == 'registration'
+                                  ? IconButton(
+                                      tooltip: 'بدء البطولة',
+                                      onPressed: _saving
+                                          ? null
+                                          : () => _startKnowledgeTournament(
+                                              event,
+                                            ),
+                                      icon: const Icon(
+                                        Icons.play_arrow_rounded,
+                                      ),
+                                    )
+                                  : const Icon(Icons.chevron_left_rounded),
                             ),
-                            subtitle: Text(
-                              '${event['teams'] ?? 0}/${event['max_teams'] ?? 0} فريق • ${event['team_size'] ?? 1} لاعب/فريق • ${event['status']}',
-                            ),
-                            trailing: event['status'] == 'registration'
-                                ? IconButton(
-                                    tooltip: 'بدء البطولة',
-                                    onPressed: _saving
-                                        ? null
-                                        : () =>
-                                              _startKnowledgeTournament(event),
-                                    icon: const Icon(Icons.play_arrow_rounded),
-                                  )
-                                : const Icon(Icons.chevron_left_rounded),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
-                ),
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.vpn_key_rounded),
-                            const SizedBox(width: 10),
-                            const Expanded(
-                              child: Text(
-                                'حملة شفرة الفريق التجريبية',
-                                style: TextStyle(
-                                  fontSize: 18,
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.vpn_key_rounded),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'حملة شفرة الفريق التجريبية',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ),
+                              Switch(
+                                value: enabled,
+                                onChanged: _saving ? null : _setEnabled,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            available
+                                ? 'متاحة للمستخدمين الآن'
+                                : enabled
+                                ? 'مفعلة، لكنها خارج مدة الحملة'
+                                : 'موقوفة للمستخدمين',
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'المكافآت في هذه الحملة تجريبية وغير قابلة للاستخدام الحقيقي.',
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : () => _editCampaign(campaign),
+                            icon: const Icon(Icons.tune_rounded),
+                            label: const Text('تعديل الحملة والمكافأة'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _Metric(label: 'الغرف', value: stats['rooms']),
+                      _Metric(
+                        label: 'الجلسات المكتملة',
+                        value: stats['completed_sessions'],
+                      ),
+                      _Metric(label: 'المشاركات', value: stats['memberships']),
+                      _Metric(label: 'المكافآت', value: stats['claims']),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: Text(
+                          'بلاغات ليلة مسلكي',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                      Badge(
+                        label: Text(
+                          '${_mafiaReports.where((item) => item['status'] != 'reviewed').length}',
+                        ),
+                        child: const Icon(Icons.shield_outlined),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (_mafiaReports.isEmpty)
+                    const ListTile(
+                      leading: Icon(Icons.verified_user_outlined),
+                      title: Text('لا توجد بلاغات حالياً.'),
+                    )
+                  else
+                    ..._mafiaReports
+                        .take(20)
+                        .map(
+                          (report) => Card(
+                            child: ListTile(
+                              leading: Icon(
+                                report['status'] == 'reviewed'
+                                    ? Icons.task_alt_rounded
+                                    : Icons.flag_rounded,
+                                color: report['status'] == 'reviewed'
+                                    ? Colors.green
+                                    : Colors.redAccent,
+                              ),
+                              title: Text(
+                                '${report['targetName'] ?? 'لاعب'} • ${_mafiaReportReason('${report['reason']}')}',
+                                style: const TextStyle(
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
-                            ),
-                            Switch(
-                              value: enabled,
-                              onChanged: _saving ? null : _setEnabled,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          available
-                              ? 'متاحة للمستخدمين الآن'
-                              : enabled
-                              ? 'مفعلة، لكنها خارج مدة الحملة'
-                              : 'موقوفة للمستخدمين',
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'المكافآت في هذه الحملة تجريبية وغير قابلة للاستخدام الحقيقي.',
-                        ),
-                        const SizedBox(height: 12),
-                        OutlinedButton.icon(
-                          onPressed: _saving
-                              ? null
-                              : () => _editCampaign(campaign),
-                          icon: const Icon(Icons.tune_rounded),
-                          label: const Text('تعديل الحملة والمكافأة'),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    _Metric(label: 'الغرف', value: stats['rooms']),
-                    _Metric(
-                      label: 'الجلسات المكتملة',
-                      value: stats['completed_sessions'],
-                    ),
-                    _Metric(label: 'المشاركات', value: stats['memberships']),
-                    _Metric(label: 'المكافآت', value: stats['claims']),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'بلاغات ليلة مسلكي',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    Badge(
-                      label: Text(
-                        '${_mafiaReports.where((item) => item['status'] != 'reviewed').length}',
-                      ),
-                      child: const Icon(Icons.shield_outlined),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (_mafiaReports.isEmpty)
-                  const ListTile(
-                    leading: Icon(Icons.verified_user_outlined),
-                    title: Text('لا توجد بلاغات حالياً.'),
-                  )
-                else
-                  ..._mafiaReports
-                      .take(20)
-                      .map(
-                        (report) => Card(
-                          child: ListTile(
-                            leading: Icon(
-                              report['status'] == 'reviewed'
-                                  ? Icons.task_alt_rounded
-                                  : Icons.flag_rounded,
-                              color: report['status'] == 'reviewed'
-                                  ? Colors.green
-                                  : Colors.redAccent,
-                            ),
-                            title: Text(
-                              '${report['targetName'] ?? 'لاعب'} • ${_mafiaReportReason('${report['reason']}')}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
+                              subtitle: Text(
+                                'الغرفة #${report['roomId']} • المُبلّغ: ${report['reporterName'] ?? 'مستخدم'}'
+                                '${('${report['details'] ?? ''}').trim().isEmpty ? '' : '\n${report['details']}'}',
                               ),
+                              isThreeLine: ('${report['details'] ?? ''}')
+                                  .trim()
+                                  .isNotEmpty,
+                              trailing: report['status'] == 'reviewed'
+                                  ? const Text('تمت المراجعة')
+                                  : TextButton(
+                                      onPressed: _saving
+                                          ? null
+                                          : () => _reviewMafiaReport(report),
+                                      child: const Text('تمت المراجعة'),
+                                    ),
+                            ),
+                          ),
+                        ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'أحدث الغرف',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                  ),
+                  if (recentRooms.isEmpty)
+                    const ListTile(title: Text('لا توجد غرف حتى الآن.'))
+                  else
+                    ...recentRooms
+                        .take(10)
+                        .map(
+                          (room) => ListTile(
+                            leading: const Icon(Icons.meeting_room_outlined),
+                            title: Text(
+                              'غرفة #${room['id']} • ${room['status']}',
                             ),
                             subtitle: Text(
-                              'الغرفة #${report['roomId']} • المُبلّغ: ${report['reporterName'] ?? 'مستخدم'}'
-                              '${('${report['details'] ?? ''}').trim().isEmpty ? '' : '\n${report['details']}'}',
+                              '${room['mode']} • ${room['memberCount']} لاعب',
                             ),
-                            isThreeLine: ('${report['details'] ?? ''}')
-                                .trim()
-                                .isNotEmpty,
-                            trailing: report['status'] == 'reviewed'
-                                ? const Text('تمت المراجعة')
-                                : TextButton(
-                                    onPressed: _saving
-                                        ? null
-                                        : () => _reviewMafiaReport(report),
-                                    child: const Text('تمت المراجعة'),
-                                  ),
                           ),
                         ),
-                      ),
-                const SizedBox(height: 20),
-                const Text(
-                  'أحدث الغرف',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                ),
-                if (recentRooms.isEmpty)
-                  const ListTile(title: Text('لا توجد غرف حتى الآن.'))
-                else
-                  ...recentRooms
-                      .take(10)
-                      .map(
-                        (room) => ListTile(
-                          leading: const Icon(Icons.meeting_room_outlined),
-                          title: Text(
-                            'غرفة #${room['id']} • ${room['status']}',
-                          ),
-                          subtitle: Text(
-                            '${room['mode']} • ${room['memberCount']} لاعب',
+                  const SizedBox(height: 12),
+                  const Text(
+                    'أحدث المطالبات التجريبية',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                  ),
+                  if (recentClaims.isEmpty)
+                    const ListTile(title: Text('لا توجد مطالبات حتى الآن.'))
+                  else
+                    ...recentClaims
+                        .take(10)
+                        .map(
+                          (claim) => ListTile(
+                            leading: const Icon(Icons.redeem_outlined),
+                            title: Text('${claim['userName']}'),
+                            subtitle: Text(
+                              '${claim['rewardType']} • ${claim['score']} نقطة',
+                            ),
                           ),
                         ),
-                      ),
-                const SizedBox(height: 12),
-                const Text(
-                  'أحدث المطالبات التجريبية',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-                ),
-                if (recentClaims.isEmpty)
-                  const ListTile(title: Text('لا توجد مطالبات حتى الآن.'))
-                else
-                  ...recentClaims
-                      .take(10)
-                      .map(
-                        (claim) => ListTile(
-                          leading: const Icon(Icons.redeem_outlined),
-                          title: Text('${claim['userName']}'),
-                          subtitle: Text(
-                            '${claim['rewardType']} • ${claim['score']} نقطة',
-                          ),
-                        ),
-                      ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 }

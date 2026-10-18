@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/locale_text.dart';
 
@@ -51,7 +53,7 @@ Future<TaxiCancelReason?> showTaxiCancelReasonSheet(
   BuildContext context, {
   bool isCaptain = false,
 }) {
-  return showModalBottomSheet<TaxiCancelReason>(
+  return showMaslakiBottomSheet<TaxiCancelReason>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,

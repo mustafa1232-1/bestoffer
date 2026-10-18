@@ -683,96 +683,99 @@ class _AdminSocialReportsScreenState
             ],
           ),
         ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? Center(
-                child: Text(
-                  _error!,
-                  textDirection: context.appTextDirection,
-                  textAlign: TextAlign.center,
-                ),
-              )
-            : Column(
-                children: [
-                  _buildStatusFilters(),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        RefreshIndicator(
-                          onRefresh: _load,
-                          child: _postItems.isEmpty
-                              ? _buildEmptyState(
-                                  l10n.adminSocialReportsNoPostReports,
-                                )
-                              : ListView.builder(
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    10,
-                                    12,
-                                    20,
-                                  ),
-                                  itemCount: _postItems.length,
-                                  itemBuilder: (context, index) =>
-                                      _buildPostReportCard(
-                                        _postItems[index],
-                                        canModerate: canModerate,
-                                      ),
-                                ),
-                        ),
-                        RefreshIndicator(
-                          onRefresh: _load,
-                          child: _storyItems.isEmpty
-                              ? _buildEmptyState(
-                                  l10n.adminSocialReportsNoStoryReports,
-                                )
-                              : ListView.builder(
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    10,
-                                    12,
-                                    20,
-                                  ),
-                                  itemCount: _storyItems.length,
-                                  itemBuilder: (context, index) =>
-                                      _buildStoryReportCard(
-                                        _storyItems[index],
-                                        canModerate: canModerate,
-                                      ),
-                                ),
-                        ),
-                        RefreshIndicator(
-                          onRefresh: _load,
-                          child: _userItems.isEmpty
-                              ? _buildEmptyState(
-                                  l10n.adminSocialReportsNoUserReports,
-                                )
-                              : ListView.builder(
-                                  physics:
-                                      const AlwaysScrollableScrollPhysics(),
-                                  padding: const EdgeInsets.fromLTRB(
-                                    12,
-                                    10,
-                                    12,
-                                    20,
-                                  ),
-                                  itemCount: _userItems.length,
-                                  itemBuilder: (context, index) =>
-                                      _buildUserReportCard(
-                                        _userItems[index],
-                                        canModerate: canModerate,
-                                      ),
-                                ),
-                        ),
-                      ],
-                    ),
+        body: SafeArea(
+          top: false,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(
+                  child: Text(
+                    _error!,
+                    textDirection: context.appTextDirection,
+                    textAlign: TextAlign.center,
                   ),
-                ],
-              ),
+                )
+              : Column(
+                  children: [
+                    _buildStatusFilters(),
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          RefreshIndicator(
+                            onRefresh: _load,
+                            child: _postItems.isEmpty
+                                ? _buildEmptyState(
+                                    l10n.adminSocialReportsNoPostReports,
+                                  )
+                                : ListView.builder(
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      10,
+                                      12,
+                                      20,
+                                    ),
+                                    itemCount: _postItems.length,
+                                    itemBuilder: (context, index) =>
+                                        _buildPostReportCard(
+                                          _postItems[index],
+                                          canModerate: canModerate,
+                                        ),
+                                  ),
+                          ),
+                          RefreshIndicator(
+                            onRefresh: _load,
+                            child: _storyItems.isEmpty
+                                ? _buildEmptyState(
+                                    l10n.adminSocialReportsNoStoryReports,
+                                  )
+                                : ListView.builder(
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      10,
+                                      12,
+                                      20,
+                                    ),
+                                    itemCount: _storyItems.length,
+                                    itemBuilder: (context, index) =>
+                                        _buildStoryReportCard(
+                                          _storyItems[index],
+                                          canModerate: canModerate,
+                                        ),
+                                  ),
+                          ),
+                          RefreshIndicator(
+                            onRefresh: _load,
+                            child: _userItems.isEmpty
+                                ? _buildEmptyState(
+                                    l10n.adminSocialReportsNoUserReports,
+                                  )
+                                : ListView.builder(
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
+                                    padding: const EdgeInsets.fromLTRB(
+                                      12,
+                                      10,
+                                      12,
+                                      20,
+                                    ),
+                                    itemCount: _userItems.length,
+                                    itemBuilder: (context, index) =>
+                                        _buildUserReportCard(
+                                          _userItems[index],
+                                          canModerate: canModerate,
+                                        ),
+                                  ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }

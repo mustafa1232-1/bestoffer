@@ -223,217 +223,222 @@ class _CustomerCarListingDetailsScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(child: Text(_error!)),
-                ],
-              )
-            : listing == null
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(child: Text(l10n.carsNoListings)),
-                ],
-              )
-            : ListView(
-                padding: const EdgeInsets.only(bottom: 24),
-                children: [
-                  _CarGallery(listing: listing),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          listing.title,
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          formatIqd(listing.price),
-                          style: Theme.of(context).textTheme.headlineMedium
-                              ?.copyWith(
-                                fontWeight: FontWeight.w900,
-                                color: Theme.of(context).colorScheme.primary,
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(child: Text(_error!)),
+                  ],
+                )
+              : listing == null
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(child: Text(l10n.carsNoListings)),
+                  ],
+                )
+              : ListView(
+                  padding: const EdgeInsets.only(bottom: 24),
+                  children: [
+                    _CarGallery(listing: listing),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            listing.title,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            formatIqd(listing.price),
+                            style: Theme.of(context).textTheme.headlineMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w900,
+                                  color: Theme.of(context).colorScheme.primary,
+                                ),
+                          ),
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _InfoBadge(
+                                label: carConditionLabel(
+                                  context,
+                                  listing.condition,
+                                ),
                               ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _InfoBadge(
-                              label: carConditionLabel(
-                                context,
-                                listing.condition,
+                              _InfoBadge(
+                                label: carListingStatusLabel(
+                                  context,
+                                  listing.status,
+                                ),
+                              ),
+                              _InfoBadge(
+                                label: carBodyTypeLabel(
+                                  context,
+                                  listing.bodyType,
+                                ),
+                              ),
+                              _InfoBadge(
+                                label: carTransmissionLabel(
+                                  context,
+                                  listing.transmission,
+                                ),
+                              ),
+                              _InfoBadge(
+                                label: carFuelTypeLabel(
+                                  context,
+                                  listing.fuelType,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          _InfoSection(
+                            title: l10n.realEstateLocation,
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                if ((listing.city ?? '').isNotEmpty)
+                                  _InfoBadge(label: listing.city!),
+                                _InfoBadge(
+                                  label:
+                                      '${l10n.carsModelYear}: ${listing.modelYear}',
+                                ),
+                                if (listing.mileageKm != null)
+                                  _InfoBadge(
+                                    label:
+                                        '${l10n.carsMileage}: ${listing.mileageKm} km',
+                                  ),
+                                if ((listing.color ?? '').isNotEmpty)
+                                  _InfoBadge(
+                                    label:
+                                        '${l10n.carsColor}: ${listing.color!}',
+                                  ),
+                              ],
+                            ),
+                          ),
+                          _InfoSection(
+                            title: l10n.carsDetailsTitle,
+                            child: Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: [
+                                _InfoBadge(
+                                  label: '${l10n.carsBrand}: ${listing.brand}',
+                                ),
+                                _InfoBadge(
+                                  label: '${l10n.carsModel}: ${listing.model}',
+                                ),
+                                _InfoBadge(
+                                  label:
+                                      '${l10n.carsTransmission}: ${carTransmissionLabel(context, listing.transmission)}',
+                                ),
+                                _InfoBadge(
+                                  label:
+                                      '${l10n.carsFuelType}: ${carFuelTypeLabel(context, listing.fuelType)}',
+                                ),
+                              ],
+                            ),
+                          ),
+                          if ((listing.description ?? '').trim().isNotEmpty)
+                            _InfoSection(
+                              title: l10n.realEstateDescription,
+                              child: Text(
+                                listing.description!,
+                                style: Theme.of(
+                                  context,
+                                ).textTheme.bodyLarge?.copyWith(height: 1.55),
                               ),
                             ),
-                            _InfoBadge(
-                              label: carListingStatusLabel(
-                                context,
-                                listing.status,
-                              ),
+                          _InfoSection(
+                            title: l10n.realEstateContact,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  listing.ownerFullName?.trim().isNotEmpty ==
+                                          true
+                                      ? listing.ownerFullName!
+                                      : l10n.carsSellerUnknown,
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w800),
+                                ),
+                                const SizedBox(height: 6),
+                                const Text('اضغط اتصال لإظهار الرقم'),
+                                const SizedBox(height: 14),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: FilledButton.icon(
+                                        onPressed: _busy ? null : _callSeller,
+                                        icon: const Icon(Icons.call_outlined),
+                                        label: Text(l10n.carsCallSeller),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: FilledButton.tonalIcon(
+                                        onPressed: canMessage && !_busy
+                                            ? _messageSeller
+                                            : null,
+                                        icon: const Icon(
+                                          Icons.chat_bubble_outline_rounded,
+                                        ),
+                                        label: Text(l10n.commonMessage),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
                             ),
-                            _InfoBadge(
-                              label: carBodyTypeLabel(
-                                context,
-                                listing.bodyType,
-                              ),
+                          ),
+                          if (_similar.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              l10n.carsSimilarListings,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w900),
                             ),
-                            _InfoBadge(
-                              label: carTransmissionLabel(
-                                context,
-                                listing.transmission,
-                              ),
-                            ),
-                            _InfoBadge(
-                              label: carFuelTypeLabel(
-                                context,
-                                listing.fuelType,
+                            const SizedBox(height: 12),
+                            ..._similar.map(
+                              (item) => Padding(
+                                padding: const EdgeInsets.only(bottom: 12),
+                                child: CustomerCarListingCard(
+                                  listing: item,
+                                  compact: true,
+                                  onTap: () {
+                                    Navigator.of(context).pushReplacement(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            CustomerCarListingDetailsScreen(
+                                              listingId: item.id,
+                                              initialListing: item,
+                                            ),
+                                      ),
+                                    );
+                                  },
+                                ),
                               ),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 18),
-                        _InfoSection(
-                          title: l10n.realEstateLocation,
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              if ((listing.city ?? '').isNotEmpty)
-                                _InfoBadge(label: listing.city!),
-                              _InfoBadge(
-                                label:
-                                    '${l10n.carsModelYear}: ${listing.modelYear}',
-                              ),
-                              if (listing.mileageKm != null)
-                                _InfoBadge(
-                                  label:
-                                      '${l10n.carsMileage}: ${listing.mileageKm} km',
-                                ),
-                              if ((listing.color ?? '').isNotEmpty)
-                                _InfoBadge(
-                                  label: '${l10n.carsColor}: ${listing.color!}',
-                                ),
-                            ],
-                          ),
-                        ),
-                        _InfoSection(
-                          title: l10n.carsDetailsTitle,
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              _InfoBadge(
-                                label: '${l10n.carsBrand}: ${listing.brand}',
-                              ),
-                              _InfoBadge(
-                                label: '${l10n.carsModel}: ${listing.model}',
-                              ),
-                              _InfoBadge(
-                                label:
-                                    '${l10n.carsTransmission}: ${carTransmissionLabel(context, listing.transmission)}',
-                              ),
-                              _InfoBadge(
-                                label:
-                                    '${l10n.carsFuelType}: ${carFuelTypeLabel(context, listing.fuelType)}',
-                              ),
-                            ],
-                          ),
-                        ),
-                        if ((listing.description ?? '').trim().isNotEmpty)
-                          _InfoSection(
-                            title: l10n.realEstateDescription,
-                            child: Text(
-                              listing.description!,
-                              style: Theme.of(
-                                context,
-                              ).textTheme.bodyLarge?.copyWith(height: 1.55),
-                            ),
-                          ),
-                        _InfoSection(
-                          title: l10n.realEstateContact,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                listing.ownerFullName?.trim().isNotEmpty == true
-                                    ? listing.ownerFullName!
-                                    : l10n.carsSellerUnknown,
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w800),
-                              ),
-                              const SizedBox(height: 6),
-                              const Text('اضغط اتصال لإظهار الرقم'),
-                              const SizedBox(height: 14),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: FilledButton.icon(
-                                      onPressed: _busy ? null : _callSeller,
-                                      icon: const Icon(Icons.call_outlined),
-                                      label: Text(l10n.carsCallSeller),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: FilledButton.tonalIcon(
-                                      onPressed: canMessage && !_busy
-                                          ? _messageSeller
-                                          : null,
-                                      icon: const Icon(
-                                        Icons.chat_bubble_outline_rounded,
-                                      ),
-                                      label: Text(l10n.commonMessage),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (_similar.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            l10n.carsSimilarListings,
-                            style: Theme.of(context).textTheme.titleLarge
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                          const SizedBox(height: 12),
-                          ..._similar.map(
-                            (item) => Padding(
-                              padding: const EdgeInsets.only(bottom: 12),
-                              child: CustomerCarListingCard(
-                                listing: item,
-                                compact: true,
-                                onTap: () {
-                                  Navigator.of(context).pushReplacement(
-                                    MaterialPageRoute(
-                                      builder: (_) =>
-                                          CustomerCarListingDetailsScreen(
-                                            listingId: item.id,
-                                            initialListing: item,
-                                          ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+        ),
       ),
     );
   }

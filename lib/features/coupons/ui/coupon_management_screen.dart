@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/forms/backend_field_error_parser.dart';
 import '../../../core/forms/form_error_banner.dart';
@@ -531,7 +533,7 @@ class _CouponManagementScreenState
       coupon['avg_order_value'] ?? coupon['avgOrderValue'],
     );
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (context) {

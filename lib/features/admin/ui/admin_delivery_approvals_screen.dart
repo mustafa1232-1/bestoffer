@@ -106,31 +106,35 @@ class AdminDeliveryApprovalsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(adminControllerProvider.notifier).bootstrap(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          children: state.pendingDeliveryAccounts.isEmpty
-              ? [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 28),
-                    child: Center(
-                      child: Text(l10n.adminDeliveryApprovalsEmpty),
-                    ),
-                  ),
-                ]
-              : state.pendingDeliveryAccounts
-                    .map(
-                      (item) => _DeliveryApprovalCard(
-                        item: item,
-                        saving: state.saving,
-                        onApprove: () => ref
-                            .read(adminControllerProvider.notifier)
-                            .approveDeliveryAccount(item.id),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(adminControllerProvider.notifier).bootstrap(),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: state.pendingDeliveryAccounts.isEmpty
+                ? [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 28),
+                      child: Center(
+                        child: Text(l10n.adminDeliveryApprovalsEmpty),
                       ),
-                    )
-                    .toList(growable: false),
+                    ),
+                  ]
+                : state.pendingDeliveryAccounts
+                      .map(
+                        (item) => _DeliveryApprovalCard(
+                          item: item,
+                          saving: state.saving,
+                          onApprove: () => ref
+                              .read(adminControllerProvider.notifier)
+                              .approveDeliveryAccount(item.id),
+                        ),
+                      )
+                      .toList(growable: false),
+          ),
         ),
       ),
     );

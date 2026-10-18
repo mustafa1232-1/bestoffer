@@ -101,60 +101,63 @@ class _SocialUserConnectionsScreenState
       textDirection: Directionality.of(context),
       child: Scaffold(
         appBar: AppBar(title: Text(widget.title)),
-        body: RefreshIndicator(
-          onRefresh: _load,
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-              ? ListView(
-                  children: [
-                    const SizedBox(height: 120),
-                    Center(child: Text(_error!)),
-                  ],
-                )
-              : _users.isEmpty
-              ? ListView(
-                  children: [
-                    const SizedBox(height: 120),
-                    Center(child: Text(l10n.socialConnectionsEmpty)),
-                  ],
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _users.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final user = _users[index];
-                    return ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => SocialProfileScreen(
-                              userId: user.user.id,
-                              initialName: user.user.fullName,
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? ListView(
+                    children: [
+                      const SizedBox(height: 120),
+                      Center(child: Text(_error!)),
+                    ],
+                  )
+                : _users.isEmpty
+                ? ListView(
+                    children: [
+                      const SizedBox(height: 120),
+                      Center(child: Text(l10n.socialConnectionsEmpty)),
+                    ],
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _users.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final user = _users[index];
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => SocialProfileScreen(
+                                userId: user.user.id,
+                                initialName: user.user.fullName,
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                      leading: CircleAvatar(
-                        backgroundImage:
-                            (user.user.imageUrl ?? '').trim().isNotEmpty
-                            ? AppCachedImageProvider(user.user.imageUrl!)
-                            : null,
-                        child: (user.user.imageUrl ?? '').trim().isEmpty
-                            ? const Icon(Icons.person_outline_rounded)
-                            : null,
-                      ),
-                      title: Text(
-                        user.user.fullName,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      subtitle: Text(_roleLabel(user.user.role, context)),
-                      trailing: const Icon(Icons.chevron_right_rounded),
-                    );
-                  },
-                ),
+                          );
+                        },
+                        leading: CircleAvatar(
+                          backgroundImage:
+                              (user.user.imageUrl ?? '').trim().isNotEmpty
+                              ? AppCachedImageProvider(user.user.imageUrl!)
+                              : null,
+                          child: (user.user.imageUrl ?? '').trim().isEmpty
+                              ? const Icon(Icons.person_outline_rounded)
+                              : null,
+                        ),
+                        title: Text(
+                          user.user.fullName,
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        subtitle: Text(_roleLabel(user.user.role, context)),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                      );
+                    },
+                  ),
+          ),
         ),
       ),
     );

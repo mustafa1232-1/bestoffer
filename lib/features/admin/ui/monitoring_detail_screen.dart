@@ -477,17 +477,20 @@ class _MonitoringDetailScreenState
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _ErrorPanel(message: _error!, onRetry: _load)
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.all(MaslakiSpacing.md),
-                children: _sections(context),
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? _ErrorPanel(message: _error!, onRetry: _load)
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  padding: const EdgeInsets.all(MaslakiSpacing.md),
+                  children: _sections(context),
+                ),
               ),
-            ),
+      ),
     );
   }
 

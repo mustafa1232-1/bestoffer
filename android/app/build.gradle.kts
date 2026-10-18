@@ -101,10 +101,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
-
     defaultConfig {
         minSdk = flutter.minSdkVersion
         targetSdk = maxOf(flutter.targetSdkVersion, 35)
@@ -144,8 +140,8 @@ android {
         }
         release {
             manifestPlaceholders["usesCleartextTraffic"] = "false"
-            // Plugin artifacts provide their consumer rules. App rules retain
-            // only Flutter registration and JNI/reflection entry points.
+            // R8 full mode + optimized resource shrinking. Plugin artifacts provide
+            // their consumer rules; app rules pin plugin, Pigeon and JNI entry points.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -169,6 +165,12 @@ android {
                 )
             }
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
     }
 }
 

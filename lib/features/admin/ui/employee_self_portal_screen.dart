@@ -134,15 +134,18 @@ class _EmployeeSelfPortalScreenState
             ),
           ],
         ),
-        body: RefreshIndicator(
-          onRefresh: _load,
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-              ? _errorView()
-              : _data == null
-              ? _noProfileView()
-              : _body(),
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? _errorView()
+                : _data == null
+                ? _noProfileView()
+                : _body(),
+          ),
         ),
       ),
     );

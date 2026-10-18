@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/network/api_error_mapper.dart';
 import '../../../core/utils/currency.dart';
@@ -196,7 +198,7 @@ class _AdminInfluencerReferralsScreenState
       return;
     }
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -223,52 +225,55 @@ class _AdminInfluencerReferralsScreenState
           icon: const Icon(Icons.person_add_alt_1_rounded),
           label: const Text('إنشاء مؤثر'),
         ),
-        body: RefreshIndicator(
-          onRefresh: _load,
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-              ? ListView(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Column(
-                        children: [
-                          Text(_error!, textAlign: TextAlign.center),
-                          const SizedBox(height: 12),
-                          FilledButton(
-                            onPressed: _load,
-                            child: const Text('إعادة المحاولة'),
-                          ),
-                        ],
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? ListView(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Column(
+                          children: [
+                            Text(_error!, textAlign: TextAlign.center),
+                            const SizedBox(height: 12),
+                            FilledButton(
+                              onPressed: _load,
+                              child: const Text('إعادة المحاولة'),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                )
-              : _influencers.isEmpty
-              ? ListView(
-                  children: const [
-                    Padding(
-                      padding: EdgeInsets.all(36),
-                      child: Text(
-                        'لا يوجد مؤثرون بعد. أنشئ مؤثرًا ليولّد الخادم رمز إحالة آمنًا وفريدًا له.',
-                        textAlign: TextAlign.center,
+                    ],
+                  )
+                : _influencers.isEmpty
+                ? ListView(
+                    children: const [
+                      Padding(
+                        padding: EdgeInsets.all(36),
+                        child: Text(
+                          'لا يوجد مؤثرون بعد. أنشئ مؤثرًا ليولّد الخادم رمز إحالة آمنًا وفريدًا له.',
+                          textAlign: TextAlign.center,
+                        ),
                       ),
+                    ],
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+                    itemCount: _influencers.length,
+                    itemBuilder: (_, index) => _InfluencerCard(
+                      influencer: _influencers[index],
+                      onToggleInfluencer: (value) =>
+                          _toggleInfluencer(_influencers[index], value),
+                      onShowReport: () => _showReport(_influencers[index]),
+                      onCreateCoupon: () => _createCoupon(_influencers[index]),
+                      onToggleCoupon: _toggleCoupon,
                     ),
-                  ],
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-                  itemCount: _influencers.length,
-                  itemBuilder: (_, index) => _InfluencerCard(
-                    influencer: _influencers[index],
-                    onToggleInfluencer: (value) =>
-                        _toggleInfluencer(_influencers[index], value),
-                    onShowReport: () => _showReport(_influencers[index]),
-                    onCreateCoupon: () => _createCoupon(_influencers[index]),
-                    onToggleCoupon: _toggleCoupon,
                   ),
-                ),
+          ),
         ),
       ),
     );

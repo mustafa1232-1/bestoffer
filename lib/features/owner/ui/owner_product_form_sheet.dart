@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
@@ -1136,7 +1138,7 @@ class _ProductFormSheetState extends State<ProductFormSheet> {
 
   Future<String?> _pickColorHex({required String initialHex}) async {
     final controller = TextEditingController(text: initialHex);
-    final result = await showModalBottomSheet<String>(
+    final result = await showMaslakiBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,

@@ -447,7 +447,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
       _AssistantQuickAction.appSearch => 'ابحث داخل التطبيق عن متجر أو خدمة',
       _AssistantQuickAction.webSearch => 'اكتب سؤالك للبحث على الويب',
     };
-    final result = await showModalBottomSheet<String>(
+    final result = await showMaslakiBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
@@ -564,7 +564,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
             ),
         ],
       ),
-      body: MaslakiScreenFrame(
+      body: SafeArea(top: false, child: MaslakiScreenFrame(
         scrollable: true,
         child: switch (_experience) {
           _AssistantExperience.commerceSetup => _buildCommerceSetup(context),
@@ -573,7 +573,7 @@ class _AssistantChatScreenState extends ConsumerState<AssistantChatScreen> {
           ),
           _ => _buildAssistantHome(context),
         },
-      ),
+      )),
     );
   }
 

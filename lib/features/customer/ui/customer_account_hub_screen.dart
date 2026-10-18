@@ -168,387 +168,399 @@ class CustomerAccountHubScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: MaslakiScreenFrame(
-        scrollable: true,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            MaslakiCard(
-              padding: const EdgeInsets.all(MaslakiSpacing.lg),
-              gradient: LinearGradient(
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-                colors: [
-                  context.maslakiTokens.surfacePrimary,
-                  context.maslakiTokens.cardElevated,
-                  context.maslakiTokens.backgroundSecondary,
-                ],
-              ),
-              child: Row(
-                textDirection: textDirection,
-                children: [
-                  InkWell(
-                    borderRadius: BorderRadius.circular(999),
-                    onTap: openProfile,
-                    child: Container(
-                      width: 78,
-                      height: 78,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: context.maslakiTokens.primaryAccent,
-                          width: 1.2,
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: context.visualTheme.accentGold.withValues(
-                              alpha: 0.16,
+      body: SafeArea(
+        top: false,
+        child: MaslakiScreenFrame(
+          scrollable: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              MaslakiCard(
+                padding: const EdgeInsets.all(MaslakiSpacing.lg),
+                gradient: LinearGradient(
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                  colors: [
+                    context.maslakiTokens.surfacePrimary,
+                    context.maslakiTokens.cardElevated,
+                    context.maslakiTokens.backgroundSecondary,
+                  ],
+                ),
+                child: Row(
+                  textDirection: textDirection,
+                  children: [
+                    InkWell(
+                      borderRadius: BorderRadius.circular(999),
+                      onTap: openProfile,
+                      child: Container(
+                        width: 78,
+                        height: 78,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: context.maslakiTokens.primaryAccent,
+                            width: 1.2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: context.visualTheme.accentGold.withValues(
+                                alpha: 0.16,
+                              ),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
                             ),
-                            blurRadius: 18,
-                            offset: const Offset(0, 8),
+                          ],
+                        ),
+                        child: CircleAvatar(
+                          backgroundColor:
+                              context.maslakiTokens.surfaceSecondary,
+                          child: Text(
+                            avatarLabel,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: MaslakiSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            profileName,
+                            textDirection: textDirection,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            phone.isEmpty
+                                ? context.lt(
+                                    ar: 'مستخدم مسلكي',
+                                    en: 'Maslaki user',
+                                  )
+                                : phone,
+                            textDirection: textDirection,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              MaslakiStatusPill(
+                                label: context.lt(
+                                  ar: 'عضو فعّال',
+                                  en: 'Active member',
+                                ),
+                                icon: Icons.verified_user_outlined,
+                              ),
+                              if (auth.isServiceProvider)
+                                MaslakiStatusPill(
+                                  label: context.lt(
+                                    ar: 'صاحب خدمة',
+                                    en: 'Service provider',
+                                  ),
+                                  icon: Icons.handyman_outlined,
+                                ),
+                            ],
                           ),
                         ],
                       ),
-                      child: CircleAvatar(
-                        backgroundColor: context.maslakiTokens.surfaceSecondary,
-                        child: Text(
-                          avatarLabel,
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: MaslakiSpacing.lg),
+              Row(
+                children: [
+                  Expanded(
+                    child: MaslakiMetricCard(
+                      label: context.l10n.notificationsTitle,
+                      value: '${notifications.unreadCount}',
+                      icon: Icons.notifications_active_outlined,
                     ),
                   ),
-                  const SizedBox(width: MaslakiSpacing.md),
+                  const SizedBox(width: MaslakiSpacing.sm),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          profileName,
-                          textDirection: textDirection,
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          phone.isEmpty
-                              ? context.lt(
-                                  ar: 'مستخدم مسلكي',
-                                  en: 'Maslaki user',
-                                )
-                              : phone,
-                          textDirection: textDirection,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 10),
-                        Wrap(
-                          alignment: WrapAlignment.end,
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            MaslakiStatusPill(
-                              label: context.lt(
-                                ar: 'عضو فعّال',
-                                en: 'Active member',
-                              ),
-                              icon: Icons.verified_user_outlined,
-                            ),
-                            if (auth.isServiceProvider)
-                              MaslakiStatusPill(
-                                label: context.lt(
-                                  ar: 'صاحب خدمة',
-                                  en: 'Service provider',
-                                ),
-                                icon: Icons.handyman_outlined,
-                              ),
-                          ],
-                        ),
-                      ],
+                    child: MaslakiMetricCard(
+                      label: context.lt(ar: 'العناوين', en: 'Addresses'),
+                      value: '${smartSnapshot?.savedPlaces.length ?? 0}',
+                      icon: Icons.place_outlined,
+                    ),
+                  ),
+                  const SizedBox(width: MaslakiSpacing.sm),
+                  Expanded(
+                    child: MaslakiMetricCard(
+                      label: context.lt(ar: 'المفضلة', en: 'Favorites'),
+                      value: '${smartSnapshot?.favoritesCount ?? 0}',
+                      icon: Icons.favorite_border_rounded,
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: MaslakiSpacing.lg),
-            Row(
-              children: [
-                Expanded(
-                  child: MaslakiMetricCard(
-                    label: context.l10n.notificationsTitle,
-                    value: '${notifications.unreadCount}',
-                    icon: Icons.notifications_active_outlined,
-                  ),
-                ),
-                const SizedBox(width: MaslakiSpacing.sm),
-                Expanded(
-                  child: MaslakiMetricCard(
-                    label: context.lt(ar: 'العناوين', en: 'Addresses'),
-                    value: '${smartSnapshot?.savedPlaces.length ?? 0}',
-                    icon: Icons.place_outlined,
-                  ),
-                ),
-                const SizedBox(width: MaslakiSpacing.sm),
-                Expanded(
-                  child: MaslakiMetricCard(
-                    label: context.lt(ar: 'المفضلة', en: 'Favorites'),
-                    value: '${smartSnapshot?.favoritesCount ?? 0}',
-                    icon: Icons.favorite_border_rounded,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: MaslakiSpacing.lg),
-            smartExperienceState.when(
-              loading: () => const SizedBox.shrink(),
-              error: (_, _) => const SizedBox.shrink(),
-              data: (snapshot) {
-                final bestForYouTitle = switch (snapshot.bestSectionKey) {
-                  'services' => context.lt(
-                    ar: 'الأفضل لك الآن في الخدمات',
-                    en: 'Best for you now in services',
-                  ),
-                  'taxi' => context.lt(
-                    ar: 'الأفضل لك الآن في التكسي',
-                    en: 'Best for you now in taxi',
-                  ),
-                  _ => context.lt(
-                    ar: 'الأفضل لك الآن في المتاجر',
-                    en: 'Best for you now in stores',
-                  ),
-                };
-                final bestForYouSubtitle = context.lt(
-                  ar: 'اختصارات وعروض مرتبة حسب نشاطك الفعلي وآخر استخداماتك.',
-                  en: 'Shortcuts and offers ranked by your actual activity and recent usage.',
-                );
-                final quickRows = <Widget>[
-                  if (snapshot.homePlace != null)
-                    MaslakiListRowCard(
-                      title: context.lt(ar: 'البيت', en: 'Home'),
-                      subtitle: context.lt(
-                        ar: 'فتح المشوار مباشرة إلى موقعك المحفوظ',
-                        en: 'Open a ride directly to your saved location',
-                      ),
-                      leadingIcon: Icons.home_work_outlined,
-                      onTap: () => openSavedPlace(snapshot.homePlace!),
+              const SizedBox(height: MaslakiSpacing.lg),
+              smartExperienceState.when(
+                loading: () => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
+                data: (snapshot) {
+                  final bestForYouTitle = switch (snapshot.bestSectionKey) {
+                    'services' => context.lt(
+                      ar: 'الأفضل لك الآن في الخدمات',
+                      en: 'Best for you now in services',
                     ),
-                  if (snapshot.homePlace != null && snapshot.workPlace != null)
-                    const SizedBox(height: MaslakiSpacing.sm),
-                  if (snapshot.workPlace != null)
-                    MaslakiListRowCard(
-                      title: context.lt(ar: 'العمل', en: 'Work'),
-                      subtitle: context.lt(
-                        ar: 'اختصار سريع للوصول إلى وجهة العمل',
-                        en: 'Quick shortcut to your work destination',
-                      ),
-                      leadingIcon: Icons.work_history_outlined,
-                      onTap: () => openSavedPlace(snapshot.workPlace!),
+                    'taxi' => context.lt(
+                      ar: 'الأفضل لك الآن في التكسي',
+                      en: 'Best for you now in taxi',
                     ),
-                  if ((snapshot.homePlace != null ||
-                          snapshot.workPlace != null) &&
-                      snapshot.lastRide != null)
+                    _ => context.lt(
+                      ar: 'الأفضل لك الآن في المتاجر',
+                      en: 'Best for you now in stores',
+                    ),
+                  };
+                  final bestForYouSubtitle = context.lt(
+                    ar: 'اختصارات وعروض مرتبة حسب نشاطك الفعلي وآخر استخداماتك.',
+                    en: 'Shortcuts and offers ranked by your actual activity and recent usage.',
+                  );
+                  final quickRows = <Widget>[
+                    if (snapshot.homePlace != null)
+                      MaslakiListRowCard(
+                        title: context.lt(ar: 'البيت', en: 'Home'),
+                        subtitle: context.lt(
+                          ar: 'فتح المشوار مباشرة إلى موقعك المحفوظ',
+                          en: 'Open a ride directly to your saved location',
+                        ),
+                        leadingIcon: Icons.home_work_outlined,
+                        onTap: () => openSavedPlace(snapshot.homePlace!),
+                      ),
+                    if (snapshot.homePlace != null &&
+                        snapshot.workPlace != null)
+                      const SizedBox(height: MaslakiSpacing.sm),
+                    if (snapshot.workPlace != null)
+                      MaslakiListRowCard(
+                        title: context.lt(ar: 'العمل', en: 'Work'),
+                        subtitle: context.lt(
+                          ar: 'اختصار سريع للوصول إلى وجهة العمل',
+                          en: 'Quick shortcut to your work destination',
+                        ),
+                        leadingIcon: Icons.work_history_outlined,
+                        onTap: () => openSavedPlace(snapshot.workPlace!),
+                      ),
+                    if ((snapshot.homePlace != null ||
+                            snapshot.workPlace != null) &&
+                        snapshot.lastRide != null)
+                      const SizedBox(height: MaslakiSpacing.sm),
+                    if (snapshot.lastRide != null)
+                      MaslakiListRowCard(
+                        title: context.lt(
+                          ar: 'إعادة آخر مشوار',
+                          en: 'Rebook last ride',
+                        ),
+                        subtitle: context.lt(
+                          ar: 'كرر آخر رحلة بنفس المسار والأجرة المقترحة',
+                          en: 'Repeat the last trip with the same route and suggested fare',
+                        ),
+                        leadingIcon: Icons.local_taxi_outlined,
+                        onTap: () => rebookRide(snapshot.lastRide!),
+                      ),
+                  ];
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      MaslakiSectionHeader(
+                        title: context.lt(ar: 'الأفضل لك', en: 'Best for you'),
+                        subtitle: context.lt(
+                          ar: 'اختصارات مبنية على أماكنك المحفوظة وآخر المشاوير ونشاطك الفعلي',
+                          en: 'Shortcuts based on your saved places, last rides, and recent activity',
+                        ),
+                      ),
+                      const SizedBox(height: MaslakiSpacing.md),
+                      MaslakiOfferBanner(
+                        title: bestForYouTitle,
+                        subtitle: bestForYouSubtitle,
+                        ctaLabel: context.lt(ar: 'افتح الآن', en: 'Open now'),
+                        onTap: () => open(const AssistantChatScreen()),
+                      ),
+                      if (quickRows.isNotEmpty) ...[
+                        const SizedBox(height: MaslakiSpacing.md),
+                        MaslakiCard(child: Column(children: quickRows)),
+                      ],
+                      const SizedBox(height: MaslakiSpacing.lg),
+                    ],
+                  );
+                },
+              ),
+              MaslakiSectionHeader(
+                title: context.lt(
+                  ar: 'اختصارات الحساب',
+                  en: 'Account shortcuts',
+                ),
+                subtitle: context.lt(
+                  ar: 'الوصول السريع إلى أكثر المسارات استخدامًا',
+                  en: 'Quick access to the most used flows',
+                ),
+              ),
+              const SizedBox(height: MaslakiSpacing.md),
+              MaslakiCard(
+                child: Column(
+                  children: [
+                    MaslakiListRowCard(
+                      title: context.lt(ar: 'طلباتي', en: 'My orders'),
+                      subtitle: context.lt(
+                        ar: 'متابعة الطلبات الحالية والسابقة',
+                        en: 'Track current and past orders',
+                      ),
+                      leadingIcon: Icons.receipt_long_rounded,
+                      onTap: () => open(const CustomerOrdersScreen()),
+                    ),
                     const SizedBox(height: MaslakiSpacing.sm),
-                  if (snapshot.lastRide != null)
+                    MaslakiListRowCard(
+                      title: context.lt(ar: 'المفضلة', en: 'Favorites'),
+                      subtitle: context.lt(
+                        ar: 'المنتجات المحفوظة للعودة السريعة',
+                        en: 'Saved products for quick access',
+                      ),
+                      leadingIcon: Icons.favorite_border_rounded,
+                      onTap: () => open(const FavoriteProductsScreen()),
+                    ),
+                    const SizedBox(height: MaslakiSpacing.sm),
+                    MaslakiListRowCard(
+                      title: context.lt(ar: 'العناوين', en: 'Addresses'),
+                      subtitle: context.lt(
+                        ar: 'إدارة نقاط التوصيل المحفوظة',
+                        en: 'Manage saved delivery points',
+                      ),
+                      leadingIcon: Icons.location_on_outlined,
+                      onTap: () => open(
+                        const DeliveryAddressesScreen(selectOnTap: false),
+                      ),
+                    ),
+                    const SizedBox(height: MaslakiSpacing.sm),
                     MaslakiListRowCard(
                       title: context.lt(
-                        ar: 'إعادة آخر مشوار',
-                        en: 'Rebook last ride',
+                        ar: 'الأمان والحساب',
+                        en: 'Security and account',
                       ),
                       subtitle: context.lt(
-                        ar: 'كرر آخر رحلة بنفس المسار والأجرة المقترحة',
-                        en: 'Repeat the last trip with the same route and suggested fare',
+                        ar: 'تغيير الهاتف والرمز السري',
+                        en: 'Change phone and PIN',
                       ),
-                      leadingIcon: Icons.local_taxi_outlined,
-                      onTap: () => rebookRide(snapshot.lastRide!),
+                      leadingIcon: Icons.security_outlined,
+                      onTap: () => open(const SettingsAccountScreen()),
                     ),
-                ];
-
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    MaslakiSectionHeader(
-                      title: context.lt(ar: 'الأفضل لك', en: 'Best for you'),
+                    const SizedBox(height: MaslakiSpacing.sm),
+                    MaslakiListRowCard(
+                      title: context.lt(ar: 'الكوبونات', en: 'Coupons'),
                       subtitle: context.lt(
-                        ar: 'اختصارات مبنية على أماكنك المحفوظة وآخر المشاوير ونشاطك الفعلي',
-                        en: 'Shortcuts based on your saved places, last rides, and recent activity',
+                        ar: 'عرض الكوبونات والخصومات الفعالة',
+                        en: 'View active coupons and discounts',
                       ),
+                      leadingIcon: Icons.discount_outlined,
+                      onTap: () => open(const CustomerCouponsHubScreen()),
                     ),
-                    const SizedBox(height: MaslakiSpacing.md),
-                    MaslakiOfferBanner(
-                      title: bestForYouTitle,
-                      subtitle: bestForYouSubtitle,
-                      ctaLabel: context.lt(ar: 'افتح الآن', en: 'Open now'),
+                    const SizedBox(height: MaslakiSpacing.sm),
+                    MaslakiListRowCard(
+                      title: context.l10n.pharmacyConversationsTitle,
+                      subtitle: context.lt(
+                        ar: 'متابعة الوصفات والسلال المقترحة وطلبات المراجعة',
+                        en: 'Follow prescriptions, proposed carts, and review requests',
+                      ),
+                      leadingIcon: Icons.local_pharmacy_outlined,
+                      onTap: () =>
+                          open(const CustomerPharmacyConversationsScreen()),
+                    ),
+                    const SizedBox(height: MaslakiSpacing.sm),
+                    MaslakiListRowCard(
+                      title: context.lt(
+                        ar: 'المساعد الذكي',
+                        en: 'Smart assistant',
+                      ),
+                      subtitle: context.lt(
+                        ar: 'محادثة وبحث واقتراحات مخصصة داخل مسلكي',
+                        en: 'Chat, search, and personalized suggestions inside Maslaki',
+                      ),
+                      leadingIcon: Icons.auto_awesome_rounded,
                       onTap: () => open(const AssistantChatScreen()),
                     ),
-                    if (quickRows.isNotEmpty) ...[
-                      const SizedBox(height: MaslakiSpacing.md),
-                      MaslakiCard(child: Column(children: quickRows)),
-                    ],
-                    const SizedBox(height: MaslakiSpacing.lg),
                   ],
-                );
-              },
-            ),
-            MaslakiSectionHeader(
-              title: context.lt(ar: 'اختصارات الحساب', en: 'Account shortcuts'),
-              subtitle: context.lt(
-                ar: 'الوصول السريع إلى أكثر المسارات استخدامًا',
-                en: 'Quick access to the most used flows',
+                ),
               ),
-            ),
-            const SizedBox(height: MaslakiSpacing.md),
-            MaslakiCard(
-              child: Column(
-                children: [
-                  MaslakiListRowCard(
-                    title: context.lt(ar: 'طلباتي', en: 'My orders'),
-                    subtitle: context.lt(
-                      ar: 'متابعة الطلبات الحالية والسابقة',
-                      en: 'Track current and past orders',
-                    ),
-                    leadingIcon: Icons.receipt_long_rounded,
-                    onTap: () => open(const CustomerOrdersScreen()),
-                  ),
-                  const SizedBox(height: MaslakiSpacing.sm),
-                  MaslakiListRowCard(
-                    title: context.lt(ar: 'المفضلة', en: 'Favorites'),
-                    subtitle: context.lt(
-                      ar: 'المنتجات المحفوظة للعودة السريعة',
-                      en: 'Saved products for quick access',
-                    ),
-                    leadingIcon: Icons.favorite_border_rounded,
-                    onTap: () => open(const FavoriteProductsScreen()),
-                  ),
-                  const SizedBox(height: MaslakiSpacing.sm),
-                  MaslakiListRowCard(
-                    title: context.lt(ar: 'العناوين', en: 'Addresses'),
-                    subtitle: context.lt(
-                      ar: 'إدارة نقاط التوصيل المحفوظة',
-                      en: 'Manage saved delivery points',
-                    ),
-                    leadingIcon: Icons.location_on_outlined,
-                    onTap: () =>
-                        open(const DeliveryAddressesScreen(selectOnTap: false)),
-                  ),
-                  const SizedBox(height: MaslakiSpacing.sm),
-                  MaslakiListRowCard(
-                    title: context.lt(
-                      ar: 'الأمان والحساب',
-                      en: 'Security and account',
-                    ),
-                    subtitle: context.lt(
-                      ar: 'تغيير الهاتف والرمز السري',
-                      en: 'Change phone and PIN',
-                    ),
-                    leadingIcon: Icons.security_outlined,
-                    onTap: () => open(const SettingsAccountScreen()),
-                  ),
-                  const SizedBox(height: MaslakiSpacing.sm),
-                  MaslakiListRowCard(
-                    title: context.lt(ar: 'الكوبونات', en: 'Coupons'),
-                    subtitle: context.lt(
-                      ar: 'عرض الكوبونات والخصومات الفعالة',
-                      en: 'View active coupons and discounts',
-                    ),
-                    leadingIcon: Icons.discount_outlined,
-                    onTap: () => open(const CustomerCouponsHubScreen()),
-                  ),
-                  const SizedBox(height: MaslakiSpacing.sm),
-                  MaslakiListRowCard(
-                    title: context.l10n.pharmacyConversationsTitle,
-                    subtitle: context.lt(
-                      ar: 'متابعة الوصفات والسلال المقترحة وطلبات المراجعة',
-                      en: 'Follow prescriptions, proposed carts, and review requests',
-                    ),
-                    leadingIcon: Icons.local_pharmacy_outlined,
-                    onTap: () =>
-                        open(const CustomerPharmacyConversationsScreen()),
-                  ),
-                  const SizedBox(height: MaslakiSpacing.sm),
-                  MaslakiListRowCard(
-                    title: context.lt(
-                      ar: 'المساعد الذكي',
-                      en: 'Smart assistant',
-                    ),
-                    subtitle: context.lt(
-                      ar: 'محادثة وبحث واقتراحات مخصصة داخل مسلكي',
-                      en: 'Chat, search, and personalized suggestions inside Maslaki',
-                    ),
-                    leadingIcon: Icons.auto_awesome_rounded,
-                    onTap: () => open(const AssistantChatScreen()),
-                  ),
-                ],
+              const SizedBox(height: MaslakiSpacing.lg),
+              MaslakiOfferBanner(
+                title: context.lt(
+                  ar: 'ترقية تجربتك',
+                  en: 'Upgrade your experience',
+                ),
+                subtitle: context.lt(
+                  ar: 'الوصول إلى الترقيات المدفوعة ومزايا النشاطات الخاصة من مكان واحد.',
+                  en: 'Access paid upgrades and premium activity benefits from one place.',
+                ),
+                ctaLabel: context.lt(
+                  ar: 'إدارة المزايا',
+                  en: 'Manage benefits',
+                ),
+                onTap: () => open(const PaidUpgradesHomeScreen()),
               ),
-            ),
-            const SizedBox(height: MaslakiSpacing.lg),
-            MaslakiOfferBanner(
-              title: context.lt(
-                ar: 'ترقية تجربتك',
-                en: 'Upgrade your experience',
-              ),
-              subtitle: context.lt(
-                ar: 'الوصول إلى الترقيات المدفوعة ومزايا النشاطات الخاصة من مكان واحد.',
-                en: 'Access paid upgrades and premium activity benefits from one place.',
-              ),
-              ctaLabel: context.lt(ar: 'إدارة المزايا', en: 'Manage benefits'),
-              onTap: () => open(const PaidUpgradesHomeScreen()),
-            ),
-            const SizedBox(height: MaslakiSpacing.lg),
-            MaslakiCard(
-              child: Column(
-                children: [
-                  if (!auth.isServiceProvider) ...[
+              const SizedBox(height: MaslakiSpacing.lg),
+              MaslakiCard(
+                child: Column(
+                  children: [
+                    if (!auth.isServiceProvider) ...[
+                      MaslakiListRowCard(
+                        title: context.lt(
+                          ar: 'تسجيل مقدم خدمة',
+                          en: 'Service provider registration',
+                        ),
+                        subtitle: context.lt(
+                          ar: 'التسجيل والتفعيل مجانيان. أرسل طلبك للمراجعة وابدأ بعد الموافقة.',
+                          en: 'Registration and activation are free. Submit for review and start after approval.',
+                        ),
+                        leadingIcon: Icons.storefront_outlined,
+                        onTap: () =>
+                            open(const ServiceProviderOnboardingScreen()),
+                      ),
+                      const SizedBox(height: MaslakiSpacing.sm),
+                    ],
                     MaslakiListRowCard(
-                      title: context.lt(
-                        ar: 'تسجيل مقدم خدمة',
-                        en: 'Service provider registration',
-                      ),
+                      title: context.l10n.commonSettings,
                       subtitle: context.lt(
-                        ar: 'التسجيل والتفعيل مجانيان. أرسل طلبك للمراجعة وابدأ بعد الموافقة.',
-                        en: 'Registration and activation are free. Submit for review and start after approval.',
+                        ar: 'اللغة، الواجهة، الدعم، وسجل النشاط',
+                        en: 'Language, interface, support, and activity log',
                       ),
-                      leadingIcon: Icons.storefront_outlined,
-                      onTap: () =>
-                          open(const ServiceProviderOnboardingScreen()),
+                      leadingIcon: Icons.settings_outlined,
+                      onTap: () => open(const SettingsScreen()),
                     ),
                     const SizedBox(height: MaslakiSpacing.sm),
+                    MaslakiListRowCard(
+                      title: context.lt(
+                        ar: 'الملف الاجتماعي',
+                        en: 'Social profile',
+                      ),
+                      subtitle: context.lt(
+                        ar: 'عرض ملفك العام داخل المجتمع',
+                        en: 'Open your public profile inside the community',
+                      ),
+                      leadingIcon: Icons.person_outline_rounded,
+                      onTap: openProfile,
+                    ),
+                    const SizedBox(height: MaslakiSpacing.sm),
+                    MaslakiListRowCard(
+                      title: context.l10n.commonLogout,
+                      subtitle: context.lt(
+                        ar: 'إنهاء الجلسة الحالية بأمان',
+                        en: 'End the current session safely',
+                      ),
+                      leadingIcon: Icons.logout_rounded,
+                      onTap: logout,
+                    ),
                   ],
-                  MaslakiListRowCard(
-                    title: context.l10n.commonSettings,
-                    subtitle: context.lt(
-                      ar: 'اللغة، الواجهة، الدعم، وسجل النشاط',
-                      en: 'Language, interface, support, and activity log',
-                    ),
-                    leadingIcon: Icons.settings_outlined,
-                    onTap: () => open(const SettingsScreen()),
-                  ),
-                  const SizedBox(height: MaslakiSpacing.sm),
-                  MaslakiListRowCard(
-                    title: context.lt(
-                      ar: 'الملف الاجتماعي',
-                      en: 'Social profile',
-                    ),
-                    subtitle: context.lt(
-                      ar: 'عرض ملفك العام داخل المجتمع',
-                      en: 'Open your public profile inside the community',
-                    ),
-                    leadingIcon: Icons.person_outline_rounded,
-                    onTap: openProfile,
-                  ),
-                  const SizedBox(height: MaslakiSpacing.sm),
-                  MaslakiListRowCard(
-                    title: context.l10n.commonLogout,
-                    subtitle: context.lt(
-                      ar: 'إنهاء الجلسة الحالية بأمان',
-                      en: 'End the current session safely',
-                    ),
-                    leadingIcon: Icons.logout_rounded,
-                    onTap: logout,
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

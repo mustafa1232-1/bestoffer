@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/i18n/app_localizations_context.dart';
@@ -123,7 +125,7 @@ class _StoreOwnerOrdersScreenState
 
   Future<void> _openPrinterActionsHub() async {
     final l10n = context.l10n;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       builder: (_) => SafeArea(
         child: Padding(
@@ -297,7 +299,7 @@ class _StoreOwnerOrdersScreenState
     final l10n = context.l10n;
     final jobs = ReceiptPrinterService.instance.history;
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => SafeArea(
@@ -547,7 +549,7 @@ class _StoreOwnerOrdersScreenState
           (entry) => Map<String, dynamic>.from(entry as Map),
         ),
       );
-      await showModalBottomSheet<void>(
+      await showMaslakiBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         builder: (_) => SafeArea(

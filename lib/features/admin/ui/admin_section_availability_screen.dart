@@ -256,89 +256,92 @@ class _AdminSectionAvailabilityScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-          children: [
-            if (_error != null)
-              Card(
-                color: Colors.red.withValues(alpha: 0.1),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ),
-              ),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.only(top: 120),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else ...[
-              const Text(
-                'الأقسام الرئيسية',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 10),
-              ..._items.map(
-                (entry) => Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(14),
-                    title: Text(entry.displayName),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('المفتاح: ${entry.sectionKey}'),
-                          Text('الحالة: ${_statusLabel(entry.status)}'),
-                          Text(entry.isVisible ? 'ظاهر للمستخدم' : 'مخفي'),
-                          Text(
-                            entry.allowExistingActiveAccess
-                                ? 'يسمح بالمعاملات النشطة'
-                                : 'يمنع الوصول بالكامل',
-                          ),
-                          if ((entry.userMessage ?? '').trim().isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4),
-                              child: Text('الرسالة: ${entry.userMessage}'),
-                            ),
-                        ],
-                      ),
-                    ),
-                    trailing: const Icon(Icons.edit_outlined),
-                    onTap: _saving ? null : () => _editEntry(entry),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              const Text(
-                'سجل التغييرات',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 10),
-              if (_audit.isEmpty)
-                const Card(
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
+            children: [
+              if (_error != null)
+                Card(
+                  color: Colors.red.withValues(alpha: 0.1),
                   child: Padding(
-                    padding: EdgeInsets.all(14),
-                    child: Text('لا توجد تغييرات مسجلة حتى الآن.'),
-                  ),
-                ),
-              ..._audit
-                  .take(40)
-                  .map(
-                    (row) => Card(
-                      child: ListTile(
-                        title: Text(_auditTitle(row)),
-                        subtitle: Text(_auditSubtitle(row)),
-                      ),
+                    padding: const EdgeInsets.all(14),
+                    child: Text(
+                      _error!,
+                      style: const TextStyle(color: Colors.red),
                     ),
                   ),
+                ),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 120),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else ...[
+                const Text(
+                  'الأقسام الرئيسية',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 10),
+                ..._items.map(
+                  (entry) => Card(
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(14),
+                      title: Text(entry.displayName),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('المفتاح: ${entry.sectionKey}'),
+                            Text('الحالة: ${_statusLabel(entry.status)}'),
+                            Text(entry.isVisible ? 'ظاهر للمستخدم' : 'مخفي'),
+                            Text(
+                              entry.allowExistingActiveAccess
+                                  ? 'يسمح بالمعاملات النشطة'
+                                  : 'يمنع الوصول بالكامل',
+                            ),
+                            if ((entry.userMessage ?? '').trim().isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text('الرسالة: ${entry.userMessage}'),
+                              ),
+                          ],
+                        ),
+                      ),
+                      trailing: const Icon(Icons.edit_outlined),
+                      onTap: _saving ? null : () => _editEntry(entry),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'سجل التغييرات',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+                ),
+                const SizedBox(height: 10),
+                if (_audit.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(14),
+                      child: Text('لا توجد تغييرات مسجلة حتى الآن.'),
+                    ),
+                  ),
+                ..._audit
+                    .take(40)
+                    .map(
+                      (row) => Card(
+                        child: ListTile(
+                          title: Text(_auditTitle(row)),
+                          subtitle: Text(_auditSubtitle(row)),
+                        ),
+                      ),
+                    ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

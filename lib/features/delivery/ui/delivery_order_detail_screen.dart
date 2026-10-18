@@ -4,6 +4,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/network/api_error_mapper.dart';
@@ -287,7 +289,7 @@ class _DeliveryOrderDetailScreenState
     String selectedCode = reasons.first.reasonCode;
     bool submitting = false;
 
-    final submitted = await showModalBottomSheet<bool>(
+    final submitted = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -485,414 +487,420 @@ class _DeliveryOrderDetailScreenState
               : '${context.lt(ar: 'طلب', en: 'Order')} #${order.id}',
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null || order == null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null || order == null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        (_error ?? '').isEmpty
+                            ? context.lt(
+                                ar: 'تعذر تحميل تفاصيل الطلب.',
+                                en: 'Failed to load order details.',
+                              )
+                            : _error!,
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 12),
+                      ElevatedButton(
+                        onPressed: _load,
+                        child: Text(
+                          context.lt(ar: 'إعادة المحاولة', en: 'Retry'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
                   children: [
-                    Text(
-                      (_error ?? '').isEmpty
-                          ? context.lt(
-                              ar: 'تعذر تحميل تفاصيل الطلب.',
-                              en: 'Failed to load order details.',
-                            )
-                          : _error!,
-                      textAlign: TextAlign.center,
+                    _SectionCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _StatusChip(
+                                label:
+                                    '${context.lt(ar: 'حالة الطلب', en: 'Order')}: ${_orderStateLabel(orderStatus)}',
+                              ),
+                              _StatusChip(
+                                label:
+                                    '${context.lt(ar: 'حالة السائق', en: 'Courier')}: ${_courierStateLabel(courierState)}',
+                              ),
+                              _StatusChip(
+                                label:
+                                    '${context.lt(ar: 'الإجمالي', en: 'Total')}: ${formatIqd(order.totalAmount)}',
+                              ),
+                            ],
+                          ),
+                          if ((state.error ?? '').trim().isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Text(
+                              state.error!,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    _SectionCard(
+                      title: context.lt(ar: 'الملخص', en: 'Summary'),
+                      child: Column(
+                        children: [
+                          _InfoRow(
+                            label: context.lt(ar: 'المتجر', en: 'Merchant'),
+                            value:
+                                _string(_merchant['name']) ??
+                                order.merchantName,
+                          ),
+                          _InfoRow(
+                            label: context.lt(ar: 'العميل', en: 'Customer'),
+                            value:
+                                _string(_customer['fullName']) ??
+                                order.customerFullName,
+                          ),
+                          _InfoRow(
+                            label: context.lt(ar: 'العنوان', en: 'Address'),
+                            value:
+                                '${order.customerCity} - ${order.customerBlock} - ${order.customerBuildingNumber} ${order.customerApartment}',
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () => _openMap(
+                                  label:
+                                      _string(_merchant['name']) ??
+                                      order.merchantName,
+                                  query:
+                                      _string(_merchant['name']) ??
+                                      order.merchantName,
+                                  latitude:
+                                      _double(_merchant['latitude']) ??
+                                      order.merchantLatitude,
+                                  longitude:
+                                      _double(_merchant['longitude']) ??
+                                      order.merchantLongitude,
+                                ),
+                                icon: const Icon(
+                                  Icons.store_mall_directory_outlined,
+                                ),
+                                label: Text(
+                                  context.lt(
+                                    ar: 'موقع المتجر',
+                                    en: 'Store location',
+                                  ),
+                                ),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => _openMap(
+                                  label:
+                                      _string(_customer['fullName']) ??
+                                      order.customerFullName,
+                                  query: customerAddressQuery,
+                                  latitude:
+                                      _double(_customer['latitude']) ??
+                                      order.customerLatitude,
+                                  longitude:
+                                      _double(_customer['longitude']) ??
+                                      order.customerLongitude,
+                                ),
+                                icon: const Icon(Icons.location_on_outlined),
+                                label: Text(
+                                  context.lt(
+                                    ar: 'موقع الزبون',
+                                    en: 'Customer location',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (order.hasExplicitDeliveryAssignment) ...[
+                            _InfoRow(
+                              label: context.lt(
+                                ar: 'حالة التعيين',
+                                en: 'Assignment',
+                              ),
+                              value: switch ((order
+                                          .deliveryAssignment
+                                          ?.assignmentStatus ??
+                                      order.deliveryAssignmentStatus ??
+                                      '')
+                                  .trim()
+                                  .toUpperCase()) {
+                                'ASSIGNED' => context.lt(
+                                  ar: 'تم إسناد الطلب لك',
+                                  en: 'Assigned to you',
+                                ),
+                                'PENDING_NO_DRIVER' => context.lt(
+                                  ar: 'بانتظار دلفري متاح',
+                                  en: 'Waiting for available courier',
+                                ),
+                                'COMPLETED' => context.lt(
+                                  ar: 'مكتمل',
+                                  en: 'Completed',
+                                ),
+                                'CANCELLED' => context.lt(
+                                  ar: 'ملغي',
+                                  en: 'Cancelled',
+                                ),
+                                _ =>
+                                  order.deliveryAssignment?.assignmentStatus ??
+                                      order.deliveryAssignmentStatus ??
+                                      context.lt(ar: 'غير محدد', en: 'Unknown'),
+                              },
+                              multiline: true,
+                            ),
+                          ],
+                          if ((order.note ?? '').trim().isNotEmpty)
+                            _InfoRow(
+                              label: context.lt(
+                                ar: 'ملاحظة الطلب',
+                                en: 'Order note',
+                              ),
+                              value: order.note!,
+                              multiline: true,
+                            ),
+                          _InfoRow(
+                            label: context.lt(ar: 'الدفع', en: 'Payment'),
+                            value:
+                                paymentMethod ??
+                                context.lt(ar: 'غير محدد', en: 'Not set'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _SectionCard(
+                      title: context.lt(ar: 'المنتجات', en: 'Items'),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            context.lt(
+                              ar: 'تحقق من عدد المنتجات قبل الاستلام',
+                              en: 'Check the item count before pickup',
+                            ),
+                            textDirection: TextDirection.rtl,
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: 0.86),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            textDirection: TextDirection.rtl,
+                            children: [
+                              for (final item in items.take(3))
+                                Padding(
+                                  padding: const EdgeInsetsDirectional.only(
+                                    end: 8,
+                                  ),
+                                  child: OrderItemThumbnail(
+                                    imageUrl: item.displayImageUrl,
+                                    activityType: item.activityType,
+                                    size: 52,
+                                  ),
+                                ),
+                              if (items.length > 3)
+                                Container(
+                                  width: 52,
+                                  height: 52,
+                                  alignment: Alignment.center,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    '+${items.length - 3}',
+                                    textDirection: TextDirection.rtl,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          OrderItemsSummaryList(
+                            items: items,
+                            compact: true,
+                            groupByStore:
+                                items
+                                    .map(
+                                      (item) =>
+                                          item.storeId ??
+                                          item.storeName ??
+                                          'store',
+                                    )
+                                    .toSet()
+                                    .length >
+                                1,
+                          ),
+                          if (isCashPayment) ...[
+                            const SizedBox(height: 6),
+                            _InfoRow(
+                              label: context.lt(
+                                ar: 'مبلغ النقدية',
+                                en: 'Cash amount',
+                              ),
+                              value: formatIqd(order.totalAmount),
+                            ),
+                          ],
+                          if ((order.note ?? '').trim().isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            _InfoRow(
+                              label: context.lt(
+                                ar: 'ملاحظة العميل',
+                                en: 'Customer note',
+                              ),
+                              value: order.note!,
+                              multiline: true,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    OrderRevisionPanel(
+                      title: context.lt(
+                        ar: 'تحديثات الطلب النهائية',
+                        en: 'Final order updates',
+                      ),
+                      emptyText: context.lt(
+                        ar: 'لا توجد تعديلات مطبقة على هذا الطلب.',
+                        en: 'No applied revisions for this order.',
+                      ),
+                      loadRevisions: () => ref
+                          .read(deliveryApiProvider)
+                          .listOrderRevisions(order.id),
                     ),
                     const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: _load,
-                      child: Text(
-                        context.lt(ar: 'إعادة المحاولة', en: 'Retry'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _SectionCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _StatusChip(
-                              label:
-                                  '${context.lt(ar: 'حالة الطلب', en: 'Order')}: ${_orderStateLabel(orderStatus)}',
-                            ),
-                            _StatusChip(
-                              label:
-                                  '${context.lt(ar: 'حالة السائق', en: 'Courier')}: ${_courierStateLabel(courierState)}',
-                            ),
-                            _StatusChip(
-                              label:
-                                  '${context.lt(ar: 'الإجمالي', en: 'Total')}: ${formatIqd(order.totalAmount)}',
-                            ),
-                          ],
-                        ),
-                        if ((state.error ?? '').trim().isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            state.error!,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  _SectionCard(
-                    title: context.lt(ar: 'الملخص', en: 'Summary'),
-                    child: Column(
-                      children: [
-                        _InfoRow(
-                          label: context.lt(ar: 'المتجر', en: 'Merchant'),
-                          value:
-                              _string(_merchant['name']) ?? order.merchantName,
-                        ),
-                        _InfoRow(
-                          label: context.lt(ar: 'العميل', en: 'Customer'),
-                          value:
-                              _string(_customer['fullName']) ??
-                              order.customerFullName,
-                        ),
-                        _InfoRow(
-                          label: context.lt(ar: 'العنوان', en: 'Address'),
-                          value:
-                              '${order.customerCity} - ${order.customerBlock} - ${order.customerBuildingNumber} ${order.customerApartment}',
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: () => _openMap(
-                                label:
-                                    _string(_merchant['name']) ??
-                                    order.merchantName,
-                                query:
-                                    _string(_merchant['name']) ??
-                                    order.merchantName,
-                                latitude:
-                                    _double(_merchant['latitude']) ??
-                                    order.merchantLatitude,
-                                longitude:
-                                    _double(_merchant['longitude']) ??
-                                    order.merchantLongitude,
-                              ),
-                              icon: const Icon(
-                                Icons.store_mall_directory_outlined,
-                              ),
-                              label: Text(
-                                context.lt(
-                                  ar: 'موقع المتجر',
-                                  en: 'Store location',
-                                ),
-                              ),
-                            ),
-                            OutlinedButton.icon(
-                              onPressed: () => _openMap(
-                                label:
-                                    _string(_customer['fullName']) ??
-                                    order.customerFullName,
-                                query: customerAddressQuery,
-                                latitude:
-                                    _double(_customer['latitude']) ??
-                                    order.customerLatitude,
-                                longitude:
-                                    _double(_customer['longitude']) ??
-                                    order.customerLongitude,
-                              ),
-                              icon: const Icon(Icons.location_on_outlined),
-                              label: Text(
-                                context.lt(
-                                  ar: 'موقع الزبون',
-                                  en: 'Customer location',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (order.hasExplicitDeliveryAssignment) ...[
-                          _InfoRow(
-                            label: context.lt(
-                              ar: 'حالة التعيين',
-                              en: 'Assignment',
-                            ),
-                            value: switch ((order
-                                        .deliveryAssignment
-                                        ?.assignmentStatus ??
-                                    order.deliveryAssignmentStatus ??
-                                    '')
-                                .trim()
-                                .toUpperCase()) {
-                              'ASSIGNED' => context.lt(
-                                ar: 'تم إسناد الطلب لك',
-                                en: 'Assigned to you',
-                              ),
-                              'PENDING_NO_DRIVER' => context.lt(
-                                ar: 'بانتظار دلفري متاح',
-                                en: 'Waiting for available courier',
-                              ),
-                              'COMPLETED' => context.lt(
-                                ar: 'مكتمل',
-                                en: 'Completed',
-                              ),
-                              'CANCELLED' => context.lt(
-                                ar: 'ملغي',
-                                en: 'Cancelled',
-                              ),
-                              _ =>
-                                order.deliveryAssignment?.assignmentStatus ??
-                                    order.deliveryAssignmentStatus ??
-                                    context.lt(ar: 'غير محدد', en: 'Unknown'),
-                            },
-                            multiline: true,
-                          ),
-                        ],
-                        if ((order.note ?? '').trim().isNotEmpty)
-                          _InfoRow(
-                            label: context.lt(
-                              ar: 'ملاحظة الطلب',
-                              en: 'Order note',
-                            ),
-                            value: order.note!,
-                            multiline: true,
-                          ),
-                        _InfoRow(
-                          label: context.lt(ar: 'الدفع', en: 'Payment'),
-                          value:
-                              paymentMethod ??
-                              context.lt(ar: 'غير محدد', en: 'Not set'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _SectionCard(
-                    title: context.lt(ar: 'المنتجات', en: 'Items'),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          context.lt(
-                            ar: 'تحقق من عدد المنتجات قبل الاستلام',
-                            en: 'Check the item count before pickup',
-                          ),
-                          textDirection: TextDirection.rtl,
-                          style: TextStyle(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withValues(alpha: 0.86),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          textDirection: TextDirection.rtl,
-                          children: [
-                            for (final item in items.take(3))
-                              Padding(
-                                padding: const EdgeInsetsDirectional.only(
-                                  end: 8,
-                                ),
-                                child: OrderItemThumbnail(
-                                  imageUrl: item.displayImageUrl,
-                                  activityType: item.activityType,
-                                  size: 52,
-                                ),
-                              ),
-                            if (items.length > 3)
-                              Container(
-                                width: 52,
-                                height: 52,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.12),
-                                  ),
-                                ),
-                                child: Text(
-                                  '+${items.length - 3}',
-                                  textDirection: TextDirection.rtl,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        OrderItemsSummaryList(
-                          items: items,
-                          compact: true,
-                          groupByStore:
-                              items
-                                  .map(
-                                    (item) =>
-                                        item.storeId ??
-                                        item.storeName ??
-                                        'store',
-                                  )
-                                  .toSet()
-                                  .length >
-                              1,
-                        ),
-                        if (isCashPayment) ...[
-                          const SizedBox(height: 6),
-                          _InfoRow(
-                            label: context.lt(
-                              ar: 'مبلغ النقدية',
-                              en: 'Cash amount',
-                            ),
-                            value: formatIqd(order.totalAmount),
-                          ),
-                        ],
-                        if ((order.note ?? '').trim().isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          _InfoRow(
-                            label: context.lt(
-                              ar: 'ملاحظة العميل',
-                              en: 'Customer note',
-                            ),
-                            value: order.note!,
-                            multiline: true,
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  OrderRevisionPanel(
-                    title: context.lt(
-                      ar: 'تحديثات الطلب النهائية',
-                      en: 'Final order updates',
-                    ),
-                    emptyText: context.lt(
-                      ar: 'لا توجد تعديلات مطبقة على هذا الطلب.',
-                      en: 'No applied revisions for this order.',
-                    ),
-                    loadRevisions: () => ref
-                        .read(deliveryApiProvider)
-                        .listOrderRevisions(order.id),
-                  ),
-                  const SizedBox(height: 12),
-                  _SectionCard(
-                    title: context.lt(ar: 'أدوات سريعة', en: 'Quick actions'),
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _ActionButton(
-                          icon: Icons.map_outlined,
-                          label: context.lt(ar: 'التتبع', en: 'Tracking'),
-                          onPressed: _openTracking,
-                        ),
-                        _ActionButton(
-                          icon: Icons.chat_bubble_outline_rounded,
-                          label: context.lt(
-                            ar: 'محادثة الطلب',
-                            en: 'Order chat',
-                          ),
-                          onPressed: _openChat,
-                        ),
-                        _ActionButton(
-                          icon: Icons.call_outlined,
-                          label: context.lt(
-                            ar: 'اتصال بالعميل',
-                            en: 'Call customer',
-                          ),
-                          onPressed: () => _callPhone(order.customerPhone),
-                        ),
-                        _ActionButton(
-                          icon: Icons.storefront_outlined,
-                          label: context.lt(
-                            ar: 'اتصال بالمتجر',
-                            en: 'Call merchant',
-                          ),
-                          onPressed: () =>
-                              _callPhone(_string(_merchant['phone'])),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _SectionCard(
-                    title: context.lt(ar: 'الفاتورة', en: 'Invoice'),
-                    child: OrderInvoiceSection(
-                      items: items,
-                      groupByStore:
-                          items
-                              .map(
-                                (item) =>
-                                    item.storeId ?? item.storeName ?? 'store',
-                              )
-                              .toSet()
-                              .length >
-                          1,
-                      orderNumber: '#${order.id}',
-                      orderTime: order.createdAt,
-                      paymentMethod: paymentMethod,
-                      subtotal: _money(_invoice['subtotal']),
-                      serviceFee: _money(_invoice['serviceFee']),
-                      deliveryFee: _money(_invoice['deliveryFee']),
-                      couponDiscountTotal: _money(
-                        _invoice['couponDiscountTotal'],
-                      ),
-                      totalAmount: _money(_invoice['totalAmount']),
-                      helperText: context.lt(
-                        ar: 'راجع المنتجات والمواصفات قبل الموافقة',
-                        en: 'Review the items and specs before approving',
-                      ),
-                    ),
-                  ),
-                  _SectionCard(
-                    title: context.lt(ar: 'التسلسل الزمني', en: 'Timeline'),
-                    child: Column(
-                      children: _timeline
-                          .map((entry) => _TimelineRow(entry: entry))
-                          .toList(growable: false),
-                    ),
-                  ),
-                  if (_allowedActions.isNotEmpty)
                     _SectionCard(
-                      title: context.lt(
-                        ar: 'إجراءات الحالة',
-                        en: 'Status actions',
-                      ),
+                      title: context.lt(ar: 'أدوات سريعة', en: 'Quick actions'),
                       child: Wrap(
                         spacing: 8,
                         runSpacing: 8,
-                        children: _allowedActions
-                            .map((action) {
-                              final isCancel = action == 'request_cancel';
-                              return FilledButton.tonal(
-                                onPressed: _actionInFlight
-                                    ? null
-                                    : () => isCancel
-                                          ? _openCancelSheet()
-                                          : _runAction(action),
-                                child: Text(_actionLabel(action)),
-                              );
-                            })
+                        children: [
+                          _ActionButton(
+                            icon: Icons.map_outlined,
+                            label: context.lt(ar: 'التتبع', en: 'Tracking'),
+                            onPressed: _openTracking,
+                          ),
+                          _ActionButton(
+                            icon: Icons.chat_bubble_outline_rounded,
+                            label: context.lt(
+                              ar: 'محادثة الطلب',
+                              en: 'Order chat',
+                            ),
+                            onPressed: _openChat,
+                          ),
+                          _ActionButton(
+                            icon: Icons.call_outlined,
+                            label: context.lt(
+                              ar: 'اتصال بالعميل',
+                              en: 'Call customer',
+                            ),
+                            onPressed: () => _callPhone(order.customerPhone),
+                          ),
+                          _ActionButton(
+                            icon: Icons.storefront_outlined,
+                            label: context.lt(
+                              ar: 'اتصال بالمتجر',
+                              en: 'Call merchant',
+                            ),
+                            onPressed: () =>
+                                _callPhone(_string(_merchant['phone'])),
+                          ),
+                        ],
+                      ),
+                    ),
+                    _SectionCard(
+                      title: context.lt(ar: 'الفاتورة', en: 'Invoice'),
+                      child: OrderInvoiceSection(
+                        items: items,
+                        groupByStore:
+                            items
+                                .map(
+                                  (item) =>
+                                      item.storeId ?? item.storeName ?? 'store',
+                                )
+                                .toSet()
+                                .length >
+                            1,
+                        orderNumber: '#${order.id}',
+                        orderTime: order.createdAt,
+                        paymentMethod: paymentMethod,
+                        subtotal: _money(_invoice['subtotal']),
+                        serviceFee: _money(_invoice['serviceFee']),
+                        deliveryFee: _money(_invoice['deliveryFee']),
+                        couponDiscountTotal: _money(
+                          _invoice['couponDiscountTotal'],
+                        ),
+                        totalAmount: _money(_invoice['totalAmount']),
+                        helperText: context.lt(
+                          ar: 'راجع المنتجات والمواصفات قبل الموافقة',
+                          en: 'Review the items and specs before approving',
+                        ),
+                      ),
+                    ),
+                    _SectionCard(
+                      title: context.lt(ar: 'التسلسل الزمني', en: 'Timeline'),
+                      child: Column(
+                        children: _timeline
+                            .map((entry) => _TimelineRow(entry: entry))
                             .toList(growable: false),
                       ),
                     ),
-                ],
+                    if (_allowedActions.isNotEmpty)
+                      _SectionCard(
+                        title: context.lt(
+                          ar: 'إجراءات الحالة',
+                          en: 'Status actions',
+                        ),
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _allowedActions
+                              .map((action) {
+                                final isCancel = action == 'request_cancel';
+                                return FilledButton.tonal(
+                                  onPressed: _actionInFlight
+                                      ? null
+                                      : () => isCancel
+                                            ? _openCancelSheet()
+                                            : _runAction(action),
+                                  child: Text(_actionLabel(action)),
+                                );
+                              })
+                              .toList(growable: false),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }

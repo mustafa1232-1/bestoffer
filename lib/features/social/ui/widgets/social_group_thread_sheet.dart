@@ -11,6 +11,8 @@ import '../../state/social_controller.dart';
 import 'social_identity_view.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 class SocialGroupThreadSheet extends ConsumerStatefulWidget {
   final SocialChatThread initialThread;
@@ -147,7 +149,7 @@ class _SocialGroupThreadSheetState
 
   Future<void> _addMembers() async {
     final existingIds = _members.map((entry) => entry.userId).toSet();
-    final selectedUserIds = await showModalBottomSheet<List<int>>(
+    final selectedUserIds = await showMaslakiBottomSheet<List<int>>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,

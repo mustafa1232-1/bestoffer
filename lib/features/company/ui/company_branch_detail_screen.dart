@@ -545,386 +545,399 @@ class _CompanyBranchDetailScreenState
           ),
         ],
       ),
-      body: FutureBuilder<_CompanyBranchPayload>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return CompanyEmptyState(
-              icon: Icons.error_outline_rounded,
-              title: l10n.companyBranchDetailLoadFailedTitle,
-              description: mapAnyError(
-                snapshot.error!,
-                fallback: l10n.companyBranchDetailLoadFailedDescription,
-              ),
-              action: FilledButton.icon(
-                onPressed: _refresh,
-                icon: const Icon(Icons.refresh_rounded),
-                label: Text(l10n.commonRetry),
-              ),
-            );
-          }
-          final payload = snapshot.data;
-          if (payload == null) {
-            return CompanyEmptyState(
-              icon: Icons.store_mall_directory_outlined,
-              title: l10n.companyBranchDetailEmptyTitle,
-              description: l10n.companyBranchDetailEmptyDescription,
-            );
-          }
-          final detail = payload.detail;
-          final branch = detail.branch;
-          final settings = detail.inventorySettings;
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: ListView(
-              padding: const EdgeInsets.all(16),
-              children: [
-                CompanySectionCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      CompanySectionHeader(
-                        title: branch.name,
-                        subtitle: l10n.companyBranchDetailHeaderSubtitle,
-                        actions: [
-                          CompanyStatusChip(
-                            label: branch.inventoryEnabled
-                                ? l10n.companyBranchDetailInventoryEnabledChip
-                                : l10n.companyBranchDetailManualAvailabilityChip,
-                            color: branch.inventoryEnabled
-                                ? Colors.greenAccent.shade400
-                                : Colors.orangeAccent,
-                          ),
-                          CompanyStatusChip(
-                            label: branch.isApproved
-                                ? l10n.commonApproved
-                                : l10n.companyBranchesPendingApproval,
-                            color: branch.isApproved
-                                ? Colors.lightBlueAccent
-                                : Colors.orangeAccent,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                      Wrap(
-                        spacing: 16,
-                        runSpacing: 16,
-                        children: [
-                          SizedBox(
-                            width: 280,
-                            child: CompanyInfoTile(
-                              label: l10n.companyBranchDetailOwnerLabel,
-                              value: branch.ownerFullName ?? l10n.commonNotSet,
-                              icon: Icons.person_outline_rounded,
-                            ),
-                          ),
-                          SizedBox(
-                            width: 280,
-                            child: CompanyInfoTile(
-                              label: l10n.commonPhone,
-                              value:
-                                  branch.phone ??
-                                  branch.ownerPhone ??
-                                  l10n.commonNotSet,
-                              icon: Icons.phone_rounded,
-                            ),
-                          ),
-                          SizedBox(
-                            width: 280,
-                            child: CompanyInfoTile(
-                              label: l10n
-                                  .companyBranchDetailLastInventoryUpdateLabel,
-                              value: _formatDate(
-                                context,
-                                branch.lastInventoryUpdateAt,
-                              ),
-                              icon: Icons.inventory_2_outlined,
-                            ),
-                          ),
-                          SizedBox(
-                            width: 280,
-                            child: CompanyInfoTile(
-                              label:
-                                  l10n.companyBranchDetailLastDailyCheckLabel,
-                              value: _formatDate(
-                                context,
-                                branch.lastDailyCheckAt,
-                              ),
-                              icon: Icons.event_available_rounded,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+      body: SafeArea(
+        top: false,
+        child: FutureBuilder<_CompanyBranchPayload>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return CompanyEmptyState(
+                icon: Icons.error_outline_rounded,
+                title: l10n.companyBranchDetailLoadFailedTitle,
+                description: mapAnyError(
+                  snapshot.error!,
+                  fallback: l10n.companyBranchDetailLoadFailedDescription,
                 ),
-                const SizedBox(height: 16),
-                GridView.count(
-                  crossAxisCount: MediaQuery.of(context).size.width >= 1100
-                      ? 4
-                      : 2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  mainAxisSpacing: 12,
-                  crossAxisSpacing: 12,
-                  childAspectRatio: 1.35,
-                  children: [
-                    CompanyMetricTile(
-                      label: l10n.commonTotalOrders,
-                      value: '${branch.totalOrders}',
-                      icon: Icons.shopping_bag_outlined,
-                    ),
-                    CompanyMetricTile(
-                      label: l10n.commonSales,
-                      value: formatIqd(branch.grossSales),
-                      icon: Icons.payments_outlined,
-                      color: Colors.greenAccent.shade400,
-                    ),
-                    CompanyMetricTile(
-                      label: l10n.commonOutstanding,
-                      value: formatIqd(branch.outstandingAmount),
-                      icon: Icons.account_balance_wallet_outlined,
-                      color: Colors.orangeAccent,
-                    ),
-                    CompanyMetricTile(
-                      label: l10n.companyBranchDetailOutOfStockItemsLabel,
-                      value: '${branch.outOfStockItems}',
-                      icon: Icons.warning_amber_rounded,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ],
+                action: FilledButton.icon(
+                  onPressed: _refresh,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(l10n.commonRetry),
                 ),
-                const SizedBox(height: 16),
-                _BranchOrdersSection(
-                  orders: payload.orders,
-                  busyOrderId: _busyOrderId,
-                  onAction: _updateOrderStatus,
-                  onRefresh: _refresh,
-                ),
-                const SizedBox(height: 16),
-                _BranchProductsSection(
-                  detail: detail,
-                  onEditInventory: _editItem,
-                ),
-                const SizedBox(height: 16),
-                CompanySectionCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      CompanySectionHeader(
-                        title: l10n.companyBranchDetailInventoryPolicyTitle,
-                        subtitle:
-                            l10n.companyBranchDetailInventoryPolicySubtitle,
-                        actions: [
-                          OutlinedButton.icon(
-                            onPressed: () => _editSettings(settings),
-                            icon: const Icon(Icons.tune_rounded),
-                            label: Text(
-                              l10n.companyBranchDetailEditSettingsAction,
+              );
+            }
+            final payload = snapshot.data;
+            if (payload == null) {
+              return CompanyEmptyState(
+                icon: Icons.store_mall_directory_outlined,
+                title: l10n.companyBranchDetailEmptyTitle,
+                description: l10n.companyBranchDetailEmptyDescription,
+              );
+            }
+            final detail = payload.detail;
+            final branch = detail.branch;
+            final settings = detail.inventorySettings;
+            return RefreshIndicator(
+              onRefresh: _refresh,
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  CompanySectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CompanySectionHeader(
+                          title: branch.name,
+                          subtitle: l10n.companyBranchDetailHeaderSubtitle,
+                          actions: [
+                            CompanyStatusChip(
+                              label: branch.inventoryEnabled
+                                  ? l10n.companyBranchDetailInventoryEnabledChip
+                                  : l10n.companyBranchDetailManualAvailabilityChip,
+                              color: branch.inventoryEnabled
+                                  ? Colors.greenAccent.shade400
+                                  : Colors.orangeAccent,
                             ),
-                          ),
-                          FilledButton.icon(
-                            onPressed: _confirmDailyCheck,
-                            icon: const Icon(Icons.fact_check_outlined),
-                            label: Text(
-                              l10n.companyBranchDetailConfirmTodayAction,
+                            CompanyStatusChip(
+                              label: branch.isApproved
+                                  ? l10n.commonApproved
+                                  : l10n.companyBranchesPendingApproval,
+                              color: branch.isApproved
+                                  ? Colors.lightBlueAccent
+                                  : Colors.orangeAccent,
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: [
-                          CompanyStatusChip(
-                            label: settings?.inventoryEnabled == true
-                                ? l10n.companyBranchDetailInventoryEnabledChip
-                                : l10n.companyBranchDetailInventoryDisabledChip,
-                            color: settings?.inventoryEnabled == true
-                                ? Colors.greenAccent.shade400
-                                : Colors.orangeAccent,
-                          ),
-                          CompanyStatusChip(
-                            label: l10n.companyBranchDetailModeChip(
-                              companyInventoryModeLabel(
-                                context,
-                                settings?.dailyUpdateMode ??
-                                    branch.dailyUpdateMode ??
-                                    'manual_override',
-                              ),
-                            ),
-                            color: Colors.lightBlueAccent,
-                          ),
-                          CompanyStatusChip(
-                            label: l10n.companyBranchDetailThresholdChip(
-                              settings?.lowStockThreshold ?? 5,
-                            ),
-                            color: Colors.deepPurpleAccent,
-                          ),
-                          CompanyStatusChip(
-                            label: settings?.showAllWithoutAutoDisable == true
-                                ? l10n.companyBranchDetailShowAllChip
-                                : l10n.companyBranchDetailAutoDisableChip,
-                            color: settings?.showAllWithoutAutoDisable == true
-                                ? Colors.orangeAccent
-                                : Colors.greenAccent.shade400,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                CompanySectionCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      CompanySectionHeader(
-                        title: l10n.companyBranchDetailInventoryItemsTitle,
-                        subtitle: l10n
-                            .companyBranchDetailInventoryItemsSubtitle(
-                              detail.inventoryItems.length,
-                              detail.products.length,
-                              detail.categories.length,
-                            ),
-                      ),
-                      const SizedBox(height: 16),
-                      if (detail.inventoryItems.isEmpty)
-                        CompanyEmptyState(
-                          icon: Icons.inventory_2_outlined,
-                          title: l10n.companyBranchDetailInventoryEmptyTitle,
-                          description:
-                              l10n.companyBranchDetailInventoryEmptyDescription,
-                        )
-                      else
-                        ...detail.inventoryItems.map(
-                          (item) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(18),
-                              onTap: () => _editItem(item),
-                              child: Ink(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(18),
-                                  color: Colors.white.withValues(alpha: 0.04),
-                                  border: Border.all(
-                                    color: Colors.white.withValues(alpha: 0.08),
-                                  ),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(14),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 54,
-                                        height: 54,
-                                        decoration: BoxDecoration(
-                                          color: Colors.white.withValues(
-                                            alpha: 0.05,
-                                          ),
-                                          borderRadius: BorderRadius.circular(
-                                            16,
-                                          ),
-                                        ),
-                                        child: item.productImageUrl == null
-                                            ? const Icon(Icons.fastfood_rounded)
-                                            : ClipRRect(
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
-                                                child: CachedAppImage(
-                                                  imageUrl:
-                                                      item.productImageUrl!,
-                                                  fit: BoxFit.cover,
-                                                  errorWidget:
-                                                      (
-                                                        context,
-                                                        error,
-                                                        stackTrace,
-                                                      ) => const Icon(
-                                                        Icons.fastfood_rounded,
-                                                      ),
-                                                ),
-                                              ),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              item.productName,
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .titleMedium
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                            ),
-                                            const SizedBox(height: 6),
-                                            Wrap(
-                                              spacing: 8,
-                                              runSpacing: 8,
-                                              children: [
-                                                CompanyStatusChip(
-                                                  label: l10n
-                                                      .companyBranchDetailQuantityChip(
-                                                        item.quantity,
-                                                      ),
-                                                  color: Colors.lightBlueAccent,
-                                                ),
-                                                CompanyStatusChip(
-                                                  label:
-                                                      companyStockStatusLabel(
-                                                        context,
-                                                        item.stockStatus,
-                                                      ),
-                                                  color: _stockColor(
-                                                    context,
-                                                    item.stockStatus,
-                                                  ),
-                                                ),
-                                                CompanyStatusChip(
-                                                  label: item.productIsAvailable
-                                                      ? l10n.companyBranchDetailAvailableForOrder
-                                                      : l10n.companyBranchDetailUnavailableForOrder,
-                                                  color: item.productIsAvailable
-                                                      ? Colors
-                                                            .greenAccent
-                                                            .shade400
-                                                      : Theme.of(
-                                                          context,
-                                                        ).colorScheme.error,
-                                                ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Icon(
-                                        Icons.edit_rounded,
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.primary,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
+                          ],
                         ),
+                        const SizedBox(height: 18),
+                        Wrap(
+                          spacing: 16,
+                          runSpacing: 16,
+                          children: [
+                            SizedBox(
+                              width: 280,
+                              child: CompanyInfoTile(
+                                label: l10n.companyBranchDetailOwnerLabel,
+                                value:
+                                    branch.ownerFullName ?? l10n.commonNotSet,
+                                icon: Icons.person_outline_rounded,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 280,
+                              child: CompanyInfoTile(
+                                label: l10n.commonPhone,
+                                value:
+                                    branch.phone ??
+                                    branch.ownerPhone ??
+                                    l10n.commonNotSet,
+                                icon: Icons.phone_rounded,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 280,
+                              child: CompanyInfoTile(
+                                label: l10n
+                                    .companyBranchDetailLastInventoryUpdateLabel,
+                                value: _formatDate(
+                                  context,
+                                  branch.lastInventoryUpdateAt,
+                                ),
+                                icon: Icons.inventory_2_outlined,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 280,
+                              child: CompanyInfoTile(
+                                label:
+                                    l10n.companyBranchDetailLastDailyCheckLabel,
+                                value: _formatDate(
+                                  context,
+                                  branch.lastDailyCheckAt,
+                                ),
+                                icon: Icons.event_available_rounded,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  GridView.count(
+                    crossAxisCount: MediaQuery.of(context).size.width >= 1100
+                        ? 4
+                        : 2,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 12,
+                    crossAxisSpacing: 12,
+                    childAspectRatio: 1.35,
+                    children: [
+                      CompanyMetricTile(
+                        label: l10n.commonTotalOrders,
+                        value: '${branch.totalOrders}',
+                        icon: Icons.shopping_bag_outlined,
+                      ),
+                      CompanyMetricTile(
+                        label: l10n.commonSales,
+                        value: formatIqd(branch.grossSales),
+                        icon: Icons.payments_outlined,
+                        color: Colors.greenAccent.shade400,
+                      ),
+                      CompanyMetricTile(
+                        label: l10n.commonOutstanding,
+                        value: formatIqd(branch.outstandingAmount),
+                        icon: Icons.account_balance_wallet_outlined,
+                        color: Colors.orangeAccent,
+                      ),
+                      CompanyMetricTile(
+                        label: l10n.companyBranchDetailOutOfStockItemsLabel,
+                        value: '${branch.outOfStockItems}',
+                        icon: Icons.warning_amber_rounded,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          );
-        },
+                  const SizedBox(height: 16),
+                  _BranchOrdersSection(
+                    orders: payload.orders,
+                    busyOrderId: _busyOrderId,
+                    onAction: _updateOrderStatus,
+                    onRefresh: _refresh,
+                  ),
+                  const SizedBox(height: 16),
+                  _BranchProductsSection(
+                    detail: detail,
+                    onEditInventory: _editItem,
+                  ),
+                  const SizedBox(height: 16),
+                  CompanySectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CompanySectionHeader(
+                          title: l10n.companyBranchDetailInventoryPolicyTitle,
+                          subtitle:
+                              l10n.companyBranchDetailInventoryPolicySubtitle,
+                          actions: [
+                            OutlinedButton.icon(
+                              onPressed: () => _editSettings(settings),
+                              icon: const Icon(Icons.tune_rounded),
+                              label: Text(
+                                l10n.companyBranchDetailEditSettingsAction,
+                              ),
+                            ),
+                            FilledButton.icon(
+                              onPressed: _confirmDailyCheck,
+                              icon: const Icon(Icons.fact_check_outlined),
+                              label: Text(
+                                l10n.companyBranchDetailConfirmTodayAction,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            CompanyStatusChip(
+                              label: settings?.inventoryEnabled == true
+                                  ? l10n.companyBranchDetailInventoryEnabledChip
+                                  : l10n.companyBranchDetailInventoryDisabledChip,
+                              color: settings?.inventoryEnabled == true
+                                  ? Colors.greenAccent.shade400
+                                  : Colors.orangeAccent,
+                            ),
+                            CompanyStatusChip(
+                              label: l10n.companyBranchDetailModeChip(
+                                companyInventoryModeLabel(
+                                  context,
+                                  settings?.dailyUpdateMode ??
+                                      branch.dailyUpdateMode ??
+                                      'manual_override',
+                                ),
+                              ),
+                              color: Colors.lightBlueAccent,
+                            ),
+                            CompanyStatusChip(
+                              label: l10n.companyBranchDetailThresholdChip(
+                                settings?.lowStockThreshold ?? 5,
+                              ),
+                              color: Colors.deepPurpleAccent,
+                            ),
+                            CompanyStatusChip(
+                              label: settings?.showAllWithoutAutoDisable == true
+                                  ? l10n.companyBranchDetailShowAllChip
+                                  : l10n.companyBranchDetailAutoDisableChip,
+                              color: settings?.showAllWithoutAutoDisable == true
+                                  ? Colors.orangeAccent
+                                  : Colors.greenAccent.shade400,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  CompanySectionCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CompanySectionHeader(
+                          title: l10n.companyBranchDetailInventoryItemsTitle,
+                          subtitle: l10n
+                              .companyBranchDetailInventoryItemsSubtitle(
+                                detail.inventoryItems.length,
+                                detail.products.length,
+                                detail.categories.length,
+                              ),
+                        ),
+                        const SizedBox(height: 16),
+                        if (detail.inventoryItems.isEmpty)
+                          CompanyEmptyState(
+                            icon: Icons.inventory_2_outlined,
+                            title: l10n.companyBranchDetailInventoryEmptyTitle,
+                            description: l10n
+                                .companyBranchDetailInventoryEmptyDescription,
+                          )
+                        else
+                          ...detail.inventoryItems.map(
+                            (item) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(18),
+                                onTap: () => _editItem(item),
+                                child: Ink(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(18),
+                                    color: Colors.white.withValues(alpha: 0.04),
+                                    border: Border.all(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.08,
+                                      ),
+                                    ),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(14),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 54,
+                                          height: 54,
+                                          decoration: BoxDecoration(
+                                            color: Colors.white.withValues(
+                                              alpha: 0.05,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                          ),
+                                          child: item.productImageUrl == null
+                                              ? const Icon(
+                                                  Icons.fastfood_rounded,
+                                                )
+                                              : ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(16),
+                                                  child: CachedAppImage(
+                                                    imageUrl:
+                                                        item.productImageUrl!,
+                                                    fit: BoxFit.cover,
+                                                    errorWidget:
+                                                        (
+                                                          context,
+                                                          error,
+                                                          stackTrace,
+                                                        ) => const Icon(
+                                                          Icons
+                                                              .fastfood_rounded,
+                                                        ),
+                                                  ),
+                                                ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item.productName,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: 8,
+                                                children: [
+                                                  CompanyStatusChip(
+                                                    label: l10n
+                                                        .companyBranchDetailQuantityChip(
+                                                          item.quantity,
+                                                        ),
+                                                    color:
+                                                        Colors.lightBlueAccent,
+                                                  ),
+                                                  CompanyStatusChip(
+                                                    label:
+                                                        companyStockStatusLabel(
+                                                          context,
+                                                          item.stockStatus,
+                                                        ),
+                                                    color: _stockColor(
+                                                      context,
+                                                      item.stockStatus,
+                                                    ),
+                                                  ),
+                                                  CompanyStatusChip(
+                                                    label:
+                                                        item.productIsAvailable
+                                                        ? l10n.companyBranchDetailAvailableForOrder
+                                                        : l10n.companyBranchDetailUnavailableForOrder,
+                                                    color:
+                                                        item.productIsAvailable
+                                                        ? Colors
+                                                              .greenAccent
+                                                              .shade400
+                                                        : Theme.of(
+                                                            context,
+                                                          ).colorScheme.error,
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Icon(
+                                          Icons.edit_rounded,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }

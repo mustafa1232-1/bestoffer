@@ -58,61 +58,64 @@ class _SocialStoryArchiveScreenState
     final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.socialStoryArchiveTitle)),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : _stories.isEmpty
-          ? Center(child: Text(l10n.socialStoryArchiveEmpty))
-          : GridView.builder(
-              padding: const EdgeInsets.all(16),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-                childAspectRatio: 0.68,
-              ),
-              itemCount: _stories.length,
-              itemBuilder: (context, index) {
-                final story = _stories[index];
-                return InkWell(
-                  borderRadius: BorderRadius.circular(16),
-                  onTap: () async {
-                    final group = SocialStoryGroup(
-                      userId: story.userId,
-                      author: SocialAuthor(
-                        id: 0,
-                        fullName: l10n.socialStoryArchiveMe,
-                        imageUrl: null,
-                        phone: null,
-                        role: 'user',
-                      ),
-                      latestAt: story.createdAt,
-                      hasUnviewed: false,
-                      stories: _stories,
-                    );
-                    await showSocialStoryQuickViewer(
-                      context: context,
-                      group: group,
-                      initialStoryId: story.id,
-                      api: ref.read(socialApiProvider),
-                      onStoryArchiveChanged: _load,
-                    );
-                  },
-                  child: ClipRRect(
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(child: Text(_error!))
+            : _stories.isEmpty
+            ? Center(child: Text(l10n.socialStoryArchiveEmpty))
+            : GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                  childAspectRatio: 0.68,
+                ),
+                itemCount: _stories.length,
+                itemBuilder: (context, index) {
+                  final story = _stories[index];
+                  return InkWell(
                     borderRadius: BorderRadius.circular(16),
-                    child: story.mediaUrl != null
-                        ? CachedAppImage(
-                            imageUrl: story.mediaUrl!,
-                            fit: BoxFit.cover,
-                            errorWidget: (context, error, stackTrace) =>
-                                _TextCard(story: story),
-                          )
-                        : _TextCard(story: story),
-                  ),
-                );
-              },
-            ),
+                    onTap: () async {
+                      final group = SocialStoryGroup(
+                        userId: story.userId,
+                        author: SocialAuthor(
+                          id: 0,
+                          fullName: l10n.socialStoryArchiveMe,
+                          imageUrl: null,
+                          phone: null,
+                          role: 'user',
+                        ),
+                        latestAt: story.createdAt,
+                        hasUnviewed: false,
+                        stories: _stories,
+                      );
+                      await showSocialStoryQuickViewer(
+                        context: context,
+                        group: group,
+                        initialStoryId: story.id,
+                        api: ref.read(socialApiProvider),
+                        onStoryArchiveChanged: _load,
+                      );
+                    },
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: story.mediaUrl != null
+                          ? CachedAppImage(
+                              imageUrl: story.mediaUrl!,
+                              fit: BoxFit.cover,
+                              errorWidget: (context, error, stackTrace) =>
+                                  _TextCard(story: story),
+                            )
+                          : _TextCard(story: story),
+                    ),
+                  );
+                },
+              ),
+      ),
     );
   }
 }

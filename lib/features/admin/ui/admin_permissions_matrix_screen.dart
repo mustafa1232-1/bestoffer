@@ -200,73 +200,77 @@ class _AdminPermissionsMatrixScreenState
         icon: const Icon(Icons.add_rounded),
         label: Text(l10n.adminOpsPermissionsMatrixCreateAction),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : _items.isEmpty
-          ? Center(child: Text(l10n.adminOpsPermissionsMatrixEmpty))
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-                itemCount: _roles.length,
-                itemBuilder: (context, index) {
-                  final role = _roles[index];
-                  final roleItems = _items
-                      .where(
-                        (item) =>
-                            '${item['role_key']}'.trim().toLowerCase() ==
-                            role.toLowerCase(),
-                      )
-                      .toList(growable: false);
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    child: ExpansionTile(
-                      title: Text(role),
-                      subtitle: Text(
-                        l10n.adminOpsPermissionsMatrixOverridesCount(
-                          roleItems.length,
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(child: Text(_error!))
+            : _items.isEmpty
+            ? Center(child: Text(l10n.adminOpsPermissionsMatrixEmpty))
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+                  itemCount: _roles.length,
+                  itemBuilder: (context, index) {
+                    final role = _roles[index];
+                    final roleItems = _items
+                        .where(
+                          (item) =>
+                              '${item['role_key']}'.trim().toLowerCase() ==
+                              role.toLowerCase(),
+                        )
+                        .toList(growable: false);
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ExpansionTile(
+                        title: Text(role),
+                        subtitle: Text(
+                          l10n.adminOpsPermissionsMatrixOverridesCount(
+                            roleItems.length,
+                          ),
                         ),
-                      ),
-                      childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                      children: [
-                        if (roleItems.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Align(
-                              alignment: AlignmentDirectional.centerStart,
-                              child: Text(
-                                l10n.adminOpsPermissionsMatrixNoOverrides,
+                        childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                        children: [
+                          if (roleItems.isEmpty)
+                            Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Align(
+                                alignment: AlignmentDirectional.centerStart,
+                                child: Text(
+                                  l10n.adminOpsPermissionsMatrixNoOverrides,
+                                ),
                               ),
-                            ),
-                          )
-                        else
-                          ...roleItems.map((item) {
-                            final capability = '${item['capability_key']}';
-                            final enabled = item['is_enabled'] == true;
-                            return SwitchListTile(
-                              title: Text(capability),
-                              subtitle: Text('${item['notes'] ?? ''}'),
-                              value: enabled,
-                              onChanged: (value) {
-                                _saveOverride(
-                                  roleKey: role,
-                                  capabilityKey: capability,
-                                  isEnabled: value,
-                                  notes: '${item['notes'] ?? ''}'.trim().isEmpty
-                                      ? null
-                                      : '${item['notes']}'.trim(),
-                                );
-                              },
-                            );
-                          }),
-                      ],
-                    ),
-                  );
-                },
+                            )
+                          else
+                            ...roleItems.map((item) {
+                              final capability = '${item['capability_key']}';
+                              final enabled = item['is_enabled'] == true;
+                              return SwitchListTile(
+                                title: Text(capability),
+                                subtitle: Text('${item['notes'] ?? ''}'),
+                                value: enabled,
+                                onChanged: (value) {
+                                  _saveOverride(
+                                    roleKey: role,
+                                    capabilityKey: capability,
+                                    isEnabled: value,
+                                    notes:
+                                        '${item['notes'] ?? ''}'.trim().isEmpty
+                                        ? null
+                                        : '${item['notes']}'.trim(),
+                                  );
+                                },
+                              );
+                            }),
+                        ],
+                      ),
+                    );
+                  },
+                ),
               ),
-            ),
+      ),
     );
   }
 }

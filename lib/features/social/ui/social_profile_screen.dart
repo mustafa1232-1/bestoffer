@@ -43,6 +43,8 @@ import 'widgets/social_identity_view.dart';
 import 'widgets/social_post_card_v2.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 /// Purpose: شاشة الملف الشخصي الاجتماعي مع tabs للمحتوى والعلاقات والهايلايت وإجراءات المتابعة/الحظر.
 /// Used by: feed، المحادثات، mention routes، والبحث داخل المجتمع.
@@ -977,7 +979,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   Future<void> _openAddHighlightSheet() async {
     final profile = _profile;
     if (profile == null || !profile.isMe) return;
-    final result = await showModalBottomSheet<bool>(
+    final result = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -991,7 +993,7 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
   Future<void> _openEditProfileSheet() async {
     final profile = _profile;
     if (profile == null || !profile.isMe) return;
-    final next = await showModalBottomSheet<SocialUserProfile>(
+    final next = await showMaslakiBottomSheet<SocialUserProfile>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1943,100 +1945,103 @@ class _SocialProfileScreenState extends ConsumerState<SocialProfileScreen> {
               ),
           ],
         ),
-        body: _loadingProfile && profile == null
-            ? const Center(child: CircularProgressIndicator())
-            : RefreshIndicator(
-                onRefresh: _refreshAll,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                  children: [
-                    if (_error != null) _ErrorBanner(message: _error!),
-                    if (profile != null) ...[
-                      _ProfileHeaderSection(
-                        profile: profile,
-                        primaryLabel: _accountPrimaryLabel(profile),
-                        badgeLabels: _profileBadgeLabels(profile),
-                        onAvatarTap: _openAvatarStoryOrImage,
-                        onOpenFollowers: () =>
-                            _openFollowersFromProfile(profile),
-                        onOpenFollowing: () =>
-                            _openFollowingFromProfile(profile),
-                      ),
+        body: SafeArea(
+          top: false,
+          child: _loadingProfile && profile == null
+              ? const Center(child: CircularProgressIndicator())
+              : RefreshIndicator(
+                  onRefresh: _refreshAll,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    children: [
+                      if (_error != null) _ErrorBanner(message: _error!),
+                      if (profile != null) ...[
+                        _ProfileHeaderSection(
+                          profile: profile,
+                          primaryLabel: _accountPrimaryLabel(profile),
+                          badgeLabels: _profileBadgeLabels(profile),
+                          onAvatarTap: _openAvatarStoryOrImage,
+                          onOpenFollowers: () =>
+                              _openFollowersFromProfile(profile),
+                          onOpenFollowing: () =>
+                              _openFollowingFromProfile(profile),
+                        ),
+                        const SizedBox(height: 14),
+                        _ProfileActionRow(
+                          profile: profile,
+                          primaryLabel: _primaryActionLabel(profile),
+                          primaryIcon: _primaryActionIcon(profile),
+                          onPrimaryTap: () => _performPrimaryAction(profile),
+                          onShareTap: _shareProfile,
+                          onMessageTap:
+                              !profile.isMe &&
+                                  profile.relation.canChat &&
+                                  !profile.relation.isBlocked
+                              ? _openChatWithUser
+                              : null,
+                          onUpgradeTap: profile.isMe && !profile.isPremiumMember
+                              ? _openPaidUpgradesScreen
+                              : null,
+                        ),
+                        if (!profile.isMe &&
+                            profile.relation.state != 'none') ...[
+                          const SizedBox(height: 10),
+                          Text(
+                            _relationStatusText(profile.relation),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: Theme.of(context).colorScheme.onSurface
+                                      .withValues(alpha: 0.72),
+                                ),
+                          ),
+                        ],
+                      ],
                       const SizedBox(height: 14),
-                      _ProfileActionRow(
-                        profile: profile,
-                        primaryLabel: _primaryActionLabel(profile),
-                        primaryIcon: _primaryActionIcon(profile),
-                        onPrimaryTap: () => _performPrimaryAction(profile),
-                        onShareTap: _shareProfile,
-                        onMessageTap:
-                            !profile.isMe &&
-                                profile.relation.canChat &&
-                                !profile.relation.isBlocked
-                            ? _openChatWithUser
-                            : null,
-                        onUpgradeTap: profile.isMe && !profile.isPremiumMember
-                            ? _openPaidUpgradesScreen
-                            : null,
+                      _HighlightsSection(
+                        loading: _loadingHighlights,
+                        albums: albums,
+                        isPrivateForViewer: _storiesPrivateForViewer,
+                        canManage: profile?.isMe == true,
+                        onAdd: _openAddHighlightSheet,
+                        onOpen: _openHighlightAlbum,
+                        onRemove: _removeHighlight,
                       ),
-                      if (!profile.isMe &&
-                          profile.relation.state != 'none') ...[
-                        const SizedBox(height: 10),
-                        Text(
-                          _relationStatusText(profile.relation),
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                fontWeight: FontWeight.w600,
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withValues(alpha: 0.72),
-                              ),
+                      if (profile != null) ...[
+                        const SizedBox(height: 18),
+                        _ProfileTabsStrip(
+                          profile: profile,
+                          tabs: tabs,
+                          selectedTab: _selectedTab,
+                          onSelect: _selectContentTab,
+                          labelBuilder: (tab) => _tabLabel(tab),
+                          countBuilder: (tab) =>
+                              _tabCountValueFor(tab, profile),
+                        ),
+                        const SizedBox(height: 16),
+                        _ProfileTabContent(
+                          profile: profile,
+                          selectedTab: _selectedTab,
+                          postsByKey: _postsByKey,
+                          nextCursorByKey: _nextCursorByKey,
+                          loadingByKey: _loadingByKey,
+                          postsPrivateForViewer: _postsPrivateForViewer,
+                          onLoadMore: _loadPosts,
+                          onOpenMedia: _openProfileContent,
+                          onToggleArchive: profile.isMe
+                              ? _togglePostArchive
+                              : null,
+                          onDeletePost: profile.isMe ? _deletePost : null,
+                          onReportPost: profile.isMe ? null : _reportPost,
+                          formatDateTime: _formatDateTime,
+                          userId: widget.userId,
+                          profileName: profile.fullName,
                         ),
                       ],
                     ],
-                    const SizedBox(height: 14),
-                    _HighlightsSection(
-                      loading: _loadingHighlights,
-                      albums: albums,
-                      isPrivateForViewer: _storiesPrivateForViewer,
-                      canManage: profile?.isMe == true,
-                      onAdd: _openAddHighlightSheet,
-                      onOpen: _openHighlightAlbum,
-                      onRemove: _removeHighlight,
-                    ),
-                    if (profile != null) ...[
-                      const SizedBox(height: 18),
-                      _ProfileTabsStrip(
-                        profile: profile,
-                        tabs: tabs,
-                        selectedTab: _selectedTab,
-                        onSelect: _selectContentTab,
-                        labelBuilder: (tab) => _tabLabel(tab),
-                        countBuilder: (tab) => _tabCountValueFor(tab, profile),
-                      ),
-                      const SizedBox(height: 16),
-                      _ProfileTabContent(
-                        profile: profile,
-                        selectedTab: _selectedTab,
-                        postsByKey: _postsByKey,
-                        nextCursorByKey: _nextCursorByKey,
-                        loadingByKey: _loadingByKey,
-                        postsPrivateForViewer: _postsPrivateForViewer,
-                        onLoadMore: _loadPosts,
-                        onOpenMedia: _openProfileContent,
-                        onToggleArchive: profile.isMe
-                            ? _togglePostArchive
-                            : null,
-                        onDeletePost: profile.isMe ? _deletePost : null,
-                        onReportPost: profile.isMe ? null : _reportPost,
-                        formatDateTime: _formatDateTime,
-                        userId: widget.userId,
-                        profileName: profile.fullName,
-                      ),
-                    ],
-                  ],
+                  ),
                 ),
-              ),
+        ),
       ),
     );
   }
@@ -4214,74 +4219,77 @@ class _ProfileMediaViewerPageState extends State<_ProfileMediaViewerPage> {
           ],
         ),
       ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (!widget.isVideo)
-            InteractiveViewer(
-              minScale: 0.7,
-              maxScale: 4,
-              child: Center(
-                child: CachedAppImage(
-                  imageUrl: widget.mediaUrl,
-                  fit: BoxFit.contain,
-                  errorWidget: (context, error, stackTrace) =>
-                      const _MediaError(message: 'تعذر تحميل الصورة.'),
+      body: SafeArea(
+        top: false,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (!widget.isVideo)
+              InteractiveViewer(
+                minScale: 0.7,
+                maxScale: 4,
+                child: Center(
+                  child: CachedAppImage(
+                    imageUrl: widget.mediaUrl,
+                    fit: BoxFit.contain,
+                    errorWidget: (context, error, stackTrace) =>
+                        const _MediaError(message: 'تعذر تحميل الصورة.'),
+                  ),
                 ),
-              ),
-            )
-          else if (_videoError != null)
-            Center(child: _MediaError(message: _videoError!))
-          else if (!_videoReady)
-            const Center(child: CircularProgressIndicator())
-          else
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _togglePlayPause,
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: _video!.value.aspectRatio,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      VideoPlayer(_video!),
-                      AnimatedOpacity(
-                        opacity: _video!.value.isPlaying ? 0 : 1,
-                        duration: const Duration(milliseconds: 180),
-                        child: const Icon(
-                          Icons.play_circle_fill_rounded,
-                          size: 72,
-                          color: Colors.white,
+              )
+            else if (_videoError != null)
+              Center(child: _MediaError(message: _videoError!))
+            else if (!_videoReady)
+              const Center(child: CircularProgressIndicator())
+            else
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _togglePlayPause,
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: _video!.value.aspectRatio,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        VideoPlayer(_video!),
+                        AnimatedOpacity(
+                          opacity: _video!.value.isPlaying ? 0 : 1,
+                          duration: const Duration(milliseconds: 180),
+                          child: const Icon(
+                            Icons.play_circle_fill_rounded,
+                            size: 72,
+                            color: Colors.white,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          if ((widget.caption ?? '').trim().isNotEmpty)
-            Positioned(
-              right: 12,
-              left: 12,
-              bottom: 16,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.52),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white24),
-                ),
-                child: Text(
-                  widget.caption!.trim(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
+            if ((widget.caption ?? '').trim().isNotEmpty)
+              Positioned(
+                right: 12,
+                left: 12,
+                bottom: 16,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.52),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Text(
+                    widget.caption!.trim(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      height: 1.35,
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

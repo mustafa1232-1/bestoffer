@@ -416,8 +416,8 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
           ),
           Positioned(
             top: padding.top + 8,
-            left: 10,
-            right: 10,
+            left: padding.left + 10,
+            right: padding.right + 10,
             child: Row(
               children: [
                 _CircleButton(
@@ -499,9 +499,11 @@ class _StoryComposerV3State extends ConsumerState<StoryComposerV3> {
               ),
             ),
           Positioned(
-            left: 12,
-            right: 12,
-            bottom: keyboardInset + 12,
+            left: padding.left + 12,
+            right: padding.right + 12,
+            // padding.bottom is the nav bar inset; it drops to 0 while the
+            // keyboard is open, so the two never add up.
+            bottom: keyboardInset + padding.bottom + 12,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [

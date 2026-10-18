@@ -7,6 +7,8 @@ import '../../../features/social/data/social_api.dart';
 import '../data/taxi_api.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 final _taxiShareSocialApiProvider = Provider<SocialApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
@@ -32,7 +34,7 @@ Future<void> showTaxiRideShareFriendsSheet({
   required int currentUserId,
   required TaxiApi taxiApi,
 }) {
-  return showModalBottomSheet<void>(
+  return showMaslakiBottomSheet<void>(
     context: context,
     useSafeArea: true,
     isScrollControlled: true,

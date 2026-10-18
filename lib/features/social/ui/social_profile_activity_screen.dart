@@ -123,7 +123,7 @@ class SocialProfileActivityScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(l10n.socialProfileActivityTitle),
       ),
-      body: ListView(
+      body: SafeArea(top: false, child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: [
           _SectionTitle(
@@ -165,7 +165,7 @@ class SocialProfileActivityScreen extends StatelessWidget {
             ),
           ],
         ],
-      ),
+      )),
     );
   }
 }

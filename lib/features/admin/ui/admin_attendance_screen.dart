@@ -47,7 +47,7 @@ class _AdminAttendanceScreenState extends ConsumerState<AdminAttendanceScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
+      body: SafeArea(top: false, child: FutureBuilder<List<Map<String, dynamic>>>(
         future: _future,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -136,7 +136,7 @@ class _AdminAttendanceScreenState extends ConsumerState<AdminAttendanceScreen> {
             ),
           );
         },
-      ),
+      )),
     );
   }
 

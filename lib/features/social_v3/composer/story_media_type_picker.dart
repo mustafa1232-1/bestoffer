@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../pickers/social_media_picker_v3.dart';
 
 Future<PickedMediaType?> pickStoryMediaType(BuildContext context) {
-  return showModalBottomSheet<PickedMediaType>(
+  return showMaslakiBottomSheet<PickedMediaType>(
     context: context,
     showDragHandle: true,
     builder: (sheetContext) {

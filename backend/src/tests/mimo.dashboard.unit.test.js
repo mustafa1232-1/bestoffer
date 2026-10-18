@@ -172,3 +172,40 @@ test("escalation attaches the user's photos to the ticket", async () => {
   assert.equal(created[0].attachments[0].fileUrl, "/uploads/a.jpg");
   assert.match(notes[0], /أرفق 1 صورة/);
 });
+
+test("directory maps every store and service with its place, rating and orders", async () => {
+  const { loadDirectory, __resetDirectoryCache } = await import("../modules/mimo/mimo.directory.js");
+  __resetDirectoryCache();
+  let calls = 0;
+  const deps = {
+    async stores() {
+      calls += 1;
+      return [
+        {
+          id: 1, name: "مشاوي أبو علي", type: "restaurant", activity_type: "restaurant",
+          avg_merchant_rating: "4.7", rating_count: 120, completed_orders_count: 420,
+          is_open: true, service_area_note: "بسماية - بلوك A5", latitude: 33.2, longitude: 44.6,
+        },
+        { id: 2, name: "", type: "market" },
+      ];
+    },
+    async services() {
+      return [
+        { id: 9, name: "تصليح سبالت", mainCategoryName: "تبريد", ratingAvg: 4.9, ratingCount: 30,
+          completedOrdersCount: 51, provider: { businessName: "أبو حسين للتبريد", area: "B3", city: "بسماية" } },
+        { id: 10, name: "موقوف", isTemporarilyPaused: true, provider: {} },
+      ];
+    },
+  };
+  const d = await loadDirectory(deps, { now: 1000 });
+  assert.equal(d.stores.length, 1);
+  assert.deepEqual(
+    { name: d.stores[0].name, rating: d.stores[0].rating, orders: d.stores[0].orders, area: d.stores[0].area },
+    { name: "مشاوي أبو علي", rating: 4.7, orders: 420, area: "بسماية - بلوك A5" }
+  );
+  assert.equal(d.services.length, 1);
+  assert.equal(d.services[0].provider, "أبو حسين للتبريد");
+  assert.equal(d.services[0].area, "B3، بسماية");
+  await loadDirectory(deps, { now: 30_000 });
+  assert.equal(calls, 1, "cached for a minute");
+});

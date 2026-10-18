@@ -520,203 +520,210 @@ class _AccountantDashboardScreenState
         title: Text(_title()),
         actions: const [NotificationsBellButton()],
       ),
-      body: state.loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: () =>
-                  ref.read(accountantControllerProvider.notifier).bootstrap(),
-              child: ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  _AccountantQuickTabs(currentTab: _tab, onSelectTab: _setTab),
-                  const SizedBox(height: 10),
-                  if (_tab == _AccountantTab.dashboard) ...[
-                    _MetricCard(
-                      title: 'الرصيد الحالي',
-                      value: formatIqd(balance),
-                      icon: Icons.account_balance_wallet_outlined,
-                      onTap: () => _setTab(_AccountantTab.ledger),
+      body: SafeArea(
+        top: false,
+        child: state.loading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: () =>
+                    ref.read(accountantControllerProvider.notifier).bootstrap(),
+                child: ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    _AccountantQuickTabs(
+                      currentTab: _tab,
+                      onSelectTab: _setTab,
                     ),
-                    const SizedBox(height: 8),
-                    _MetricCard(
-                      title: 'الذمم المعلقة',
-                      value:
-                          '${pendingCount.toInt()} - ${formatIqd(pendingAmount)}',
-                      icon: Icons.request_quote_outlined,
-                      onTap: () => _setTab(_AccountantTab.pending),
-                    ),
-                    const SizedBox(height: 12),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ElevatedButton.icon(
-                          onPressed: state.saving
-                              ? null
-                              : () => _showAmountDialog(
-                                  title: 'إضافة رصيد افتتاحي',
-                                  actionLabel: 'تأكيد',
-                                  onSubmit: (amount, note) => ref
-                                      .read(
-                                        accountantControllerProvider.notifier,
-                                      )
-                                      .addOpeningBalance(
-                                        amount: amount,
-                                        note: note,
-                                      ),
-                                ),
-                          icon: const Icon(Icons.add_card_outlined),
-                          label: const Text('رصيد افتتاحي'),
-                        ),
-                        ElevatedButton.icon(
-                          onPressed: state.saving
-                              ? null
-                              : () => _showAmountDialog(
-                                  title: 'تسجيل مصروف',
-                                  actionLabel: 'إضافة مصروف',
-                                  onSubmit: (amount, note) => ref
-                                      .read(
-                                        accountantControllerProvider.notifier,
-                                      )
-                                      .addExpense(amount: amount, note: note),
-                                ),
-                          icon: const Icon(Icons.remove_circle_outline),
-                          label: const Text('تسجيل مصروف'),
-                        ),
-                      ],
-                    ),
-                  ],
-                  if (_tab == _AccountantTab.pending) ...[
-                    if (state.pendingSettlements.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 18),
-                        child: Text('لا توجد ذمم بانتظار الاستلام.'),
-                      )
-                    else
-                      ...state.pendingSettlements.map(
-                        (item) => Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Text(
-                                  '${item['deliveryFullName'] ?? '-'} - ${item['deliveryPhone'] ?? ''}',
-                                  textDirection: TextDirection.rtl,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
+                    const SizedBox(height: 10),
+                    if (_tab == _AccountantTab.dashboard) ...[
+                      _MetricCard(
+                        title: 'الرصيد الحالي',
+                        value: formatIqd(balance),
+                        icon: Icons.account_balance_wallet_outlined,
+                        onTap: () => _setTab(_AccountantTab.ledger),
+                      ),
+                      const SizedBox(height: 8),
+                      _MetricCard(
+                        title: 'الذمم المعلقة',
+                        value:
+                            '${pendingCount.toInt()} - ${formatIqd(pendingAmount)}',
+                        icon: Icons.request_quote_outlined,
+                        onTap: () => _setTab(_AccountantTab.pending),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: state.saving
+                                ? null
+                                : () => _showAmountDialog(
+                                    title: 'إضافة رصيد افتتاحي',
+                                    actionLabel: 'تأكيد',
+                                    onSubmit: (amount, note) => ref
+                                        .read(
+                                          accountantControllerProvider.notifier,
+                                        )
+                                        .addOpeningBalance(
+                                          amount: amount,
+                                          note: note,
+                                        ),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'التاريخ: ${item['archiveDate']}',
-                                  textDirection: TextDirection.rtl,
-                                ),
-                                Text(
-                                  'عدد الطلبات: ${item['ordersCount']}',
-                                  textDirection: TextDirection.rtl,
-                                ),
-                                Text(
-                                  'المبلغ: ${formatIqd(item['totalAmount'])}',
-                                  textDirection: TextDirection.rtl,
-                                ),
-                                Text(
-                                  'المستلم المتوقع: ${formatIqd(item['storeNetReceivedAmount'] ?? item['store_net_received_amount'] ?? item['totalAmount'])}',
-                                  textDirection: TextDirection.rtl,
-                                ),
-                                Text(
-                                  'ذمة التطبيق: ${formatIqd(item['appDueFromDelivery'] ?? item['app_due_from_delivery'] ?? 0)}',
-                                  textDirection: TextDirection.rtl,
-                                ),
-                                Text(
-                                  'الفرق: ${formatIqd(item['differenceAmount'] ?? item['difference_amount'] ?? 0)}',
-                                  textDirection: TextDirection.rtl,
-                                ),
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: ElevatedButton.icon(
-                                    onPressed: state.saving
-                                        ? null
-                                        : () => _showSettlementConfirmDialog(
-                                            item: item,
-                                          ),
-                                    icon: const Icon(Icons.verified_outlined),
-                                    label: const Text('تأكيد الاستلام'),
+                            icon: const Icon(Icons.add_card_outlined),
+                            label: const Text('رصيد افتتاحي'),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: state.saving
+                                ? null
+                                : () => _showAmountDialog(
+                                    title: 'تسجيل مصروف',
+                                    actionLabel: 'إضافة مصروف',
+                                    onSubmit: (amount, note) => ref
+                                        .read(
+                                          accountantControllerProvider.notifier,
+                                        )
+                                        .addExpense(amount: amount, note: note),
                                   ),
-                                ),
-                              ],
+                            icon: const Icon(Icons.remove_circle_outline),
+                            label: const Text('تسجيل مصروف'),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (_tab == _AccountantTab.pending) ...[
+                      if (state.pendingSettlements.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 18),
+                          child: Text('لا توجد ذمم بانتظار الاستلام.'),
+                        )
+                      else
+                        ...state.pendingSettlements.map(
+                          (item) => Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    '${item['deliveryFullName'] ?? '-'} - ${item['deliveryPhone'] ?? ''}',
+                                    textDirection: TextDirection.rtl,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'التاريخ: ${item['archiveDate']}',
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                  Text(
+                                    'عدد الطلبات: ${item['ordersCount']}',
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                  Text(
+                                    'المبلغ: ${formatIqd(item['totalAmount'])}',
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                  Text(
+                                    'المستلم المتوقع: ${formatIqd(item['storeNetReceivedAmount'] ?? item['store_net_received_amount'] ?? item['totalAmount'])}',
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                  Text(
+                                    'ذمة التطبيق: ${formatIqd(item['appDueFromDelivery'] ?? item['app_due_from_delivery'] ?? 0)}',
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                  Text(
+                                    'الفرق: ${formatIqd(item['differenceAmount'] ?? item['difference_amount'] ?? 0)}',
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: ElevatedButton.icon(
+                                      onPressed: state.saving
+                                          ? null
+                                          : () => _showSettlementConfirmDialog(
+                                              item: item,
+                                            ),
+                                      icon: const Icon(Icons.verified_outlined),
+                                      label: const Text('تأكيد الاستلام'),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                  ],
-                  if (_tab == _AccountantTab.ledger) ...[
-                    if (state.ledger.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 18),
-                        child: Text('لا توجد حركات بعد.'),
-                      )
-                    else
-                      ...state.ledger.map(
-                        (entry) => ListTile(
-                          leading: Icon(
-                            entry['direction'] == 'credit'
-                                ? Icons.arrow_downward_rounded
-                                : Icons.arrow_upward_rounded,
-                            color: entry['direction'] == 'credit'
-                                ? Colors.green
-                                : Colors.redAccent,
-                          ),
-                          title: Text(
-                            '${entry['entryType']} - ${formatIqd(entry['amount'])}',
-                            textDirection: TextDirection.rtl,
-                          ),
-                          subtitle: Text(
-                            '${entry['createdAt'] ?? ''}',
-                            textDirection: TextDirection.rtl,
+                    ],
+                    if (_tab == _AccountantTab.ledger) ...[
+                      if (state.ledger.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 18),
+                          child: Text('لا توجد حركات بعد.'),
+                        )
+                      else
+                        ...state.ledger.map(
+                          (entry) => ListTile(
+                            leading: Icon(
+                              entry['direction'] == 'credit'
+                                  ? Icons.arrow_downward_rounded
+                                  : Icons.arrow_upward_rounded,
+                              color: entry['direction'] == 'credit'
+                                  ? Colors.green
+                                  : Colors.redAccent,
+                            ),
+                            title: Text(
+                              '${entry['entryType']} - ${formatIqd(entry['amount'])}',
+                              textDirection: TextDirection.rtl,
+                            ),
+                            subtitle: Text(
+                              '${entry['createdAt'] ?? ''}',
+                              textDirection: TextDirection.rtl,
+                            ),
                           ),
                         ),
-                      ),
-                  ],
-                  if (_tab == _AccountantTab.profile) ...[
-                    ListTile(
-                      leading: CircleAvatar(
-                        backgroundImage: auth.user?.imageUrl?.isNotEmpty == true
-                            ? AppCachedImageProvider(auth.user!.imageUrl!)
-                            : null,
-                        child: auth.user?.imageUrl?.isNotEmpty == true
-                            ? null
-                            : const Icon(Icons.person_outline),
-                      ),
-                      title: Text(auth.user?.fullName ?? '-'),
-                      subtitle: Text(auth.user?.phone ?? '-'),
-                    ),
-                    const SizedBox(height: 8),
-                    ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const SettingsAccountScreen(),
+                    ],
+                    if (_tab == _AccountantTab.profile) ...[
+                      ListTile(
+                        leading: CircleAvatar(
+                          backgroundImage:
+                              auth.user?.imageUrl?.isNotEmpty == true
+                              ? AppCachedImageProvider(auth.user!.imageUrl!)
+                              : null,
+                          child: auth.user?.imageUrl?.isNotEmpty == true
+                              ? null
+                              : const Icon(Icons.person_outline),
                         ),
+                        title: Text(auth.user?.fullName ?? '-'),
+                        subtitle: Text(auth.user?.phone ?? '-'),
                       ),
-                      icon: const Icon(Icons.security_outlined),
-                      label: const Text('إعدادات الحساب'),
-                    ),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const SettingsSupportScreen(),
+                      const SizedBox(height: 8),
+                      ElevatedButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const SettingsAccountScreen(),
+                          ),
                         ),
+                        icon: const Icon(Icons.security_outlined),
+                        label: const Text('إعدادات الحساب'),
                       ),
-                      icon: const Icon(Icons.support_agent_rounded),
-                      label: const Text('الدعم والمساعدة'),
-                    ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const SettingsSupportScreen(),
+                          ),
+                        ),
+                        icon: const Icon(Icons.support_agent_rounded),
+                        label: const Text('الدعم والمساعدة'),
+                      ),
+                    ],
+                    const SizedBox(height: 80),
                   ],
-                  const SizedBox(height: 80),
-                ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }

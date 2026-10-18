@@ -414,554 +414,559 @@ class _RealEstateListingEditorScreenState
               : l10n.realEstateEditTitle,
         ),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: FormErrorBanner(message: _formError),
-          ),
-          Expanded(
-            child: Stepper(
-              type: StepperType.vertical,
-              currentStep: _currentStep,
-              onStepTapped: (value) => setState(() => _currentStep = value),
-              onStepContinue: () async {
-                if (_currentStep == 5) {
-                  await _submit();
-                  return;
-                }
-                if (_validateStep(_currentStep)) {
-                  setState(() => _currentStep += 1);
-                } else {
-                  await _focusFirstError();
-                }
-              },
-              onStepCancel: () {
-                if (_currentStep == 0) {
-                  Navigator.of(context).maybePop();
-                  return;
-                }
-                setState(() => _currentStep -= 1);
-              },
-              controlsBuilder: (context, details) {
-                return Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: _saving ? null : details.onStepContinue,
-                          child: Text(
-                            _currentStep == 5
-                                ? l10n.commonPublish
-                                : l10n.commonNext,
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+              child: FormErrorBanner(message: _formError),
+            ),
+            Expanded(
+              child: Stepper(
+                type: StepperType.vertical,
+                currentStep: _currentStep,
+                onStepTapped: (value) => setState(() => _currentStep = value),
+                onStepContinue: () async {
+                  if (_currentStep == 5) {
+                    await _submit();
+                    return;
+                  }
+                  if (_validateStep(_currentStep)) {
+                    setState(() => _currentStep += 1);
+                  } else {
+                    await _focusFirstError();
+                  }
+                },
+                onStepCancel: () {
+                  if (_currentStep == 0) {
+                    Navigator.of(context).maybePop();
+                    return;
+                  }
+                  setState(() => _currentStep -= 1);
+                },
+                controlsBuilder: (context, details) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: _saving ? null : details.onStepContinue,
+                            child: Text(
+                              _currentStep == 5
+                                  ? l10n.commonPublish
+                                  : l10n.commonNext,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: _saving ? null : details.onStepCancel,
-                          child: Text(
-                            _currentStep == 0
-                                ? l10n.commonCancel
-                                : l10n.commonBack,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-              steps: [
-                Step(
-                  title: Text(l10n.realEstateBasicStep),
-                  isActive: _currentStep >= 0,
-                  content: Column(
-                    children: [
-                      DropdownButtonFormField<String>(
-                        initialValue: _purpose,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstatePurposeLabel,
-                        ),
-                        items: [
-                          DropdownMenuItem(
-                            value: 'sale',
-                            child: Text(l10n.realEstateSale),
-                          ),
-                          DropdownMenuItem(
-                            value: 'rent',
-                            child: Text(l10n.realEstateRent),
-                          ),
-                        ],
-                        onChanged: (value) =>
-                            setState(() => _purpose = value ?? 'sale'),
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        field: 'title',
-                        controller: _titleCtrl,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateTitleLabel,
-                          hintText: l10n.realEstateTitlePlaceholder,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        field: 'areaSqm',
-                        controller: _areaCtrl,
-                        keyboardType: TextInputType.number,
-                        textDirection: TextDirection.ltr,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateAreaLabel,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        field: 'description',
-                        controller: _descriptionCtrl,
-                        minLines: 4,
-                        maxLines: 6,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateDescription,
-                          hintText: l10n.realEstateDescriptionPlaceholder,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Step(
-                  title: Text(l10n.realEstatePricingStep),
-                  isActive: _currentStep >= 1,
-                  content: Column(
-                    children: [
-                      buildTextField(
-                        field: 'price',
-                        controller: _priceCtrl,
-                        keyboardType: TextInputType.number,
-                        textDirection: TextDirection.ltr,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstatePriceLabel,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: _paymentMethod,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstatePaymentMethodLabel,
-                        ),
-                        items: [
-                          DropdownMenuItem(
-                            value: 'cash',
-                            child: Text(l10n.realEstateCash),
-                          ),
-                          DropdownMenuItem(
-                            value: 'installments',
-                            child: Text(l10n.realEstateInstallments),
-                          ),
-                          DropdownMenuItem(
-                            value: 'negotiable',
-                            child: Text(l10n.realEstateNegotiable),
-                          ),
-                        ],
-                        onChanged: (value) =>
-                            setState(() => _paymentMethod = value ?? 'cash'),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        initialValue: _bankSettlementMode,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateSettlementMode,
-                        ),
-                        items: [
-                          DropdownMenuItem(
-                            value: 'none',
-                            child: Text(l10n.realEstateSettlementNone),
-                          ),
-                          DropdownMenuItem(
-                            value: 'partial',
-                            child: Text(l10n.realEstateSettlementPartial),
-                          ),
-                          DropdownMenuItem(
-                            value: 'full',
-                            child: Text(l10n.realEstateSettlementFull),
-                          ),
-                        ],
-                        onChanged: (value) => setState(
-                          () => _bankSettlementMode = value ?? 'none',
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        field: 'bankSettlementAmount',
-                        controller: _bankAmountCtrl,
-                        keyboardType: TextInputType.number,
-                        textDirection: TextDirection.ltr,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateBankAmountLabel,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Step(
-                  title: Text(l10n.realEstateSpecsStep),
-                  isActive: _currentStep >= 2,
-                  content: Column(
-                    children: [
-                      SwitchListTile.adaptive(
-                        contentPadding: EdgeInsets.zero,
-                        value: _furnished,
-                        onChanged: (value) => setState(() {
-                          _furnished = value;
-                          _fieldErrors.remove('furnishingDescription');
-                          _formError = null;
-                        }),
-                        title: Text(l10n.realEstateFurnished),
-                      ),
-                      if (_furnished) ...[
-                        const SizedBox(height: 8),
-                        buildTextField(
-                          field: 'furnishingDescription',
-                          controller: _furnishingCtrl,
-                          minLines: 2,
-                          maxLines: 4,
-                          decoration: InputDecoration(
-                            labelText: l10n.realEstateFurnishingDescription,
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: _saving ? null : details.onStepCancel,
+                            child: Text(
+                              _currentStep == 0
+                                  ? l10n.commonCancel
+                                  : l10n.commonBack,
+                            ),
                           ),
                         ),
                       ],
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: buildTextField(
-                              field: 'roomsCount',
-                              controller: _roomsCtrl,
-                              keyboardType: TextInputType.number,
-                              textDirection: TextDirection.ltr,
-                              decoration: InputDecoration(
-                                labelText: l10n.realEstateRoomsLabel,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: buildTextField(
-                              field: 'bathroomsCount',
-                              controller: _bathroomsCtrl,
-                              keyboardType: TextInputType.number,
-                              textDirection: TextDirection.ltr,
-                              decoration: InputDecoration(
-                                labelText: l10n.realEstateBathroomsLabel,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        field: 'floorNumber',
-                        controller: _floorCtrl,
-                        keyboardType: TextInputType.number,
-                        textDirection: TextDirection.ltr,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateFloorLabel,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Step(
-                  title: Text(l10n.realEstateContactStep),
-                  isActive: _currentStep >= 3,
-                  content: Column(
-                    children: [
-                      buildTextField(
-                        field: 'phone',
-                        controller: _phoneCtrl,
-                        keyboardType: TextInputType.phone,
-                        textDirection: TextDirection.ltr,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstatePhone,
-                          hintText: l10n.realEstatePhonePlaceholder,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      buildTextField(
-                        field: 'city',
-                        controller: _cityCtrl,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateCity,
-                          hintText: l10n.realEstateCityPlaceholder,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        key: ValueKey<String>('block_${_blockCtrl.text}'),
-                        initialValue:
-                            realEstateBlocks.contains(_blockCtrl.text.trim())
-                            ? _blockCtrl.text.trim()
-                            : null,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateBlock,
-                          hintText: l10n.realEstateBlockPlaceholder,
-                        ),
-                        items: realEstateBlocks
-                            .map(
-                              (block) => DropdownMenuItem<String>(
-                                value: block,
-                                child: Text(block),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _blockCtrl.text = value ?? '';
-                            _buildingCtrl.clear();
-                            _apartmentCtrl.clear();
-                          });
-                          _clearFieldError('block');
-                        },
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        key: ValueKey<String>(
-                          'building_${_blockCtrl.text}_${_buildingCtrl.text}',
-                        ),
-                        initialValue:
-                            realEstateBuildingOptions(
-                              _blockCtrl.text,
-                              existing: _buildingCtrl.text,
-                            ).contains(_buildingCtrl.text.trim())
-                            ? _buildingCtrl.text.trim()
-                            : null,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateBuildingNumber,
-                          hintText: l10n.realEstateBuildingPlaceholder,
-                        ),
-                        items:
-                            realEstateBuildingOptions(
-                                  _blockCtrl.text,
-                                  existing: _buildingCtrl.text,
-                                )
-                                .map(
-                                  (building) => DropdownMenuItem<String>(
-                                    value: building,
-                                    child: Text(building),
-                                  ),
-                                )
-                                .toList(),
-                        onChanged: _blockCtrl.text.trim().isEmpty
-                            ? null
-                            : (value) => setState(
-                                () => _buildingCtrl.text = value ?? '',
-                              ),
-                      ),
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<String>(
-                        key: ValueKey<String>(
-                          'apartment_${_buildingCtrl.text}_${_apartmentCtrl.text}',
-                        ),
-                        initialValue:
-                            realEstateApartmentOptions(
-                              existing: _apartmentCtrl.text,
-                            ).contains(_apartmentCtrl.text.trim())
-                            ? _apartmentCtrl.text.trim()
-                            : null,
-                        decoration: InputDecoration(
-                          labelText: l10n.realEstateApartmentNumber,
-                          hintText: l10n.realEstateApartmentPlaceholder,
-                        ),
-                        items:
-                            realEstateApartmentOptions(
-                                  existing: _apartmentCtrl.text,
-                                )
-                                .map(
-                                  (apartment) => DropdownMenuItem<String>(
-                                    value: apartment,
-                                    child: Text(apartment),
-                                  ),
-                                )
-                                .toList(),
-                        onChanged: _buildingCtrl.text.trim().isEmpty
-                            ? null
-                            : (value) => setState(
-                                () => _apartmentCtrl.text = value ?? '',
-                              ),
-                      ),
-                    ],
-                  ),
-                ),
-                Step(
-                  title: Text(l10n.realEstateImagesStep),
-                  isActive: _currentStep >= 4,
-                  content: _scrollCoordinator.anchor(
-                    'images',
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    ),
+                  );
+                },
+                steps: [
+                  Step(
+                    title: Text(l10n.realEstateBasicStep),
+                    isActive: _currentStep >= 0,
+                    content: Column(
                       children: [
-                        Text(l10n.realEstateImagesHint),
-                        if (widget.existing != null &&
-                            widget.existing!.media.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            l10n.realEstateKeepCurrentImages,
-                            style: Theme.of(context).textTheme.bodySmall,
+                        DropdownButtonFormField<String>(
+                          initialValue: _purpose,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstatePurposeLabel,
+                          ),
+                          items: [
+                            DropdownMenuItem(
+                              value: 'sale',
+                              child: Text(l10n.realEstateSale),
+                            ),
+                            DropdownMenuItem(
+                              value: 'rent',
+                              child: Text(l10n.realEstateRent),
+                            ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _purpose = value ?? 'sale'),
+                        ),
+                        const SizedBox(height: 12),
+                        buildTextField(
+                          field: 'title',
+                          controller: _titleCtrl,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateTitleLabel,
+                            hintText: l10n.realEstateTitlePlaceholder,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        buildTextField(
+                          field: 'areaSqm',
+                          controller: _areaCtrl,
+                          keyboardType: TextInputType.number,
+                          textDirection: TextDirection.ltr,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateAreaLabel,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        buildTextField(
+                          field: 'description',
+                          controller: _descriptionCtrl,
+                          minLines: 4,
+                          maxLines: 6,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateDescription,
+                            hintText: l10n.realEstateDescriptionPlaceholder,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Step(
+                    title: Text(l10n.realEstatePricingStep),
+                    isActive: _currentStep >= 1,
+                    content: Column(
+                      children: [
+                        buildTextField(
+                          field: 'price',
+                          controller: _priceCtrl,
+                          keyboardType: TextInputType.number,
+                          textDirection: TextDirection.ltr,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstatePriceLabel,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: _paymentMethod,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstatePaymentMethodLabel,
+                          ),
+                          items: [
+                            DropdownMenuItem(
+                              value: 'cash',
+                              child: Text(l10n.realEstateCash),
+                            ),
+                            DropdownMenuItem(
+                              value: 'installments',
+                              child: Text(l10n.realEstateInstallments),
+                            ),
+                            DropdownMenuItem(
+                              value: 'negotiable',
+                              child: Text(l10n.realEstateNegotiable),
+                            ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _paymentMethod = value ?? 'cash'),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          initialValue: _bankSettlementMode,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateSettlementMode,
+                          ),
+                          items: [
+                            DropdownMenuItem(
+                              value: 'none',
+                              child: Text(l10n.realEstateSettlementNone),
+                            ),
+                            DropdownMenuItem(
+                              value: 'partial',
+                              child: Text(l10n.realEstateSettlementPartial),
+                            ),
+                            DropdownMenuItem(
+                              value: 'full',
+                              child: Text(l10n.realEstateSettlementFull),
+                            ),
+                          ],
+                          onChanged: (value) => setState(
+                            () => _bankSettlementMode = value ?? 'none',
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        buildTextField(
+                          field: 'bankSettlementAmount',
+                          controller: _bankAmountCtrl,
+                          keyboardType: TextInputType.number,
+                          textDirection: TextDirection.ltr,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateBankAmountLabel,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Step(
+                    title: Text(l10n.realEstateSpecsStep),
+                    isActive: _currentStep >= 2,
+                    content: Column(
+                      children: [
+                        SwitchListTile.adaptive(
+                          contentPadding: EdgeInsets.zero,
+                          value: _furnished,
+                          onChanged: (value) => setState(() {
+                            _furnished = value;
+                            _fieldErrors.remove('furnishingDescription');
+                            _formError = null;
+                          }),
+                          title: Text(l10n.realEstateFurnished),
+                        ),
+                        if (_furnished) ...[
+                          const SizedBox(height: 8),
+                          buildTextField(
+                            field: 'furnishingDescription',
+                            controller: _furnishingCtrl,
+                            minLines: 2,
+                            maxLines: 4,
+                            decoration: InputDecoration(
+                              labelText: l10n.realEstateFurnishingDescription,
+                            ),
                           ),
                         ],
                         const SizedBox(height: 12),
                         Row(
                           children: [
                             Expanded(
-                              child: OutlinedButton.icon(
-                                onPressed: _images.length >= 10
-                                    ? null
-                                    : _pickImages,
-                                icon: const Icon(Icons.photo_library_outlined),
-                                label: Text(l10n.realEstateAddImages),
+                              child: buildTextField(
+                                field: 'roomsCount',
+                                controller: _roomsCtrl,
+                                keyboardType: TextInputType.number,
+                                textDirection: TextDirection.ltr,
+                                decoration: InputDecoration(
+                                  labelText: l10n.realEstateRoomsLabel,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: buildTextField(
+                                field: 'bathroomsCount',
+                                controller: _bathroomsCtrl,
+                                keyboardType: TextInputType.number,
+                                textDirection: TextDirection.ltr,
+                                decoration: InputDecoration(
+                                  labelText: l10n.realEstateBathroomsLabel,
+                                ),
                               ),
                             ),
                           ],
                         ),
-                        if (_errorFor('images') != null) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            _errorFor('images')!,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                            ),
-                          ),
-                        ],
                         const SizedBox(height: 12),
-                        if (_images.isNotEmpty)
-                          SizedBox(
-                            height: 112,
-                            child: ReorderableListView.builder(
-                              scrollDirection: Axis.horizontal,
-                              buildDefaultDragHandles: false,
-                              itemCount: _images.length,
-                              onReorderItem: (oldIndex, newIndex) {
-                                // onReorderItem already adjusts newIndex for the
-                                // removed item, so no manual `newIndex -= 1`.
-                                setState(() {
-                                  final item = _images.removeAt(oldIndex);
-                                  _images.insert(newIndex, item);
-                                });
-                              },
-                              itemBuilder: (context, index) {
-                                final image = _images[index];
-                                return Padding(
-                                  key: ValueKey('${image.name}-$index'),
-                                  padding: const EdgeInsetsDirectional.only(
-                                    end: 12,
-                                  ),
-                                  child: Stack(
-                                    children: [
-                                      Container(
-                                        width: 110,
-                                        decoration: BoxDecoration(
-                                          borderRadius: BorderRadius.circular(
-                                            18,
-                                          ),
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.surfaceContainerHighest,
-                                        ),
-                                        clipBehavior: Clip.antiAlias,
-                                        child: image.hasBytes
-                                            ? Image.memory(
-                                                image.bytes!,
-                                                fit: BoxFit.cover,
-                                              )
-                                            : const SizedBox.shrink(),
-                                      ),
-                                      PositionedDirectional(
-                                        top: 4,
-                                        end: 4,
-                                        child: IconButton.filledTonal(
-                                          onPressed: () => setState(() {
-                                            _images.removeAt(index);
-                                            _fieldErrors.remove('images');
-                                            _formError = null;
-                                          }),
-                                          icon: const Icon(
-                                            Icons.close_rounded,
-                                            size: 18,
-                                          ),
-                                        ),
-                                      ),
-                                      PositionedDirectional(
-                                        bottom: 6,
-                                        end: 6,
-                                        child: ReorderableDragStartListener(
-                                          index: index,
-                                          child: const CircleAvatar(
-                                            radius: 16,
-                                            child: Icon(
-                                              Icons.drag_handle_rounded,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
+                        buildTextField(
+                          field: 'floorNumber',
+                          controller: _floorCtrl,
+                          keyboardType: TextInputType.number,
+                          textDirection: TextDirection.ltr,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateFloorLabel,
                           ),
+                        ),
                       ],
                     ),
                   ),
-                ),
-                Step(
-                  title: Text(l10n.realEstatePreviewStep),
-                  isActive: _currentStep >= 5,
-                  content: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(l10n.realEstatePreviewSubtitle),
-                      const SizedBox(height: 12),
-                      RealEstateListingCard(
-                        listing: _previewListing(),
-                        compact: true,
-                      ),
-                      const SizedBox(height: 12),
-                      _PreviewRow(
-                        label: l10n.realEstatePrice,
-                        value: formatIqd(
-                          _parseDoubleOrNull(_priceCtrl.text) ?? 0,
+                  Step(
+                    title: Text(l10n.realEstateContactStep),
+                    isActive: _currentStep >= 3,
+                    content: Column(
+                      children: [
+                        buildTextField(
+                          field: 'phone',
+                          controller: _phoneCtrl,
+                          keyboardType: TextInputType.phone,
+                          textDirection: TextDirection.ltr,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstatePhone,
+                            hintText: l10n.realEstatePhonePlaceholder,
+                          ),
                         ),
-                      ),
-                      _PreviewRow(
-                        label: l10n.realEstatePaymentMethod,
-                        value: paymentMethodLabel(context, _paymentMethod),
-                      ),
-                      _PreviewRow(
-                        label: l10n.realEstateSettlementMode,
-                        value: settlementModeLabel(
-                          context,
-                          _bankSettlementMode,
+                        const SizedBox(height: 12),
+                        buildTextField(
+                          field: 'city',
+                          controller: _cityCtrl,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateCity,
+                            hintText: l10n.realEstateCityPlaceholder,
+                          ),
                         ),
-                      ),
-                      _PreviewRow(
-                        label: l10n.realEstateLocation,
-                        value: [
-                          if (_cityCtrl.text.trim().isNotEmpty)
-                            _cityCtrl.text.trim(),
-                          if (_blockCtrl.text.trim().isNotEmpty)
-                            _blockCtrl.text.trim(),
-                          if (_buildingCtrl.text.trim().isNotEmpty)
-                            _buildingCtrl.text.trim(),
-                        ].join(' • '),
-                      ),
-                    ],
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey<String>('block_${_blockCtrl.text}'),
+                          initialValue:
+                              realEstateBlocks.contains(_blockCtrl.text.trim())
+                              ? _blockCtrl.text.trim()
+                              : null,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateBlock,
+                            hintText: l10n.realEstateBlockPlaceholder,
+                          ),
+                          items: realEstateBlocks
+                              .map(
+                                (block) => DropdownMenuItem<String>(
+                                  value: block,
+                                  child: Text(block),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (value) {
+                            setState(() {
+                              _blockCtrl.text = value ?? '';
+                              _buildingCtrl.clear();
+                              _apartmentCtrl.clear();
+                            });
+                            _clearFieldError('block');
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey<String>(
+                            'building_${_blockCtrl.text}_${_buildingCtrl.text}',
+                          ),
+                          initialValue:
+                              realEstateBuildingOptions(
+                                _blockCtrl.text,
+                                existing: _buildingCtrl.text,
+                              ).contains(_buildingCtrl.text.trim())
+                              ? _buildingCtrl.text.trim()
+                              : null,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateBuildingNumber,
+                            hintText: l10n.realEstateBuildingPlaceholder,
+                          ),
+                          items:
+                              realEstateBuildingOptions(
+                                    _blockCtrl.text,
+                                    existing: _buildingCtrl.text,
+                                  )
+                                  .map(
+                                    (building) => DropdownMenuItem<String>(
+                                      value: building,
+                                      child: Text(building),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: _blockCtrl.text.trim().isEmpty
+                              ? null
+                              : (value) => setState(
+                                  () => _buildingCtrl.text = value ?? '',
+                                ),
+                        ),
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<String>(
+                          key: ValueKey<String>(
+                            'apartment_${_buildingCtrl.text}_${_apartmentCtrl.text}',
+                          ),
+                          initialValue:
+                              realEstateApartmentOptions(
+                                existing: _apartmentCtrl.text,
+                              ).contains(_apartmentCtrl.text.trim())
+                              ? _apartmentCtrl.text.trim()
+                              : null,
+                          decoration: InputDecoration(
+                            labelText: l10n.realEstateApartmentNumber,
+                            hintText: l10n.realEstateApartmentPlaceholder,
+                          ),
+                          items:
+                              realEstateApartmentOptions(
+                                    existing: _apartmentCtrl.text,
+                                  )
+                                  .map(
+                                    (apartment) => DropdownMenuItem<String>(
+                                      value: apartment,
+                                      child: Text(apartment),
+                                    ),
+                                  )
+                                  .toList(),
+                          onChanged: _buildingCtrl.text.trim().isEmpty
+                              ? null
+                              : (value) => setState(
+                                  () => _apartmentCtrl.text = value ?? '',
+                                ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  Step(
+                    title: Text(l10n.realEstateImagesStep),
+                    isActive: _currentStep >= 4,
+                    content: _scrollCoordinator.anchor(
+                      'images',
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(l10n.realEstateImagesHint),
+                          if (widget.existing != null &&
+                              widget.existing!.media.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              l10n.realEstateKeepCurrentImages,
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton.icon(
+                                  onPressed: _images.length >= 10
+                                      ? null
+                                      : _pickImages,
+                                  icon: const Icon(
+                                    Icons.photo_library_outlined,
+                                  ),
+                                  label: Text(l10n.realEstateAddImages),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (_errorFor('images') != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              _errorFor('images')!,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: 12),
+                          if (_images.isNotEmpty)
+                            SizedBox(
+                              height: 112,
+                              child: ReorderableListView.builder(
+                                scrollDirection: Axis.horizontal,
+                                buildDefaultDragHandles: false,
+                                itemCount: _images.length,
+                                onReorderItem: (oldIndex, newIndex) {
+                                  // onReorderItem already adjusts newIndex for the
+                                  // removed item, so no manual `newIndex -= 1`.
+                                  setState(() {
+                                    final item = _images.removeAt(oldIndex);
+                                    _images.insert(newIndex, item);
+                                  });
+                                },
+                                itemBuilder: (context, index) {
+                                  final image = _images[index];
+                                  return Padding(
+                                    key: ValueKey('${image.name}-$index'),
+                                    padding: const EdgeInsetsDirectional.only(
+                                      end: 12,
+                                    ),
+                                    child: Stack(
+                                      children: [
+                                        Container(
+                                          width: 110,
+                                          decoration: BoxDecoration(
+                                            borderRadius: BorderRadius.circular(
+                                              18,
+                                            ),
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .surfaceContainerHighest,
+                                          ),
+                                          clipBehavior: Clip.antiAlias,
+                                          child: image.hasBytes
+                                              ? Image.memory(
+                                                  image.bytes!,
+                                                  fit: BoxFit.cover,
+                                                )
+                                              : const SizedBox.shrink(),
+                                        ),
+                                        PositionedDirectional(
+                                          top: 4,
+                                          end: 4,
+                                          child: IconButton.filledTonal(
+                                            onPressed: () => setState(() {
+                                              _images.removeAt(index);
+                                              _fieldErrors.remove('images');
+                                              _formError = null;
+                                            }),
+                                            icon: const Icon(
+                                              Icons.close_rounded,
+                                              size: 18,
+                                            ),
+                                          ),
+                                        ),
+                                        PositionedDirectional(
+                                          bottom: 6,
+                                          end: 6,
+                                          child: ReorderableDragStartListener(
+                                            index: index,
+                                            child: const CircleAvatar(
+                                              radius: 16,
+                                              child: Icon(
+                                                Icons.drag_handle_rounded,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Step(
+                    title: Text(l10n.realEstatePreviewStep),
+                    isActive: _currentStep >= 5,
+                    content: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(l10n.realEstatePreviewSubtitle),
+                        const SizedBox(height: 12),
+                        RealEstateListingCard(
+                          listing: _previewListing(),
+                          compact: true,
+                        ),
+                        const SizedBox(height: 12),
+                        _PreviewRow(
+                          label: l10n.realEstatePrice,
+                          value: formatIqd(
+                            _parseDoubleOrNull(_priceCtrl.text) ?? 0,
+                          ),
+                        ),
+                        _PreviewRow(
+                          label: l10n.realEstatePaymentMethod,
+                          value: paymentMethodLabel(context, _paymentMethod),
+                        ),
+                        _PreviewRow(
+                          label: l10n.realEstateSettlementMode,
+                          value: settlementModeLabel(
+                            context,
+                            _bankSettlementMode,
+                          ),
+                        ),
+                        _PreviewRow(
+                          label: l10n.realEstateLocation,
+                          value: [
+                            if (_cityCtrl.text.trim().isNotEmpty)
+                              _cityCtrl.text.trim(),
+                            if (_blockCtrl.text.trim().isNotEmpty)
+                              _blockCtrl.text.trim(),
+                            if (_buildingCtrl.text.trim().isNotEmpty)
+                              _buildingCtrl.text.trim(),
+                          ].join(' • '),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

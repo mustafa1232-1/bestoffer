@@ -16,7 +16,9 @@ import '../orders/state/cart_controller.dart';
 import '../orders/state/orders_controller.dart';
 import 'chat/mimo_chat_api.dart';
 import 'chat/mimo_chat_controller.dart';
+import 'brain/mimo_offline_brain.dart';
 import 'chat/mimo_chat_sheet.dart';
+import 'guide/mimo_target.dart';
 import 'mimo_character.dart';
 import 'mimo_navigation.dart';
 import 'mimo_perch.dart';
@@ -45,6 +47,9 @@ enum MimoMode {
 
   /// Waving goodbye after being switched off.
   leaving,
+
+  /// Walking the user through the app (guided tour).
+  guiding,
 }
 
 /// Lives above [child] (the customer shell) and hosts Mimo: he sits on
@@ -80,7 +85,8 @@ class _Seat {
 
 @visibleForTesting
 class MimoOverlayState extends ConsumerState<MimoOverlay>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin
+    implements MimoGuideHost {
   static const _w = MimoOverlay.width;
   static const _h = MimoOverlay.height;
 
@@ -166,6 +172,7 @@ class MimoOverlayState extends ConsumerState<MimoOverlay>
   @override
   void initState() {
     super.initState();
+    MimoGuide.host = this;
     _ticker = createTicker(_onTick);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -182,6 +189,8 @@ class MimoOverlayState extends ConsumerState<MimoOverlay>
 
   @override
   void dispose() {
+    if (MimoGuide.host == this) MimoGuide.host = null;
+    _guideArrived?.complete();
     for (final t in _timers) {
       t.cancel();
     }
@@ -682,6 +691,20 @@ class MimoOverlayState extends ConsumerState<MimoOverlay>
           }
           return;
         }
+      case MimoMode.guiding:
+        if (_guideT < 1) {
+          _guideT = math.min(1, _guideT + dt / _guideSeconds);
+          final e = Curves.easeOutCubic.transform(_guideT);
+          final arc = math.sin(_guideT * math.pi) * 28;
+          _pos = Offset.lerp(_guideFrom, _guideTo, e)! - Offset(0, arc);
+          _angle += (-_angle) * math.min(1, dt * 10);
+          if (_guideT >= 1) {
+            _squash = _animate ? 0.6 : 0;
+            final done = _guideArrived;
+            _guideArrived = null;
+            done?.complete();
+          }
+        }
       case MimoMode.dragging:
         _tickDrag(dt);
       case MimoMode.falling:
@@ -873,6 +896,229 @@ class MimoOverlayState extends ConsumerState<MimoOverlay>
       return;
     }
     _react(MimoMood.yummy, null, seconds: 1);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Guided tour: Mimo walks to a section, taps it, scrolls to a store, reads
+  // its name and opens it — all from the app's own screens, no AI.
+  // ---------------------------------------------------------------------------
+
+  bool _touring = false;
+  Offset _guideFrom = Offset.zero;
+  Offset _guideTo = Offset.zero;
+  double _guideT = 1;
+  Completer<void>? _guideArrived;
+  Offset? _ripple;
+  int _rippleId = 0;
+
+  /// Fast on purpose: the whole tour should feel instant.
+  double get _guideSeconds => 0.3;
+
+  @visibleForTesting
+  bool get touring => _touring;
+
+  Rect get _screen {
+    final box = _overlayBox;
+    if (box == null) return Rect.zero;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
+  bool _comfortablyVisible(Rect r) {
+    final s = _screen;
+    final top = s.top + _pad.top + 8;
+    final bottom = s.bottom - _pad.bottom - 70;
+    return r.height > 0 && r.top >= top - 1 && r.bottom <= bottom + 1;
+  }
+
+  @override
+  Future<bool> runTour(List<MimoTourStep> steps) async {
+    if (_touring || !mounted) return false;
+    final settings = ref.read(appSettingsControllerProvider);
+    if (!settings.mimoEnabled ||
+        _mode == MimoMode.off ||
+        _mode == MimoMode.leaving ||
+        _mode == MimoMode.dragging) {
+      return false;
+    }
+    _touring = true;
+    _touch();
+    var ok = false;
+    try {
+      for (var i = 0; i < steps.length; i++) {
+        final step = steps[i];
+        if (step.say != null) {
+          _react(MimoMood.happy, step.say, seconds: 1.4);
+        }
+        final target = await _seek(step.targetId);
+        if (target == null || !mounted || _mode == MimoMode.dragging) {
+          return false;
+        }
+        await _walkTo(target);
+        if (!mounted || !target.mounted) return false;
+        final expected = step.expectName;
+        if (expected != null) {
+          final label = target.label ?? '';
+          if (!mimoSameName(label, expected)) {
+            _react(
+              MimoMood.shocked,
+              context.lt(
+                ar: 'مو هذا! هذا «$label» مو «$expected»',
+                en: "That's «$label», not «$expected»",
+              ),
+              seconds: 2,
+            );
+            return false;
+          }
+          _react(
+            MimoMood.happy,
+            context.lt(ar: 'إي هذا «$label» ✅', en: "Yes, that's «$label» ✅"),
+            seconds: 0.9,
+          );
+          await Future<void>.delayed(
+            Duration(milliseconds: _animate ? 220 : 0),
+          );
+          if (!mounted || !target.mounted) return false;
+        }
+        await _pressOn(target);
+        if (!mounted || !target.mounted) return false;
+        target.tap();
+        // Let the next screen start building.
+        await Future<void>.delayed(Duration(milliseconds: _animate ? 240 : 16));
+      }
+      if (!mounted) return false;
+      ok = true;
+      _react(
+        MimoMood.dancing,
+        context.lt(ar: 'وصلنا! 🎉', en: "We're here! 🎉"),
+        seconds: 1.4,
+      );
+      return true;
+    } finally {
+      _touring = false;
+      _after(Duration(milliseconds: ok ? 1300 : 600), () {
+        if (mounted && _mode == MimoMode.guiding) _goHome();
+      });
+    }
+  }
+
+  /// Finds the target, scrolling its list down when it isn't on screen yet.
+  Future<MimoTargetState?> _seek(String id) async {
+    // Budget counted from our own waits (works with paused/fake clocks too).
+    var spentMs = 0;
+    const budgetMs = 6000;
+    final prefix = '${id.split(':').first}:';
+    var said = false;
+    var waited = 0;
+    while (mounted && spentMs < budgetMs) {
+      final t = MimoTargets.find(id, screen: _screen);
+      final rect = t?.globalRect;
+      if (t != null && rect != null) {
+        if (_comfortablyVisible(rect)) return t;
+        // Built but off-screen: bring it into view.
+        final targetContext = t.context;
+        if (!targetContext.mounted) continue;
+        await Scrollable.ensureVisible(
+          targetContext,
+          alignment: 0.35,
+          duration: Duration(milliseconds: _animate ? 320 : 0),
+          curve: Curves.easeOutCubic,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        spentMs += 360;
+        final again = t.globalRect;
+        if (again != null && t.mounted) return t;
+        continue;
+      }
+      // Not built yet: scroll the list its siblings live in.
+      final sibling = MimoTargets.anyWithPrefix(prefix);
+      final siblingContext = sibling?.context;
+      final scrollable = siblingContext == null || !siblingContext.mounted
+          ? null
+          : Scrollable.maybeOf(siblingContext);
+      final position = scrollable?.position;
+      if (position != null &&
+          waited >= 300 &&
+          position.hasContentDimensions &&
+          position.pixels < position.maxScrollExtent - 1) {
+        if (!said && mounted) {
+          said = true;
+          _react(
+            MimoMood.curious,
+            context.lt(ar: 'لحظة أدوره… ⬇️', en: 'Looking for it… ⬇️'),
+            seconds: 1.2,
+          );
+        }
+        final next = math.min(
+          position.maxScrollExtent,
+          position.pixels + position.viewportDimension * 0.8,
+        );
+        if (_animate) {
+          await position.animateTo(
+            next,
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeInOut,
+          );
+        } else {
+          position.jumpTo(next);
+        }
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        spentMs += 290;
+        continue;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      waited += 60;
+      spentMs += 60;
+    }
+    return null;
+  }
+
+  /// Hops to just above [target] (fast).
+  Future<void> _walkTo(MimoTargetState target) async {
+    final box = _overlayBox;
+    final rect = target.globalRect;
+    if (box == null || rect == null) return;
+    final local = box.globalToLocal(rect.topCenter);
+    final size = _size;
+    final dest = Offset(
+      (local.dx - _w / 2).clamp(4.0, size.width - _w - 4),
+      (local.dy - _h * 0.72).clamp(_pad.top, size.height - _h - _pad.bottom),
+    );
+    _guideArrived?.complete();
+    final arrived = Completer<void>();
+    setState(() {
+      _seat = null;
+      _guideFrom = _pos;
+      _guideTo = dest;
+      _guideT = _animate ? 0 : 1;
+      _mode = MimoMode.guiding;
+      _moodOverride ??= MimoMood.happy;
+      if (!_animate) _pos = dest;
+    });
+    if (!_animate) return;
+    _guideArrived = arrived;
+    if (!_ticker.isActive) _ticker.start();
+    await arrived.future.timeout(
+      const Duration(milliseconds: 900),
+      onTimeout: () {},
+    );
+  }
+
+  /// Presses the target: a little squash, a ripple and a haptic tick.
+  Future<void> _pressOn(MimoTargetState target) async {
+    final box = _overlayBox;
+    final rect = target.globalRect;
+    HapticFeedback.selectionClick();
+    if (box != null && rect != null) {
+      setState(() {
+        _ripple = box.globalToLocal(rect.center);
+        _rippleId++;
+        _squash = _animate ? 1 : 0;
+      });
+    }
+    await Future<void>.delayed(Duration(milliseconds: _animate ? 170 : 0));
+    _after(const Duration(milliseconds: 420), () {
+      if (mounted) setState(() => _ripple = null);
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1080,6 +1326,19 @@ class MimoOverlayState extends ConsumerState<MimoOverlay>
               ),
             ),
           ),
+        if (_ripple != null)
+          Positioned(
+            left: _ripple!.dx - 28,
+            top: _ripple!.dy - 28,
+            width: 56,
+            height: 56,
+            child: IgnorePointer(
+              child: _TapRipple(
+                key: ValueKey(_rippleId),
+                animate: settings.animationsEnabled,
+              ),
+            ),
+          ),
         if (showMimo && _bubble != null)
           _BubbleAnchor(
             anchor: Offset(_pos.dx + _w / 2, _pos.dy - 4),
@@ -1093,6 +1352,35 @@ class MimoOverlayState extends ConsumerState<MimoOverlay>
             ),
           ),
       ],
+    );
+  }
+}
+
+/// The ring Mimo leaves where he "taps".
+class _TapRipple extends StatelessWidget {
+  const _TapRipple({super.key, required this.animate});
+
+  final bool animate;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: animate ? 0 : 1, end: 1),
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, _) => Opacity(
+        opacity: (1 - t).clamp(0.0, 1.0),
+        child: Transform.scale(
+          scale: 0.4 + 0.8 * t,
+          child: Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0x332F5E46),
+              border: Border.all(color: const Color(0xFF2F5E46), width: 3),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

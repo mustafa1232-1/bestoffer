@@ -58,133 +58,139 @@ class _CompanyLoginScreenState extends ConsumerState<CompanyLoginScreen> {
     final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      body: AppBackdrop(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 460),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(28),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Align(
-                          alignment: AlignmentDirectional.centerEnd,
-                          child: PopupMenuButton<String>(
-                            tooltip: l10n.commonLanguage,
-                            icon: const Icon(Icons.translate_rounded),
-                            onSelected: (code) {
-                              ref
-                                  .read(appSettingsControllerProvider.notifier)
-                                  .setLocale(Locale(code));
-                            },
-                            itemBuilder: (menuContext) => [
-                              PopupMenuItem(
-                                value: 'ar',
-                                child: Text(menuContext.l10n.commonArabic),
-                              ),
-                              PopupMenuItem(
-                                value: 'en',
-                                child: Text(menuContext.l10n.commonEnglish),
+      body: SafeArea(
+        child: AppBackdrop(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(28),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Align(
+                            alignment: AlignmentDirectional.centerEnd,
+                            child: PopupMenuButton<String>(
+                              tooltip: l10n.commonLanguage,
+                              icon: const Icon(Icons.translate_rounded),
+                              onSelected: (code) {
+                                ref
+                                    .read(
+                                      appSettingsControllerProvider.notifier,
+                                    )
+                                    .setLocale(Locale(code));
+                              },
+                              itemBuilder: (menuContext) => [
+                                PopupMenuItem(
+                                  value: 'ar',
+                                  child: Text(menuContext.l10n.commonArabic),
+                                ),
+                                PopupMenuItem(
+                                  value: 'en',
+                                  child: Text(menuContext.l10n.commonEnglish),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Row(
+                            children: [
+                              MaslakiBrandMark(size: 54, borderRadius: 16),
+                              SizedBox(width: 14),
+                              Expanded(
+                                child: MaslakiWordmark(
+                                  arabicSize: 24,
+                                  latinSize: 10,
+                                  latinLetterSpacing: 3.8,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Row(
-                          children: [
-                            MaslakiBrandMark(size: 54, borderRadius: 16),
-                            SizedBox(width: 14),
-                            Expanded(
-                              child: MaslakiWordmark(
-                                arabicSize: 24,
-                                latinSize: 10,
-                                latinLetterSpacing: 3.8,
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          const SizedBox(height: 18),
+                          Text(
+                            l10n.companyPortalTitle,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            l10n.companyLoginIntro,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 24),
+                          TextFormField(
+                            controller: _phoneController,
+                            keyboardType: TextInputType.phone,
+                            decoration: InputDecoration(
+                              labelText: l10n.authPhoneLabel,
+                              prefixIcon: const Icon(
+                                Icons.phone_android_rounded,
                               ),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        Text(
-                          l10n.companyPortalTitle,
-                          style: Theme.of(context).textTheme.headlineSmall
-                              ?.copyWith(fontWeight: FontWeight.w900),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          l10n.companyLoginIntro,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 24),
-                        TextFormField(
-                          controller: _phoneController,
-                          keyboardType: TextInputType.phone,
-                          decoration: InputDecoration(
-                            labelText: l10n.authPhoneLabel,
-                            prefixIcon: const Icon(Icons.phone_android_rounded),
+                            validator: (value) {
+                              if ((value ?? '').trim().isEmpty) {
+                                return l10n.authPhoneRequired;
+                              }
+                              return null;
+                            },
                           ),
-                          validator: (value) {
-                            if ((value ?? '').trim().isEmpty) {
-                              return l10n.authPhoneRequired;
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 14),
-                        TextFormField(
-                          controller: _pinController,
-                          keyboardType: TextInputType.number,
-                          obscureText: true,
-                          decoration: InputDecoration(
-                            labelText: l10n.authPinLabel,
-                            prefixIcon: const Icon(Icons.lock_rounded),
-                          ),
-                          validator: (value) {
-                            if ((value ?? '').trim().length < 4) {
-                              return l10n.authPinInvalidFormat;
-                            }
-                            return null;
-                          },
-                          onFieldSubmitted: (_) => _submit(),
-                        ),
-                        if (auth.error?.isNotEmpty == true) ...[
                           const SizedBox(height: 14),
+                          TextFormField(
+                            controller: _pinController,
+                            keyboardType: TextInputType.number,
+                            obscureText: true,
+                            decoration: InputDecoration(
+                              labelText: l10n.authPinLabel,
+                              prefixIcon: const Icon(Icons.lock_rounded),
+                            ),
+                            validator: (value) {
+                              if ((value ?? '').trim().length < 4) {
+                                return l10n.authPinInvalidFormat;
+                              }
+                              return null;
+                            },
+                            onFieldSubmitted: (_) => _submit(),
+                          ),
+                          if (auth.error?.isNotEmpty == true) ...[
+                            const SizedBox(height: 14),
+                            Text(
+                              auth.error!,
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(color: scheme.error),
+                            ),
+                          ],
+                          const SizedBox(height: 22),
+                          FilledButton.icon(
+                            onPressed: auth.loading ? null : _submit,
+                            icon: auth.loading
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.login_rounded),
+                            label: Text(
+                              auth.loading
+                                  ? l10n.companyLoginSigningIn
+                                  : l10n.companyLoginSubmit,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           Text(
-                            auth.error!,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(color: scheme.error),
+                            l10n.companyLoginAccessHint,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
-                        const SizedBox(height: 22),
-                        FilledButton.icon(
-                          onPressed: auth.loading ? null : _submit,
-                          icon: auth.loading
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.login_rounded),
-                          label: Text(
-                            auth.loading
-                                ? l10n.companyLoginSigningIn
-                                : l10n.companyLoginSubmit,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          l10n.companyLoginAccessHint,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),

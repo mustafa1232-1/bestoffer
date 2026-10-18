@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
@@ -451,7 +453,7 @@ class _PharmacyConversationScreenState
     final conversationId = _conversationId;
     if (conversationId == null) return;
     final ownerState = ref.read(ownerControllerProvider);
-    final result = await showModalBottomSheet<_CartComposerResult>(
+    final result = await showMaslakiBottomSheet<_CartComposerResult>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _PharmacyCartComposerSheet(
@@ -1102,7 +1104,7 @@ class _PharmacyConversationsHubScreenState
           ),
         ],
       ),
-      body: Column(
+      body: SafeArea(top: false, child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
@@ -1209,7 +1211,7 @@ class _PharmacyConversationsHubScreenState
                       ),
           ),
         ],
-      ),
+      )),
     );
   }
 }

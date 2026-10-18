@@ -62,132 +62,135 @@ class SettingsScreen extends ConsumerWidget {
           if (canPop && showUserDrawer) const MaslakiUserDrawerButton(),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          _SettingsHeader(phone: auth.isAuthed ? auth.user?.phone : null),
-          const SizedBox(height: 8),
-          _SettingsQuickActions(
-            canActivity: permissions.can(AppCapability.customerActivity),
-            onOpenLanguage: () => open(const SettingsLanguageScreen()),
-            onOpenAppearance: () => open(const SettingsAppearanceScreen()),
-            onOpenAccount: () => open(const SettingsAccountScreen()),
-            onOpenSupport: () => open(const SettingsSupportScreen()),
-            onOpenActivity: () => open(const SettingsActivityScreen()),
-            onOpenGuide: () => open(const SettingsUsageGuideScreen()),
-            onOpenCache: () => open(const SettingsCacheScreen()),
-            cacheLabel: isArabic ? 'الملفات المؤقتة' : 'Cached media',
-            cacheSubtitle: isArabic
-                ? 'حجم الوسائط المخزنة ومسح الكاش'
-                : 'Cached size and clear controls',
-          ),
-          const SizedBox(height: 8),
-          MaslakiCard(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    l10n.commonLanguage,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(l10n.settingsLanguageHint),
-                  const SizedBox(height: 10),
-                  SegmentedButton<String>(
-                    segments: [
-                      ButtonSegment<String>(
-                        value: 'ar',
-                        label: Text(l10n.commonArabic),
-                        icon: const Icon(Icons.translate),
-                      ),
-                      ButtonSegment<String>(
-                        value: 'en',
-                        label: Text(l10n.commonEnglish),
-                        icon: const Icon(Icons.language_rounded),
-                      ),
-                    ],
-                    selected: {settings.locale.languageCode},
-                    onSelectionChanged: (selection) {
-                      final code = selection.first;
-                      ref
-                          .read(appSettingsControllerProvider.notifier)
-                          .setLocale(Locale(code));
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton.icon(
-                      onPressed: () => open(const SettingsLanguageScreen()),
-                      icon: const Icon(Icons.tune_rounded),
-                      label: Text(l10n.settingsMoreLanguageOptions),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            _SettingsHeader(phone: auth.isAuthed ? auth.user?.phone : null),
+            const SizedBox(height: 8),
+            _SettingsQuickActions(
+              canActivity: permissions.can(AppCapability.customerActivity),
+              onOpenLanguage: () => open(const SettingsLanguageScreen()),
+              onOpenAppearance: () => open(const SettingsAppearanceScreen()),
+              onOpenAccount: () => open(const SettingsAccountScreen()),
+              onOpenSupport: () => open(const SettingsSupportScreen()),
+              onOpenActivity: () => open(const SettingsActivityScreen()),
+              onOpenGuide: () => open(const SettingsUsageGuideScreen()),
+              onOpenCache: () => open(const SettingsCacheScreen()),
+              cacheLabel: isArabic ? 'الملفات المؤقتة' : 'Cached media',
+              cacheSubtitle: isArabic
+                  ? 'حجم الوسائط المخزنة ومسح الكاش'
+                  : 'Cached size and clear controls',
+            ),
+            const SizedBox(height: 8),
+            MaslakiCard(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      l10n.commonLanguage,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 4),
+                    Text(l10n.settingsLanguageHint),
+                    const SizedBox(height: 10),
+                    SegmentedButton<String>(
+                      segments: [
+                        ButtonSegment<String>(
+                          value: 'ar',
+                          label: Text(l10n.commonArabic),
+                          icon: const Icon(Icons.translate),
+                        ),
+                        ButtonSegment<String>(
+                          value: 'en',
+                          label: Text(l10n.commonEnglish),
+                          icon: const Icon(Icons.language_rounded),
+                        ),
+                      ],
+                      selected: {settings.locale.languageCode},
+                      onSelectionChanged: (selection) {
+                        final code = selection.first;
+                        ref
+                            .read(appSettingsControllerProvider.notifier)
+                            .setLocale(Locale(code));
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton.icon(
+                        onPressed: () => open(const SettingsLanguageScreen()),
+                        icon: const Icon(Icons.tune_rounded),
+                        label: Text(l10n.settingsMoreLanguageOptions),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          _SettingsSectionCard(
-            icon: Icons.menu_book_rounded,
-            title: l10n.settingsGuide,
-            subtitle: l10n.settingsInterfaceTutorials,
-            onTap: () => open(const SettingsUsageGuideScreen()),
-          ),
-          _SettingsSectionCard(
-            icon: Icons.palette_outlined,
-            title: l10n.settingsAppearance,
-            subtitle: l10n.settingsAppearanceHint,
-            onTap: () => open(const SettingsAppearanceScreen()),
-          ),
-          _SettingsSectionCard(
-            icon: Icons.security_outlined,
-            title: l10n.settingsAccountSecurity,
-            subtitle: auth.isAuthed
-                ? l10n.settingsAccountSecurityHintAuthed
-                : l10n.settingsLoginRequiredAccount,
-            onTap: () => open(const SettingsAccountScreen()),
-          ),
-          if (permissions.can(AppCapability.customerActivity))
             _SettingsSectionCard(
-              icon: Icons.history_rounded,
-              title: l10n.settingsMyActivityLog,
-              subtitle: l10n.settingsLatestEvents,
-              onTap: () => open(const SettingsActivityScreen()),
+              icon: Icons.menu_book_rounded,
+              title: l10n.settingsGuide,
+              subtitle: l10n.settingsInterfaceTutorials,
+              onTap: () => open(const SettingsUsageGuideScreen()),
             ),
-          _SettingsSectionCard(
-            icon: Icons.support_agent_rounded,
-            title: l10n.settingsSupportAndSystem,
-            subtitle: l10n.settingsSupportAndSystemHint,
-            onTap: () => open(const SettingsSupportScreen()),
-          ),
-          _SettingsSectionCard(
-            icon: Icons.photo_library_outlined,
-            title: isArabic ? 'الملفات المؤقتة' : 'Cached media',
-            subtitle: isArabic
-                ? 'عرض حجم الكاش ومسحه'
-                : 'View cache usage and clear it',
-            onTap: () => open(const SettingsCacheScreen()),
-          ),
-          _SettingsSectionCard(
-            icon: Icons.privacy_tip_outlined,
-            title: l10n.settingsPrivacyPolicy,
-            subtitle: l10n.settingsPrivacyPolicyHint,
-            onTap: () => open(const PrivacyPolicyScreen()),
-          ),
-          _SettingsSectionCard(
-            icon: Icons.gavel_rounded,
-            title: context.lt(ar: 'شروط الاستخدام', en: 'Terms of Use'),
-            subtitle: context.lt(
-              ar: 'الشروط العامة لاستخدام التطبيق والخدمة',
-              en: 'General terms for using the app and service',
+            _SettingsSectionCard(
+              icon: Icons.palette_outlined,
+              title: l10n.settingsAppearance,
+              subtitle: l10n.settingsAppearanceHint,
+              onTap: () => open(const SettingsAppearanceScreen()),
             ),
-            onTap: () => open(const TermsOfUseScreen()),
-          ),
-          const SizedBox(height: 8),
-          const _SettingsAboutFooter(),
-        ],
+            _SettingsSectionCard(
+              icon: Icons.security_outlined,
+              title: l10n.settingsAccountSecurity,
+              subtitle: auth.isAuthed
+                  ? l10n.settingsAccountSecurityHintAuthed
+                  : l10n.settingsLoginRequiredAccount,
+              onTap: () => open(const SettingsAccountScreen()),
+            ),
+            if (permissions.can(AppCapability.customerActivity))
+              _SettingsSectionCard(
+                icon: Icons.history_rounded,
+                title: l10n.settingsMyActivityLog,
+                subtitle: l10n.settingsLatestEvents,
+                onTap: () => open(const SettingsActivityScreen()),
+              ),
+            _SettingsSectionCard(
+              icon: Icons.support_agent_rounded,
+              title: l10n.settingsSupportAndSystem,
+              subtitle: l10n.settingsSupportAndSystemHint,
+              onTap: () => open(const SettingsSupportScreen()),
+            ),
+            _SettingsSectionCard(
+              icon: Icons.photo_library_outlined,
+              title: isArabic ? 'الملفات المؤقتة' : 'Cached media',
+              subtitle: isArabic
+                  ? 'عرض حجم الكاش ومسحه'
+                  : 'View cache usage and clear it',
+              onTap: () => open(const SettingsCacheScreen()),
+            ),
+            _SettingsSectionCard(
+              icon: Icons.privacy_tip_outlined,
+              title: l10n.settingsPrivacyPolicy,
+              subtitle: l10n.settingsPrivacyPolicyHint,
+              onTap: () => open(const PrivacyPolicyScreen()),
+            ),
+            _SettingsSectionCard(
+              icon: Icons.gavel_rounded,
+              title: context.lt(ar: 'شروط الاستخدام', en: 'Terms of Use'),
+              subtitle: context.lt(
+                ar: 'الشروط العامة لاستخدام التطبيق والخدمة',
+                en: 'General terms for using the app and service',
+              ),
+              onTap: () => open(const TermsOfUseScreen()),
+            ),
+            const SizedBox(height: 8),
+            const _SettingsAboutFooter(),
+          ],
+        ),
       ),
     );
   }

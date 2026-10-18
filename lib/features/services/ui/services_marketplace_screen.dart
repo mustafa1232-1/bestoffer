@@ -224,244 +224,247 @@ class _ServicesMarketplaceScreenState
             ),
         ],
       ),
-      body: servicesSection.isBlocked
-          ? ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: [
-                MaslakiCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      MaslakiStatusPill(
-                        label: servicesSection.badgeLabel ?? 'غير متاح',
-                        icon: Icons.lock_outline_rounded,
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        servicesSection.effectiveMessage,
-                        textDirection: TextDirection.rtl,
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'تم إيقاف التصفح والطلبات الجديدة حاليًا. ما زال بإمكانك متابعة الطلبات النشطة فقط.',
-                        textDirection: TextDirection.rtl,
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        alignment: WrapAlignment.end,
-                        children: [
-                          if (!auth.isServiceProvider)
-                            MaslakiPrimaryButton(
-                              onPressed: _openMyRequests,
-                              icon: Icons.receipt_long_rounded,
-                              label: 'عرض طلباتي النشطة',
-                            ),
-                          if (auth.isServiceProvider)
-                            MaslakiOutlineButton(
-                              onPressed: _openProviderWorkspace,
-                              icon: Icons.workspaces_rounded,
-                              label: 'لوحة مقدم الخدمة',
-                            ),
-                          if (auth.isServiceProvider)
-                            MaslakiPrimaryButton(
-                              onPressed: _openProviderOnboarding,
-                              icon: Icons.verified_user_outlined,
-                              label: 'متابعة الحساب',
-                            ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            )
-          : Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-                  child: Column(
-                    children: [
-                      Row(
-                        textDirection: TextDirection.rtl,
-                        children: [
-                          if (!auth.isServiceProvider)
-                            Expanded(
-                              child: MaslakiOutlineButton(
+      body: SafeArea(
+        top: false,
+        child: servicesSection.isBlocked
+            ? ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  MaslakiCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        MaslakiStatusPill(
+                          label: servicesSection.badgeLabel ?? 'غير متاح',
+                          icon: Icons.lock_outline_rounded,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          servicesSection.effectiveMessage,
+                          textDirection: TextDirection.rtl,
+                          style: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'تم إيقاف التصفح والطلبات الجديدة حاليًا. ما زال بإمكانك متابعة الطلبات النشطة فقط.',
+                          textDirection: TextDirection.rtl,
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        const SizedBox(height: 16),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          alignment: WrapAlignment.end,
+                          children: [
+                            if (!auth.isServiceProvider)
+                              MaslakiPrimaryButton(
                                 onPressed: _openMyRequests,
                                 icon: Icons.receipt_long_rounded,
-                                label: 'طلباتي',
+                                label: 'عرض طلباتي النشطة',
                               ),
-                            ),
-                          if (!auth.isServiceProvider &&
-                              servicesSection.isOpen) ...[
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: MaslakiPrimaryButton(
-                                onPressed: _openProviderOnboarding,
-                                icon: Icons.person_add_alt_1_rounded,
-                                label: 'صاحب خدمة',
-                              ),
-                            ),
-                          ],
-                          if (auth.isServiceProvider) ...[
-                            Expanded(
-                              child: MaslakiOutlineButton(
+                            if (auth.isServiceProvider)
+                              MaslakiOutlineButton(
                                 onPressed: _openProviderWorkspace,
                                 icon: Icons.workspaces_rounded,
                                 label: 'لوحة مقدم الخدمة',
                               ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: MaslakiPrimaryButton(
+                            if (auth.isServiceProvider)
+                              MaslakiPrimaryButton(
                                 onPressed: _openProviderOnboarding,
                                 icon: Icons.verified_user_outlined,
                                 label: 'متابعة الحساب',
                               ),
-                            ),
                           ],
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-                      MaslakiSearchField(
-                        controller: _searchCtrl,
-                        hintText: 'ابحث عن خدمة أو مقدم خدمة',
-                        onSubmitted: (value) {
-                          ctrl.setQuery(value);
-                          ctrl.search();
-                        },
-                        trailing: IconButton(
-                          onPressed: () {
-                            ctrl.setQuery(_searchCtrl.text);
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                    child: Column(
+                      children: [
+                        Row(
+                          textDirection: TextDirection.rtl,
+                          children: [
+                            if (!auth.isServiceProvider)
+                              Expanded(
+                                child: MaslakiOutlineButton(
+                                  onPressed: _openMyRequests,
+                                  icon: Icons.receipt_long_rounded,
+                                  label: 'طلباتي',
+                                ),
+                              ),
+                            if (!auth.isServiceProvider &&
+                                servicesSection.isOpen) ...[
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: MaslakiPrimaryButton(
+                                  onPressed: _openProviderOnboarding,
+                                  icon: Icons.person_add_alt_1_rounded,
+                                  label: 'صاحب خدمة',
+                                ),
+                              ),
+                            ],
+                            if (auth.isServiceProvider) ...[
+                              Expanded(
+                                child: MaslakiOutlineButton(
+                                  onPressed: _openProviderWorkspace,
+                                  icon: Icons.workspaces_rounded,
+                                  label: 'لوحة مقدم الخدمة',
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: MaslakiPrimaryButton(
+                                  onPressed: _openProviderOnboarding,
+                                  icon: Icons.verified_user_outlined,
+                                  label: 'متابعة الحساب',
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        MaslakiSearchField(
+                          controller: _searchCtrl,
+                          hintText: 'ابحث عن خدمة أو مقدم خدمة',
+                          onSubmitted: (value) {
+                            ctrl.setQuery(value);
                             ctrl.search();
                           },
-                          icon: const Icon(Icons.arrow_forward_rounded),
+                          trailing: IconButton(
+                            onPressed: () {
+                              ctrl.setQuery(_searchCtrl.text);
+                              ctrl.search();
+                            },
+                            icon: const Icon(Icons.arrow_forward_rounded),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      if (constraints.maxWidth < 760) {
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        if (constraints.maxWidth < 760) {
+                          return MaslakiCard(
+                            child: Column(
+                              children: [
+                                mainCategoryDropdown,
+                                const SizedBox(height: 10),
+                                subcategoryDropdown,
+                                const SizedBox(height: 10),
+                                sortDropdown,
+                              ],
+                            ),
+                          );
+                        }
                         return MaslakiCard(
-                          child: Column(
+                          child: Row(
                             children: [
-                              mainCategoryDropdown,
-                              const SizedBox(height: 10),
-                              subcategoryDropdown,
-                              const SizedBox(height: 10),
-                              sortDropdown,
+                              Expanded(child: mainCategoryDropdown),
+                              const SizedBox(width: 10),
+                              Expanded(child: subcategoryDropdown),
+                              const SizedBox(width: 10),
+                              Expanded(child: sortDropdown),
                             ],
                           ),
-                        );
-                      }
-                      return MaslakiCard(
-                        child: Row(
-                          children: [
-                            Expanded(child: mainCategoryDropdown),
-                            const SizedBox(width: 10),
-                            Expanded(child: subcategoryDropdown),
-                            const SizedBox(width: 10),
-                            Expanded(child: sortDropdown),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 10),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Row(
-                    children: [
-                      MaslakiChip(
-                        label: 'منزلية',
-                        icon: Icons.home_repair_service_outlined,
-                        selected: state.homeService == true,
-                        onTap: ctrl.toggleHomeService,
-                      ),
-                      const SizedBox(width: 8),
-                      MaslakiChip(
-                        label: 'طوارئ',
-                        icon: Icons.emergency_outlined,
-                        selected: state.emergency == true,
-                        onTap: ctrl.toggleEmergencyService,
-                      ),
-                      const SizedBox(width: 8),
-                      MaslakiChip(
-                        label: 'بعروض فقط',
-                        icon: Icons.local_offer_outlined,
-                        selected: state.offersOnly == true,
-                        onTap: ctrl.toggleOffersOnly,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Expanded(
-                  child: RefreshIndicator(
-                    onRefresh: ctrl.search,
-                    child: Builder(
-                      builder: (context) {
-                        if (state.loading) {
-                          return const Center(
-                            child: CircularProgressIndicator(),
-                          );
-                        }
-                        if (state.error != null && state.offerings.isEmpty) {
-                          return ListView(
-                            children: [
-                              const SizedBox(height: 120),
-                              MaslakiEmptyState(
-                                icon: Icons.error_outline_rounded,
-                                title: 'تعذر تحميل النتائج',
-                                body:
-                                    state.error ??
-                                    'حدث خلل أثناء تحميل الخدمات.',
-                              ),
-                            ],
-                          );
-                        }
-                        if (state.offerings.isEmpty) {
-                          return ListView(
-                            children: const [
-                              SizedBox(height: 120),
-                              MaslakiEmptyState(
-                                icon: Icons.search_off_rounded,
-                                title: 'لا توجد نتائج مطابقة',
-                                body: 'جرّب تعديل البحث أو الفلاتر الحالية.',
-                              ),
-                            ],
-                          );
-                        }
-
-                        return ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
-                          itemCount: state.offerings.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (context, index) {
-                            final offering = state.offerings[index];
-                            return _ServiceOfferingCard(
-                              offering: offering,
-                              onTap: () => _openOffering(offering),
-                            );
-                          },
                         );
                       },
                     ),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(height: 10),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        MaslakiChip(
+                          label: 'منزلية',
+                          icon: Icons.home_repair_service_outlined,
+                          selected: state.homeService == true,
+                          onTap: ctrl.toggleHomeService,
+                        ),
+                        const SizedBox(width: 8),
+                        MaslakiChip(
+                          label: 'طوارئ',
+                          icon: Icons.emergency_outlined,
+                          selected: state.emergency == true,
+                          onTap: ctrl.toggleEmergencyService,
+                        ),
+                        const SizedBox(width: 8),
+                        MaslakiChip(
+                          label: 'بعروض فقط',
+                          icon: Icons.local_offer_outlined,
+                          selected: state.offersOnly == true,
+                          onTap: ctrl.toggleOffersOnly,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: ctrl.search,
+                      child: Builder(
+                        builder: (context) {
+                          if (state.loading) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          if (state.error != null && state.offerings.isEmpty) {
+                            return ListView(
+                              children: [
+                                const SizedBox(height: 120),
+                                MaslakiEmptyState(
+                                  icon: Icons.error_outline_rounded,
+                                  title: 'تعذر تحميل النتائج',
+                                  body:
+                                      state.error ??
+                                      'حدث خلل أثناء تحميل الخدمات.',
+                                ),
+                              ],
+                            );
+                          }
+                          if (state.offerings.isEmpty) {
+                            return ListView(
+                              children: const [
+                                SizedBox(height: 120),
+                                MaslakiEmptyState(
+                                  icon: Icons.search_off_rounded,
+                                  title: 'لا توجد نتائج مطابقة',
+                                  body: 'جرّب تعديل البحث أو الفلاتر الحالية.',
+                                ),
+                              ],
+                            );
+                          }
+
+                          return ListView.separated(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 18),
+                            itemCount: state.offerings.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
+                            itemBuilder: (context, index) {
+                              final offering = state.offerings[index];
+                              return _ServiceOfferingCard(
+                                offering: offering,
+                                onTap: () => _openOffering(offering),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }

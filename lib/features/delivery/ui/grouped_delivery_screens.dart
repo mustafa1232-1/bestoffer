@@ -228,51 +228,55 @@ class GroupedDeliveryDetailsScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: job == null
-          ? const Center(child: Text('لا توجد مهمة نشطة'))
-          : RefreshIndicator(
-              onRefresh: controller.refresh,
-              child: ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  Text(
-                    job.storesLabel,
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                  const SizedBox(height: 8),
-                  if (state.cachedOffline)
-                    Container(
-                      key: const Key('grouped_details_cached_banner'),
-                      padding: const EdgeInsets.all(8),
-                      color: Colors.orange.withValues(alpha: 0.15),
-                      child: const Text(
-                        'نسخة مخزّنة — الإجراءات معطّلة حتى المزامنة',
+      body: SafeArea(
+        top: false,
+        child: job == null
+            ? const Center(child: Text('لا توجد مهمة نشطة'))
+            : RefreshIndicator(
+                onRefresh: controller.refresh,
+                child: ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    Text(
+                      job.storesLabel,
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    const SizedBox(height: 8),
+                    if (state.cachedOffline)
+                      Container(
+                        key: const Key('grouped_details_cached_banner'),
+                        padding: const EdgeInsets.all(8),
+                        color: Colors.orange.withValues(alpha: 0.15),
+                        child: const Text(
+                          'نسخة مخزّنة — الإجراءات معطّلة حتى المزامنة',
+                        ),
+                      ),
+                    if (state.error != null)
+                      Container(
+                        key: const Key('grouped_error_banner'),
+                        padding: const EdgeInsets.all(8),
+                        color: Colors.red.withValues(alpha: 0.1),
+                        child: Text(
+                          state.error!,
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    ...job.activeStops.map(
+                      (s) => _StopCard(
+                        stop: s,
+                        controller: controller,
+                        saving: state.saving || state.mutationsBlocked,
                       ),
                     ),
-                  if (state.error != null)
-                    Container(
-                      key: const Key('grouped_error_banner'),
-                      padding: const EdgeInsets.all(8),
-                      color: Colors.red.withValues(alpha: 0.1),
-                      child: Text(
-                        state.error!,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  ...job.activeStops.map(
-                    (s) => _StopCard(
-                      stop: s,
-                      controller: controller,
-                      saving: state.saving || state.mutationsBlocked,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (job.customer != null) _CustomerDestinationCard(job: job),
-                  const SizedBox(height: 24),
-                ],
+                    const SizedBox(height: 12),
+                    if (job.customer != null)
+                      _CustomerDestinationCard(job: job),
+                    const SizedBox(height: 24),
+                  ],
+                ),
               ),
-            ),
+      ),
       // Lifecycle actions live in a persistent bottom bar so they are always
       // visible and reachable regardless of scroll position.
       bottomNavigationBar: job == null
@@ -601,22 +605,25 @@ class _GroupedDeliveryHistoryScreenState
     final state = ref.watch(groupedDeliveryControllerProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('سجل المهام المجمّعة')),
-      body: state.historyLoading
-          ? const Center(child: CircularProgressIndicator())
-          : state.history.isEmpty
-          ? const Center(
-              key: Key('grouped_history_empty'),
-              child: Text('لا يوجد سجل بعد'),
-            )
-          : RefreshIndicator(
-              onRefresh: ref
-                  .read(groupedDeliveryControllerProvider.notifier)
-                  .loadHistory,
-              child: ListView.builder(
-                itemCount: state.history.length,
-                itemBuilder: (_, i) => _HistoryTile(row: state.history[i]),
+      body: SafeArea(
+        top: false,
+        child: state.historyLoading
+            ? const Center(child: CircularProgressIndicator())
+            : state.history.isEmpty
+            ? const Center(
+                key: Key('grouped_history_empty'),
+                child: Text('لا يوجد سجل بعد'),
+              )
+            : RefreshIndicator(
+                onRefresh: ref
+                    .read(groupedDeliveryControllerProvider.notifier)
+                    .loadHistory,
+                child: ListView.builder(
+                  itemCount: state.history.length,
+                  itemBuilder: (_, i) => _HistoryTile(row: state.history[i]),
+                ),
               ),
-            ),
+      ),
     );
   }
 }

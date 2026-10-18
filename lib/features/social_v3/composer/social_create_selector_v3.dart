@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/locale_text.dart';
 import 'reel_gallery_entry_v3.dart';
@@ -6,7 +8,7 @@ import 'reel_gallery_entry_v3.dart';
 /// The single V3 creation selector. Choosing a type opens the production V3
 /// composer for that content.
 Future<bool?> showSocialCreateSelectorV3(BuildContext context) async {
-  final choice = await showModalBottomSheet<String>(
+  final choice = await showMaslakiBottomSheet<String>(
     context: context,
     showDragHandle: true,
     builder: (_) => const _CreateSelectorSheet(),

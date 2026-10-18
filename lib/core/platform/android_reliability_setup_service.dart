@@ -9,6 +9,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:maslaki/l10n/app_localizations.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../i18n/app_localizations_context.dart';
 import '../storage/secure_storage.dart';
@@ -41,7 +43,7 @@ class AndroidReliabilitySetupService {
       var permissions = await _requestCriticalPermissions();
 
       if (!context.mounted) return;
-      final completed = await showModalBottomSheet<bool>(
+      final completed = await showMaslakiBottomSheet<bool>(
         context: context,
         isScrollControlled: true,
         isDismissible: false,

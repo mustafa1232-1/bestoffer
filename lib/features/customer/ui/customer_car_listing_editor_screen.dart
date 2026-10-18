@@ -368,356 +368,378 @@ class _CustomerCarListingEditorScreenState
           label: Text(_saving ? l10n.commonLoading : l10n.commonSave),
         ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-        children: [
-          FormErrorBanner(message: _formError),
-          _SectionCard(
-            title: l10n.carsBasicSection,
-            children: [
-              buildTextField(
-                field: 'title',
-                controller: _titleCtrl,
-                decoration: InputDecoration(labelText: l10n.carsListingTitle),
-              ),
-              const SizedBox(height: 12),
-              _scrollCoordinator.anchor(
-                'brand',
-                DropdownButtonFormField<String>(
-                  key: ValueKey('brand:$_brand'),
-                  initialValue: _brand,
-                  decoration: InputDecoration(
-                    labelText: l10n.carsBrand,
-                    errorText: _errorFor('brand'),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+          children: [
+            FormErrorBanner(message: _formError),
+            _SectionCard(
+              title: l10n.carsBasicSection,
+              children: [
+                buildTextField(
+                  field: 'title',
+                  controller: _titleCtrl,
+                  decoration: InputDecoration(labelText: l10n.carsListingTitle),
+                ),
+                const SizedBox(height: 12),
+                _scrollCoordinator.anchor(
+                  'brand',
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('brand:$_brand'),
+                    initialValue: _brand,
+                    decoration: InputDecoration(
+                      labelText: l10n.carsBrand,
+                      errorText: _errorFor('brand'),
+                    ),
+                    items: _brands
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: (value) {
+                      if (value == null || value == _brand) return;
+                      final nextModels = carModelsForBrand(value);
+                      setState(() {
+                        _brand = value;
+                        _model = nextModels.isNotEmpty ? nextModels.first : '';
+                        _fieldErrors.remove('brand');
+                        _fieldErrors.remove('model');
+                        _formError = null;
+                      });
+                    },
                   ),
-                  items: _brands
-                      .map(
-                        (value) =>
-                            DropdownMenuItem(value: value, child: Text(value)),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) {
-                    if (value == null || value == _brand) return;
-                    final nextModels = carModelsForBrand(value);
-                    setState(() {
-                      _brand = value;
-                      _model = nextModels.isNotEmpty ? nextModels.first : '';
-                      _fieldErrors.remove('brand');
+                ),
+                const SizedBox(height: 12),
+                _scrollCoordinator.anchor(
+                  'model',
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('model:${_brand}_$_model'),
+                    initialValue: _model.isEmpty ? null : _model,
+                    decoration: InputDecoration(
+                      labelText: l10n.carsModel,
+                      errorText: _errorFor('model'),
+                    ),
+                    items: _models
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(growable: false),
+                    onChanged: (value) => setState(() {
+                      _model = value ?? '';
                       _fieldErrors.remove('model');
                       _formError = null;
-                    });
-                  },
+                    }),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              _scrollCoordinator.anchor(
-                'model',
-                DropdownButtonFormField<String>(
-                  key: ValueKey('model:${_brand}_$_model'),
-                  initialValue: _model.isEmpty ? null : _model,
-                  decoration: InputDecoration(
-                    labelText: l10n.carsModel,
-                    errorText: _errorFor('model'),
-                  ),
-                  items: _models
-                      .map(
-                        (value) =>
-                            DropdownMenuItem(value: value, child: Text(value)),
-                      )
-                      .toList(growable: false),
-                  onChanged: (value) => setState(() {
-                    _model = value ?? '';
-                    _fieldErrors.remove('model');
-                    _formError = null;
-                  }),
+                const SizedBox(height: 12),
+                buildTextField(
+                  field: 'description',
+                  controller: _descriptionCtrl,
+                  minLines: 3,
+                  maxLines: 5,
+                  decoration: InputDecoration(labelText: l10n.carsDescription),
                 ),
-              ),
-              const SizedBox(height: 12),
-              buildTextField(
-                field: 'description',
-                controller: _descriptionCtrl,
-                minLines: 3,
-                maxLines: 5,
-                decoration: InputDecoration(labelText: l10n.carsDescription),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _SectionCard(
-            title: l10n.carsPricingSection,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: buildTextField(
-                      field: 'modelYear',
-                      controller: _yearCtrl,
-                      keyboardType: TextInputType.number,
-                      textDirection: TextDirection.ltr,
-                      decoration: InputDecoration(
-                        labelText: l10n.carsModelYear,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      key: ValueKey('condition:$_condition'),
-                      initialValue: _condition,
-                      decoration: InputDecoration(
-                        labelText: l10n.carsCondition,
-                      ),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'new',
-                          child: Text(l10n.carsConditionNew),
-                        ),
-                        DropdownMenuItem(
-                          value: 'used',
-                          child: Text(l10n.carsConditionUsed),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _condition = value ?? 'used';
-                          if (_condition != 'used') {
-                            _fieldErrors.remove('mileageKm');
-                          }
-                          _formError = null;
-                        });
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: buildTextField(
-                      field: 'price',
-                      controller: _priceCtrl,
-                      keyboardType: TextInputType.number,
-                      textDirection: TextDirection.ltr,
-                      decoration: InputDecoration(
-                        labelText: l10n.realEstatePrice,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: buildTextField(
-                      field: 'mileageKm',
-                      controller: _mileageCtrl,
-                      keyboardType: TextInputType.number,
-                      textDirection: TextDirection.ltr,
-                      enabled: _condition == 'used',
-                      decoration: InputDecoration(labelText: l10n.carsMileage),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _SectionCard(
-            title: l10n.carsSpecsSection,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      key: ValueKey('transmission:$_transmission'),
-                      initialValue: _transmission,
-                      decoration: InputDecoration(
-                        labelText: l10n.carsTransmission,
-                      ),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'automatic',
-                          child: Text(l10n.carsTransmissionAutomatic),
-                        ),
-                        DropdownMenuItem(
-                          value: 'manual',
-                          child: Text(l10n.carsTransmissionManual),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() => _transmission = value ?? 'automatic');
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      key: ValueKey('fuel:$_fuelType'),
-                      initialValue: _fuelType,
-                      decoration: InputDecoration(labelText: l10n.carsFuelType),
-                      items: [
-                        DropdownMenuItem(
-                          value: 'fuel',
-                          child: Text(l10n.carsFuelTypeFuel),
-                        ),
-                        DropdownMenuItem(
-                          value: 'hybrid',
-                          child: Text(l10n.carsFuelTypeHybrid),
-                        ),
-                        DropdownMenuItem(
-                          value: 'electric',
-                          child: Text(l10n.carsFuelTypeElectric),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() => _fuelType = value ?? 'fuel');
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<String>(
-                      key: ValueKey('body:$_bodyType'),
-                      initialValue: _bodyType,
-                      decoration: InputDecoration(labelText: l10n.carsBodyType),
-                      items:
-                          [
-                                'sedan',
-                                'suv',
-                                'crossover',
-                                'hatchback',
-                                'pickup',
-                                'van',
-                              ]
-                              .map(
-                                (value) => DropdownMenuItem(
-                                  value: value,
-                                  child: Text(carBodyTypeLabel(context, value)),
-                                ),
-                              )
-                              .toList(growable: false),
-                      selectedItemBuilder: (context) =>
-                          [
-                                'sedan',
-                                'suv',
-                                'crossover',
-                                'hatchback',
-                                'pickup',
-                                'van',
-                              ]
-                              .map(
-                                (value) =>
-                                    Text(carBodyTypeLabel(context, value)),
-                              )
-                              .toList(growable: false),
-                      onChanged: (value) {
-                        setState(() => _bodyType = value ?? 'sedan');
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: buildTextField(
-                      field: 'color',
-                      controller: _colorCtrl,
-                      decoration: InputDecoration(labelText: l10n.carsColor),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _SectionCard(
-            title: l10n.carsContactSection,
-            children: [
-              buildTextField(
-                field: 'city',
-                controller: _cityCtrl,
-                decoration: InputDecoration(labelText: l10n.carsCity),
-              ),
-              const SizedBox(height: 12),
-              buildTextField(
-                field: 'phone',
-                controller: _phoneCtrl,
-                keyboardType: TextInputType.phone,
-                textDirection: TextDirection.ltr,
-                decoration: InputDecoration(labelText: l10n.carsPhone),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          _scrollCoordinator.anchor(
-            'images',
+              ],
+            ),
+            const SizedBox(height: 14),
             _SectionCard(
-              title: l10n.carsPhotosSection,
+              title: l10n.carsPricingSection,
               children: [
                 Row(
                   children: [
                     Expanded(
-                      child: Text(
-                        l10n.carsImageLimitHint,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      child: buildTextField(
+                        field: 'modelYear',
+                        controller: _yearCtrl,
+                        keyboardType: TextInputType.number,
+                        textDirection: TextDirection.ltr,
+                        decoration: InputDecoration(
+                          labelText: l10n.carsModelYear,
                         ),
                       ),
                     ),
-                    FilledButton.tonalIcon(
-                      onPressed: _images.length >= 6 ? null : _pickImages,
-                      icon: const Icon(Icons.add_photo_alternate_outlined),
-                      label: Text(l10n.carsChoosePhotos),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey('condition:$_condition'),
+                        initialValue: _condition,
+                        decoration: InputDecoration(
+                          labelText: l10n.carsCondition,
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: 'new',
+                            child: Text(l10n.carsConditionNew),
+                          ),
+                          DropdownMenuItem(
+                            value: 'used',
+                            child: Text(l10n.carsConditionUsed),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _condition = value ?? 'used';
+                            if (_condition != 'used') {
+                              _fieldErrors.remove('mileageKm');
+                            }
+                            _formError = null;
+                          });
+                        },
+                      ),
                     ),
                   ],
                 ),
-                if (_errorFor('images') != null) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    _errorFor('images')!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-                if ((widget.existing?.media.isNotEmpty ?? false) ||
-                    _images.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 92,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      children: [
-                        ...?widget.existing?.media.map(
-                          (image) => Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 10),
-                            child: _NetworkThumb(url: image.imageUrl),
-                          ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: buildTextField(
+                        field: 'price',
+                        controller: _priceCtrl,
+                        keyboardType: TextInputType.number,
+                        textDirection: TextDirection.ltr,
+                        decoration: InputDecoration(
+                          labelText: l10n.realEstatePrice,
                         ),
-                        ..._images.asMap().entries.map(
-                          (entry) => Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 10),
-                            child: _LocalThumb(
-                              file: entry.value,
-                              onRemove: () {
-                                setState(() {
-                                  _images.removeAt(entry.key);
-                                  _fieldErrors.remove('images');
-                                  _formError = null;
-                                });
-                              },
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: buildTextField(
+                        field: 'mileageKm',
+                        controller: _mileageCtrl,
+                        keyboardType: TextInputType.number,
+                        textDirection: TextDirection.ltr,
+                        enabled: _condition == 'used',
+                        decoration: InputDecoration(
+                          labelText: l10n.carsMileage,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: 14),
+            _SectionCard(
+              title: l10n.carsSpecsSection,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey('transmission:$_transmission'),
+                        initialValue: _transmission,
+                        decoration: InputDecoration(
+                          labelText: l10n.carsTransmission,
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: 'automatic',
+                            child: Text(l10n.carsTransmissionAutomatic),
+                          ),
+                          DropdownMenuItem(
+                            value: 'manual',
+                            child: Text(l10n.carsTransmissionManual),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setState(() => _transmission = value ?? 'automatic');
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey('fuel:$_fuelType'),
+                        initialValue: _fuelType,
+                        decoration: InputDecoration(
+                          labelText: l10n.carsFuelType,
+                        ),
+                        items: [
+                          DropdownMenuItem(
+                            value: 'fuel',
+                            child: Text(l10n.carsFuelTypeFuel),
+                          ),
+                          DropdownMenuItem(
+                            value: 'hybrid',
+                            child: Text(l10n.carsFuelTypeHybrid),
+                          ),
+                          DropdownMenuItem(
+                            value: 'electric',
+                            child: Text(l10n.carsFuelTypeElectric),
+                          ),
+                        ],
+                        onChanged: (value) {
+                          setState(() => _fuelType = value ?? 'fuel');
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: DropdownButtonFormField<String>(
+                        key: ValueKey('body:$_bodyType'),
+                        initialValue: _bodyType,
+                        decoration: InputDecoration(
+                          labelText: l10n.carsBodyType,
+                        ),
+                        items:
+                            [
+                                  'sedan',
+                                  'suv',
+                                  'crossover',
+                                  'hatchback',
+                                  'pickup',
+                                  'van',
+                                ]
+                                .map(
+                                  (value) => DropdownMenuItem(
+                                    value: value,
+                                    child: Text(
+                                      carBodyTypeLabel(context, value),
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
+                        selectedItemBuilder: (context) =>
+                            [
+                                  'sedan',
+                                  'suv',
+                                  'crossover',
+                                  'hatchback',
+                                  'pickup',
+                                  'van',
+                                ]
+                                .map(
+                                  (value) =>
+                                      Text(carBodyTypeLabel(context, value)),
+                                )
+                                .toList(growable: false),
+                        onChanged: (value) {
+                          setState(() => _bodyType = value ?? 'sedan');
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: buildTextField(
+                        field: 'color',
+                        controller: _colorCtrl,
+                        decoration: InputDecoration(labelText: l10n.carsColor),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _SectionCard(
+              title: l10n.carsContactSection,
+              children: [
+                buildTextField(
+                  field: 'city',
+                  controller: _cityCtrl,
+                  decoration: InputDecoration(labelText: l10n.carsCity),
+                ),
+                const SizedBox(height: 12),
+                buildTextField(
+                  field: 'phone',
+                  controller: _phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  textDirection: TextDirection.ltr,
+                  decoration: InputDecoration(labelText: l10n.carsPhone),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            _scrollCoordinator.anchor(
+              'images',
+              _SectionCard(
+                title: l10n.carsPhotosSection,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          l10n.carsImageLimitHint,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                      ),
+                      FilledButton.tonalIcon(
+                        onPressed: _images.length >= 6 ? null : _pickImages,
+                        icon: const Icon(Icons.add_photo_alternate_outlined),
+                        label: Text(l10n.carsChoosePhotos),
+                      ),
+                    ],
+                  ),
+                  if (_errorFor('images') != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _errorFor('images')!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  if ((widget.existing?.media.isNotEmpty ?? false) ||
+                      _images.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 92,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        children: [
+                          ...?widget.existing?.media.map(
+                            (image) => Padding(
+                              padding: const EdgeInsetsDirectional.only(
+                                end: 10,
+                              ),
+                              child: _NetworkThumb(url: image.imageUrl),
+                            ),
+                          ),
+                          ..._images.asMap().entries.map(
+                            (entry) => Padding(
+                              padding: const EdgeInsetsDirectional.only(
+                                end: 10,
+                              ),
+                              child: _LocalThumb(
+                                file: entry.value,
+                                onRemove: () {
+                                  setState(() {
+                                    _images.removeAt(entry.key);
+                                    _fieldErrors.remove('images');
+                                    _formError = null;
+                                  });
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

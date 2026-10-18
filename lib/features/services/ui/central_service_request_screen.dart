@@ -368,319 +368,325 @@ class _CentralServiceRequestScreenState
     final color = _hexColor(widget.service.color);
     return Scaffold(
       appBar: AppBar(title: Text(widget.service.title)),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: color,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                textDirection: TextDirection.rtl,
-                children: [
-                  Icon(
-                    _isEmergency
-                        ? Icons.sos_rounded
-                        : Icons.support_agent_rounded,
-                    color: Colors.white,
-                    size: 34,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          widget.service.title,
-                          textDirection: TextDirection.rtl,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          widget.service.subtitle,
-                          textDirection: TextDirection.rtl,
-                          textAlign: TextAlign.right,
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.9),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (_isEmergency) ...[
-              const SizedBox(height: 12),
-              _EmergencyNotice(onCall: () => _callNumber('911')),
-              const SizedBox(height: 18),
-              const _SectionTitle(
-                title: 'ما الجهة المطلوبة؟',
-                icon: Icons.emergency_rounded,
-              ),
-              const SizedBox(height: 8),
-              GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: iraqEmergencyContacts.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  mainAxisExtent: 132,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
+      body: SafeArea(
+        top: false,
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                itemBuilder: (context, index) {
-                  final contact = iraqEmergencyContacts[index];
-                  return _EmergencyContactCard(
-                    contact: contact,
-                    selected: _emergencyTarget == contact.key,
-                    loading: _submitting && _emergencyTarget == contact.key,
-                    onTap: () => _activateEmergency(contact),
-                  );
-                },
-              ),
-            ],
-            const SizedBox(height: 20),
-            const _SectionTitle(
-              title: 'ما الذي تحتاجه؟',
-              icon: Icons.tune_rounded,
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              alignment: WrapAlignment.end,
-              textDirection: TextDirection.rtl,
-              spacing: 8,
-              runSpacing: 8,
-              children: widget.service.quickIssues
-                  .map(
-                    (issue) => ChoiceChip(
-                      selected: _quickIssue == issue,
-                      label: Text(issue),
-                      onSelected: (selected) =>
-                          _selectQuickIssue(issue, selected),
+                child: Row(
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    Icon(
+                      _isEmergency
+                          ? Icons.sos_rounded
+                          : Icons.support_agent_rounded,
+                      color: Colors.white,
+                      size: 34,
                     ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _description,
-              textDirection: TextDirection.rtl,
-              textAlign: TextAlign.right,
-              minLines: 3,
-              maxLines: 6,
-              maxLength: 2500,
-              decoration: const InputDecoration(
-                labelText: 'اشرح الحالة أو المطلوب',
-                hintText: 'اكتب التفاصيل التي تساعدنا على اختيار المختص الصحيح',
-                alignLabelWithHint: true,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            widget.service.title,
+                            textDirection: TextDirection.rtl,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 19,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            widget.service.subtitle,
+                            textDirection: TextDirection.rtl,
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.9),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              validator: (value) {
-                if ((value ?? '').trim().isEmpty && _quickIssue == null) {
-                  return 'اختر نوع الطلب أو اكتب وصفاً واضحاً';
-                }
-                return null;
-              },
-            ),
-            ..._buildDynamicQuestions(),
-            if (!_isEmergency) ...[
-              const SizedBox(height: 18),
-              const _SectionTitle(
-                title: 'أولوية الطلب',
-                icon: Icons.priority_high_rounded,
-              ),
-              const SizedBox(height: 8),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'normal',
-                    label: Text('عادي'),
-                    icon: Icon(Icons.schedule_rounded),
+              if (_isEmergency) ...[
+                const SizedBox(height: 12),
+                _EmergencyNotice(onCall: () => _callNumber('911')),
+                const SizedBox(height: 18),
+                const _SectionTitle(
+                  title: 'ما الجهة المطلوبة؟',
+                  icon: Icons.emergency_rounded,
+                ),
+                const SizedBox(height: 8),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: iraqEmergencyContacts.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    mainAxisExtent: 132,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
                   ),
-                  ButtonSegment(
-                    value: 'urgent',
-                    label: Text('عاجل'),
-                    icon: Icon(Icons.bolt_rounded),
-                  ),
-                ],
-                selected: {_urgency},
-                onSelectionChanged: (value) =>
-                    setState(() => _urgency = value.first),
-              ),
-            ],
-            if (widget.service.executionModes.length > 1) ...[
-              const SizedBox(height: 18),
+                  itemBuilder: (context, index) {
+                    final contact = iraqEmergencyContacts[index];
+                    return _EmergencyContactCard(
+                      contact: contact,
+                      selected: _emergencyTarget == contact.key,
+                      loading: _submitting && _emergencyTarget == contact.key,
+                      onTap: () => _activateEmergency(contact),
+                    );
+                  },
+                ),
+              ],
+              const SizedBox(height: 20),
               const _SectionTitle(
-                title: 'طريقة تقديم الخدمة',
-                icon: Icons.route_outlined,
+                title: 'ما الذي تحتاجه؟',
+                icon: Icons.tune_rounded,
               ),
               const SizedBox(height: 8),
               Wrap(
                 alignment: WrapAlignment.end,
                 textDirection: TextDirection.rtl,
                 spacing: 8,
-                children: widget.service.executionModes
+                runSpacing: 8,
+                children: widget.service.quickIssues
                     .map(
-                      (mode) => ChoiceChip(
-                        selected: _executionMode == mode,
-                        label: Text(_executionModeLabel(mode)),
-                        onSelected: (_) =>
-                            setState(() => _executionMode = mode),
+                      (issue) => ChoiceChip(
+                        selected: _quickIssue == issue,
+                        label: Text(issue),
+                        onSelected: (selected) =>
+                            _selectQuickIssue(issue, selected),
                       ),
                     )
                     .toList(),
               ),
-            ],
-            const SizedBox(height: 20),
-            const _SectionTitle(
-              title: 'الموقع والموعد',
-              icon: Icons.location_on_outlined,
-            ),
-            const SizedBox(height: 10),
-            TextFormField(
-              controller: _city,
-              textDirection: TextDirection.rtl,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(labelText: 'المدينة'),
-            ),
-            const SizedBox(height: 10),
-            TextFormField(
-              controller: _area,
-              textDirection: TextDirection.rtl,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(labelText: 'المنطقة أو المجمع'),
-            ),
-            const SizedBox(height: 10),
-            TextFormField(
-              controller: _address,
-              textDirection: TextDirection.rtl,
-              textAlign: TextAlign.right,
-              decoration: const InputDecoration(
-                labelText: 'العنوان التفصيلي أو أقرب نقطة دالة',
-              ),
-              validator: _isEmergency
-                  ? (value) => (value ?? '').trim().isEmpty
-                        ? 'أدخل نقطة دالة تساعد الفريق على الوصول'
-                        : null
-                  : null,
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: _locating ? null : _locate,
-              icon: _locating
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(
-                      _latitude == null
-                          ? Icons.my_location_rounded
-                          : Icons.location_on_rounded,
-                    ),
-              label: Text(
-                _latitude == null
-                    ? 'تثبيت موقعي الحالي'
-                    : 'تم تثبيت الموقع - تحديثه',
-              ),
-            ),
-            if (!_isEmergency) ...[
-              const SizedBox(height: 10),
-              Row(
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _description,
                 textDirection: TextDirection.rtl,
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _selectDate,
-                      icon: const Icon(Icons.calendar_month_rounded),
-                      label: Text(
-                        _date == null ? 'اختيار اليوم' : _dateText(_date!),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _selectTime,
-                      icon: const Icon(Icons.schedule_rounded),
-                      label: Text(
-                        _time == null ? 'اختيار الوقت' : _timeText(_time!),
-                      ),
-                    ),
-                  ),
-                ],
+                textAlign: TextAlign.right,
+                minLines: 3,
+                maxLines: 6,
+                maxLength: 2500,
+                decoration: const InputDecoration(
+                  labelText: 'اشرح الحالة أو المطلوب',
+                  hintText:
+                      'اكتب التفاصيل التي تساعدنا على اختيار المختص الصحيح',
+                  alignLabelWithHint: true,
+                ),
+                validator: (value) {
+                  if ((value ?? '').trim().isEmpty && _quickIssue == null) {
+                    return 'اختر نوع الطلب أو اكتب وصفاً واضحاً';
+                  }
+                  return null;
+                },
               ),
-            ],
-            const SizedBox(height: 20),
-            const _SectionTitle(
-              title: 'طريقة التواصل المفضلة',
-              icon: Icons.forum_outlined,
-            ),
-            const SizedBox(height: 8),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(
-                  value: 'phone',
-                  label: Text('اتصال'),
-                  icon: Icon(Icons.call_outlined),
+              ..._buildDynamicQuestions(),
+              if (!_isEmergency) ...[
+                const SizedBox(height: 18),
+                const _SectionTitle(
+                  title: 'أولوية الطلب',
+                  icon: Icons.priority_high_rounded,
                 ),
-                ButtonSegment(
-                  value: 'whatsapp',
-                  label: Text('واتساب'),
-                  icon: Icon(Icons.chat_outlined),
-                ),
-                ButtonSegment(
-                  value: 'in_app',
-                  label: Text('داخل التطبيق'),
-                  icon: Icon(Icons.forum_outlined),
+                const SizedBox(height: 8),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 'normal',
+                      label: Text('عادي'),
+                      icon: Icon(Icons.schedule_rounded),
+                    ),
+                    ButtonSegment(
+                      value: 'urgent',
+                      label: Text('عاجل'),
+                      icon: Icon(Icons.bolt_rounded),
+                    ),
+                  ],
+                  selected: {_urgency},
+                  onSelectionChanged: (value) =>
+                      setState(() => _urgency = value.first),
                 ),
               ],
-              selected: {_preferredContact},
-              onSelectionChanged: (value) =>
-                  setState(() => _preferredContact = value.first),
-            ),
-            if (_preferredContact != 'in_app') ...[
+              if (widget.service.executionModes.length > 1) ...[
+                const SizedBox(height: 18),
+                const _SectionTitle(
+                  title: 'طريقة تقديم الخدمة',
+                  icon: Icons.route_outlined,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  alignment: WrapAlignment.end,
+                  textDirection: TextDirection.rtl,
+                  spacing: 8,
+                  children: widget.service.executionModes
+                      .map(
+                        (mode) => ChoiceChip(
+                          selected: _executionMode == mode,
+                          label: Text(_executionModeLabel(mode)),
+                          onSelected: (_) =>
+                              setState(() => _executionMode = mode),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+              const SizedBox(height: 20),
+              const _SectionTitle(
+                title: 'الموقع والموعد',
+                icon: Icons.location_on_outlined,
+              ),
               const SizedBox(height: 10),
               TextFormField(
-                controller: _contactPhone,
-                keyboardType: TextInputType.phone,
-                textDirection: TextDirection.ltr,
+                controller: _city,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                decoration: const InputDecoration(labelText: 'المدينة'),
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _area,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
                 decoration: const InputDecoration(
-                  labelText: 'رقم الهاتف للتواصل',
-                  prefixIcon: Icon(Icons.phone_outlined),
+                  labelText: 'المنطقة أو المجمع',
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _address,
+                textDirection: TextDirection.rtl,
+                textAlign: TextAlign.right,
+                decoration: const InputDecoration(
+                  labelText: 'العنوان التفصيلي أو أقرب نقطة دالة',
+                ),
+                validator: _isEmergency
+                    ? (value) => (value ?? '').trim().isEmpty
+                          ? 'أدخل نقطة دالة تساعد الفريق على الوصول'
+                          : null
+                    : null,
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: _locating ? null : _locate,
+                icon: _locating
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Icon(
+                        _latitude == null
+                            ? Icons.my_location_rounded
+                            : Icons.location_on_rounded,
+                      ),
+                label: Text(
+                  _latitude == null
+                      ? 'تثبيت موقعي الحالي'
+                      : 'تم تثبيت الموقع - تحديثه',
+                ),
+              ),
+              if (!_isEmergency) ...[
+                const SizedBox(height: 10),
+                Row(
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _selectDate,
+                        icon: const Icon(Icons.calendar_month_rounded),
+                        label: Text(
+                          _date == null ? 'اختيار اليوم' : _dateText(_date!),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _selectTime,
+                        icon: const Icon(Icons.schedule_rounded),
+                        label: Text(
+                          _time == null ? 'اختيار الوقت' : _timeText(_time!),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 20),
+              const _SectionTitle(
+                title: 'طريقة التواصل المفضلة',
+                icon: Icons.forum_outlined,
+              ),
+              const SizedBox(height: 8),
+              SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: 'phone',
+                    label: Text('اتصال'),
+                    icon: Icon(Icons.call_outlined),
+                  ),
+                  ButtonSegment(
+                    value: 'whatsapp',
+                    label: Text('واتساب'),
+                    icon: Icon(Icons.chat_outlined),
+                  ),
+                  ButtonSegment(
+                    value: 'in_app',
+                    label: Text('داخل التطبيق'),
+                    icon: Icon(Icons.forum_outlined),
+                  ),
+                ],
+                selected: {_preferredContact},
+                onSelectionChanged: (value) =>
+                    setState(() => _preferredContact = value.first),
+              ),
+              if (_preferredContact != 'in_app') ...[
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _contactPhone,
+                  keyboardType: TextInputType.phone,
+                  textDirection: TextDirection.ltr,
+                  decoration: const InputDecoration(
+                    labelText: 'رقم الهاتف للتواصل',
+                    prefixIcon: Icon(Icons.phone_outlined),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.add_photo_alternate_outlined),
+                title: const Text(
+                  'إضافة صور توضيحية',
+                  textDirection: TextDirection.rtl,
+                  textAlign: TextAlign.right,
+                ),
+                subtitle: Text(
+                  _attachments.isEmpty
+                      ? 'اختياري - صورة العطل أو المستند تساعد على التشخيص'
+                      : 'تم اختيار ${_attachments.length} صورة',
+                  textDirection: TextDirection.rtl,
+                  textAlign: TextAlign.right,
+                ),
+                trailing: IconButton.filledTonal(
+                  tooltip: 'اختيار صور',
+                  onPressed: _pickAttachments,
+                  icon: const Icon(Icons.photo_library_outlined),
                 ),
               ),
             ],
-            const SizedBox(height: 20),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.add_photo_alternate_outlined),
-              title: const Text(
-                'إضافة صور توضيحية',
-                textDirection: TextDirection.rtl,
-                textAlign: TextAlign.right,
-              ),
-              subtitle: Text(
-                _attachments.isEmpty
-                    ? 'اختياري - صورة العطل أو المستند تساعد على التشخيص'
-                    : 'تم اختيار ${_attachments.length} صورة',
-                textDirection: TextDirection.rtl,
-                textAlign: TextAlign.right,
-              ),
-              trailing: IconButton.filledTonal(
-                tooltip: 'اختيار صور',
-                onPressed: _pickAttachments,
-                icon: const Icon(Icons.photo_library_outlined),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
       bottomNavigationBar: SafeArea(

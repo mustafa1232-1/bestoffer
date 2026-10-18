@@ -41,163 +41,170 @@ class AdminAdvancedToolsHubScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.adminAdvancedToolsTitle)),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (canCreateManagedAccounts)
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (canCreateManagedAccounts)
+              _ToolTile(
+                icon: Icons.person_add_alt_1_outlined,
+                title: l10n.adminAdvancedToolsCreateAccount,
+                subtitle: l10n.adminAdvancedToolsCreateAccountDescription,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminCreateUserScreen(),
+                  ),
+                ),
+              ),
+            if (isSuperAdmin || auth.isAdmin)
+              _ToolTile(
+                icon: Icons.lock_reset_rounded,
+                title: 'طلبات إعادة تعيين الرموز',
+                subtitle: 'مراجعة طلبات المستخدمين وتعيين رمز مؤقت',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminPinResetRequestsScreen(),
+                  ),
+                ),
+              ),
+            if (canCreateMerchant)
+              _ToolTile(
+                icon: Icons.store_mall_directory_outlined,
+                title: l10n.adminAdvancedToolsCreateMerchant,
+                subtitle: l10n.adminAdvancedToolsCreateMerchantDescription,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AddMerchantScreen(),
+                  ),
+                ),
+              ),
+            if (canManageCompanies)
+              _ToolTile(
+                icon: Icons.apartment_rounded,
+                title: l10n.adminAdvancedToolsCompanyPortal,
+                subtitle: l10n.adminAdvancedToolsCompanyPortalDescription,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminCompaniesScreen(),
+                  ),
+                ),
+              ),
             _ToolTile(
-              icon: Icons.person_add_alt_1_outlined,
-              title: l10n.adminAdvancedToolsCreateAccount,
-              subtitle: l10n.adminAdvancedToolsCreateAccountDescription,
+              icon: Icons.confirmation_number_outlined,
+              title: l10n.adminAdvancedToolsCouponManagement,
+              subtitle: l10n.adminAdvancedToolsCouponManagementDescription,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const AdminCreateUserScreen(),
+                  builder: (_) => const CouponManagementScreen(
+                    mode: CouponManagerMode.superAdmin,
+                  ),
                 ),
               ),
             ),
-          if (isSuperAdmin || auth.isAdmin)
+            if (isSuperAdmin)
+              _ToolTile(
+                icon: Icons.badge_outlined,
+                title: 'كوبونات الموظفين',
+                subtitle: 'مراقبة كوبونات الإحالة حسب الموظفين وتعديل الخصم',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminReferralCouponsScreen(),
+                  ),
+                ),
+              ),
+            if (isSuperAdmin)
+              _ToolTile(
+                icon: Icons.campaign_rounded,
+                title: 'المؤثرون والمشاهير',
+                subtitle:
+                    'إنشاء أكواد المشاهير ومراجعة المستخدمين والاستحقاقات',
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AdminInfluencerReferralsScreen(),
+                  ),
+                ),
+              ),
+            if (isSuperAdmin)
+              _ToolTile(
+                icon: Icons.monitor_heart_outlined,
+                title: l10n.adminAdvancedToolsChatMonitoring,
+                subtitle: l10n.adminAdvancedToolsChatMonitoringDescription,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const SocialChatQualityMonitorScreen(),
+                  ),
+                ),
+              ),
             _ToolTile(
-              icon: Icons.lock_reset_rounded,
-              title: 'طلبات إعادة تعيين الرموز',
-              subtitle: 'مراجعة طلبات المستخدمين وتعيين رمز مؤقت',
+              icon: Icons.dynamic_feed_rounded,
+              title: l10n.adminAdvancedToolsFeed,
+              subtitle: l10n.adminAdvancedToolsFeedDescription,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const AdminPinResetRequestsScreen(),
+                  builder: (_) => const SocialFeedScreen(),
                 ),
               ),
             ),
-          if (canCreateMerchant)
             _ToolTile(
-              icon: Icons.store_mall_directory_outlined,
-              title: l10n.adminAdvancedToolsCreateMerchant,
-              subtitle: l10n.adminAdvancedToolsCreateMerchantDescription,
+              icon: Icons.campaign_outlined,
+              title: l10n.adminAdvancedToolsAdBoard,
+              subtitle: l10n.adminAdvancedToolsAdBoardDescription,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const AddMerchantScreen(),
+                  builder: (_) => const AdminAdBoardScreen(),
                 ),
               ),
             ),
-          if (canManageCompanies)
+            if (isSuperAdmin || auth.isAdmin)
+              _ToolTile(
+                icon: Icons.verified_user_outlined,
+                title: navText(
+                  ar: 'سياسة موثوقية العميل',
+                  en: 'Customer reliability policy',
+                ),
+                subtitle: navText(
+                  ar: 'اضبط الأوزان والعتبات التي تفعّل تنبيهات مخاطر المتاجر.',
+                  en: 'Tune weights and thresholds that trigger merchant risk warnings.',
+                ),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) =>
+                        const AdminCustomerReliabilityPolicyScreen(),
+                  ),
+                ),
+              ),
             _ToolTile(
-              icon: Icons.apartment_rounded,
-              title: l10n.adminAdvancedToolsCompanyPortal,
-              subtitle: l10n.adminAdvancedToolsCompanyPortalDescription,
+              icon: Icons.work_history_outlined,
+              title: l10n.adminAdvancedToolsJobsHub,
+              subtitle: l10n.adminAdvancedToolsJobsHubDescription,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const JobsHubScreen()),
+              ),
+            ),
+            _ToolTile(
+              icon: Icons.person_search_outlined,
+              title: l10n.adminAdvancedToolsJobsReader,
+              subtitle: l10n.adminAdvancedToolsJobsReaderDescription,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(
-                  builder: (_) => const AdminCompaniesScreen(),
+                  builder: (_) => const JobAdminJobsReaderScreen(),
                 ),
               ),
             ),
-          _ToolTile(
-            icon: Icons.confirmation_number_outlined,
-            title: l10n.adminAdvancedToolsCouponManagement,
-            subtitle: l10n.adminAdvancedToolsCouponManagementDescription,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const CouponManagementScreen(
-                  mode: CouponManagerMode.superAdmin,
+            if (isSuperAdmin)
+              _ToolTile(
+                icon: Icons.fact_check_outlined,
+                title: l10n.adminAdvancedToolsApplicantsMonitor,
+                subtitle: l10n.adminAdvancedToolsApplicantsMonitorDescription,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const JobSuperAdminMonitorScreen(),
+                  ),
                 ),
               ),
-            ),
-          ),
-          if (isSuperAdmin)
-            _ToolTile(
-              icon: Icons.badge_outlined,
-              title: 'كوبونات الموظفين',
-              subtitle: 'مراقبة كوبونات الإحالة حسب الموظفين وتعديل الخصم',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const AdminReferralCouponsScreen(),
-                ),
-              ),
-            ),
-          if (isSuperAdmin)
-            _ToolTile(
-              icon: Icons.campaign_rounded,
-              title: 'المؤثرون والمشاهير',
-              subtitle: 'إنشاء أكواد المشاهير ومراجعة المستخدمين والاستحقاقات',
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const AdminInfluencerReferralsScreen(),
-                ),
-              ),
-            ),
-          if (isSuperAdmin)
-            _ToolTile(
-              icon: Icons.monitor_heart_outlined,
-              title: l10n.adminAdvancedToolsChatMonitoring,
-              subtitle: l10n.adminAdvancedToolsChatMonitoringDescription,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const SocialChatQualityMonitorScreen(),
-                ),
-              ),
-            ),
-          _ToolTile(
-            icon: Icons.dynamic_feed_rounded,
-            title: l10n.adminAdvancedToolsFeed,
-            subtitle: l10n.adminAdvancedToolsFeedDescription,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const SocialFeedScreen()),
-            ),
-          ),
-          _ToolTile(
-            icon: Icons.campaign_outlined,
-            title: l10n.adminAdvancedToolsAdBoard,
-            subtitle: l10n.adminAdvancedToolsAdBoardDescription,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const AdminAdBoardScreen(),
-              ),
-            ),
-          ),
-          if (isSuperAdmin || auth.isAdmin)
-            _ToolTile(
-              icon: Icons.verified_user_outlined,
-              title: navText(
-                ar: 'سياسة موثوقية العميل',
-                en: 'Customer reliability policy',
-              ),
-              subtitle: navText(
-                ar: 'اضبط الأوزان والعتبات التي تفعّل تنبيهات مخاطر المتاجر.',
-                en: 'Tune weights and thresholds that trigger merchant risk warnings.',
-              ),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const AdminCustomerReliabilityPolicyScreen(),
-                ),
-              ),
-            ),
-          _ToolTile(
-            icon: Icons.work_history_outlined,
-            title: l10n.adminAdvancedToolsJobsHub,
-            subtitle: l10n.adminAdvancedToolsJobsHubDescription,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const JobsHubScreen()),
-            ),
-          ),
-          _ToolTile(
-            icon: Icons.person_search_outlined,
-            title: l10n.adminAdvancedToolsJobsReader,
-            subtitle: l10n.adminAdvancedToolsJobsReaderDescription,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => const JobAdminJobsReaderScreen(),
-              ),
-            ),
-          ),
-          if (isSuperAdmin)
-            _ToolTile(
-              icon: Icons.fact_check_outlined,
-              title: l10n.adminAdvancedToolsApplicantsMonitor,
-              subtitle: l10n.adminAdvancedToolsApplicantsMonitorDescription,
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const JobSuperAdminMonitorScreen(),
-                ),
-              ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

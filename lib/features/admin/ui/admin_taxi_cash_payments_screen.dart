@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
@@ -120,7 +122,7 @@ class _AdminTaxiCashPaymentsScreenState
     String? formError;
     var submitting = false;
 
-    final submitted = await showModalBottomSheet<bool>(
+    final submitted = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -327,28 +329,34 @@ class _AdminTaxiCashPaymentsScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(adminControllerProvider.notifier).bootstrap(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          children: state.pendingTaxiCashPayments.isEmpty
-              ? [
-                  Padding(
-                    padding: const EdgeInsets.only(top: 28),
-                    child: Center(child: Text(l10n.adminTaxiCashPaymentsEmpty)),
-                  ),
-                ]
-              : state.pendingTaxiCashPayments
-                    .map(
-                      (item) => _TaxiCashPaymentCard(
-                        item: item,
-                        onConfirm: () => _openPaymentSheet(item),
-                        onOpenDetails: () =>
-                            _openCaptainDetails(item.captainUserId),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(adminControllerProvider.notifier).bootstrap(),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: state.pendingTaxiCashPayments.isEmpty
+                ? [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 28),
+                      child: Center(
+                        child: Text(l10n.adminTaxiCashPaymentsEmpty),
                       ),
-                    )
-                    .toList(growable: false),
+                    ),
+                  ]
+                : state.pendingTaxiCashPayments
+                      .map(
+                        (item) => _TaxiCashPaymentCard(
+                          item: item,
+                          onConfirm: () => _openPaymentSheet(item),
+                          onOpenDetails: () =>
+                              _openCaptainDetails(item.captainUserId),
+                        ),
+                      )
+                      .toList(growable: false),
+          ),
         ),
       ),
     );

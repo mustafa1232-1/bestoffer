@@ -138,93 +138,98 @@ class _AdminMerchantApprovalsScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(adminControllerProvider.notifier).bootstrap(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextField(
-              controller: _searchCtrl,
-              onChanged: (value) => setState(() => _query = value),
-              decoration: InputDecoration(
-                labelText: l10n.adminMerchantApprovalsSearch,
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _query.isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() => _query = '');
-                        },
-                        icon: const Icon(Icons.close_rounded),
-                      ),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(adminControllerProvider.notifier).bootstrap(),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              TextField(
+                controller: _searchCtrl,
+                onChanged: (value) => setState(() => _query = value),
+                decoration: InputDecoration(
+                  labelText: l10n.adminMerchantApprovalsSearch,
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _query.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _query = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            if (state.error != null)
-              _MessageBanner(text: state.error!, isError: true),
-            if (state.success != null)
-              _MessageBanner(text: state.success!, isError: false),
-            if (items.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 28),
-                child: Center(child: Text(l10n.adminMerchantApprovalsEmpty)),
-              )
-            else
-              ...items.map(
-                (item) => Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(16),
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.storefront_outlined),
-                    ),
-                    title: Text(
-                      item.name,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
+              const SizedBox(height: 16),
+              if (state.error != null)
+                _MessageBanner(text: state.error!, isError: true),
+              if (state.success != null)
+                _MessageBanner(text: state.success!, isError: false),
+              if (items.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 28),
+                  child: Center(child: Text(l10n.adminMerchantApprovalsEmpty)),
+                )
+              else
+                ...items.map(
+                  (item) => Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(16),
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.storefront_outlined),
                       ),
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(l10n.adminMerchantApprovalsType(item.type)),
-                          if ((item.ownerName ?? '').trim().isNotEmpty)
-                            Text(
-                              l10n.adminMerchantApprovalsOwner(item.ownerName!),
-                            ),
-                          if ((item.ownerPhone ?? '').trim().isNotEmpty)
-                            Text(item.ownerPhone!),
-                          if ((item.description ?? '').trim().isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(item.description!),
-                            ),
-                        ],
+                      title: Text(
+                        item.name,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
                       ),
-                    ),
-                    trailing: FilledButton.tonalIcon(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => AdminMerchantBillingProfileScreen(
-                              merchantId: item.id,
-                              merchantName: item.name,
-                              approvalMode: true,
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(l10n.adminMerchantApprovalsType(item.type)),
+                            if ((item.ownerName ?? '').trim().isNotEmpty)
+                              Text(
+                                l10n.adminMerchantApprovalsOwner(
+                                  item.ownerName!,
+                                ),
+                              ),
+                            if ((item.ownerPhone ?? '').trim().isNotEmpty)
+                              Text(item.ownerPhone!),
+                            if ((item.description ?? '').trim().isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(item.description!),
+                              ),
+                          ],
+                        ),
+                      ),
+                      trailing: FilledButton.tonalIcon(
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => AdminMerchantBillingProfileScreen(
+                                merchantId: item.id,
+                                merchantName: item.name,
+                                approvalMode: true,
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.rule_folder_outlined),
-                      label: Text(l10n.adminMerchantApprovalsReview),
+                          );
+                        },
+                        icon: const Icon(Icons.rule_folder_outlined),
+                        label: Text(l10n.adminMerchantApprovalsReview),
+                      ),
                     ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );

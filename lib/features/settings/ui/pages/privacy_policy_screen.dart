@@ -124,11 +124,14 @@ class PrivacyPolicyScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(context.l10n.settingsPrivacyPolicy)),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 14),
-        itemBuilder: (context, index) => items[index],
+      body: SafeArea(
+        top: false,
+        child: ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 14),
+          itemBuilder: (context, index) => items[index],
+        ),
       ),
     );
   }

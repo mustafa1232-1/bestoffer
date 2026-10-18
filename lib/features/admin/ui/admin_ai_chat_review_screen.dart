@@ -264,23 +264,26 @@ class _AdminAiChatReviewScreenState
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: wide
-            ? Row(
-                children: [
-                  SizedBox(width: 320, child: _buildUsersPane(context)),
-                  const SizedBox(width: 12),
-                  SizedBox(width: 340, child: _buildSessionsPane(context)),
-                  const SizedBox(width: 12),
-                  Expanded(child: _buildMessagesPane(context)),
-                ],
-              )
-            : switch (_mobileStep) {
-                0 => _buildUsersPane(context, wide: false),
-                1 => _buildSessionsPane(context, wide: false),
-                _ => _buildMessagesPane(context),
-              },
+      body: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: wide
+              ? Row(
+                  children: [
+                    SizedBox(width: 320, child: _buildUsersPane(context)),
+                    const SizedBox(width: 12),
+                    SizedBox(width: 340, child: _buildSessionsPane(context)),
+                    const SizedBox(width: 12),
+                    Expanded(child: _buildMessagesPane(context)),
+                  ],
+                )
+              : switch (_mobileStep) {
+                  0 => _buildUsersPane(context, wide: false),
+                  1 => _buildSessionsPane(context, wide: false),
+                  _ => _buildMessagesPane(context),
+                },
+        ),
       ),
     );
   }

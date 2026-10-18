@@ -354,7 +354,7 @@ class _SocialChatThreadsScreenState
   }
 
   Future<void> _openThreadActions(SocialChatThread thread) async {
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (_) => SafeArea(
@@ -595,7 +595,7 @@ class _SocialChatThreadsScreenState
   }
 
   Future<void> _openCreateGroupSheet() async {
-    final thread = await showModalBottomSheet<SocialChatThread>(
+    final thread = await showMaslakiBottomSheet<SocialChatThread>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,

@@ -322,7 +322,7 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
     final messageCtrl = TextEditingController(text: item.offerMessage ?? '');
     LocalMediaFile? attachment;
 
-    final out = await showModalBottomSheet<_OfferDraft>(
+    final out = await showMaslakiBottomSheet<_OfferDraft>(
       context: context,
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
@@ -608,7 +608,7 @@ class _JobApplicationsScreenState extends ConsumerState<JobApplicationsScreen>
         ? '-'
         : '${item.createdAt!.toLocal()}'.split('.').first;
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => SafeArea(

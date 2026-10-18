@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/locale_text.dart';
@@ -96,7 +98,7 @@ class _SocialHashtagScreenState extends ConsumerState<SocialHashtagScreen> {
     )) {
       return;
     }
-    final saved = await showModalBottomSheet<bool>(
+    final saved = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -156,54 +158,57 @@ class _SocialHashtagScreenState extends ConsumerState<SocialHashtagScreen> {
       textDirection: context.appTextDirection,
       child: Scaffold(
         appBar: AppBar(title: Text('#${widget.tag}')),
-        body: RefreshIndicator(
-          onRefresh: _load,
-          child: _loading
-              ? ListView(
-                  children: const [
-                    SizedBox(height: 240),
-                    Center(child: CircularProgressIndicator()),
-                  ],
-                )
-              : _error != null
-              ? ListView(
-                  children: [
-                    const SizedBox(height: 120),
-                    Center(child: Text(_error!)),
-                  ],
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _posts.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 14),
-                  itemBuilder: (_, index) {
-                    final post = _posts[index];
-                    return SocialPostCardV2(
-                      post: post,
-                      onOpenDetails: () {
-                        openSocialContent(
-                          context,
-                          post: post,
-                          reelContextPosts: _posts,
-                        );
-                      },
-                      onOpenProfile: () {
-                        openSocialProfileGuarded(
-                          context,
-                          userId: post.userId,
-                          initialName: post.author.fullName,
-                        );
-                      },
-                      onOpenMerchantLink: () => _openMerchant(post),
-                      onToggleLike: () => _toggleLike(post),
-                      onToggleSave: () => _toggleSave(post),
-                      onOpenComments: () {
-                        openSocialComments(context, post: post);
-                      },
-                    );
-                  },
-                ),
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _loading
+                ? ListView(
+                    children: const [
+                      SizedBox(height: 240),
+                      Center(child: CircularProgressIndicator()),
+                    ],
+                  )
+                : _error != null
+                ? ListView(
+                    children: [
+                      const SizedBox(height: 120),
+                      Center(child: Text(_error!)),
+                    ],
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _posts.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 14),
+                    itemBuilder: (_, index) {
+                      final post = _posts[index];
+                      return SocialPostCardV2(
+                        post: post,
+                        onOpenDetails: () {
+                          openSocialContent(
+                            context,
+                            post: post,
+                            reelContextPosts: _posts,
+                          );
+                        },
+                        onOpenProfile: () {
+                          openSocialProfileGuarded(
+                            context,
+                            userId: post.userId,
+                            initialName: post.author.fullName,
+                          );
+                        },
+                        onOpenMerchantLink: () => _openMerchant(post),
+                        onToggleLike: () => _toggleLike(post),
+                        onToggleSave: () => _toggleSave(post),
+                        onOpenComments: () {
+                          openSocialComments(context, post: post);
+                        },
+                      );
+                    },
+                  ),
+          ),
         ),
       ),
     );

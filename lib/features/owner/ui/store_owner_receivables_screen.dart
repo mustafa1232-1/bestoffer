@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/utils/currency.dart';
@@ -71,7 +73,7 @@ class _StoreOwnerReceivablesScreenState
 
   Future<void> _openCreateRequest() async {
     final l10n = context.l10n;
-    final draft = await showModalBottomSheet<MerchantFinancialRequestDraft>(
+    final draft = await showMaslakiBottomSheet<MerchantFinancialRequestDraft>(
       context: context,
       isScrollControlled: true,
       builder: (_) => const MerchantFinancialRequestFormSheet(),
@@ -115,7 +117,7 @@ class _StoreOwnerReceivablesScreenState
         .toList(growable: false);
 
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => MerchantFinancialRequestDetailsSheet(
@@ -125,7 +127,7 @@ class _StoreOwnerReceivablesScreenState
             ? () async {
                 Navigator.of(context).pop();
                 final draft =
-                    await showModalBottomSheet<MerchantFinancialRequestDraft>(
+                    await showMaslakiBottomSheet<MerchantFinancialRequestDraft>(
                   context: context,
                   isScrollControlled: true,
                   builder: (_) => MerchantFinancialRequestFormSheet(
@@ -294,7 +296,7 @@ class _StoreOwnerReceivablesScreenState
         icon: const Icon(Icons.add_card_outlined),
         label: Text(l10n.ownerReceivablesNewRequest),
       ),
-      body: Column(
+      body: SafeArea(top: false, child: Column(
         children: [
           if (state.savingOrder) const LinearProgressIndicator(minHeight: 2),
           if ((state.error ?? '').trim().isNotEmpty)
@@ -343,7 +345,7 @@ class _StoreOwnerReceivablesScreenState
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 }

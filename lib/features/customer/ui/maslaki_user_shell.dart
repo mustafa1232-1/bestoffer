@@ -226,6 +226,9 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    // Read before the Scaffold: extendBody replaces the body's bottom padding
+    // with the bottom bar's height.
+    final systemBottomPadding = MediaQuery.paddingOf(context).bottom;
     final shellController = MaslakiUserShellController(
       currentIndex: _index,
       popCurrentNavigator: _popCurrentNavigator,
@@ -249,21 +252,25 @@ class _MaslakiUserShellState extends ConsumerState<MaslakiUserShell> {
           child: Scaffold(
             extendBody: true,
             backgroundColor: Colors.transparent,
-            body: Stack(
-              children: List<Widget>.generate(_navigatorKeys.length, (index) {
-                final isActive = index == _index;
-                final navigator = _tabNavigators[index];
-                if (!isActive && navigator == null) {
-                  return const SizedBox.shrink();
-                }
-                return Offstage(
-                  offstage: !isActive,
-                  child: TickerMode(
-                    enabled: isActive,
-                    child: _navigatorForIndex(index),
-                  ),
-                );
-              }),
+            body: MaslakiBottomBarBodyInsets(
+              barVisible: _showBottomBar,
+              systemBottomPadding: systemBottomPadding,
+              child: Stack(
+                children: List<Widget>.generate(_navigatorKeys.length, (index) {
+                  final isActive = index == _index;
+                  final navigator = _tabNavigators[index];
+                  if (!isActive && navigator == null) {
+                    return const SizedBox.shrink();
+                  }
+                  return Offstage(
+                    offstage: !isActive,
+                    child: TickerMode(
+                      enabled: isActive,
+                      child: _navigatorForIndex(index),
+                    ),
+                  );
+                }),
+              ),
             ),
             bottomNavigationBar: MaslakiBottomNavShell(
               visible: _showBottomBar,

@@ -154,255 +154,262 @@ class _SocialChatQualityMonitorScreenState
             ),
           ],
         ),
-        body: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              child: TextField(
-                controller: _searchController,
-                textInputAction: TextInputAction.search,
-                decoration: InputDecoration(
-                  hintText: l10n.socialChatQualityMonitorSearchHint,
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  suffixIcon: _query.isEmpty
-                      ? null
-                      : IconButton(
-                          tooltip: l10n.commonClear,
-                          onPressed: () {
-                            _searchController.clear();
-                            _loadThreads();
-                          },
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+        body: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                child: TextField(
+                  controller: _searchController,
+                  textInputAction: TextInputAction.search,
+                  decoration: InputDecoration(
+                    hintText: l10n.socialChatQualityMonitorSearchHint,
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _query.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: l10n.commonClear,
+                            onPressed: () {
+                              _searchController.clear();
+                              _loadThreads();
+                            },
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
                   ),
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: SegmentedButton<String>(
-                segments: <ButtonSegment<String>>[
-                  ButtonSegment<String>(
-                    value: 'all',
-                    icon: const Icon(Icons.forum_outlined),
-                    label: Text(l10n.commonAll),
-                  ),
-                  ButtonSegment<String>(
-                    value: 'direct',
-                    icon: const Icon(Icons.chat_bubble_outline_rounded),
-                    label: Text(l10n.socialChatQualityMonitorDirect),
-                  ),
-                  ButtonSegment<String>(
-                    value: 'community',
-                    icon: const Icon(Icons.groups_2_outlined),
-                    label: Text(l10n.socialBasmayaCommunity),
-                  ),
-                ],
-                selected: <String>{_kind},
-                onSelectionChanged: (next) {
-                  final selected = next.isEmpty ? 'all' : next.first;
-                  if (selected == _kind) return;
-                  setState(() => _kind = selected);
-                  _loadThreads();
-                },
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: SegmentedButton<String>(
+                  segments: <ButtonSegment<String>>[
+                    ButtonSegment<String>(
+                      value: 'all',
+                      icon: const Icon(Icons.forum_outlined),
+                      label: Text(l10n.commonAll),
+                    ),
+                    ButtonSegment<String>(
+                      value: 'direct',
+                      icon: const Icon(Icons.chat_bubble_outline_rounded),
+                      label: Text(l10n.socialChatQualityMonitorDirect),
+                    ),
+                    ButtonSegment<String>(
+                      value: 'community',
+                      icon: const Icon(Icons.groups_2_outlined),
+                      label: Text(l10n.socialBasmayaCommunity),
+                    ),
+                  ],
+                  selected: <String>{_kind},
+                  onSelectionChanged: (next) {
+                    final selected = next.isEmpty ? 'all' : next.first;
+                    if (selected == _kind) return;
+                    setState(() => _kind = selected);
+                    _loadThreads();
+                  },
+                ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
-              child: Row(
-                children: [
-                  const Icon(Icons.verified_user_outlined, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      l10n.socialChatQualityMonitorSummary,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(14, 0, 14, 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.verified_user_outlined, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        l10n.socialChatQualityMonitorSummary,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            Expanded(
-              child: RefreshIndicator(
-                onRefresh: _loadThreads,
-                child: _loading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _error != null
-                    ? ListView(
-                        padding: const EdgeInsets.only(top: 120),
-                        children: [
-                          Icon(
-                            Icons.error_outline_rounded,
-                            size: 42,
-                            color: Theme.of(context).colorScheme.error,
-                          ),
-                          const SizedBox(height: 10),
-                          Text(_error!, textAlign: TextAlign.center),
-                        ],
-                      )
-                    : _threads.isEmpty
-                    ? ListView(
-                        padding: const EdgeInsets.only(top: 120),
-                        children: [
-                          const Icon(Icons.forum_outlined, size: 52),
-                          const SizedBox(height: 10),
-                          Text(
-                            l10n.socialChatQualityMonitorEmpty,
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      )
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
-                        itemCount: _threads.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (_, index) {
-                          final thread = _threads[index];
-                          final preview =
-                              thread.lastMessage?.previewText ??
-                              l10n.socialChatQualityMonitorNoMessageYet;
-                          final details = thread.isCommunity
-                              ? (thread.scopeSubtitle ??
-                                    l10n.socialChatQualityMonitorCommunityDetails)
-                              : thread.participants
-                                    .map(
-                                      (item) =>
-                                          '${item.fullName} (${item.phone ?? '-'})',
-                                    )
-                                    .join(' - ');
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: _loadThreads,
+                  child: _loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _error != null
+                      ? ListView(
+                          padding: const EdgeInsets.only(top: 120),
+                          children: [
+                            Icon(
+                              Icons.error_outline_rounded,
+                              size: 42,
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                            const SizedBox(height: 10),
+                            Text(_error!, textAlign: TextAlign.center),
+                          ],
+                        )
+                      : _threads.isEmpty
+                      ? ListView(
+                          padding: const EdgeInsets.only(top: 120),
+                          children: [
+                            const Icon(Icons.forum_outlined, size: 52),
+                            const SizedBox(height: 10),
+                            Text(
+                              l10n.socialChatQualityMonitorEmpty,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        )
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
+                          itemCount: _threads.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (_, index) {
+                            final thread = _threads[index];
+                            final preview =
+                                thread.lastMessage?.previewText ??
+                                l10n.socialChatQualityMonitorNoMessageYet;
+                            final details = thread.isCommunity
+                                ? (thread.scopeSubtitle ??
+                                      l10n.socialChatQualityMonitorCommunityDetails)
+                                : thread.participants
+                                      .map(
+                                        (item) =>
+                                            '${item.fullName} (${item.phone ?? '-'})',
+                                      )
+                                      .join(' - ');
 
-                          return Material(
-                            color: Colors.transparent,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(16),
-                              onTap: () => _openThread(thread),
-                              child: Ink(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(16),
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .surfaceContainerHighest
-                                      .withValues(alpha: 0.7),
-                                  border: Border.all(
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () => _openThread(thread),
+                                child: Ink(
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(16),
                                     color: Theme.of(context)
                                         .colorScheme
-                                        .outlineVariant
-                                        .withValues(alpha: 0.35),
+                                        .surfaceContainerHighest
+                                        .withValues(alpha: 0.7),
+                                    border: Border.all(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outlineVariant
+                                          .withValues(alpha: 0.35),
+                                    ),
                                   ),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(12),
-                                  child: Column(
-                                    crossAxisAlignment: context.isEnglishLocale
-                                        ? CrossAxisAlignment.start
-                                        : CrossAxisAlignment.end,
-                                    children: [
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              thread.isCommunity
-                                                  ? (thread.scopeTitle ??
-                                                        thread.participantLabel)
-                                                  : thread.participantLabel,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                fontSize: 15,
-                                                fontWeight: FontWeight.w800,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          context.isEnglishLocale
+                                          ? CrossAxisAlignment.start
+                                          : CrossAxisAlignment.end,
+                                      children: [
+                                        Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                thread.isCommunity
+                                                    ? (thread.scopeTitle ??
+                                                          thread
+                                                              .participantLabel)
+                                                    : thread.participantLabel,
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w800,
+                                                ),
                                               ),
                                             ),
+                                            const SizedBox(width: 8),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 5,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                                color: Theme.of(context)
+                                                    .colorScheme
+                                                    .primary
+                                                    .withValues(alpha: 0.12),
+                                              ),
+                                              child: Text(
+                                                thread.isCommunity
+                                                    ? l10n.socialBasmayaCommunity
+                                                    : l10n.socialChatQualityMonitorDirect,
+                                                style: TextStyle(
+                                                  color: Theme.of(
+                                                    context,
+                                                  ).colorScheme.primary,
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 11.5,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          details,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                            fontWeight: FontWeight.w600,
                                           ),
-                                          const SizedBox(width: 8),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 10,
-                                              vertical: 5,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              borderRadius:
-                                                  BorderRadius.circular(999),
-                                              color: Theme.of(context)
-                                                  .colorScheme
-                                                  .primary
-                                                  .withValues(alpha: 0.12),
-                                            ),
-                                            child: Text(
-                                              thread.isCommunity
-                                                  ? l10n.socialBasmayaCommunity
-                                                  : l10n.socialChatQualityMonitorDirect,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          preview,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Row(
+                                          children: [
+                                            Text(
+                                              thread.lastMessageAt == null
+                                                  ? l10n.socialChatQualityMonitorNoActivity
+                                                  : _dateFormat.format(
+                                                      thread.lastMessageAt!
+                                                          .toLocal(),
+                                                    ),
                                               style: TextStyle(
                                                 color: Theme.of(
                                                   context,
-                                                ).colorScheme.primary,
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 11.5,
+                                                ).colorScheme.onSurfaceVariant,
+                                                fontWeight: FontWeight.w600,
                                               ),
                                             ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        details,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: Theme.of(
-                                            context,
-                                          ).colorScheme.onSurfaceVariant,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        preview,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 8),
-                                      Row(
-                                        children: [
-                                          Text(
-                                            thread.lastMessageAt == null
-                                                ? l10n.socialChatQualityMonitorNoActivity
-                                                : _dateFormat.format(
-                                                    thread.lastMessageAt!
-                                                        .toLocal(),
-                                                  ),
-                                            style: TextStyle(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.onSurfaceVariant,
-                                              fontWeight: FontWeight.w600,
+                                            const Spacer(),
+                                            const Icon(
+                                              Icons.visibility_outlined,
+                                              size: 18,
                                             ),
-                                          ),
-                                          const Spacer(),
-                                          const Icon(
-                                            Icons.visibility_outlined,
-                                            size: 18,
-                                          ),
-                                        ],
-                                      ),
-                                    ],
+                                          ],
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
+                            );
+                          },
+                        ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

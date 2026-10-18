@@ -22,6 +22,8 @@ import '../../../core/widgets/maslaki_wordmark.dart';
 import '../../../pages/map_page.dart';
 import '../../auth/state/auth_controller.dart';
 import '../../mimo/mimo_navigation.dart';
+import '../../mimo/guide/mimo_target.dart';
+import '../../merchants/shopping_groups.dart';
 import '../../mimo/mimo_overlay.dart';
 import '../../mimo/mimo_perch.dart';
 import 'maslaki_user_shell.dart';
@@ -235,6 +237,51 @@ class _CustomerHomeSelectorScreenState
     super.dispose();
   }
 
+  /// The guided tour for what Mimo suggested (empty = open it directly).
+  List<MimoTourStep> _mimoTourFor(MimoNavRequest request) {
+    String say(String ar, String en) => context.lt(ar: ar, en: en);
+    final store = request.store;
+    if (store != null) {
+      final id = int.tryParse('${store['id'] ?? ''}') ?? 0;
+      final name = '${store['name'] ?? ''}'.trim();
+      if (id <= 0 || name.isEmpty || request.productId != null) return const [];
+      final group = shoppingGroupOf(
+        type: '${store['type'] ?? ''}',
+        activityType: '${store['activityType'] ?? ''}',
+        supportsPharmacy: store['pharmacy'] == true,
+      );
+      return [
+        MimoTourStep(
+          'section:shopping',
+          say: say('تعال وياي! 🏃', 'Follow me! 🏃'),
+        ),
+        if (group != null) MimoTourStep('shop-group:$group'),
+        MimoTourStep('store:$id', expectName: name),
+      ];
+    }
+    if (request.serviceId != null) {
+      return [
+        MimoTourStep(
+          'section:services',
+          say: say('تعال وياي! 🏃', 'Follow me! 🏃'),
+        ),
+      ];
+    }
+    return switch (request.section) {
+      'shopping' ||
+      'taxi' ||
+      'services' ||
+      'cars' ||
+      'real_estate' ||
+      'jobs' => [MimoTourStep('section:${request.section}')],
+      'pharmacy' => const [
+        MimoTourStep('section:shopping'),
+        MimoTourStep('shop-group:pharmacy'),
+      ],
+      _ => const [],
+    };
+  }
+
   /// Opens what Mimo suggested (section, store or product) using this screen's
   /// own access checks, after bringing the user back to the home tab.
   void _onMimoNavRequest() {
@@ -252,6 +299,28 @@ class _CustomerHomeSelectorScreenState
     }
     shell?.goHome(resetStack: true);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // Mimo walks there himself first (section → category → store); if the
+      // tour can't finish, the direct navigation below still gets them there.
+      final tour = _mimoTourFor(request);
+      if (tour.isNotEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 320));
+        if (!mounted) return;
+        final arrived = await MimoGuide.run(tour);
+        if (!mounted) return;
+        final finishedOnItsOwn =
+            request.store != null ||
+            const {
+              'shopping',
+              'taxi',
+              'services',
+              'pharmacy',
+              'cars',
+              'real_estate',
+              'jobs',
+            }.contains(request.section);
+        if (arrived && finishedOnItsOwn) return;
+      }
       if (!mounted) return;
       final ticketId = request.ticketId;
       if (ticketId != null) {
@@ -1104,6 +1173,7 @@ class _CustomerHomeSelectorScreenState
         enabled: entry.isOpen,
         isVisible: entry.isVisible,
         badgeLabel: entry.badgeLabel,
+        mimoId: 'section:${_sectionKeyFor(section)}',
       );
     }
 
@@ -2162,6 +2232,9 @@ class MainCategoryItem {
   final bool isVisible;
   final String? badgeLabel;
 
+  /// Lets Mimo find and tap this section during a guided tour.
+  final String? mimoId;
+
   const MainCategoryItem({
     required this.title,
     required this.subtitle,
@@ -2171,7 +2244,15 @@ class MainCategoryItem {
     this.enabled = true,
     this.isVisible = true,
     this.badgeLabel,
+    this.mimoId,
   });
+}
+
+/// Wraps [child] as a Mimo tour target when [item] has an id.
+Widget _mimoSection(MainCategoryItem item, Widget child) {
+  final id = item.mimoId;
+  if (id == null || !item.enabled) return child;
+  return MimoTarget(id: id, label: item.title, onTap: item.onTap, child: child);
 }
 
 class HomeEntrance extends StatelessWidget {
@@ -2297,49 +2378,52 @@ class HomeCategoryRail extends StatelessWidget {
         separatorBuilder: (_, _) => const SizedBox(width: 12),
         itemBuilder: (context, index) {
           final item = allItems[index];
-          return InkWell(
-            onTap: item.onTap,
-            borderRadius: BorderRadius.circular(18),
-            child: SizedBox(
-              width: 72,
-              child: Column(
-                children: [
-                  Container(
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: item.enabled
-                          ? tokens.primaryAccent.withValues(alpha: 0.10)
-                          : tokens.surfaceSecondary.withValues(alpha: 0.70),
-                      border: Border.all(
+          return _mimoSection(
+            item,
+            InkWell(
+              onTap: item.onTap,
+              borderRadius: BorderRadius.circular(18),
+              child: SizedBox(
+                width: 72,
+                child: Column(
+                  children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
                         color: item.enabled
-                            ? tokens.primaryAccent.withValues(alpha: 0.20)
-                            : tokens.borderSubtle.withValues(alpha: 0.50),
+                            ? tokens.primaryAccent.withValues(alpha: 0.10)
+                            : tokens.surfaceSecondary.withValues(alpha: 0.70),
+                        border: Border.all(
+                          color: item.enabled
+                              ? tokens.primaryAccent.withValues(alpha: 0.20)
+                              : tokens.borderSubtle.withValues(alpha: 0.50),
+                        ),
+                      ),
+                      child: Icon(
+                        item.icon,
+                        color: item.enabled
+                            ? tokens.primaryAccent
+                            : tokens.textMuted,
+                        size: 28,
                       ),
                     ),
-                    child: Icon(
-                      item.icon,
-                      color: item.enabled
-                          ? tokens.primaryAccent
-                          : tokens.textMuted,
-                      size: 28,
+                    const SizedBox(height: 7),
+                    Text(
+                      item.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      textDirection: TextDirection.rtl,
+                      style: TextStyle(
+                        color: tokens.textPrimary,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 7),
-                  Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    textDirection: TextDirection.rtl,
-                    style: TextStyle(
-                      color: tokens.textPrimary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -2979,7 +3063,10 @@ class MainCategoryGrid extends StatelessWidget {
                 childAspectRatio: aspectRatio,
               ),
               itemBuilder: (context, index) {
-                return MainCategoryCard(item: items[index]);
+                return _mimoSection(
+                  items[index],
+                  MainCategoryCard(item: items[index]),
+                );
               },
             );
           },

@@ -355,136 +355,142 @@ class _MonitoringOperationsListScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              MaslakiSpacing.md,
-              MaslakiSpacing.md,
-              MaslakiSpacing.md,
-              0,
-            ),
-            child: TextField(
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search_rounded),
-                labelText: context.lt(ar: 'بحث', en: 'Search'),
-                suffixIcon: IconButton(
-                  onPressed: _load,
-                  icon: const Icon(Icons.arrow_forward_rounded),
-                ),
-              ),
-              onChanged: (value) => _search = value.trim(),
-              onSubmitted: (_) {
-                _offset = 0;
-                _load();
-              },
-            ),
-          ),
-          SizedBox(
-            height: 52,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(
-                horizontal: MaslakiSpacing.md,
-                vertical: MaslakiSpacing.sm,
-              ),
-              children: [
-                ChoiceChip(
-                  label: Text(context.lt(ar: 'الكل', en: 'All')),
-                  selected: _status == null,
-                  onSelected: (_) => _selectStatus(null),
-                ),
-                for (final status in _statuses)
-                  Padding(
-                    padding: const EdgeInsetsDirectional.only(start: 8),
-                    child: ChoiceChip(
-                      label: Text(_statusLabel(context, status)),
-                      selected: _status == status,
-                      onSelected: (_) => _selectStatus(status),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (_error != null)
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
             Padding(
-              padding: const EdgeInsets.all(MaslakiSpacing.md),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              padding: const EdgeInsets.fromLTRB(
+                MaslakiSpacing.md,
+                MaslakiSpacing.md,
+                MaslakiSpacing.md,
+                0,
+              ),
+              child: TextField(
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  labelText: context.lt(ar: 'بحث', en: 'Search'),
+                  suffixIcon: IconButton(
+                    onPressed: _load,
+                    icon: const Icon(Icons.arrow_forward_rounded),
+                  ),
+                ),
+                onChanged: (value) => _search = value.trim(),
+                onSubmitted: (_) {
+                  _offset = 0;
+                  _load();
+                },
               ),
             ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _items.isEmpty
-                ? MaslakiEmptyState(
-                    icon: widget.mode == MonitoringOperationsMode.delivery
-                        ? Icons.delivery_dining_rounded
-                        : Icons.receipt_long_rounded,
-                    title: context.lt(ar: 'لا توجد نتائج', en: 'No results'),
-                    body: context.lt(
-                      ar: 'لا توجد بيانات مطابقة للفلاتر الحالية.',
-                      en: 'No data matches the current filters.',
-                    ),
-                  )
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    child: ListView.separated(
-                      padding: const EdgeInsets.all(MaslakiSpacing.md),
-                      itemCount: _items.length,
-                      separatorBuilder: (_, _) =>
-                          const SizedBox(height: MaslakiSpacing.sm),
-                      itemBuilder: (context, index) {
-                        final item = _items[index];
-                        final child = switch (widget.mode) {
-                          MonitoringOperationsMode.delivery => _CourierTile(
-                            item: item,
-                          ),
-                          MonitoringOperationsMode.services => _ServiceTile(
-                            item: item,
-                          ),
-                          MonitoringOperationsMode.realEstate =>
-                            _RealEstateTile(item: item),
-                          MonitoringOperationsMode.cars => _CarTile(item: item),
-                          MonitoringOperationsMode.jobs => _JobTile(item: item),
-                          MonitoringOperationsMode.community => _CommunityTile(
-                            item: item,
-                          ),
-                          MonitoringOperationsMode.orders => _OrderTile(
-                            item: item,
-                          ),
-                        };
-                        return InkWell(
-                          borderRadius: BorderRadius.circular(12),
-                          onTap: () => _openDetail(item),
-                          child: child,
-                        );
-                      },
-                    ),
+            SizedBox(
+              height: 52,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: MaslakiSpacing.md,
+                  vertical: MaslakiSpacing.sm,
+                ),
+                children: [
+                  ChoiceChip(
+                    label: Text(context.lt(ar: 'الكل', en: 'All')),
+                    selected: _status == null,
+                    onSelected: (_) => _selectStatus(null),
                   ),
-          ),
-          _Pager(
-            offset: _offset,
-            pageSize: _pageSize,
-            total: _total,
-            loading: _loading,
-            onPrev: _offset > 0
-                ? () {
-                    setState(() {
-                      _offset = (_offset - _pageSize).clamp(0, _offset);
-                    });
-                    _load();
-                  }
-                : null,
-            onNext: (_offset + _pageSize) < _total
-                ? () {
-                    setState(() => _offset += _pageSize);
-                    _load();
-                  }
-                : null,
-          ),
-        ],
+                  for (final status in _statuses)
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(start: 8),
+                      child: ChoiceChip(
+                        label: Text(_statusLabel(context, status)),
+                        selected: _status == status,
+                        onSelected: (_) => _selectStatus(status),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(MaslakiSpacing.md),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _items.isEmpty
+                  ? MaslakiEmptyState(
+                      icon: widget.mode == MonitoringOperationsMode.delivery
+                          ? Icons.delivery_dining_rounded
+                          : Icons.receipt_long_rounded,
+                      title: context.lt(ar: 'لا توجد نتائج', en: 'No results'),
+                      body: context.lt(
+                        ar: 'لا توجد بيانات مطابقة للفلاتر الحالية.',
+                        en: 'No data matches the current filters.',
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.all(MaslakiSpacing.md),
+                        itemCount: _items.length,
+                        separatorBuilder: (_, _) =>
+                            const SizedBox(height: MaslakiSpacing.sm),
+                        itemBuilder: (context, index) {
+                          final item = _items[index];
+                          final child = switch (widget.mode) {
+                            MonitoringOperationsMode.delivery => _CourierTile(
+                              item: item,
+                            ),
+                            MonitoringOperationsMode.services => _ServiceTile(
+                              item: item,
+                            ),
+                            MonitoringOperationsMode.realEstate =>
+                              _RealEstateTile(item: item),
+                            MonitoringOperationsMode.cars => _CarTile(
+                              item: item,
+                            ),
+                            MonitoringOperationsMode.jobs => _JobTile(
+                              item: item,
+                            ),
+                            MonitoringOperationsMode.community =>
+                              _CommunityTile(item: item),
+                            MonitoringOperationsMode.orders => _OrderTile(
+                              item: item,
+                            ),
+                          };
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => _openDetail(item),
+                            child: child,
+                          );
+                        },
+                      ),
+                    ),
+            ),
+            _Pager(
+              offset: _offset,
+              pageSize: _pageSize,
+              total: _total,
+              loading: _loading,
+              onPrev: _offset > 0
+                  ? () {
+                      setState(() {
+                        _offset = (_offset - _pageSize).clamp(0, _offset);
+                      });
+                      _load();
+                    }
+                  : null,
+              onNext: (_offset + _pageSize) < _total
+                  ? () {
+                      setState(() => _offset += _pageSize);
+                      _load();
+                    }
+                  : null,
+            ),
+          ],
+        ),
       ),
     );
   }

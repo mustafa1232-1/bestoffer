@@ -419,38 +419,41 @@ class _AdminRbacManagementScreenState
           icon: const Icon(Icons.add_rounded),
           label: const Text('دور جديد'),
         ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? Center(child: Text(_error!))
-            : Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: TextField(
-                      controller: _searchCtrl,
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        labelText: 'بحث في الأدوار',
-                        suffixIcon: IconButton(
-                          onPressed: _load,
-                          icon: const Icon(Icons.arrow_forward_rounded),
+        body: SafeArea(
+          top: false,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(child: Text(_error!))
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: TextField(
+                        controller: _searchCtrl,
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          labelText: 'بحث في الأدوار',
+                          suffixIcon: IconButton(
+                            onPressed: _load,
+                            icon: const Icon(Icons.arrow_forward_rounded),
+                          ),
                         ),
+                        onSubmitted: (_) => _load(),
                       ),
-                      onSubmitted: (_) => _load(),
                     ),
-                  ),
-                  Expanded(
-                    child: TabBarView(
-                      children: [
-                        _rolesTab(),
-                        _permissionsTab(),
-                        _changeLogTab(),
-                      ],
+                    Expanded(
+                      child: TabBarView(
+                        children: [
+                          _rolesTab(),
+                          _permissionsTab(),
+                          _changeLogTab(),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
+        ),
       ),
     );
   }

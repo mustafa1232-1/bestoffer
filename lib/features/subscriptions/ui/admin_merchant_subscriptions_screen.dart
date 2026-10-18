@@ -116,7 +116,7 @@ class _AdminMerchantSubscriptionsScreenState
           ),
         ],
       ),
-      body: state.loading
+      body: SafeArea(top: false, child: state.loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: () => ref
@@ -147,7 +147,7 @@ class _AdminMerchantSubscriptionsScreenState
                         );
                       },
                     ),
-            ),
+            )),
     );
   }
 }

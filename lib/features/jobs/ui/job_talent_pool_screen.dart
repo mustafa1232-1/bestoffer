@@ -123,7 +123,7 @@ class _JobTalentPoolScreenState extends ConsumerState<JobTalentPoolScreen> {
           ),
         ],
       ),
-      body: Directionality(
+      body: SafeArea(top: false, child: Directionality(
         textDirection: Directionality.of(context),
         child: Column(
           children: [
@@ -233,7 +233,7 @@ class _JobTalentPoolScreenState extends ConsumerState<JobTalentPoolScreen> {
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 

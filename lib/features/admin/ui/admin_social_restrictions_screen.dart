@@ -208,248 +208,257 @@ class _AdminSocialRestrictionsScreenState
       appBar: AppBar(
         title: Text(context.l10n.adminDashboardSocialRestrictions),
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      context.l10n.adminSocialRestrictionsManageByUser,
-                      textDirection: Directionality.of(context),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _userIdCtrl,
-                      keyboardType: TextInputType.number,
-                      textDirection: TextDirection.ltr,
-                      decoration: InputDecoration(
-                        labelText: context.l10n.commonUserId,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      alignment: WrapAlignment.end,
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        FilledButton.icon(
-                          onPressed: _loading ? null : _load,
-                          icon: const Icon(Icons.search_rounded),
-                          label: Text(context.l10n.commonLoad),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        context.l10n.adminSocialRestrictionsManageByUser,
+                        textDirection: Directionality.of(context),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
                         ),
-                        OutlinedButton.icon(
-                          onPressed: _loading ? null : _pickUser,
-                          icon: const Icon(Icons.person_search_rounded),
-                          label: const Text('اختيار مستخدم'),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _userIdCtrl,
+                        keyboardType: TextInputType.number,
+                        textDirection: TextDirection.ltr,
+                        decoration: InputDecoration(
+                          labelText: context.l10n.commonUserId,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    DropdownButtonFormField<String>(
-                      initialValue: _capabilityKey,
-                      decoration: InputDecoration(
-                        labelText: context.l10n.commonCapability,
                       ),
-                      items:
-                          const [
-                                'post_create',
-                                'story_create',
-                                'reel_create',
-                                'comment_create',
-                                'community_post_create',
-                              ]
-                              .map(
-                                (value) => DropdownMenuItem<String>(
-                                  value: value,
-                                  child: Text(_capabilityLabel(value)),
-                                ),
-                              )
-                              .toList(growable: false),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setState(() => _capabilityKey = value);
-                      },
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _reasonCtrl,
-                      minLines: 2,
-                      maxLines: 4,
-                      textDirection: Directionality.of(context),
-                      decoration: InputDecoration(
-                        labelText:
-                            context.l10n.adminSocialRestrictionsReasonLabel,
+                      const SizedBox(height: 10),
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: _loading ? null : _load,
+                            icon: const Icon(Icons.search_rounded),
+                            label: Text(context.l10n.commonLoad),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _loading ? null : _pickUser,
+                            icon: const Icon(Icons.person_search_rounded),
+                            label: const Text('اختيار مستخدم'),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      alignment: WrapAlignment.end,
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _durationChip(1),
-                        _durationChip(7),
-                        _durationChip(30),
-                        _durationChip(0),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: FilledButton.icon(
-                        onPressed: _busy ? null : _createRestriction,
-                        icon: const Icon(Icons.shield_outlined),
-                        label: Text(context.l10n.adminSocialRestrictionsCreate),
+                      const SizedBox(height: 14),
+                      DropdownButtonFormField<String>(
+                        initialValue: _capabilityKey,
+                        decoration: InputDecoration(
+                          labelText: context.l10n.commonCapability,
+                        ),
+                        items:
+                            const [
+                                  'post_create',
+                                  'story_create',
+                                  'reel_create',
+                                  'comment_create',
+                                  'community_post_create',
+                                ]
+                                .map(
+                                  (value) => DropdownMenuItem<String>(
+                                    value: value,
+                                    child: Text(_capabilityLabel(value)),
+                                  ),
+                                )
+                                .toList(growable: false),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() => _capabilityKey = value);
+                        },
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                _error!,
-                textDirection: Directionality.of(context),
-                textAlign: TextAlign.center,
-              ),
-            ],
-            const SizedBox(height: 10),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.only(top: 80),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_items.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 80),
-                child: Center(
-                  child: Text(
-                    context.l10n.adminSocialRestrictionsEmpty,
-                    textDirection: Directionality.of(context),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _reasonCtrl,
+                        minLines: 2,
+                        maxLines: 4,
+                        textDirection: Directionality.of(context),
+                        decoration: InputDecoration(
+                          labelText:
+                              context.l10n.adminSocialRestrictionsReasonLabel,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _durationChip(1),
+                          _durationChip(7),
+                          _durationChip(30),
+                          _durationChip(0),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: FilledButton.icon(
+                          onPressed: _busy ? null : _createRestriction,
+                          icon: const Icon(Icons.shield_outlined),
+                          label: Text(
+                            context.l10n.adminSocialRestrictionsCreate,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              )
-            else
-              ..._items.map((item) {
-                final isActive = item['isActive'] == true;
-                final restrictionId = int.tryParse('${item['id'] ?? ''}') ?? 0;
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Row(
-                            textDirection: Directionality.of(context),
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  _capabilityLabel(
-                                    '${item['capabilityKey'] ?? ''}',
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _error!,
+                  textDirection: Directionality.of(context),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+              const SizedBox(height: 10),
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 80),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_items.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 80),
+                  child: Center(
+                    child: Text(
+                      context.l10n.adminSocialRestrictionsEmpty,
+                      textDirection: Directionality.of(context),
+                    ),
+                  ),
+                )
+              else
+                ..._items.map((item) {
+                  final isActive = item['isActive'] == true;
+                  final restrictionId =
+                      int.tryParse('${item['id'] ?? ''}') ?? 0;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Row(
+                              textDirection: Directionality.of(context),
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    _capabilityLabel(
+                                      '${item['capabilityKey'] ?? ''}',
+                                    ),
+                                    textDirection: Directionality.of(context),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
                                   ),
-                                  textDirection: Directionality.of(context),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(999),
+                                    color:
+                                        (isActive
+                                                ? const Color(0xFFDC2626)
+                                                : const Color(0xFF64748B))
+                                            .withValues(alpha: 0.14),
+                                  ),
+                                  child: Text(
+                                    isActive
+                                        ? context.l10n.commonActive
+                                        : context.l10n.commonInactive,
+                                    style: TextStyle(
+                                      color: isActive
+                                          ? const Color(0xFFDC2626)
+                                          : const Color(0xFF64748B),
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
                                 ),
-                              ),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 6,
-                                ),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(999),
-                                  color:
-                                      (isActive
-                                              ? const Color(0xFFDC2626)
-                                              : const Color(0xFF64748B))
-                                          .withValues(alpha: 0.14),
-                                ),
-                                child: Text(
-                                  isActive
-                                      ? context.l10n.commonActive
-                                      : context.l10n.commonInactive,
-                                  style: TextStyle(
-                                    color: isActive
-                                        ? const Color(0xFFDC2626)
-                                        : const Color(0xFF64748B),
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            '${context.l10n.commonUser}: ${item['userFullName'] ?? ''}  (#${item['userId'] ?? ''})',
-                            textDirection: Directionality.of(context),
-                          ),
-                          if ('${item['userPhone'] ?? ''}'.trim().isNotEmpty)
+                              ],
+                            ),
+                            const SizedBox(height: 8),
                             Text(
-                              '${context.l10n.commonPhone}: ${item['userPhone']}',
+                              '${context.l10n.commonUser}: ${item['userFullName'] ?? ''}  (#${item['userId'] ?? ''})',
                               textDirection: Directionality.of(context),
                             ),
-                          if ('${item['reason'] ?? ''}'.trim().isNotEmpty)
+                            if ('${item['userPhone'] ?? ''}'.trim().isNotEmpty)
+                              Text(
+                                '${context.l10n.commonPhone}: ${item['userPhone']}',
+                                textDirection: Directionality.of(context),
+                              ),
+                            if ('${item['reason'] ?? ''}'.trim().isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 6),
+                                child: Text(
+                                  '${context.l10n.commonReason}: ${item['reason']}',
+                                  textDirection: Directionality.of(context),
+                                ),
+                              ),
                             Padding(
                               padding: const EdgeInsets.only(top: 6),
                               child: Text(
-                                '${context.l10n.commonReason}: ${item['reason']}',
+                                '${context.l10n.commonStarts}: ${item['startsAt'] ?? '-'}',
                                 textDirection: Directionality.of(context),
                               ),
                             ),
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: Text(
-                              '${context.l10n.commonStarts}: ${item['startsAt'] ?? '-'}',
-                              textDirection: Directionality.of(context),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              '${context.l10n.commonEnds}: ${item['endsAt'] ?? context.l10n.commonOpenEnded}',
-                              textDirection: Directionality.of(context),
-                            ),
-                          ),
-                          if (isActive)
                             Padding(
-                              padding: const EdgeInsets.only(top: 12),
-                              child: Align(
-                                alignment: Alignment.centerRight,
-                                child: OutlinedButton.icon(
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _revokeRestriction(restrictionId),
-                                  icon: const Icon(Icons.remove_circle_outline),
-                                  label: Text(
-                                    context
-                                        .l10n
-                                        .adminSocialRestrictionsRevokeAction,
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                '${context.l10n.commonEnds}: ${item['endsAt'] ?? context.l10n.commonOpenEnded}',
+                                textDirection: Directionality.of(context),
+                              ),
+                            ),
+                            if (isActive)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: OutlinedButton.icon(
+                                    onPressed: _busy
+                                        ? null
+                                        : () =>
+                                              _revokeRestriction(restrictionId),
+                                    icon: const Icon(
+                                      Icons.remove_circle_outline,
+                                    ),
+                                    label: Text(
+                                      context
+                                          .l10n
+                                          .adminSocialRestrictionsRevokeAction,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                );
-              }),
-          ],
+                  );
+                }),
+            ],
+          ),
         ),
       ),
     );

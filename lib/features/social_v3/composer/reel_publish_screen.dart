@@ -147,133 +147,139 @@ class _ReelPublishScreenState extends State<ReelPublishScreen> {
                   ),
                 )
               : null,
-          body: Align(
-            alignment: Alignment.topCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 640),
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (published) ...[
-                    const SizedBox(height: 32),
-                    const Icon(
-                      Icons.check_circle_outline,
-                      size: 64,
-                      color: SocialDesignTheme.indigo,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      context.lt(
-                        ar: 'تم نشر الريل',
-                        en: 'Your reel is published',
+          body: SafeArea(
+            top: false,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 640),
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    if (published) ...[
+                      const SizedBox(height: 32),
+                      const Icon(
+                        Icons.check_circle_outline,
+                        size: 64,
+                        color: SocialDesignTheme.indigo,
                       ),
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 24),
-                    FilledButton.icon(
-                      onPressed: () => Navigator.pop(
-                        context,
-                        widget.controller.publishedReelId,
-                      ),
-                      icon: const Icon(Icons.check),
-                      label: Text(context.lt(ar: 'تم', en: 'Done')),
-                    ),
-                  ] else ...[
-                    Center(
-                      child: SizedBox(
-                        width: 100,
-                        height: 178,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: IgnorePointer(child: widget.preview),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    SocialMentionComposerField(
-                      controller: _caption,
-                      hintText: context.lt(
-                        ar: 'اكتب وصفاً جذاباً...',
-                        en: 'Write a caption...',
-                      ),
-                      minLines: 3,
-                      maxLines: 6,
-                      maxLength: 1200,
-                      enabled: _editable,
-                    ),
-                    const SizedBox(height: 16),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.public),
-                      title: Text(context.lt(ar: 'الجمهور', en: 'Audience')),
-                      trailing: Text(context.lt(ar: 'عام', en: 'Public')),
-                    ),
-                    const Divider(),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
+                      const SizedBox(height: 16),
+                      Text(
                         context.lt(
-                          ar: 'السماح بالتعليقات',
-                          en: 'Allow comments',
+                          ar: 'تم نشر الريل',
+                          en: 'Your reel is published',
                         ),
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.titleLarge,
                       ),
-                      value: _comments,
-                      onChanged: _editable
-                          ? (v) {
-                              setState(() => _comments = v);
-                              widget.onSettingsChanged?.call(
-                                _comments,
-                                _sharing,
-                              );
-                            }
-                          : null,
-                    ),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(
-                        context.lt(ar: 'السماح بالمشاركة', en: 'Allow sharing'),
-                      ),
-                      value: _sharing,
-                      onChanged: _editable
-                          ? (v) {
-                              setState(() => _sharing = v);
-                              widget.onSettingsChanged?.call(
-                                _comments,
-                                _sharing,
-                              );
-                            }
-                          : null,
-                    ),
-                    const SizedBox(height: 20),
-                    ReelUploadProgress(controller: widget.controller),
-                    const SizedBox(height: 16),
-                    if (stage == ReelComposerStage.uploading)
-                      OutlinedButton.icon(
-                        onPressed: widget.controller.pauseUpload,
-                        icon: const Icon(Icons.pause),
-                        label: Text(
-                          context.lt(ar: 'إيقاف مؤقت', en: 'Pause upload'),
-                        ),
-                      ),
-                    if (stage == ReelComposerStage.paused)
+                      const SizedBox(height: 24),
                       FilledButton.icon(
-                        onPressed: widget.controller.resumeUpload,
-                        icon: const Icon(Icons.play_arrow),
-                        label: Text(
-                          context.lt(ar: 'استئناف', en: 'Resume upload'),
+                        onPressed: () => Navigator.pop(
+                          context,
+                          widget.controller.publishedReelId,
+                        ),
+                        icon: const Icon(Icons.check),
+                        label: Text(context.lt(ar: 'تم', en: 'Done')),
+                      ),
+                    ] else ...[
+                      Center(
+                        child: SizedBox(
+                          width: 100,
+                          height: 178,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: IgnorePointer(child: widget.preview),
+                          ),
                         ),
                       ),
-                    if (!_editable && widget.controller.canCancel)
-                      TextButton.icon(
-                        onPressed: _cancel,
-                        icon: const Icon(Icons.close),
-                        label: Text(
-                          context.lt(ar: 'إلغاء الرفع', en: 'Cancel upload'),
+                      const SizedBox(height: 20),
+                      SocialMentionComposerField(
+                        controller: _caption,
+                        hintText: context.lt(
+                          ar: 'اكتب وصفاً جذاباً...',
+                          en: 'Write a caption...',
                         ),
+                        minLines: 3,
+                        maxLines: 6,
+                        maxLength: 1200,
+                        enabled: _editable,
                       ),
+                      const SizedBox(height: 16),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.public),
+                        title: Text(context.lt(ar: 'الجمهور', en: 'Audience')),
+                        trailing: Text(context.lt(ar: 'عام', en: 'Public')),
+                      ),
+                      const Divider(),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          context.lt(
+                            ar: 'السماح بالتعليقات',
+                            en: 'Allow comments',
+                          ),
+                        ),
+                        value: _comments,
+                        onChanged: _editable
+                            ? (v) {
+                                setState(() => _comments = v);
+                                widget.onSettingsChanged?.call(
+                                  _comments,
+                                  _sharing,
+                                );
+                              }
+                            : null,
+                      ),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(
+                          context.lt(
+                            ar: 'السماح بالمشاركة',
+                            en: 'Allow sharing',
+                          ),
+                        ),
+                        value: _sharing,
+                        onChanged: _editable
+                            ? (v) {
+                                setState(() => _sharing = v);
+                                widget.onSettingsChanged?.call(
+                                  _comments,
+                                  _sharing,
+                                );
+                              }
+                            : null,
+                      ),
+                      const SizedBox(height: 20),
+                      ReelUploadProgress(controller: widget.controller),
+                      const SizedBox(height: 16),
+                      if (stage == ReelComposerStage.uploading)
+                        OutlinedButton.icon(
+                          onPressed: widget.controller.pauseUpload,
+                          icon: const Icon(Icons.pause),
+                          label: Text(
+                            context.lt(ar: 'إيقاف مؤقت', en: 'Pause upload'),
+                          ),
+                        ),
+                      if (stage == ReelComposerStage.paused)
+                        FilledButton.icon(
+                          onPressed: widget.controller.resumeUpload,
+                          icon: const Icon(Icons.play_arrow),
+                          label: Text(
+                            context.lt(ar: 'استئناف', en: 'Resume upload'),
+                          ),
+                        ),
+                      if (!_editable && widget.controller.canCancel)
+                        TextButton.icon(
+                          onPressed: _cancel,
+                          icon: const Icon(Icons.close),
+                          label: Text(
+                            context.lt(ar: 'إلغاء الرفع', en: 'Cancel upload'),
+                          ),
+                        ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
           ),

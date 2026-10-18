@@ -310,7 +310,7 @@ class _ReelPageV3State extends State<ReelPageV3>
             ),
           ),
           Positioned(
-            right: _sideInset,
+            right: _sideInset + padding.right,
             bottom: bottomInset,
             child: ReelActionRailV3(
               reel: widget.reel,
@@ -325,8 +325,8 @@ class _ReelPageV3State extends State<ReelPageV3>
             ),
           ),
           Positioned(
-            left: 16,
-            right: _railReservedWidth + _sideInset,
+            left: 16 + padding.left,
+            right: _railReservedWidth + _sideInset + padding.right,
             bottom: bottomInset,
             child: ConstrainedBox(
               constraints: BoxConstraints(maxHeight: metadataMaxHeight),

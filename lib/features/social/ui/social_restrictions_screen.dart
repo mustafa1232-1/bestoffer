@@ -277,63 +277,66 @@ class _SocialRestrictionsScreenState
             ),
           ],
         ),
-        body: RefreshIndicator(
-          onRefresh: _load,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-            children: [
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    l10n.socialRestrictionsIntro,
-                    textDirection: context.appTextDirection,
-                    textAlign: context.isEnglishLocale
-                        ? TextAlign.left
-                        : TextAlign.right,
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+              children: [
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      l10n.socialRestrictionsIntro,
+                      textDirection: context.appTextDirection,
+                      textAlign: context.isEnglishLocale
+                          ? TextAlign.left
+                          : TextAlign.right,
+                    ),
                   ),
                 ),
-              ),
-              if (_hasInitialNotice) ...[
+                if (_hasInitialNotice) ...[
+                  const SizedBox(height: 12),
+                  _noticeCard(),
+                ],
                 const SizedBox(height: 12),
-                _noticeCard(),
+                if (_loading)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 48),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_error != null)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        _error!,
+                        textDirection: context.appTextDirection,
+                        textAlign: context.isEnglishLocale
+                            ? TextAlign.left
+                            : TextAlign.right,
+                        style: const TextStyle(color: Colors.redAccent),
+                      ),
+                    ),
+                  )
+                else if (_items.isEmpty)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(
+                        l10n.socialRestrictionsEmpty,
+                        textDirection: context.appTextDirection,
+                        textAlign: context.isEnglishLocale
+                            ? TextAlign.left
+                            : TextAlign.right,
+                      ),
+                    ),
+                  )
+                else
+                  ..._items.map(_restrictionCard),
               ],
-              const SizedBox(height: 12),
-              if (_loading)
-                const Padding(
-                  padding: EdgeInsets.only(top: 48),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_error != null)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      _error!,
-                      textDirection: context.appTextDirection,
-                      textAlign: context.isEnglishLocale
-                          ? TextAlign.left
-                          : TextAlign.right,
-                      style: const TextStyle(color: Colors.redAccent),
-                    ),
-                  ),
-                )
-              else if (_items.isEmpty)
-                Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      l10n.socialRestrictionsEmpty,
-                      textDirection: context.appTextDirection,
-                      textAlign: context.isEnglishLocale
-                          ? TextAlign.left
-                          : TextAlign.right,
-                    ),
-                  ),
-                )
-              else
-                ..._items.map(_restrictionCard),
-            ],
+            ),
           ),
         ),
       ),

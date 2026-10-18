@@ -178,105 +178,108 @@ class _FavoriteProductsScreenState
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null && _items.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!, textDirection: Directionality.of(context)),
-                  const SizedBox(height: 10),
-                  FilledButton.icon(
-                    onPressed: () => _load(reset: true),
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: Text(l10n.commonRetry),
-                  ),
-                ],
-              ),
-            )
-          : _items.isEmpty
-          ? Center(
-              child: Text(
-                context.lt(
-                  ar: 'ما عندك منتجات مفضلة بعد.',
-                  en: 'You do not have favorite products yet.',
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null && _items.isEmpty
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!, textDirection: Directionality.of(context)),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: () => _load(reset: true),
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: Text(l10n.commonRetry),
+                    ),
+                  ],
                 ),
-                textDirection: Directionality.of(context),
-              ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.all(12),
-              itemCount: _items.length + 1,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                if (index == _items.length) {
-                  if (_loadingMore) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-                  if (_nextOffset == null) {
+              )
+            : _items.isEmpty
+            ? Center(
+                child: Text(
+                  context.lt(
+                    ar: 'ما عندك منتجات مفضلة بعد.',
+                    en: 'You do not have favorite products yet.',
+                  ),
+                  textDirection: Directionality.of(context),
+                ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.all(12),
+                itemCount: _items.length + 1,
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  if (index == _items.length) {
+                    if (_loadingMore) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (_nextOffset == null) {
+                      return Center(
+                        child: Text(
+                          context.lt(ar: 'انتهت القائمة', en: 'End of list'),
+                          textDirection: Directionality.of(context),
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.72),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      );
+                    }
                     return Center(
-                      child: Text(
-                        context.lt(ar: 'انتهت القائمة', en: 'End of list'),
-                        textDirection: Directionality.of(context),
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.72),
-                          fontWeight: FontWeight.w700,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _load(reset: false),
+                        icon: const Icon(Icons.expand_more_rounded),
+                        label: Text(
+                          context.lt(ar: 'تحميل المزيد', en: 'Load more'),
                         ),
                       ),
                     );
                   }
-                  return Center(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _load(reset: false),
-                      icon: const Icon(Icons.expand_more_rounded),
-                      label: Text(
-                        context.lt(ar: 'تحميل المزيد', en: 'Load more'),
+
+                  final item = _items[index];
+                  final effectivePrice = item.discountedPrice ?? item.price;
+                  return Card(
+                    child: ListTile(
+                      leading: _ProductThumb(imageUrl: item.imageUrl),
+                      title: Text(
+                        item.name,
+                        textDirection: Directionality.of(context),
+                      ),
+                      subtitle: Text(
+                        [
+                          if ((item.merchantName ?? '').isNotEmpty)
+                            '${context.lt(ar: 'المتجر', en: 'Store')}: ${item.merchantName}',
+                          '${context.lt(ar: 'السعر', en: 'Price')}: ${formatIqd(effectivePrice)}',
+                        ].join('\n'),
+                        textDirection: Directionality.of(context),
+                      ),
+                      isThreeLine: true,
+                      trailing: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          IconButton(
+                            tooltip: l10n.commonRemove,
+                            onPressed: () => _removeFavorite(item),
+                            icon: const Icon(Icons.favorite_rounded),
+                          ),
+                          IconButton(
+                            tooltip: l10n.commonSearch,
+                            onPressed: () => _openSearch(item),
+                            icon: const Icon(Icons.search_rounded),
+                          ),
+                        ],
                       ),
                     ),
                   );
-                }
-
-                final item = _items[index];
-                final effectivePrice = item.discountedPrice ?? item.price;
-                return Card(
-                  child: ListTile(
-                    leading: _ProductThumb(imageUrl: item.imageUrl),
-                    title: Text(
-                      item.name,
-                      textDirection: Directionality.of(context),
-                    ),
-                    subtitle: Text(
-                      [
-                        if ((item.merchantName ?? '').isNotEmpty)
-                          '${context.lt(ar: 'المتجر', en: 'Store')}: ${item.merchantName}',
-                        '${context.lt(ar: 'السعر', en: 'Price')}: ${formatIqd(effectivePrice)}',
-                      ].join('\n'),
-                      textDirection: Directionality.of(context),
-                    ),
-                    isThreeLine: true,
-                    trailing: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          tooltip: l10n.commonRemove,
-                          onPressed: () => _removeFavorite(item),
-                          icon: const Icon(Icons.favorite_rounded),
-                        ),
-                        IconButton(
-                          tooltip: l10n.commonSearch,
-                          onPressed: () => _openSearch(item),
-                          icon: const Icon(Icons.search_rounded),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
+                },
+              ),
+      ),
     );
   }
 }

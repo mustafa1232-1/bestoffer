@@ -21,6 +21,8 @@ import 'widgets/social_post_card_v2.dart';
 import 'widgets/social_save_sheet.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 class SocialExploreScreen extends ConsumerStatefulWidget {
   const SocialExploreScreen({super.key});
@@ -71,7 +73,7 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
       return;
     }
     if (!mounted) return;
-    final saved = await showModalBottomSheet<bool>(
+    final saved = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -311,192 +313,200 @@ class _SocialExploreScreenState extends ConsumerState<SocialExploreScreen> {
             ),
           ],
         ),
-        body: RefreshIndicator(
-          onRefresh: () => ref
-              .read(socialExploreControllerProvider.notifier)
-              .load(refresh: true),
-          child: state.loading && payload == null
-              ? ListView(
-                  children: const [
-                    SizedBox(height: 220),
-                    Center(child: CircularProgressIndicator()),
-                  ],
-                )
-              : payload == null
-              // Clean, empty discovery area. We never render a technical error
-              // (no DioException, no status code, no request id) and no large
-              // empty-state prompt. Pull-to-refresh silently retries the load.
-              ? ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: const [SizedBox(height: 320)],
-                )
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-                  children: [
-                    _ExploreHeroCard(
-                      title: context.l10n.socialExploreHeroTitle,
-                      subtitle: context.l10n.socialExploreHeroSubtitle,
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => const SocialSearchScreen(),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 18),
-                    _SectionTitle(
-                      title: context.l10n.socialExploreSuggestedPeople,
-                      trailingLabel: payload.suggestedPeople.isNotEmpty
-                          ? context.l10n.socialExploreSeeAll
-                          : null,
-                      onTrailingTap: payload.suggestedPeople.isNotEmpty
-                          ? () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => SocialDiscoveryPeopleScreen(
-                                    people: payload.suggestedPeople,
-                                  ),
-                                ),
-                              );
-                            }
-                          : null,
-                    ),
-                    const SizedBox(height: 10),
-                    if (payload.suggestedPeople.isEmpty)
-                      _SimpleExploreEmptyState(
-                        icon: Icons.person_search_outlined,
-                        message: context.l10n.socialExploreSuggestedPeopleEmpty,
-                      )
-                    else
-                      SizedBox(
-                        height: 206,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: payload.suggestedPeople.length,
-                          separatorBuilder: (_, index) =>
-                              const SizedBox(width: 10),
-                          itemBuilder: (_, index) {
-                            final person = payload.suggestedPeople[index];
-                            return _SuggestedPersonCard(
-                              person: person,
-                              busy: _busySuggestedUserIds.contains(
-                                person.user.id,
-                              ),
-                              buttonLabel: _relationButtonLabel(
-                                person.relation,
-                              ),
-                              onTap: () => _openProfile(person.user),
-                              onAction:
-                                  person.relation.isBlocked ||
-                                      person.relation.isAccepted
-                                  ? null
-                                  : () => _onSuggestedRelationPressed(person),
-                            );
-                          },
-                        ),
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: () => ref
+                .read(socialExploreControllerProvider.notifier)
+                .load(refresh: true),
+            child: state.loading && payload == null
+                ? ListView(
+                    children: const [
+                      SizedBox(height: 220),
+                      Center(child: CircularProgressIndicator()),
+                    ],
+                  )
+                : payload == null
+                // Clean, empty discovery area. We never render a technical error
+                // (no DioException, no status code, no request id) and no large
+                // empty-state prompt. Pull-to-refresh silently retries the load.
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: const [SizedBox(height: 320)],
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                    children: [
+                      _ExploreHeroCard(
+                        title: context.l10n.socialExploreHeroTitle,
+                        subtitle: context.l10n.socialExploreHeroSubtitle,
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => const SocialSearchScreen(),
+                            ),
+                          );
+                        },
                       ),
-                    const SizedBox(height: 18),
-                    if (trendingTags.isNotEmpty || localTopics.isNotEmpty) ...[
+                      const SizedBox(height: 18),
                       _SectionTitle(
-                        title: context.l10n.socialExploreTrendingTopics,
-                        subtitle:
-                            context.l10n.socialExploreTrendingTopicsSubtitle,
-                      ),
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          ...trendingTags
-                              .take(8)
-                              .map(
-                                (tag) => ActionChip(
-                                  label: Text('#${tag.tag}'),
-                                  onPressed: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) =>
-                                            SocialHashtagScreen(tag: tag.tag),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ),
-                          ...localTopics.take(6).map((topic) {
-                            final cleanTag = topic.startsWith('#')
-                                ? topic.substring(1)
-                                : topic;
-                            return ActionChip(
-                              label: Text(
-                                topic.startsWith('#') ? topic : '#$topic',
-                              ),
-                              onPressed: () {
+                        title: context.l10n.socialExploreSuggestedPeople,
+                        trailingLabel: payload.suggestedPeople.isNotEmpty
+                            ? context.l10n.socialExploreSeeAll
+                            : null,
+                        onTrailingTap: payload.suggestedPeople.isNotEmpty
+                            ? () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute<void>(
-                                    builder: (_) =>
-                                        SocialHashtagScreen(tag: cleanTag),
+                                    builder: (_) => SocialDiscoveryPeopleScreen(
+                                      people: payload.suggestedPeople,
+                                    ),
                                   ),
                                 );
-                              },
-                            );
-                          }),
-                        ],
-                      ),
-                      const SizedBox(height: 18),
-                    ],
-                    if (payload.reels.isNotEmpty) ...[
-                      _SectionTitle(
-                        title: context.l10n.socialExploreBasmayaReels,
-                        trailingLabel: context.l10n.socialExploreOpenReels,
-                        onTrailingTap: () => _openReels(payload.reels),
+                              }
+                            : null,
                       ),
                       const SizedBox(height: 10),
-                      SizedBox(
-                        height: 260,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          itemCount: payload.reels.length,
-                          separatorBuilder: (_, index) =>
-                              const SizedBox(width: 12),
-                          itemBuilder: (_, index) => _ReelPreviewCard(
-                            reel: payload.reels[index],
-                            onTap: () =>
-                                _openReels(payload.reels, initialIndex: index),
+                      if (payload.suggestedPeople.isEmpty)
+                        _SimpleExploreEmptyState(
+                          icon: Icons.person_search_outlined,
+                          message:
+                              context.l10n.socialExploreSuggestedPeopleEmpty,
+                        )
+                      else
+                        SizedBox(
+                          height: 206,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: payload.suggestedPeople.length,
+                            separatorBuilder: (_, index) =>
+                                const SizedBox(width: 10),
+                            itemBuilder: (_, index) {
+                              final person = payload.suggestedPeople[index];
+                              return _SuggestedPersonCard(
+                                person: person,
+                                busy: _busySuggestedUserIds.contains(
+                                  person.user.id,
+                                ),
+                                buttonLabel: _relationButtonLabel(
+                                  person.relation,
+                                ),
+                                onTap: () => _openProfile(person.user),
+                                onAction:
+                                    person.relation.isBlocked ||
+                                        person.relation.isAccepted
+                                    ? null
+                                    : () => _onSuggestedRelationPressed(person),
+                              );
+                            },
                           ),
                         ),
-                      ),
                       const SizedBox(height: 18),
+                      if (trendingTags.isNotEmpty ||
+                          localTopics.isNotEmpty) ...[
+                        _SectionTitle(
+                          title: context.l10n.socialExploreTrendingTopics,
+                          subtitle:
+                              context.l10n.socialExploreTrendingTopicsSubtitle,
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ...trendingTags
+                                .take(8)
+                                .map(
+                                  (tag) => ActionChip(
+                                    label: Text('#${tag.tag}'),
+                                    onPressed: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              SocialHashtagScreen(tag: tag.tag),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ...localTopics.take(6).map((topic) {
+                              final cleanTag = topic.startsWith('#')
+                                  ? topic.substring(1)
+                                  : topic;
+                              return ActionChip(
+                                label: Text(
+                                  topic.startsWith('#') ? topic : '#$topic',
+                                ),
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute<void>(
+                                      builder: (_) =>
+                                          SocialHashtagScreen(tag: cleanTag),
+                                    ),
+                                  );
+                                },
+                              );
+                            }),
+                          ],
+                        ),
+                        const SizedBox(height: 18),
+                      ],
+                      if (payload.reels.isNotEmpty) ...[
+                        _SectionTitle(
+                          title: context.l10n.socialExploreBasmayaReels,
+                          trailingLabel: context.l10n.socialExploreOpenReels,
+                          onTrailingTap: () => _openReels(payload.reels),
+                        ),
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          height: 260,
+                          child: ListView.separated(
+                            scrollDirection: Axis.horizontal,
+                            itemCount: payload.reels.length,
+                            separatorBuilder: (_, index) =>
+                                const SizedBox(width: 12),
+                            itemBuilder: (_, index) => _ReelPreviewCard(
+                              reel: payload.reels[index],
+                              onTap: () => _openReels(
+                                payload.reels,
+                                initialIndex: index,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                      ],
+                      ..._buildPostSection(
+                        context,
+                        title: context.l10n.socialExploreNearYou,
+                        subtitle: context.l10n.socialExploreNearYouSubtitle,
+                        posts: nearYouPosts.take(2).toList(growable: false),
+                        sourcePosts: nearYouPosts,
+                      ),
+                      ..._buildPostSection(
+                        context,
+                        title: context.l10n.socialExplorePopularNow,
+                        subtitle: context.l10n.socialExplorePopularNowSubtitle,
+                        posts: popularPosts.take(2).toList(growable: false),
+                        sourcePosts: popularPosts,
+                      ),
+                      ..._buildPostSection(
+                        context,
+                        title: context.l10n.socialExploreLocalReviews,
+                        subtitle:
+                            context.l10n.socialExploreLocalReviewsSubtitle,
+                        posts: reviewPicks.take(2).toList(growable: false),
+                        sourcePosts: reviewPicks,
+                      ),
+                      ..._buildPostSection(
+                        context,
+                        title: context.l10n.socialExploreForYou,
+                        posts: payload.forYou.take(4).toList(growable: false),
+                        sourcePosts: payload.forYou,
+                      ),
                     ],
-                    ..._buildPostSection(
-                      context,
-                      title: context.l10n.socialExploreNearYou,
-                      subtitle: context.l10n.socialExploreNearYouSubtitle,
-                      posts: nearYouPosts.take(2).toList(growable: false),
-                      sourcePosts: nearYouPosts,
-                    ),
-                    ..._buildPostSection(
-                      context,
-                      title: context.l10n.socialExplorePopularNow,
-                      subtitle: context.l10n.socialExplorePopularNowSubtitle,
-                      posts: popularPosts.take(2).toList(growable: false),
-                      sourcePosts: popularPosts,
-                    ),
-                    ..._buildPostSection(
-                      context,
-                      title: context.l10n.socialExploreLocalReviews,
-                      subtitle: context.l10n.socialExploreLocalReviewsSubtitle,
-                      posts: reviewPicks.take(2).toList(growable: false),
-                      sourcePosts: reviewPicks,
-                    ),
-                    ..._buildPostSection(
-                      context,
-                      title: context.l10n.socialExploreForYou,
-                      posts: payload.forYou.take(4).toList(growable: false),
-                      sourcePosts: payload.forYou,
-                    ),
-                  ],
-                ),
+                  ),
+          ),
         ),
       ),
     );

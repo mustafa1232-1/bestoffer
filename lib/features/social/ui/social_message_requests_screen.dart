@@ -164,157 +164,164 @@ class _SocialMessageRequestsScreenState
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.socialMessageRequestsTitle)),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _loading
-            ? ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: const [
-                  SizedBox(height: 240),
-                  Center(child: CircularProgressIndicator()),
-                ],
-              )
-            : _threads.isEmpty
-            ? ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
-                children: [
-                  Icon(
-                    Icons.mark_chat_unread_outlined,
-                    size: 54,
-                    color: scheme.primary,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    l10n.socialMessageRequestsEmpty,
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _loading
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: const [
+                    SizedBox(height: 240),
+                    Center(child: CircularProgressIndicator()),
+                  ],
+                )
+              : _threads.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+                  children: [
+                    Icon(
+                      Icons.mark_chat_unread_outlined,
+                      size: 54,
+                      color: scheme.primary,
                     ),
-                  ),
-                  if ((_error ?? '').trim().isNotEmpty) ...[
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 12),
                     Text(
-                      _error!,
+                      l10n.socialMessageRequestsEmpty,
                       textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: scheme.error,
-                        fontWeight: FontWeight.w700,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
                       ),
                     ),
-                  ],
-                ],
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-                itemCount: _threads.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (_, index) {
-                  final thread = _threads[index];
-                  final preview =
-                      thread.lastMessage?.previewText.trim().isNotEmpty == true
-                      ? thread.lastMessage!.previewText.trim()
-                      : l10n.socialMessageRequestsPreviewHint;
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(18),
-                    onTap: () => _openThread(thread),
-                    child: Ink(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        color: scheme.surfaceContainerHighest.withValues(
-                          alpha: 0.62,
+                    if ((_error ?? '').trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: scheme.error,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 24,
-                                backgroundImage:
-                                    (thread.peer.imageUrl ?? '')
-                                        .trim()
-                                        .isNotEmpty
-                                    ? AppCachedImageProvider(
-                                        thread.peer.imageUrl!,
-                                      )
-                                    : null,
-                                child:
-                                    (thread.peer.imageUrl ?? '').trim().isEmpty
-                                    ? const Icon(Icons.person_outline)
-                                    : null,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    SocialIdentityView(
-                                      author: thread.peer,
-                                      primaryStyle: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                        fontSize: 15,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      preview,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        color: scheme.onSurface.withValues(
-                                          alpha: 0.78,
+                    ],
+                  ],
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                  itemCount: _threads.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (_, index) {
+                    final thread = _threads[index];
+                    final preview =
+                        thread.lastMessage?.previewText.trim().isNotEmpty ==
+                            true
+                        ? thread.lastMessage!.previewText.trim()
+                        : l10n.socialMessageRequestsPreviewHint;
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(18),
+                      onTap: () => _openThread(thread),
+                      child: Ink(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(18),
+                          color: scheme.surfaceContainerHighest.withValues(
+                            alpha: 0.62,
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 24,
+                                  backgroundImage:
+                                      (thread.peer.imageUrl ?? '')
+                                          .trim()
+                                          .isNotEmpty
+                                      ? AppCachedImageProvider(
+                                          thread.peer.imageUrl!,
+                                        )
+                                      : null,
+                                  child:
+                                      (thread.peer.imageUrl ?? '')
+                                          .trim()
+                                          .isEmpty
+                                      ? const Icon(Icons.person_outline)
+                                      : null,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      SocialIdentityView(
+                                        author: thread.peer,
+                                        primaryStyle: const TextStyle(
+                                          fontWeight: FontWeight.w900,
+                                          fontSize: 15,
                                         ),
-                                        fontWeight: FontWeight.w600,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: FilledButton(
-                                  onPressed: _mutating
-                                      ? null
-                                      : () => _accept(thread),
-                                  child: Text(l10n.commonAccept),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: _mutating
-                                      ? null
-                                      : () => _reject(thread),
-                                  child: Text(l10n.commonReject),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: _mutating
-                                      ? null
-                                      : () => _block(thread),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: scheme.error,
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        preview,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: scheme.onSurface.withValues(
+                                            alpha: 0.78,
+                                          ),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
                                   ),
-                                  child: Text(l10n.commonBlock),
                                 ),
-                              ),
-                            ],
-                          ),
-                        ],
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: FilledButton(
+                                    onPressed: _mutating
+                                        ? null
+                                        : () => _accept(thread),
+                                    child: Text(l10n.commonAccept),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: _mutating
+                                        ? null
+                                        : () => _reject(thread),
+                                    child: Text(l10n.commonReject),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: _mutating
+                                        ? null
+                                        : () => _block(thread),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: scheme.error,
+                                    ),
+                                    child: Text(l10n.commonBlock),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }

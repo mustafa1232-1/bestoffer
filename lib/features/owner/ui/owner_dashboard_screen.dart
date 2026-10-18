@@ -49,6 +49,8 @@ import '../state/owner_controller.dart';
 import 'owner_product_form_sheet.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 /// Purpose: مساحة صاحب المتجر متعددة التبويبات لإدارة المتجر والطلبات والمنتجات وفريق العمل.
 /// Used by: login routing الخاص بالـ owner، وروابط التنقل الداخلية من الموافقات والإشعارات.
@@ -264,7 +266,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     required List<String> lines,
     required String reportPeriod,
   }) async {
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => SafeArea(
@@ -662,7 +664,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   }
 
   Future<void> _openAddStaffUserSheet() async {
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => const _AddStaffUserSheet(),
@@ -790,7 +792,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
       );
       if (!mounted) return;
 
-      await showModalBottomSheet<void>(
+      await showMaslakiBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         builder: (_) => SafeArea(
@@ -1980,62 +1982,65 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
               label: const Text('إضافة منتج'),
             )
           : null,
-      body: useDesktop
-          ? Padding(
-              padding: const EdgeInsets.all(14),
-              child: DesktopDashboardFrame(
-                sidebar: drawerWidget,
-                title: _ownerTabTitle(),
-                subtitle: lt(
-                  'مساحة عمل المتجر على سطح المكتب: تحكم أسرع بالطلبات والمنتجات والتحديثات.',
-                  'Desktop store workspace: faster orders, catalog, and updates control.',
-                ),
-                statusLabel: lt('المتجر والطلبات', 'Store & Orders'),
-                statusIcon: Icons.storefront_outlined,
-                quickActions: [
-                  DesktopQuickActionButton(
-                    icon: Icons.dashboard_outlined,
-                    label: lt('لوحة المتجر', 'Dashboard'),
-                    selected: activeTab == _OwnerTab.dashboard,
-                    onPressed: () => _setOwnerTab(_OwnerTab.dashboard),
+      body: SafeArea(
+        top: false,
+        child: useDesktop
+            ? Padding(
+                padding: const EdgeInsets.all(14),
+                child: DesktopDashboardFrame(
+                  sidebar: drawerWidget,
+                  title: _ownerTabTitle(),
+                  subtitle: lt(
+                    'مساحة عمل المتجر على سطح المكتب: تحكم أسرع بالطلبات والمنتجات والتحديثات.',
+                    'Desktop store workspace: faster orders, catalog, and updates control.',
                   ),
-                  DesktopQuickActionButton(
-                    icon: Icons.person_outline_rounded,
-                    label: lt('الملف الشخصي', 'Profile'),
-                    selected: activeTab == _OwnerTab.profile,
-                    onPressed: () => _setOwnerTab(_OwnerTab.profile),
-                  ),
-                  DesktopQuickActionButton(
-                    icon: Icons.storefront_outlined,
-                    label: lt('المتجر', 'Store'),
-                    selected: activeTab == _OwnerTab.store,
-                    onPressed: () => _setOwnerTab(_OwnerTab.store),
-                  ),
-                  DesktopQuickActionButton(
-                    icon: Icons.receipt_long_outlined,
-                    label: lt('الطلبات', 'Orders'),
-                    selected: activeTab == _OwnerTab.orders,
-                    onPressed: () => _setOwnerTab(_OwnerTab.orders),
-                  ),
-                  DesktopQuickActionButton(
-                    icon: Icons.inventory_2_outlined,
-                    label: lt('المنتجات', 'Catalog'),
-                    selected: activeTab == _OwnerTab.catalog,
-                    onPressed: () => _setOwnerTab(_OwnerTab.catalog),
-                  ),
-                  if (activeTab == _OwnerTab.catalog)
+                  statusLabel: lt('المتجر والطلبات', 'Store & Orders'),
+                  statusIcon: Icons.storefront_outlined,
+                  quickActions: [
                     DesktopQuickActionButton(
-                      icon: Icons.add_box_outlined,
-                      label: lt('إضافة منتج', 'Add Product'),
-                      onPressed: ownerState.savingProduct
-                          ? null
-                          : () => _openCreateProduct(ownerState),
+                      icon: Icons.dashboard_outlined,
+                      label: lt('لوحة المتجر', 'Dashboard'),
+                      selected: activeTab == _OwnerTab.dashboard,
+                      onPressed: () => _setOwnerTab(_OwnerTab.dashboard),
                     ),
-                ],
-                child: bodyContent,
-              ),
-            )
-          : bodyContent,
+                    DesktopQuickActionButton(
+                      icon: Icons.person_outline_rounded,
+                      label: lt('الملف الشخصي', 'Profile'),
+                      selected: activeTab == _OwnerTab.profile,
+                      onPressed: () => _setOwnerTab(_OwnerTab.profile),
+                    ),
+                    DesktopQuickActionButton(
+                      icon: Icons.storefront_outlined,
+                      label: lt('المتجر', 'Store'),
+                      selected: activeTab == _OwnerTab.store,
+                      onPressed: () => _setOwnerTab(_OwnerTab.store),
+                    ),
+                    DesktopQuickActionButton(
+                      icon: Icons.receipt_long_outlined,
+                      label: lt('الطلبات', 'Orders'),
+                      selected: activeTab == _OwnerTab.orders,
+                      onPressed: () => _setOwnerTab(_OwnerTab.orders),
+                    ),
+                    DesktopQuickActionButton(
+                      icon: Icons.inventory_2_outlined,
+                      label: lt('المنتجات', 'Catalog'),
+                      selected: activeTab == _OwnerTab.catalog,
+                      onPressed: () => _setOwnerTab(_OwnerTab.catalog),
+                    ),
+                    if (activeTab == _OwnerTab.catalog)
+                      DesktopQuickActionButton(
+                        icon: Icons.add_box_outlined,
+                        label: lt('إضافة منتج', 'Add Product'),
+                        onPressed: ownerState.savingProduct
+                            ? null
+                            : () => _openCreateProduct(ownerState),
+                      ),
+                  ],
+                  child: bodyContent,
+                ),
+              )
+            : bodyContent,
+      ),
     );
   }
 
@@ -2398,7 +2403,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     bool supportsPharmacyWorkflow = false,
     required String merchantActivityType,
   }) {
-    return showModalBottomSheet<ProductFormData>(
+    return showMaslakiBottomSheet<ProductFormData>(
       context: context,
       isScrollControlled: true,
       builder: (_) => ProductFormSheet(
@@ -2415,7 +2420,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
     ProductCategoryModel? category,
     required String merchantActivityType,
   }) {
-    return showModalBottomSheet<_CategoryFormData>(
+    return showMaslakiBottomSheet<_CategoryFormData>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _CategoryFormSheet(
@@ -2428,7 +2433,7 @@ class _OwnerDashboardScreenState extends ConsumerState<OwnerDashboardScreen> {
   Future<_DeliveryAgentFormData?> _openDeliveryAgentSheet(
     BuildContext context,
   ) {
-    return showModalBottomSheet<_DeliveryAgentFormData>(
+    return showMaslakiBottomSheet<_DeliveryAgentFormData>(
       context: context,
       isScrollControlled: true,
       builder: (_) => const _DeliveryAgentFormSheet(),

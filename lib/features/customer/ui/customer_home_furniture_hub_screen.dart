@@ -75,32 +75,35 @@ class CustomerHomeFurnitureHubScreen extends StatelessWidget {
         title: Text(context.lt(ar: 'الأثاث المنزلي', en: 'Home Furniture')),
         actions: const [AppBarQuickActions()],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
-        children: [
-          const CustomerMarketplaceAdSurface(
-            request: MarketplaceAdRequest(
-              placement: 'MARKETPLACE_CATEGORY',
-              categoryKey: 'home_furniture',
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
+          children: [
+            const CustomerMarketplaceAdSurface(
+              request: MarketplaceAdRequest(
+                placement: 'MARKETPLACE_CATEGORY',
+                categoryKey: 'home_furniture',
+              ),
+              showEmptyState: true,
             ),
-            showEmptyState: true,
-          ),
-          _HeaderCard(
-            title: context.lt(
-              ar: 'كل ما يخص أثاث المنزل في مكان واحد',
-              en: 'Everything for your home furniture in one place',
+            _HeaderCard(
+              title: context.lt(
+                ar: 'كل ما يخص أثاث المنزل في مكان واحد',
+                en: 'Everything for your home furniture in one place',
+              ),
+              subtitle: context.lt(
+                ar: 'مفروشات، أثاث منزلي، ومطابخ وديكورات.',
+                en: 'Furnishings, home furniture, kitchens & decor.',
+              ),
             ),
-            subtitle: context.lt(
-              ar: 'مفروشات، أثاث منزلي، ومطابخ وديكورات.',
-              en: 'Furnishings, home furniture, kitchens & decor.',
+            const SizedBox(height: 12),
+            _TopicGrid(
+              topics: _topics(context),
+              onTap: (topic) => _open(context, topic),
             ),
-          ),
-          const SizedBox(height: 12),
-          _TopicGrid(
-            topics: _topics(context),
-            onTap: (topic) => _open(context, topic),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

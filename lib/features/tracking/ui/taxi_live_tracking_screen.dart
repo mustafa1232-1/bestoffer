@@ -329,7 +329,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     final currentUserId = auth.user?.id;
     if (_isReadonly || currentUserId == null) return;
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       useSafeArea: true,
       showDragHandle: true,
@@ -546,7 +546,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     var sending = false;
     String? error;
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
@@ -703,7 +703,7 @@ class _TaxiLiveTrackingScreenState extends ConsumerState<TaxiLiveTrackingScreen>
     final finalFare =
         ride['finalFare'] ?? ride['agreedFareIqd'] ?? ride['customerFare'];
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       useSafeArea: true,
       showDragHandle: true,

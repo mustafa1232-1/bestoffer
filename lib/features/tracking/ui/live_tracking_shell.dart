@@ -286,7 +286,15 @@ class _LiveTrackingShellState extends State<LiveTrackingShell>
                   ),
                   const SizedBox(height: 10),
                   Expanded(
-                    child: widget.sheetBuilder(context, _sheetScrollController),
+                    // The panel paints to the screen edge; its content stays
+                    // above the navigation bar.
+                    child: SafeArea(
+                      top: false,
+                      child: widget.sheetBuilder(
+                        context,
+                        _sheetScrollController,
+                      ),
+                    ),
                   ),
                 ],
               ),

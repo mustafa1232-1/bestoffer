@@ -11,6 +11,8 @@ import '../data/jobs_api.dart';
 import '../models/job_models.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 final jobAdminReaderApiProvider = Provider<JobsApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
@@ -104,7 +106,7 @@ class _JobAdminJobsReaderScreenState
   }
 
   Future<void> _openRecommendationComposer(JobPostModel job) async {
-    final created = await showModalBottomSheet<bool>(
+    final created = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -141,121 +143,128 @@ class _JobAdminJobsReaderScreenState
           ),
         ],
       ),
-      body: Directionality(
-        textDirection: context.appTextDirection,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _searchCtrl,
-                      textInputAction: TextInputAction.search,
-                      decoration: InputDecoration(
-                        hintText: context
-                            .l10n
-                            .jobAdminJobsReaderSearchByJobTitleOrCompany,
-                        prefixIcon: const Icon(Icons.search_rounded),
+      body: SafeArea(
+        top: false,
+        child: Directionality(
+          textDirection: context.appTextDirection,
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchCtrl,
+                        textInputAction: TextInputAction.search,
+                        decoration: InputDecoration(
+                          hintText: context
+                              .l10n
+                              .jobAdminJobsReaderSearchByJobTitleOrCompany,
+                          prefixIcon: const Icon(Icons.search_rounded),
+                        ),
+                        onSubmitted: (_) => _load(),
                       ),
-                      onSubmitted: (_) => _load(),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: _loading ? null : _load,
-                    child: Text(context.l10n.commonSearch),
-                  ),
-                ],
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: _loading ? null : _load,
+                      child: Text(context.l10n.commonSearch),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _jobs.isEmpty
-                  ? Center(
-                      child: Text(
-                        context.l10n.jobAdminJobsReaderNoJobsMatchCurrentSearch,
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _load,
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                        itemCount: _jobs.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          final job = _jobs[index];
-                          return Card(
-                            child: Padding(
-                              padding: const EdgeInsets.all(12),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  Text(
-                                    job.title,
-                                    textAlign: TextAlign.right,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '${job.companyName} - ${job.city}${job.area == null ? '' : ' - ${job.area}'}',
-                                    textAlign: TextAlign.right,
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: 0.82,
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _jobs.isEmpty
+                    ? Center(
+                        child: Text(
+                          context
+                              .l10n
+                              .jobAdminJobsReaderNoJobsMatchCurrentSearch,
+                        ),
+                      )
+                    : RefreshIndicator(
+                        onRefresh: _load,
+                        child: ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                          itemCount: _jobs.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            final job = _jobs[index];
+                            return Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    Text(
+                                      job.title,
+                                      textAlign: TextAlign.right,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 16,
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    alignment: WrapAlignment.end,
-                                    children: [
-                                      _chip(
-                                        '${_taxonomyLabel(job.activityType)} / ${_taxonomyLabel(job.department)}',
-                                      ),
-                                      _chip(
-                                        '${context.l10n.jobsHubCategory}: ${job.category}',
-                                      ),
-                                      _chip(
-                                        '${context.l10n.jobsHubApplications}: ${job.applicationsCount}',
-                                      ),
-                                      _chip(
-                                        '${context.l10n.companyPromotionsCampaignStatus}: ${job.status}',
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Align(
-                                    alignment: Alignment.centerLeft,
-                                    child: FilledButton.icon(
-                                      onPressed: () =>
-                                          _openRecommendationComposer(job),
-                                      icon: const Icon(
-                                        Icons.person_search_rounded,
-                                      ),
-                                      label: Text(
-                                        context
-                                            .l10n
-                                            .jobAdminJobsReaderRecommendCandidate,
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      '${job.companyName} - ${job.city}${job.area == null ? '' : ' - ${job.area}'}',
+                                      textAlign: TextAlign.right,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: 0.82,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      alignment: WrapAlignment.end,
+                                      children: [
+                                        _chip(
+                                          '${_taxonomyLabel(job.activityType)} / ${_taxonomyLabel(job.department)}',
+                                        ),
+                                        _chip(
+                                          '${context.l10n.jobsHubCategory}: ${job.category}',
+                                        ),
+                                        _chip(
+                                          '${context.l10n.jobsHubApplications}: ${job.applicationsCount}',
+                                        ),
+                                        _chip(
+                                          '${context.l10n.companyPromotionsCampaignStatus}: ${job.status}',
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: FilledButton.icon(
+                                        onPressed: () =>
+                                            _openRecommendationComposer(job),
+                                        icon: const Icon(
+                                          Icons.person_search_rounded,
+                                        ),
+                                        label: Text(
+                                          context
+                                              .l10n
+                                              .jobAdminJobsReaderRecommendCandidate,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
-                    ),
-            ),
-          ],
+              ),
+            ],
+          ),
         ),
       ),
     );

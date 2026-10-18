@@ -180,152 +180,160 @@ class _EmergencyRequestTrackingScreenState
           ),
         ],
       ),
-      body: _loading && _thread == null
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null && _thread == null
-          ? Center(
-              child: FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh_rounded),
-                label: Text(_error!),
-              ),
-            )
-          : Column(
-              children: [
-                Container(
-                  width: double.infinity,
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-                  child: Row(
-                    textDirection: TextDirection.rtl,
-                    children: [
-                      Icon(target?.icon ?? Icons.sos_rounded),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              '${target?.title ?? 'طوارئ'} - ${request['requestCode'] ?? '#${widget.requestId}'}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            if (widget.adminMode)
+      body: SafeArea(
+        top: false,
+        child: _loading && _thread == null
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null && _thread == null
+            ? Center(
+                child: FilledButton.icon(
+                  onPressed: _load,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(_error!),
+                ),
+              )
+            : Column(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+                    child: Row(
+                      textDirection: TextDirection.rtl,
+                      children: [
+                        Icon(target?.icon ?? Icons.sos_rounded),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
                               Text(
-                                '${request['customerFullName'] ?? 'مستخدم'}  ${request['customerPhone'] ?? ''}',
-                                textDirection: TextDirection.rtl,
+                                '${target?.title ?? 'طوارئ'} - ${request['requestCode'] ?? '#${widget.requestId}'}',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
                               ),
-                          ],
-                        ),
-                      ),
-                      FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Theme.of(context).colorScheme.error,
-                        ),
-                        onPressed: () =>
-                            launchUrl(Uri(scheme: 'tel', path: phone)),
-                        icon: const Icon(Icons.call_rounded),
-                        label: Text(phone),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  height: 250,
-                  child: FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(initialCenter: point, initialZoom: 16),
-                    children: [
-                      TileLayer(
-                        urlTemplate:
-                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                        userAgentPackageName: 'app.maslaki.user',
-                      ),
-                      MarkerLayer(
-                        markers: latest == null
-                            ? const []
-                            : [
-                                Marker(
-                                  point: point,
-                                  width: 52,
-                                  height: 52,
-                                  child: const Icon(
-                                    Icons.location_on_rounded,
-                                    color: Color(0xFFC62828),
-                                    size: 46,
-                                  ),
-                                ),
-                              ],
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  color: Theme.of(context).colorScheme.surfaceContainerLow,
-                  child: Text(
-                    latest == null
-                        ? 'بانتظار أول تحديث للموقع'
-                        : 'الموقع الحي فعال - آخر تحديث ${_timeLabel(latest['capturedAt'])}',
-                    textAlign: TextAlign.right,
-                    textDirection: TextDirection.rtl,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                Expanded(
-                  child: messages.isEmpty
-                      ? const Center(
-                          child: Text(
-                            'قناة التواصل جاهزة. اكتب أي تفاصيل مهمة هنا.',
-                            textDirection: TextDirection.rtl,
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(12),
-                          itemCount: messages.length,
-                          itemBuilder: (context, index) {
-                            final item = messages[index];
-                            final fromAdmin =
-                                item['senderRole'] == 'super_admin';
-                            final mine = widget.adminMode
-                                ? fromAdmin
-                                : !fromAdmin;
-                            return Align(
-                              alignment: mine
-                                  ? Alignment.centerRight
-                                  : Alignment.centerLeft,
-                              child: Container(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 330,
-                                ),
-                                margin: const EdgeInsets.only(bottom: 8),
-                                padding: const EdgeInsets.all(11),
-                                decoration: BoxDecoration(
-                                  color: mine
-                                      ? Theme.of(
-                                          context,
-                                        ).colorScheme.primaryContainer
-                                      : Theme.of(
-                                          context,
-                                        ).colorScheme.surfaceContainerHighest,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '${item['message'] ?? ''}',
+                              if (widget.adminMode)
+                                Text(
+                                  '${request['customerFullName'] ?? 'مستخدم'}  ${request['customerPhone'] ?? ''}',
                                   textDirection: TextDirection.rtl,
                                 ),
-                              ),
-                            );
-                          },
+                            ],
+                          ),
                         ),
-                ),
-              ],
-            ),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.error,
+                          ),
+                          onPressed: () =>
+                              launchUrl(Uri(scheme: 'tel', path: phone)),
+                          icon: const Icon(Icons.call_rounded),
+                          label: Text(phone),
+                        ),
+                      ],
+                    ),
+                  ),
+                  SizedBox(
+                    height: 250,
+                    child: FlutterMap(
+                      mapController: _mapController,
+                      options: MapOptions(
+                        initialCenter: point,
+                        initialZoom: 16,
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate:
+                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'app.maslaki.user',
+                        ),
+                        MarkerLayer(
+                          markers: latest == null
+                              ? const []
+                              : [
+                                  Marker(
+                                    point: point,
+                                    width: 52,
+                                    height: 52,
+                                    child: const Icon(
+                                      Icons.location_on_rounded,
+                                      color: Color(0xFFC62828),
+                                      size: 46,
+                                    ),
+                                  ),
+                                ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    color: Theme.of(context).colorScheme.surfaceContainerLow,
+                    child: Text(
+                      latest == null
+                          ? 'بانتظار أول تحديث للموقع'
+                          : 'الموقع الحي فعال - آخر تحديث ${_timeLabel(latest['capturedAt'])}',
+                      textAlign: TextAlign.right,
+                      textDirection: TextDirection.rtl,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  Expanded(
+                    child: messages.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'قناة التواصل جاهزة. اكتب أي تفاصيل مهمة هنا.',
+                              textDirection: TextDirection.rtl,
+                            ),
+                          )
+                        : ListView.builder(
+                            padding: const EdgeInsets.all(12),
+                            itemCount: messages.length,
+                            itemBuilder: (context, index) {
+                              final item = messages[index];
+                              final fromAdmin =
+                                  item['senderRole'] == 'super_admin';
+                              final mine = widget.adminMode
+                                  ? fromAdmin
+                                  : !fromAdmin;
+                              return Align(
+                                alignment: mine
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: Container(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 330,
+                                  ),
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  padding: const EdgeInsets.all(11),
+                                  decoration: BoxDecoration(
+                                    color: mine
+                                        ? Theme.of(
+                                            context,
+                                          ).colorScheme.primaryContainer
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    '${item['message'] ?? ''}',
+                                    textDirection: TextDirection.rtl,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+      ),
       bottomNavigationBar: SafeArea(
         top: false,
         minimum: const EdgeInsets.fromLTRB(12, 8, 12, 10),

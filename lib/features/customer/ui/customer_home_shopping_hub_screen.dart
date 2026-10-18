@@ -133,26 +133,29 @@ class CustomerHomeShoppingHubScreen extends StatelessWidget {
         title: Text(l10n.customerHomeShoppingHubTitle),
         actions: const [AppBarQuickActions()],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
-        children: [
-          const CustomerMarketplaceAdSurface(
-            request: MarketplaceAdRequest(
-              placement: 'MARKETPLACE_CATEGORY',
-              categoryKey: 'home',
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
+          children: [
+            const CustomerMarketplaceAdSurface(
+              request: MarketplaceAdRequest(
+                placement: 'MARKETPLACE_CATEGORY',
+                categoryKey: 'home',
+              ),
+              showEmptyState: true,
             ),
-            showEmptyState: true,
-          ),
-          _HeaderCard(
-            title: l10n.customerHomeShoppingHubHeaderTitle,
-            subtitle: l10n.customerHomeShoppingHubHeaderSubtitle,
-          ),
-          const SizedBox(height: 12),
-          _TopicGrid(
-            topics: _topics(context),
-            onTap: (topic) => _open(context, topic),
-          ),
-        ],
+            _HeaderCard(
+              title: l10n.customerHomeShoppingHubHeaderTitle,
+              subtitle: l10n.customerHomeShoppingHubHeaderSubtitle,
+            ),
+            const SizedBox(height: 12),
+            _TopicGrid(
+              topics: _topics(context),
+              onTap: (topic) => _open(context, topic),
+            ),
+          ],
+        ),
       ),
     );
   }

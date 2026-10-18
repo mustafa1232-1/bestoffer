@@ -93,11 +93,14 @@ class TermsOfUseScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(context.lt(ar: 'شروط الاستخدام', en: 'Terms of Use')),
       ),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(16),
-        itemCount: items.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 14),
-        itemBuilder: (context, index) => items[index],
+      body: SafeArea(
+        top: false,
+        child: ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: items.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 14),
+          itemBuilder: (context, index) => items[index],
+        ),
       ),
     );
   }

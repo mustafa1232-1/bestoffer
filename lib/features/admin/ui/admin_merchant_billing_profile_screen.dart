@@ -310,240 +310,252 @@ class _AdminMerchantBillingProfileScreenState
               : l10n.adminMerchantBillingSettingsTitle,
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : Form(
-              key: _formKey,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  Card(
-                    child: ListTile(
-                      title: Text(widget.merchantName),
-                      subtitle: Text('${l10n.commonId}: ${widget.merchantId}'),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _commissionType,
-                    decoration: _decoration(
-                      context,
-                      l10n.adminMerchantBillingCommissionType,
-                    ),
-                    items: [
-                      DropdownMenuItem(
-                        value: 'percentage',
-                        child: Text(
-                          _commissionTypeLabel(context, 'percentage'),
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : Form(
+                key: _formKey,
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    Card(
+                      child: ListTile(
+                        title: Text(widget.merchantName),
+                        subtitle: Text(
+                          '${l10n.commonId}: ${widget.merchantId}',
                         ),
                       ),
-                      DropdownMenuItem(
-                        value: 'fixed',
-                        child: Text(_commissionTypeLabel(context, 'fixed')),
-                      ),
-                    ],
-                    onChanged: (value) =>
-                        setState(() => _commissionType = value ?? 'percentage'),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _commissionModel,
-                    decoration: _decoration(
-                      context,
-                      context.lt(ar: 'نموذج العمولة', en: 'Commission model'),
                     ),
-                    items: [
-                      DropdownMenuItem(
-                        value: 'percentage',
-                        child: Text(
-                          _commissionModelLabel(context, 'percentage'),
-                        ),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: _commissionType,
+                      decoration: _decoration(
+                        context,
+                        l10n.adminMerchantBillingCommissionType,
                       ),
-                      DropdownMenuItem(
-                        value: 'monthly_subscription',
-                        child: Text(
-                          _commissionModelLabel(
-                            context,
-                            'monthly_subscription',
+                      items: [
+                        DropdownMenuItem(
+                          value: 'percentage',
+                          child: Text(
+                            _commissionTypeLabel(context, 'percentage'),
                           ),
                         ),
+                        DropdownMenuItem(
+                          value: 'fixed',
+                          child: Text(_commissionTypeLabel(context, 'fixed')),
+                        ),
+                      ],
+                      onChanged: (value) => setState(
+                        () => _commissionType = value ?? 'percentage',
                       ),
-                    ],
-                    onChanged: (value) => setState(
-                      () => _commissionModel = value ?? 'percentage',
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _commissionValueCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: _commissionModel,
+                      decoration: _decoration(
+                        context,
+                        context.lt(ar: 'نموذج العمولة', en: 'Commission model'),
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: 'percentage',
+                          child: Text(
+                            _commissionModelLabel(context, 'percentage'),
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'monthly_subscription',
+                          child: Text(
+                            _commissionModelLabel(
+                              context,
+                              'monthly_subscription',
+                            ),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) => setState(
+                        () => _commissionModel = value ?? 'percentage',
+                      ),
                     ),
-                    decoration: _decoration(
-                      context,
-                      _commissionModel == 'monthly_subscription'
-                          ? context.lt(
-                              ar: 'قيمة الاشتراك الشهري',
-                              en: 'Monthly subscription amount',
-                            )
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _commissionValueCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: _decoration(
+                        context,
+                        _commissionModel == 'monthly_subscription'
+                            ? context.lt(
+                                ar: 'قيمة الاشتراك الشهري',
+                                en: 'Monthly subscription amount',
+                              )
+                            : (_commissionType == 'percentage'
+                                  ? l10n.adminMerchantBillingCommissionValuePercentage
+                                  : l10n.adminMerchantBillingCommissionValueFixed),
+                      ),
+                      validator: _commissionModel == 'monthly_subscription'
+                          ? _validateAmount
                           : (_commissionType == 'percentage'
-                                ? l10n.adminMerchantBillingCommissionValuePercentage
-                                : l10n.adminMerchantBillingCommissionValueFixed),
+                                ? _validatePercentage
+                                : _validateAmount),
                     ),
-                    validator: _commissionModel == 'monthly_subscription'
-                        ? _validateAmount
-                        : (_commissionType == 'percentage'
-                              ? _validatePercentage
-                              : _validateAmount),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _serviceFeeType,
-                    decoration: _decoration(
-                      context,
-                      l10n.adminMerchantBillingServiceFeeType,
-                    ),
-                    items: [
-                      DropdownMenuItem(
-                        value: 'fixed',
-                        child: Text(_serviceFeeTypeLabel(context, 'fixed')),
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: _serviceFeeType,
+                      decoration: _decoration(
+                        context,
+                        l10n.adminMerchantBillingServiceFeeType,
                       ),
-                      DropdownMenuItem(
-                        value: 'percentage',
-                        child: Text(
-                          _serviceFeeTypeLabel(context, 'percentage'),
+                      items: [
+                        DropdownMenuItem(
+                          value: 'fixed',
+                          child: Text(_serviceFeeTypeLabel(context, 'fixed')),
                         ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'per_order',
-                        child: Text(_serviceFeeTypeLabel(context, 'per_order')),
-                      ),
-                      DropdownMenuItem(
-                        value: 'global_rule',
-                        child: Text(
-                          _serviceFeeTypeLabel(context, 'global_rule'),
+                        DropdownMenuItem(
+                          value: 'percentage',
+                          child: Text(
+                            _serviceFeeTypeLabel(context, 'percentage'),
+                          ),
                         ),
-                      ),
-                    ],
-                    onChanged: (value) =>
-                        setState(() => _serviceFeeType = value ?? 'fixed'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _serviceValueCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: _decoration(
-                      context,
-                      l10n.adminMerchantBillingServiceFeeValue,
-                    ),
-                    validator: _serviceFeeType == 'percentage'
-                        ? _validatePercentage
-                        : _validateAmount,
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: _deliveryFeeMode,
-                    decoration: _decoration(
-                      context,
-                      l10n.adminMerchantBillingDeliveryFeeMode,
-                    ),
-                    items: [
-                      DropdownMenuItem(
-                        value: 'dynamic',
-                        child: Text(_deliveryFeeModeLabel(context, 'dynamic')),
-                      ),
-                      DropdownMenuItem(
-                        value: 'app_defined',
-                        child: Text(
-                          _deliveryFeeModeLabel(context, 'app_defined'),
+                        DropdownMenuItem(
+                          value: 'per_order',
+                          child: Text(
+                            _serviceFeeTypeLabel(context, 'per_order'),
+                          ),
                         ),
-                      ),
-                      DropdownMenuItem(
-                        value: 'store_defined',
-                        child: Text(
-                          _deliveryFeeModeLabel(context, 'store_defined'),
+                        DropdownMenuItem(
+                          value: 'global_rule',
+                          child: Text(
+                            _serviceFeeTypeLabel(context, 'global_rule'),
+                          ),
                         ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _serviceFeeType = value ?? 'fixed'),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _serviceValueCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
                       ),
-                    ],
-                    onChanged: (value) =>
-                        setState(() => _deliveryFeeMode = value ?? 'dynamic'),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _appDeliveryValueCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+                      decoration: _decoration(
+                        context,
+                        l10n.adminMerchantBillingServiceFeeValue,
+                      ),
+                      validator: _serviceFeeType == 'percentage'
+                          ? _validatePercentage
+                          : _validateAmount,
                     ),
-                    decoration: _decoration(
-                      context,
-                      l10n.adminMerchantBillingAppDeliveryFeeValue,
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: _deliveryFeeMode,
+                      decoration: _decoration(
+                        context,
+                        l10n.adminMerchantBillingDeliveryFeeMode,
+                      ),
+                      items: [
+                        DropdownMenuItem(
+                          value: 'dynamic',
+                          child: Text(
+                            _deliveryFeeModeLabel(context, 'dynamic'),
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'app_defined',
+                          child: Text(
+                            _deliveryFeeModeLabel(context, 'app_defined'),
+                          ),
+                        ),
+                        DropdownMenuItem(
+                          value: 'store_defined',
+                          child: Text(
+                            _deliveryFeeModeLabel(context, 'store_defined'),
+                          ),
+                        ),
+                      ],
+                      onChanged: (value) =>
+                          setState(() => _deliveryFeeMode = value ?? 'dynamic'),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _storeDeliveryValueCtrl,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _appDeliveryValueCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: _decoration(
+                        context,
+                        l10n.adminMerchantBillingAppDeliveryFeeValue,
+                      ),
                     ),
-                    decoration: _decoration(
-                      context,
-                      l10n.adminMerchantBillingStoreDeliveryFeeValue,
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _storeDeliveryValueCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: _decoration(
+                        context,
+                        l10n.adminMerchantBillingStoreDeliveryFeeValue,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile.adaptive(
-                    value: _appDeliveryEnabled,
-                    onChanged: (value) =>
-                        setState(() => _appDeliveryEnabled = value),
-                    title: Text(l10n.adminMerchantBillingEnableAppDelivery),
-                  ),
-                  SwitchListTile.adaptive(
-                    value: _merchantDeliveryEnabled,
-                    onChanged: (value) =>
-                        setState(() => _merchantDeliveryEnabled = value),
-                    title: Text(
-                      l10n.adminMerchantBillingEnableMerchantDelivery,
+                    const SizedBox(height: 12),
+                    SwitchListTile.adaptive(
+                      value: _appDeliveryEnabled,
+                      onChanged: (value) =>
+                          setState(() => _appDeliveryEnabled = value),
+                      title: Text(l10n.adminMerchantBillingEnableAppDelivery),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: _graceDaysCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: _decoration(
-                      context,
-                      l10n.adminMerchantBillingGracePeriodDays,
+                    SwitchListTile.adaptive(
+                      value: _merchantDeliveryEnabled,
+                      onChanged: (value) =>
+                          setState(() => _merchantDeliveryEnabled = value),
+                      title: Text(
+                        l10n.adminMerchantBillingEnableMerchantDelivery,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(l10n.adminMerchantBillingEffectiveFrom),
-                    subtitle: Text(_effectiveFrom?.toLocal().toString() ?? '-'),
-                    trailing: OutlinedButton.icon(
-                      onPressed: _pickEffectiveFrom,
-                      icon: const Icon(Icons.schedule_outlined),
-                      label: Text(l10n.commonChoose),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _graceDaysCtrl,
+                      keyboardType: TextInputType.number,
+                      decoration: _decoration(
+                        context,
+                        l10n.adminMerchantBillingGracePeriodDays,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  FilledButton.icon(
-                    onPressed: _submit,
-                    icon: Icon(
-                      widget.approvalMode
-                          ? Icons.send_rounded
-                          : Icons.save_outlined,
+                    const SizedBox(height: 12),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(l10n.adminMerchantBillingEffectiveFrom),
+                      subtitle: Text(
+                        _effectiveFrom?.toLocal().toString() ?? '-',
+                      ),
+                      trailing: OutlinedButton.icon(
+                        onPressed: _pickEffectiveFrom,
+                        icon: const Icon(Icons.schedule_outlined),
+                        label: Text(l10n.commonChoose),
+                      ),
                     ),
-                    label: Text(
-                      widget.approvalMode
-                          ? l10n.adminMerchantBillingSendTerms
-                          : l10n.adminMerchantBillingSaveSettings,
+                    const SizedBox(height: 20),
+                    FilledButton.icon(
+                      onPressed: _submit,
+                      icon: Icon(
+                        widget.approvalMode
+                            ? Icons.send_rounded
+                            : Icons.save_outlined,
+                      ),
+                      label: Text(
+                        widget.approvalMode
+                            ? l10n.adminMerchantBillingSendTerms
+                            : l10n.adminMerchantBillingSaveSettings,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }

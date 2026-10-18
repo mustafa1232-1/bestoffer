@@ -22,6 +22,8 @@ import 'job_my_applications_screen.dart';
 import 'job_super_admin_monitor_screen.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 final jobsApiProvider = Provider<JobsApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
@@ -291,7 +293,7 @@ class _JobsHubScreenState extends ConsumerState<JobsHubScreen> {
   }
 
   Future<void> _openFiltersSheet() async {
-    final result = await showModalBottomSheet<_JobFilterResult>(
+    final result = await showMaslakiBottomSheet<_JobFilterResult>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
@@ -359,7 +361,7 @@ class _JobsHubScreenState extends ConsumerState<JobsHubScreen> {
   Future<void> _openCreateJobSheet() async {
     if (!_canManageJobs) return;
     final l10n = context.l10n;
-    final payload = await showModalBottomSheet<Map<String, dynamic>>(
+    final payload = await showMaslakiBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _CreateJobSheet(meta: _meta),
@@ -397,7 +399,7 @@ class _JobsHubScreenState extends ConsumerState<JobsHubScreen> {
     final details = await _fetchJobDetails(job.id);
     if (!mounted || details == null) return;
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _JobDetailsSheet(
@@ -701,7 +703,7 @@ class _JobsHubScreenState extends ConsumerState<JobsHubScreen> {
               label: Text(context.l10n.jobsHubPostJob),
             )
           : null,
-      body: Directionality(
+      body: SafeArea(top: false, child: Directionality(
         textDirection: context.appTextDirection,
         child: RefreshIndicator(
           onRefresh: _refresh,
@@ -772,7 +774,7 @@ class _JobsHubScreenState extends ConsumerState<JobsHubScreen> {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 

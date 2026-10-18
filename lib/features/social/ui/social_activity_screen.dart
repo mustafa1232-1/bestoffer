@@ -142,66 +142,69 @@ class _SocialActivityScreenState extends ConsumerState<SocialActivityScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-          children: [
-            _ActivitySummaryRow(
-              likesCount: stats.likes,
-              commentsCount: stats.comments,
-              mentionsCount: stats.mentions,
-              unreadCount: stats.unread,
-              onOpenLikes: () => setState(() => _filter = 'likes'),
-              onOpenComments: () => setState(() => _filter = 'comments'),
-              onOpenMentions: () => setState(() => _filter = 'mentions'),
-              onOpenUnread: () => setState(() => _unreadOnly = !_unreadOnly),
-            ),
-            const SizedBox(height: 12),
-            _RequestsStrip(
-              loading: _loadingRequests,
-              relationCount: _incomingRelationRequests,
-              messageCount: _messageRequests,
-              onOpenRelations: _openRelationRequests,
-              onOpenMessages: _openMessageRequests,
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 42,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: _buildFilterChips(stats),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            children: [
+              _ActivitySummaryRow(
+                likesCount: stats.likes,
+                commentsCount: stats.comments,
+                mentionsCount: stats.mentions,
+                unreadCount: stats.unread,
+                onOpenLikes: () => setState(() => _filter = 'likes'),
+                onOpenComments: () => setState(() => _filter = 'comments'),
+                onOpenMentions: () => setState(() => _filter = 'mentions'),
+                onOpenUnread: () => setState(() => _unreadOnly = !_unreadOnly),
               ),
-            ),
-            const SizedBox(height: 14),
-            if (state.loading && source.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 140),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (filtered.isEmpty)
-              _EmptySocialActivityState(
-                title: l10n.socialActivityEmptyTitle,
-                body: l10n.socialActivityEmptyBody,
-              )
-            else
-              ...grouped.expand(
-                (section) => <Widget>[
-                  _ActivitySectionHeader(label: section.label),
-                  const SizedBox(height: 8),
-                  ...section.items.map(
-                    (notification) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: _SocialActivityTile(
-                        notification: notification,
-                        onTap: () => _openNotification(notification),
+              const SizedBox(height: 12),
+              _RequestsStrip(
+                loading: _loadingRequests,
+                relationCount: _incomingRelationRequests,
+                messageCount: _messageRequests,
+                onOpenRelations: _openRelationRequests,
+                onOpenMessages: _openMessageRequests,
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 42,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: _buildFilterChips(stats),
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (state.loading && source.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 140),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (filtered.isEmpty)
+                _EmptySocialActivityState(
+                  title: l10n.socialActivityEmptyTitle,
+                  body: l10n.socialActivityEmptyBody,
+                )
+              else
+                ...grouped.expand(
+                  (section) => <Widget>[
+                    _ActivitySectionHeader(label: section.label),
+                    const SizedBox(height: 8),
+                    ...section.items.map(
+                      (notification) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _SocialActivityTile(
+                          notification: notification,
+                          onTap: () => _openNotification(notification),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-          ],
+                    const SizedBox(height: 8),
+                  ],
+                ),
+            ],
+          ),
         ),
       ),
     );

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/utils/currency.dart';
 import '../models/merchant_offer_model.dart';
@@ -37,7 +39,7 @@ class _StoreOwnerOffersScreenState
       return;
     }
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _OfferEditorSheet(offer: offer),
@@ -119,159 +121,165 @@ class _StoreOwnerOffersScreenState
         icon: const Icon(Icons.local_offer_outlined),
         label: const Text('عرض جديد'),
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: state.loading && state.offers.isEmpty
-            ? const Center(child: CircularProgressIndicator())
-            : state.offers.isEmpty
-            ? ListView(
-                padding: const EdgeInsets.all(24),
-                children: const [
-                  SizedBox(height: 120),
-                  Icon(Icons.local_offer_outlined, size: 56),
-                  SizedBox(height: 16),
-                  Center(
-                    child: Text(
-                      'لا توجد عروض حتى الآن.',
-                      textAlign: TextAlign.center,
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: state.loading && state.offers.isEmpty
+              ? const Center(child: CircularProgressIndicator())
+              : state.offers.isEmpty
+              ? ListView(
+                  padding: const EdgeInsets.all(24),
+                  children: const [
+                    SizedBox(height: 120),
+                    Icon(Icons.local_offer_outlined, size: 56),
+                    SizedBox(height: 16),
+                    Center(
+                      child: Text(
+                        'لا توجد عروض حتى الآن.',
+                        textAlign: TextAlign.center,
+                      ),
                     ),
-                  ),
-                  SizedBox(height: 8),
-                  Center(
-                    child: Text(
-                      'أنشئ عروضًا على المنتجات لتظهر تلقائيًا في الصفحة والسلة والطلب.',
-                      textAlign: TextAlign.center,
+                    SizedBox(height: 8),
+                    Center(
+                      child: Text(
+                        'أنشئ عروضًا على المنتجات لتظهر تلقائيًا في الصفحة والسلة والطلب.',
+                        textAlign: TextAlign.center,
+                      ),
                     ),
-                  ),
-                ],
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-                itemCount: state.offers.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemBuilder: (context, index) {
-                  final offer = state.offers[index];
-                  return Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      offer.title,
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 16,
+                  ],
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                  itemCount: state.offers.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final offer = state.offers[index];
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        offer.title,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 16,
+                                        ),
                                       ),
-                                    ),
-                                    if ((offer.description ?? '')
-                                        .trim()
-                                        .isNotEmpty)
-                                      Padding(
-                                        padding: const EdgeInsets.only(top: 6),
-                                        child: Text(offer.description!),
-                                      ),
-                                  ],
+                                      if ((offer.description ?? '')
+                                          .trim()
+                                          .isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 6,
+                                          ),
+                                          child: Text(offer.description!),
+                                        ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                              _OfferStatusChip(status: offer.status),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              _OfferInfoChip(
-                                icon: Icons.sell_outlined,
-                                label: _offerTypeLabel(offer),
-                              ),
-                              if ((offer.label ?? '').trim().isNotEmpty)
-                                _OfferInfoChip(
-                                  icon: Icons.auto_awesome_outlined,
-                                  label: offer.label!,
-                                ),
-                              _OfferInfoChip(
-                                icon: Icons.inventory_2_outlined,
-                                label: '${offer.products.length} منتج',
-                              ),
-                              if (offer.maxUsage != null)
-                                _OfferInfoChip(
-                                  icon: Icons.pin_outlined,
-                                  label: 'حد الاستخدام ${offer.maxUsage}',
-                                ),
-                              if (offer.startsAt != null ||
-                                  offer.endsAt != null)
-                                _OfferInfoChip(
-                                  icon: Icons.schedule_outlined,
-                                  label: _dateWindowLabel(offer),
-                                ),
-                            ],
-                          ),
-                          if (offer.products.isNotEmpty) ...[
+                                _OfferStatusChip(status: offer.status),
+                              ],
+                            ),
                             const SizedBox(height: 12),
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
-                              children: offer.products
-                                  .map(
-                                    (product) =>
-                                        Chip(label: Text(product.name)),
-                                  )
-                                  .toList(),
+                              children: [
+                                _OfferInfoChip(
+                                  icon: Icons.sell_outlined,
+                                  label: _offerTypeLabel(offer),
+                                ),
+                                if ((offer.label ?? '').trim().isNotEmpty)
+                                  _OfferInfoChip(
+                                    icon: Icons.auto_awesome_outlined,
+                                    label: offer.label!,
+                                  ),
+                                _OfferInfoChip(
+                                  icon: Icons.inventory_2_outlined,
+                                  label: '${offer.products.length} منتج',
+                                ),
+                                if (offer.maxUsage != null)
+                                  _OfferInfoChip(
+                                    icon: Icons.pin_outlined,
+                                    label: 'حد الاستخدام ${offer.maxUsage}',
+                                  ),
+                                if (offer.startsAt != null ||
+                                    offer.endsAt != null)
+                                  _OfferInfoChip(
+                                    icon: Icons.schedule_outlined,
+                                    label: _dateWindowLabel(offer),
+                                  ),
+                              ],
                             ),
-                          ],
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton.icon(
-                                  onPressed: state.savingProduct
-                                      ? null
-                                      : () => _openOfferSheet(offer: offer),
-                                  icon: const Icon(Icons.edit_outlined),
-                                  label: const Text('تعديل'),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: FilledButton.tonalIcon(
-                                  onPressed: state.savingProduct
-                                      ? null
-                                      : () => _toggleOffer(offer),
-                                  icon: Icon(
-                                    offer.configuredStatus == 'active'
-                                        ? Icons.pause_circle_outline
-                                        : Icons.play_circle_outline,
-                                  ),
-                                  label: Text(
-                                    offer.configuredStatus == 'active'
-                                        ? 'إيقاف'
-                                        : 'تفعيل',
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              IconButton.filledTonal(
-                                onPressed: state.savingProduct
-                                    ? null
-                                    : () => _deleteOffer(offer),
-                                icon: const Icon(Icons.delete_outline),
+                            if (offer.products.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: offer.products
+                                    .map(
+                                      (product) =>
+                                          Chip(label: Text(product.name)),
+                                    )
+                                    .toList(),
                               ),
                             ],
-                          ),
-                        ],
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton.icon(
+                                    onPressed: state.savingProduct
+                                        ? null
+                                        : () => _openOfferSheet(offer: offer),
+                                    icon: const Icon(Icons.edit_outlined),
+                                    label: const Text('تعديل'),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: FilledButton.tonalIcon(
+                                    onPressed: state.savingProduct
+                                        ? null
+                                        : () => _toggleOffer(offer),
+                                    icon: Icon(
+                                      offer.configuredStatus == 'active'
+                                          ? Icons.pause_circle_outline
+                                          : Icons.play_circle_outline,
+                                    ),
+                                    label: Text(
+                                      offer.configuredStatus == 'active'
+                                          ? 'إيقاف'
+                                          : 'تفعيل',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton.filledTonal(
+                                  onPressed: state.savingProduct
+                                      ? null
+                                      : () => _deleteOffer(offer),
+                                  icon: const Icon(Icons.delete_outline),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }

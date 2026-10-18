@@ -398,7 +398,7 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
     required Map<String, dynamic> me,
     required List<Map<String, dynamic>> players,
   }) async {
-    final action = await showModalBottomSheet<_MafiaHostAction>(
+    final action = await showMaslakiBottomSheet<_MafiaHostAction>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -838,7 +838,7 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
   Future<void> _showPlayerGifts(Map<String, dynamic> player) async {
     final targetUserId = _int(player['userId']);
     final isMuted = _voice.isUserMuted(targetUserId);
-    final kind = await showModalBottomSheet<String>(
+    final kind = await showMaslakiBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (context) => SafeArea(
@@ -911,7 +911,7 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
   Future<void> _reportPlayer(Map<String, dynamic> player) async {
     final details = TextEditingController();
     var reason = 'harassment';
-    final submitted = await showModalBottomSheet<bool>(
+    final submitted = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1011,7 +1011,7 @@ class _MafiaRoomScreenState extends ConsumerState<MafiaRoomScreen>
   }
 
   Future<void> _showChat() async {
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -3496,7 +3496,7 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 void _showRules(BuildContext context) {
-  showModalBottomSheet<void>(
+  showMaslakiBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,

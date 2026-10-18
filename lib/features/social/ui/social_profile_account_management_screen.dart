@@ -81,152 +81,159 @@ class SocialProfileAccountManagementScreen extends StatelessWidget {
       textDirection: context.appTextDirection,
       child: Scaffold(
         appBar: AppBar(title: Text(l10n.socialProfileManageTitle)),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          children: [
-            _SectionCard(
-              title: l10n.socialProfileManageProfilePrivacy,
-              child: Column(
-                children: [
-                  _ActionTile(
-                    icon: Icons.edit_outlined,
-                    title: l10n.socialProfileManageEditProfilePrivacy,
-                    subtitle: l10n.socialProfileManageEditProfilePrivacyHint,
-                    onTap: onEditProfile,
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _StatusChip(
-                        icon: Icons.phone_enabled_outlined,
-                        label: profile.showPhone
-                            ? l10n.socialProfileManagePhoneVisible
-                            : l10n.socialProfileManagePhoneHidden,
-                      ),
-                      _StatusChip(
-                        icon: Icons.public_rounded,
-                        label: profile.postsPublic
-                            ? l10n.socialProfileManagePostsPublic
-                            : l10n.socialProfileManagePostsPrivate,
-                      ),
-                      _StatusChip(
-                        icon: Icons.auto_stories_rounded,
-                        label: profile.storiesPublic
-                            ? l10n.socialProfileManageStoriesPublic
-                            : l10n.socialProfileManageStoriesPrivate,
-                      ),
-                      _StatusChip(
-                        icon: Icons.group_outlined,
-                        label: profile.relationsPublic
-                            ? l10n.socialProfileManageRelationsVisible
-                            : l10n.socialProfileManageRelationsPrivate,
-                      ),
-                      _StatusChip(
-                        icon: Icons.circle_notifications_outlined,
-                        label: l10n.socialProfileManageOnlineStatus(
-                          _visibilityLabel(
-                            context,
-                            profile.onlineStatusVisibility,
+        body: SafeArea(
+          top: false,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+            children: [
+              _SectionCard(
+                title: l10n.socialProfileManageProfilePrivacy,
+                child: Column(
+                  children: [
+                    _ActionTile(
+                      icon: Icons.edit_outlined,
+                      title: l10n.socialProfileManageEditProfilePrivacy,
+                      subtitle: l10n.socialProfileManageEditProfilePrivacyHint,
+                      onTap: onEditProfile,
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _StatusChip(
+                          icon: Icons.phone_enabled_outlined,
+                          label: profile.showPhone
+                              ? l10n.socialProfileManagePhoneVisible
+                              : l10n.socialProfileManagePhoneHidden,
+                        ),
+                        _StatusChip(
+                          icon: Icons.public_rounded,
+                          label: profile.postsPublic
+                              ? l10n.socialProfileManagePostsPublic
+                              : l10n.socialProfileManagePostsPrivate,
+                        ),
+                        _StatusChip(
+                          icon: Icons.auto_stories_rounded,
+                          label: profile.storiesPublic
+                              ? l10n.socialProfileManageStoriesPublic
+                              : l10n.socialProfileManageStoriesPrivate,
+                        ),
+                        _StatusChip(
+                          icon: Icons.group_outlined,
+                          label: profile.relationsPublic
+                              ? l10n.socialProfileManageRelationsVisible
+                              : l10n.socialProfileManageRelationsPrivate,
+                        ),
+                        _StatusChip(
+                          icon: Icons.circle_notifications_outlined,
+                          label: l10n.socialProfileManageOnlineStatus(
+                            _visibilityLabel(
+                              context,
+                              profile.onlineStatusVisibility,
+                            ),
                           ),
                         ),
-                      ),
-                      _StatusChip(
-                        icon: Icons.schedule_outlined,
-                        label: l10n.socialProfileManageLastSeen(
-                          _visibilityLabel(context, profile.lastSeenVisibility),
+                        _StatusChip(
+                          icon: Icons.schedule_outlined,
+                          label: l10n.socialProfileManageLastSeen(
+                            _visibilityLabel(
+                              context,
+                              profile.lastSeenVisibility,
+                            ),
+                          ),
                         ),
-                      ),
-                      _StatusChip(
-                        icon: Icons.done_all_rounded,
-                        label: profile.readReceiptsEnabled
-                            ? l10n.socialProfileManageReadReceiptsOn
-                            : l10n.socialProfileManageReadReceiptsHidden,
-                      ),
-                      _StatusChip(
-                        icon: Icons.keyboard_rounded,
-                        label: profile.typingIndicatorsEnabled
-                            ? l10n.socialProfileManageTypingOn
-                            : l10n.socialProfileManageTypingHidden,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: l10n.socialProfileManageAccountActions,
-              child: Column(
-                children: [
-                  if (onOpenRelationRequests != null)
-                    _ActionTile(
-                      icon: Icons.person_add_alt_1_rounded,
-                      title: l10n.socialProfileManageConnectionRequests,
-                      subtitle: l10n.socialProfileManageConnectionRequestsHint,
-                      onTap: onOpenRelationRequests,
-                    ),
-                  if (onOpenResidenceChange != null)
-                    _ActionTile(
-                      icon: Icons.home_work_outlined,
-                      title: l10n.socialProfileManageResidenceChange,
-                      subtitle: l10n.socialProfileManageResidenceChangeHint,
-                      onTap: onOpenResidenceChange,
-                    ),
-                  if (onOpenPremiumStatus != null)
-                    _ActionTile(
-                      icon: Icons.workspace_premium_outlined,
-                      title: 'اشتراك بريميوم',
-                      subtitle: 'عرض المتبقي من الاشتراك وتجديده',
-                      onTap: onOpenPremiumStatus,
-                    ),
-                  if (onOpenPaidUpgrades != null)
-                    _ActionTile(
-                      icon: Icons.workspace_premium_outlined,
-                      title: l10n.socialProfileManageUpgrades,
-                      subtitle: _upgradeSubtitle(context, paidSummary),
-                      onTap: onOpenPaidUpgrades,
-                    ),
-                  _ActionTile(
-                    icon: Icons.shield_outlined,
-                    title: l10n.socialProfileManageSocialRestrictions,
-                    subtitle: l10n.socialProfileManageSocialRestrictionsHint,
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => const SocialRestrictionsScreen(),
+                        _StatusChip(
+                          icon: Icons.done_all_rounded,
+                          label: profile.readReceiptsEnabled
+                              ? l10n.socialProfileManageReadReceiptsOn
+                              : l10n.socialProfileManageReadReceiptsHidden,
                         ),
-                      );
-                    },
-                  ),
-                  if (onOpenReportedPosts != null)
-                    _ActionTile(
-                      icon: Icons.rule_folder_outlined,
-                      title: l10n.socialProfileManageReportedPosts,
-                      subtitle: l10n.socialProfileManageReportedPostsHint,
-                      onTap: onOpenReportedPosts,
+                        _StatusChip(
+                          icon: Icons.keyboard_rounded,
+                          label: profile.typingIndicatorsEnabled
+                              ? l10n.socialProfileManageTypingOn
+                              : l10n.socialProfileManageTypingHidden,
+                        ),
+                      ],
                     ),
-                  if (onOpenInsights != null)
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              _SectionCard(
+                title: l10n.socialProfileManageAccountActions,
+                child: Column(
+                  children: [
+                    if (onOpenRelationRequests != null)
+                      _ActionTile(
+                        icon: Icons.person_add_alt_1_rounded,
+                        title: l10n.socialProfileManageConnectionRequests,
+                        subtitle:
+                            l10n.socialProfileManageConnectionRequestsHint,
+                        onTap: onOpenRelationRequests,
+                      ),
+                    if (onOpenResidenceChange != null)
+                      _ActionTile(
+                        icon: Icons.home_work_outlined,
+                        title: l10n.socialProfileManageResidenceChange,
+                        subtitle: l10n.socialProfileManageResidenceChangeHint,
+                        onTap: onOpenResidenceChange,
+                      ),
+                    if (onOpenPremiumStatus != null)
+                      _ActionTile(
+                        icon: Icons.workspace_premium_outlined,
+                        title: 'اشتراك بريميوم',
+                        subtitle: 'عرض المتبقي من الاشتراك وتجديده',
+                        onTap: onOpenPremiumStatus,
+                      ),
+                    if (onOpenPaidUpgrades != null)
+                      _ActionTile(
+                        icon: Icons.workspace_premium_outlined,
+                        title: l10n.socialProfileManageUpgrades,
+                        subtitle: _upgradeSubtitle(context, paidSummary),
+                        onTap: onOpenPaidUpgrades,
+                      ),
                     _ActionTile(
-                      icon: Icons.insights_outlined,
-                      title: l10n.socialProfileManageInsights,
-                      subtitle: l10n.socialProfileManageInsightsHint,
-                      onTap: onOpenInsights,
+                      icon: Icons.shield_outlined,
+                      title: l10n.socialProfileManageSocialRestrictions,
+                      subtitle: l10n.socialProfileManageSocialRestrictionsHint,
+                      onTap: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const SocialRestrictionsScreen(),
+                          ),
+                        );
+                      },
                     ),
-                ],
+                    if (onOpenReportedPosts != null)
+                      _ActionTile(
+                        icon: Icons.rule_folder_outlined,
+                        title: l10n.socialProfileManageReportedPosts,
+                        subtitle: l10n.socialProfileManageReportedPostsHint,
+                        onTap: onOpenReportedPosts,
+                      ),
+                    if (onOpenInsights != null)
+                      _ActionTile(
+                        icon: Icons.insights_outlined,
+                        title: l10n.socialProfileManageInsights,
+                        subtitle: l10n.socialProfileManageInsightsHint,
+                        onTap: onOpenInsights,
+                      ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 14),
-            _SectionCard(
-              title: l10n.socialProfileManageAccountInfo,
-              child: Column(
-                children: infoItems
-                    .map((item) => _InfoRow(item: item))
-                    .toList(growable: false),
+              const SizedBox(height: 14),
+              _SectionCard(
+                title: l10n.socialProfileManageAccountInfo,
+                child: Column(
+                  children: infoItems
+                      .map((item) => _InfoRow(item: item))
+                      .toList(growable: false),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

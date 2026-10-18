@@ -70,47 +70,52 @@ class _MandatoryPinChangeScreenState
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('تعيين رمز جديد')),
-    body: Padding(
-      padding: const EdgeInsets.all(24),
-      child: ListView(
-        children: [
-          const Icon(Icons.lock_reset_rounded, size: 56),
-          const SizedBox(height: 16),
-          const Text(
-            'تمت الموافقة على إعادة تعيين حسابك. يجب إنشاء رمز جديد قبل المتابعة.',
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          TextField(
-            controller: current,
-            enabled: !saving,
-            obscureText: true,
-            keyboardType: TextInputType.number,
-            maxLength: 8,
-            decoration: const InputDecoration(labelText: 'الرمز المؤقت الحالي'),
-          ),
-          TextField(
-            controller: next,
-            enabled: !saving,
-            obscureText: true,
-            keyboardType: TextInputType.number,
-            maxLength: 8,
-            decoration: const InputDecoration(labelText: 'الرمز الجديد'),
-          ),
-          if (error != null) ...[
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+    body: SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: ListView(
+          children: [
+            const Icon(Icons.lock_reset_rounded, size: 56),
+            const SizedBox(height: 16),
+            const Text(
+              'تمت الموافقة على إعادة تعيين حسابك. يجب إنشاء رمز جديد قبل المتابعة.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            TextField(
+              controller: current,
+              enabled: !saving,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              maxLength: 8,
+              decoration: const InputDecoration(
+                labelText: 'الرمز المؤقت الحالي',
               ),
             ),
+            TextField(
+              controller: next,
+              enabled: !saving,
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              maxLength: 8,
+              decoration: const InputDecoration(labelText: 'الرمز الجديد'),
+            ),
+            if (error != null) ...[
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            ],
+            FilledButton(
+              onPressed: saving ? null : submit,
+              child: Text(saving ? 'جار الحفظ...' : 'حفظ الرمز والمتابعة'),
+            ),
           ],
-          FilledButton(
-            onPressed: saving ? null : submit,
-            child: Text(saving ? 'جار الحفظ...' : 'حفظ الرمز والمتابعة'),
-          ),
-        ],
+        ),
       ),
     ),
   );

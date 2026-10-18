@@ -12,6 +12,8 @@ import '../state/admin_ad_board_controller.dart';
 import '../state/admin_controller.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 class AdminAdBoardScreen extends ConsumerStatefulWidget {
   const AdminAdBoardScreen({super.key});
@@ -126,7 +128,7 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
       activities = const <StoreActivityModel>[];
     }
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -252,216 +254,224 @@ class _AdminAdBoardScreenState extends ConsumerState<AdminAdBoardScreen> {
         icon: const Icon(Icons.add_rounded),
         label: Text(context.l10n.adminAdBoardNewAd),
       ),
-      body: state.loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: () =>
-                  ref.read(adminAdBoardControllerProvider.notifier).bootstrap(),
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      gradient: LinearGradient(
-                        colors: [
-                          Theme.of(
-                            context,
-                          ).colorScheme.primary.withValues(alpha: 0.24),
-                          Theme.of(
-                            context,
-                          ).colorScheme.secondary.withValues(alpha: 0.16),
-                        ],
-                      ),
-                    ),
-                    child: Text(
-                      context.l10n.adminAdBoardIntroBanner,
-                      textDirection: context.appTextDirection,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    height: 40,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      reverse: true,
-                      children: _AdTab.values.map((tab) {
-                        final selected = tab == _tab;
-                        return Padding(
-                          padding: const EdgeInsets.only(left: 8),
-                          child: ChoiceChip(
-                            label: Text(_tabLabel(tab)),
-                            selected: selected,
-                            onSelected: (_) => setState(() => _tab = tab),
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  if (_applyTab(state.items).isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 48),
-                      child: Center(
-                        child: Text(
-                          context.l10n.adminAdBoardNoAdItemsYet,
-                          textDirection: context.appTextDirection,
+      body: SafeArea(
+        top: false,
+        child: state.loading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: () => ref
+                    .read(adminAdBoardControllerProvider.notifier)
+                    .bootstrap(),
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 88),
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        gradient: LinearGradient(
+                          colors: [
+                            Theme.of(
+                              context,
+                            ).colorScheme.primary.withValues(alpha: 0.24),
+                            Theme.of(
+                              context,
+                            ).colorScheme.secondary.withValues(alpha: 0.16),
+                          ],
                         ),
                       ),
-                    )
-                  else
-                    ..._applyTab(state.items).map(
-                      (item) => Card(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: Padding(
-                          padding: const EdgeInsets.all(14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.end,
-                                      children: [
-                                        Text(
-                                          item.title,
-                                          textDirection:
-                                              context.appTextDirection,
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.w900,
-                                            fontSize: 15,
+                      child: Text(
+                        context.l10n.adminAdBoardIntroBanner,
+                        textDirection: context.appTextDirection,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 40,
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        reverse: true,
+                        children: _AdTab.values.map((tab) {
+                          final selected = tab == _tab;
+                          return Padding(
+                            padding: const EdgeInsets.only(left: 8),
+                            child: ChoiceChip(
+                              label: Text(_tabLabel(tab)),
+                              selected: selected,
+                              onSelected: (_) => setState(() => _tab = tab),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (_applyTab(state.items).isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 48),
+                        child: Center(
+                          child: Text(
+                            context.l10n.adminAdBoardNoAdItemsYet,
+                            textDirection: context.appTextDirection,
+                          ),
+                        ),
+                      )
+                    else
+                      ..._applyTab(state.items).map(
+                        (item) => Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: Padding(
+                            padding: const EdgeInsets.all(14),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          Text(
+                                            item.title,
+                                            textDirection:
+                                                context.appTextDirection,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 15,
+                                            ),
                                           ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          item.subtitle,
-                                          textDirection:
-                                              context.appTextDirection,
-                                        ),
-                                      ],
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            item.subtitle,
+                                            textDirection:
+                                                context.appTextDirection,
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                  ),
-                                  Switch(
-                                    value: item.isActive,
-                                    onChanged: state.saving
-                                        ? null
-                                        : (value) {
-                                            ref
-                                                .read(
-                                                  adminAdBoardControllerProvider
-                                                      .notifier,
-                                                )
-                                                .updateItem(item.id, {
-                                                  'isActive': value,
-                                                });
-                                          },
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 10),
-                              Wrap(
-                                alignment: WrapAlignment.end,
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _Chip(label: _statusLabel(item)),
-                                  _Chip(label: _placementChipLabel(item)),
-                                  _Chip(
-                                    label:
-                                        '${context.l10n.adminAdBoardCta}: ${_ctaTypeLabel(item.ctaTargetType)}',
-                                  ),
-                                  _Chip(
-                                    label:
-                                        '${context.l10n.adminAdBoardPriority}: ${item.priority}',
-                                  ),
-                                  if ((item.category ?? '').trim().isNotEmpty)
-                                    _Chip(label: 'قسم: ${item.category}'),
-                                  if ((item.activityType ?? '')
-                                      .trim()
-                                      .isNotEmpty)
-                                    _Chip(label: 'نشاط: ${item.activityType}'),
-                                  if ((item.merchantName ?? '')
-                                      .trim()
-                                      .isNotEmpty)
+                                    Switch(
+                                      value: item.isActive,
+                                      onChanged: state.saving
+                                          ? null
+                                          : (value) {
+                                              ref
+                                                  .read(
+                                                    adminAdBoardControllerProvider
+                                                        .notifier,
+                                                  )
+                                                  .updateItem(item.id, {
+                                                    'isActive': value,
+                                                  });
+                                            },
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 10),
+                                Wrap(
+                                  alignment: WrapAlignment.end,
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _Chip(label: _statusLabel(item)),
+                                    _Chip(label: _placementChipLabel(item)),
                                     _Chip(
                                       label:
-                                          '${context.l10n.commonMerchant}: ${item.merchantName}',
+                                          '${context.l10n.adminAdBoardCta}: ${_ctaTypeLabel(item.ctaTargetType)}',
                                     ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                alignment: WrapAlignment.end,
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  _Chip(
-                                    label: 'مشاهدات: ${item.impressionCount}',
-                                  ),
-                                  _Chip(label: 'نقرات: ${item.clickCount}'),
-                                  _Chip(
-                                    label:
-                                        'CTR: ${item.ctrPercent.toStringAsFixed(1)}%',
-                                  ),
-                                ],
-                              ),
-                              if (_scheduleLabel(item) != null) ...[
+                                    _Chip(
+                                      label:
+                                          '${context.l10n.adminAdBoardPriority}: ${item.priority}',
+                                    ),
+                                    if ((item.category ?? '').trim().isNotEmpty)
+                                      _Chip(label: 'قسم: ${item.category}'),
+                                    if ((item.activityType ?? '')
+                                        .trim()
+                                        .isNotEmpty)
+                                      _Chip(
+                                        label: 'نشاط: ${item.activityType}',
+                                      ),
+                                    if ((item.merchantName ?? '')
+                                        .trim()
+                                        .isNotEmpty)
+                                      _Chip(
+                                        label:
+                                            '${context.l10n.commonMerchant}: ${item.merchantName}',
+                                      ),
+                                  ],
+                                ),
                                 const SizedBox(height: 8),
-                                Text(
-                                  _scheduleLabel(item)!,
-                                  textDirection: context.appTextDirection,
-                                  style: TextStyle(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.onSurfaceVariant,
-                                  ),
+                                Wrap(
+                                  alignment: WrapAlignment.end,
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _Chip(
+                                      label: 'مشاهدات: ${item.impressionCount}',
+                                    ),
+                                    _Chip(label: 'نقرات: ${item.clickCount}'),
+                                    _Chip(
+                                      label:
+                                          'CTR: ${item.ctrPercent.toStringAsFixed(1)}%',
+                                    ),
+                                  ],
                                 ),
-                              ],
-                              if ((item.imageUrl ?? '').trim().isNotEmpty) ...[
-                                const SizedBox(height: 10),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
-                                  child: CachedAppImage(
-                                    imageUrl: item.imageUrl!,
-                                    height: 150,
-                                    width: double.infinity,
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(height: 10),
-                              Row(
-                                children: [
-                                  IconButton(
-                                    tooltip: context.l10n.commonDelete,
-                                    onPressed: state.saving
-                                        ? null
-                                        : () => _confirmDelete(item),
-                                    icon: const Icon(
-                                      Icons.delete_outline_rounded,
+                                if (_scheduleLabel(item) != null) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _scheduleLabel(item)!,
+                                    textDirection: context.appTextDirection,
+                                    style: TextStyle(
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.onSurfaceVariant,
                                     ),
                                   ),
-                                  const Spacer(),
-                                  FilledButton.icon(
-                                    onPressed: state.saving
-                                        ? null
-                                        : () => _openSheet(item),
-                                    icon: const Icon(Icons.edit_outlined),
-                                    label: Text(context.l10n.commonEdit),
+                                ],
+                                if ((item.imageUrl ?? '')
+                                    .trim()
+                                    .isNotEmpty) ...[
+                                  const SizedBox(height: 10),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: CachedAppImage(
+                                      imageUrl: item.imageUrl!,
+                                      height: 150,
+                                      width: double.infinity,
+                                      fit: BoxFit.cover,
+                                    ),
                                   ),
                                 ],
-                              ),
-                            ],
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      tooltip: context.l10n.commonDelete,
+                                      onPressed: state.saving
+                                          ? null
+                                          : () => _confirmDelete(item),
+                                      icon: const Icon(
+                                        Icons.delete_outline_rounded,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    FilledButton.icon(
+                                      onPressed: state.saving
+                                          ? null
+                                          : () => _openSheet(item),
+                                      icon: const Icon(Icons.edit_outlined),
+                                      label: Text(context.l10n.commonEdit),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 

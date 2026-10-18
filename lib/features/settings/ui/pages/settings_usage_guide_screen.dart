@@ -12,21 +12,24 @@ class SettingsUsageGuideScreen extends ConsumerWidget {
     final sections = _buildSections(context);
     return Scaffold(
       appBar: AppBar(title: Text(l10n.settingsUsageGuideTitle)),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Text(
-                l10n.settingsUsageGuideIntro,
-                textAlign: TextAlign.start,
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Text(
+                  l10n.settingsUsageGuideIntro,
+                  textAlign: TextAlign.start,
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          ...sections.map((section) => _GuideSectionCard(section: section)),
-        ],
+            const SizedBox(height: 8),
+            ...sections.map((section) => _GuideSectionCard(section: section)),
+          ],
+        ),
       ),
     );
   }

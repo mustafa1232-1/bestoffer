@@ -124,7 +124,7 @@ class _HrEmployeePortalScreenState
           const NotificationsBellButton(),
         ],
       ),
-      body: state.loading
+      body: SafeArea(top: false, child: state.loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: () =>
@@ -582,7 +582,7 @@ class _HrEmployeePortalScreenState
                   const SizedBox(height: 80),
                 ],
               ),
-            ),
+            )),
     );
   }
 }

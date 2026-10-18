@@ -18,13 +18,15 @@ import 'widgets/social_mention_hashtag_text.dart';
 import 'widgets/social_post_card_v2.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 Future<int?> showSocialPostCommentsSheet(
   BuildContext context, {
   required SocialPost post,
   String? title,
 }) {
-  return showModalBottomSheet<int>(
+  return showMaslakiBottomSheet<int>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
@@ -319,7 +321,7 @@ class _SocialPostDetailsScreenState
       (key: 'violence', label: isEnglish ? 'Violence or danger' : 'عنف أو خطر'),
       (key: 'other', label: isEnglish ? 'Other' : 'سبب آخر'),
     ];
-    final reason = await showModalBottomSheet<String>(
+    final reason = await showMaslakiBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (_) => SafeArea(
@@ -410,38 +412,41 @@ class _SocialPostDetailsScreenState
               ),
           ],
         ),
-        body: RefreshIndicator(
-          onRefresh: _load,
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : post == null
-              ? ListView(
-                  children: [
-                    const SizedBox(height: 120),
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: Text(
-                          _error ?? l10n.socialPostDetailsLoadFailed,
-                          textAlign: TextAlign.center,
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : post == null
+                ? ListView(
+                    children: [
+                      const SizedBox(height: 120),
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            _error ?? l10n.socialPostDetailsLoadFailed,
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                )
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                  children: [
-                    SocialPostCardV2(
-                      post: post,
-                      onOpenProfile: () => _openProfile(post.author),
-                      onOpenMerchantLink: _openMerchant,
-                      onToggleLike: _toggleLike,
-                      onToggleSave: _toggleSave,
-                      onOpenComments: _openComments,
-                    ),
-                  ],
-                ),
+                    ],
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    children: [
+                      SocialPostCardV2(
+                        post: post,
+                        onOpenProfile: () => _openProfile(post.author),
+                        onOpenMerchantLink: _openMerchant,
+                        onToggleLike: _toggleLike,
+                        onToggleSave: _toggleSave,
+                        onOpenComments: _openComments,
+                      ),
+                    ],
+                  ),
+          ),
         ),
       ),
     );
@@ -742,7 +747,7 @@ class _SocialPostCommentsSheetState
 
   Future<void> _showCommentActions(SocialComment comment) async {
     final l10n = context.l10n;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(

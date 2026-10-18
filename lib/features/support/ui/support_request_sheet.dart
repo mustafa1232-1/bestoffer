@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/locale_text.dart';
 import '../data/customer_support_api.dart';
@@ -11,7 +13,7 @@ Future<bool> showSupportRequestSheet(
   BuildContext context, {
   SupportContext supportContext = const SupportContext.general(),
 }) async {
-  final result = await showModalBottomSheet<Map<String, dynamic>>(
+  final result = await showMaslakiBottomSheet<Map<String, dynamic>>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,

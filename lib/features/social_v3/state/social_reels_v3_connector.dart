@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/auth/auth_guard.dart';
 import '../../auth/state/auth_controller.dart';
@@ -329,7 +331,7 @@ class _SocialReelsV3ConnectorState
     required dynamic l10n,
   }) {
     final links = const SocialCanonicalLinks();
-    showModalBottomSheet<void>(
+    showMaslakiBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(

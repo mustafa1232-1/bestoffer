@@ -364,88 +364,93 @@ class _AdminResidenceChangeRequestsScreenState
       appBar: AppBar(
         title: Text(context.l10n.adminDashboardResidenceChangeRequests),
       ),
-      body: Column(
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-            child: Row(
-              children: [
-                for (final status in const [
-                  'pending',
-                  'approved',
-                  'rejected',
-                  'cancelled',
-                  'all',
-                ])
-                  Padding(
-                    padding: const EdgeInsetsDirectional.only(end: 8),
-                    child: ChoiceChip(
-                      label: Text(
-                        status == 'pending'
-                            ? context.l10n.commonPending
-                            : status == 'approved'
-                            ? context.l10n.commonApproved
-                            : status == 'rejected'
-                            ? context.l10n.commonRejected
-                            : status == 'cancelled'
-                            ? context.l10n.commonCancelled
-                            : context.l10n.commonAll,
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+              child: Row(
+                children: [
+                  for (final status in const [
+                    'pending',
+                    'approved',
+                    'rejected',
+                    'cancelled',
+                    'all',
+                  ])
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(end: 8),
+                      child: ChoiceChip(
+                        label: Text(
+                          status == 'pending'
+                              ? context.l10n.commonPending
+                              : status == 'approved'
+                              ? context.l10n.commonApproved
+                              : status == 'rejected'
+                              ? context.l10n.commonRejected
+                              : status == 'cancelled'
+                              ? context.l10n.commonCancelled
+                              : context.l10n.commonAll,
+                        ),
+                        selected: _status == status,
+                        onSelected: (_) async {
+                          setState(() => _status = status);
+                          await _load();
+                        },
                       ),
-                      selected: _status == status,
-                      onSelected: (_) async {
-                        setState(() => _status = status);
-                        await _load();
-                      },
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? ListView(
-                      children: [
-                        const SizedBox(height: 140),
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 24),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _error != null
+                    ? ListView(
+                        children: [
+                          const SizedBox(height: 140),
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 24,
+                              ),
+                              child: Text(
+                                _error!,
+                                textAlign: TextAlign.center,
+                                textDirection: Directionality.of(context),
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : _items.isEmpty
+                    ? ListView(
+                        children: [
+                          const SizedBox(height: 140),
+                          Center(
                             child: Text(
-                              _error!,
-                              textAlign: TextAlign.center,
+                              context.l10n.adminResidenceChangeEmpty,
                               textDirection: Directionality.of(context),
                             ),
                           ),
+                        ],
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+                        itemCount: _items.length,
+                        itemBuilder: (context, index) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _buildCard(_items[index]),
                         ),
-                      ],
-                    )
-                  : _items.isEmpty
-                  ? ListView(
-                      children: [
-                        const SizedBox(height: 140),
-                        Center(
-                          child: Text(
-                            context.l10n.adminResidenceChangeEmpty,
-                            textDirection: Directionality.of(context),
-                          ),
-                        ),
-                      ],
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-                      itemCount: _items.length,
-                      itemBuilder: (context, index) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _buildCard(_items[index]),
                       ),
-                    ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

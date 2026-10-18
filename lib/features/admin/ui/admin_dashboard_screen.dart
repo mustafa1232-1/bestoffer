@@ -1306,7 +1306,10 @@ class _AdminDashboardScreenState extends ConsumerState<AdminDashboardScreen> {
           ),
         ],
       ),
-      body: _AdminShellBackground(child: dashboardBody),
+      body: SafeArea(
+        top: false,
+        child: _AdminShellBackground(child: dashboardBody),
+      ),
     );
   }
 }

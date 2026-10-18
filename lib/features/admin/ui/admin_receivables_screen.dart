@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/utils/currency.dart';
@@ -328,7 +330,7 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
         )
         .toList(growable: false);
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => StatefulBuilder(
@@ -389,7 +391,7 @@ class _AdminReceivablesScreenState extends ConsumerState<AdminReceivablesScreen>
                                     icon: const Icon(Icons.more_horiz_rounded),
                                     onPressed: () async {
                                       final result =
-                                          await showModalBottomSheet<
+                                          await showMaslakiBottomSheet<
                                             AdminFinancialActionResult
                                           >(
                                             context: context,

@@ -314,6 +314,10 @@ test("controller streams a friendly fallback when the brain is off", async () =>
   assert.match(written, /event: delta/);
   assert.match(written, /event: ui/);
   assert.match(written, /"fallback":true/);
+  // Buttons open sections directly; no quick replies that would loop back
+  // to the same unavailable brain.
+  assert.match(written, /"type":"open_section","section":"shopping"/);
+  assert.doesNotMatch(written, /"type":"replies"/);
   assert.ok(res.writableEnded);
 });
 

@@ -1080,81 +1080,83 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
       body: Stack(
         children: [
           const _MeshBackground(),
-          Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.18),
+          SafeArea(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 560),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(24),
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(24),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.18),
+                          ),
+                          color: Colors.white.withOpacity(0.08),
                         ),
-                        color: Colors.white.withOpacity(0.08),
-                      ),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            FormErrorBanner(message: _formError),
-                            Row(
-                              children: [
-                                IconButton(
-                                  onPressed:
-                                      _step ==
-                                          _OwnerRegisterStep.activitySelection
-                                      ? () => Navigator.of(context).pop()
-                                      : _backToActivityStep,
-                                  icon: const Icon(
-                                    Icons.arrow_back,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Text(
-                                    l10n.authOwnerAccount,
-                                    style: const TextStyle(
+                        child: SingleChildScrollView(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              FormErrorBanner(message: _formError),
+                              Row(
+                                children: [
+                                  IconButton(
+                                    onPressed:
+                                        _step ==
+                                            _OwnerRegisterStep.activitySelection
+                                        ? () => Navigator.of(context).pop()
+                                        : _backToActivityStep,
+                                    icon: const Icon(
+                                      Icons.arrow_back,
                                       color: Colors.white,
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w800,
                                     ),
                                   ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      l10n.authOwnerAccount,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                l10n.ownerRegisterAccountOnly,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              l10n.ownerRegisterAccountOnly,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
                               ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              l10n.ownerRegisterDescription,
-                              style: TextStyle(
-                                color: Colors.white.withOpacity(0.78),
-                                fontSize: 12.5,
+                              const SizedBox(height: 6),
+                              Text(
+                                l10n.ownerRegisterDescription,
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.78),
+                                  fontSize: 12.5,
+                                ),
                               ),
-                            ),
-                            const SizedBox(height: 10),
-                            if (_step == _OwnerRegisterStep.activitySelection)
-                              _buildActivityStep(context)
-                            else
-                              _buildMerchantDetailsStep(
-                                context,
-                                auth: auth,
-                                buildField: buildField,
-                              ),
-                          ],
+                              const SizedBox(height: 10),
+                              if (_step == _OwnerRegisterStep.activitySelection)
+                                _buildActivityStep(context)
+                              else
+                                _buildMerchantDetailsStep(
+                                  context,
+                                  auth: auth,
+                                  buildField: buildField,
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -1170,7 +1172,7 @@ class _OwnerRegisterScreenState extends ConsumerState<OwnerRegisterScreen> {
 
   Future<void> _showConsentInfo(BuildContext context) async {
     final l10n = context.l10n;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       builder: (_) => Directionality(
         textDirection: Directionality.of(context),

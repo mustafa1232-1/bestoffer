@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/i18n/locale_text.dart';
@@ -85,7 +87,7 @@ class _SocialTaggedPostsScreenState
   }
 
   Future<void> _toggleSave(SocialPost post) async {
-    final saved = await showModalBottomSheet<bool>(
+    final saved = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -147,95 +149,98 @@ class _SocialTaggedPostsScreenState
         appBar: AppBar(
           title: Text(widget.title ?? context.l10n.socialTaggedPostsTitle),
         ),
-        body: RefreshIndicator(
-          onRefresh: _load,
-          child: _loading
-              ? ListView(
-                  children: const [
-                    SizedBox(height: 200),
-                    Center(child: CircularProgressIndicator()),
-                  ],
-                )
-              : _error != null
-              ? ListView(
-                  padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
-                  children: [
-                    Icon(
-                      Icons.alternate_email_rounded,
-                      size: 48,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(height: 12),
-                    Center(
-                      child: Text(
-                        _error!,
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: _load,
+            child: _loading
+                ? ListView(
+                    children: const [
+                      SizedBox(height: 200),
+                      Center(child: CircularProgressIndicator()),
+                    ],
+                  )
+                : _error != null
+                ? ListView(
+                    padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+                    children: [
+                      Icon(
+                        Icons.alternate_email_rounded,
+                        size: 48,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Text(
+                          _error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Center(
+                        child: Text(
+                          context.l10n.commonTryAgainLater,
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      FilledButton(
+                        onPressed: _load,
+                        child: Text(context.l10n.socialExploreRetry),
+                      ),
+                    ],
+                  )
+                : _posts.isEmpty
+                ? ListView(
+                    padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
+                    children: [
+                      Icon(
+                        Icons.alternate_email_outlined,
+                        size: 48,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        context.l10n.socialTaggedPostsEmpty,
                         textAlign: TextAlign.center,
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Center(
-                      child: Text(
-                        context.l10n.commonTryAgainLater,
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: _load,
-                      child: Text(context.l10n.socialExploreRetry),
-                    ),
-                  ],
-                )
-              : _posts.isEmpty
-              ? ListView(
-                  padding: const EdgeInsets.fromLTRB(24, 120, 24, 24),
-                  children: [
-                    Icon(
-                      Icons.alternate_email_outlined,
-                      size: 48,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      context.l10n.socialTaggedPostsEmpty,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                  ],
-                )
-              : ListView.separated(
-                  padding: const EdgeInsets.all(16),
-                  itemCount: _posts.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 12),
-                  itemBuilder: (_, index) {
-                    final post = _posts[index];
-                    return SocialPostCardV2(
-                      post: post,
-                      onOpenDetails: () {
-                        openSocialContent(
-                          context,
-                          post: post,
-                          reelContextPosts: _posts,
-                        );
-                      },
-                      onOpenProfile: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => SocialProfileScreen(
-                              userId: post.userId,
-                              initialName: post.author.fullName,
+                    ],
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _posts.length,
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(height: 12),
+                    itemBuilder: (_, index) {
+                      final post = _posts[index];
+                      return SocialPostCardV2(
+                        post: post,
+                        onOpenDetails: () {
+                          openSocialContent(
+                            context,
+                            post: post,
+                            reelContextPosts: _posts,
+                          );
+                        },
+                        onOpenProfile: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => SocialProfileScreen(
+                                userId: post.userId,
+                                initialName: post.author.fullName,
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                      onOpenMerchantLink: () => _openMerchant(post),
-                      onToggleLike: () => _toggleLike(post),
-                      onToggleSave: () => _toggleSave(post),
-                    );
-                  },
-                ),
+                          );
+                        },
+                        onOpenMerchantLink: () => _openMerchant(post),
+                        onToggleLike: () => _toggleLike(post),
+                        onToggleSave: () => _toggleSave(post),
+                      );
+                    },
+                  ),
+          ),
         ),
       ),
     );

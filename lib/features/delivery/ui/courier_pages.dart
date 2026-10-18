@@ -199,105 +199,110 @@ class _CourierCompetitionsPageState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () =>
-            ref.read(deliveryControllerProvider.notifier).bootstrap(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(12),
-          children: [
-            if (state.error != null) _Banner(text: state.error!, danger: true),
-            _MetricCard(
-              title: l10n.deliveryCourierCompetitionsParticipated,
-              value: '${_i(summary['competitions_participated'])}',
-            ),
-            _MetricCard(
-              title: l10n.deliveryCourierCompetitionsWins,
-              value: '${_i(summary['competitions_won'])}',
-            ),
-            _MetricCard(
-              title: l10n.deliveryCourierCompetitionsTotalRewards,
-              value: formatIqd(_d(summary['total_rewards'])),
-            ),
-            const SizedBox(height: 8),
-            Text(l10n.deliveryCourierCompetitionsActive),
-            const SizedBox(height: 8),
-            if (active.isEmpty)
-              _Empty(text: l10n.deliveryCourierCompetitionsNoActive)
-            else
-              ...active.map((competition) {
-                final progressRow = findProgress(_i(competition['id']));
-                final title =
-                    '${competition['title'] ?? l10n.deliveryCourierCompetitionsCompetitionFallback}';
-                final rank =
-                    '${progressRow?['current_rank_title'] ?? competition['current_rank_title'] ?? ''}'
-                        .trim();
-                final current = _d(
-                  progressRow?['current_value'] ?? competition['current_value'],
-                );
-                final percent = _d(
-                  progressRow?['progress_percent'] ??
-                      competition['progress_percent'],
-                ).clamp(0, 100);
-                final remaining = _i(
-                  progressRow?['remaining_to_next_rank'] ??
-                      competition['remaining_to_next_rank'],
-                );
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        if ('${competition['description'] ?? ''}'
-                            .trim()
-                            .isNotEmpty)
-                          Text('${competition['description']}'),
-                        Text(
-                          l10n.deliveryCourierCompetitionsCurrentProgress(
-                            current.toStringAsFixed(0),
-                          ),
-                        ),
-                        if (rank.isNotEmpty)
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(deliveryControllerProvider.notifier).bootstrap(),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(12),
+            children: [
+              if (state.error != null)
+                _Banner(text: state.error!, danger: true),
+              _MetricCard(
+                title: l10n.deliveryCourierCompetitionsParticipated,
+                value: '${_i(summary['competitions_participated'])}',
+              ),
+              _MetricCard(
+                title: l10n.deliveryCourierCompetitionsWins,
+                value: '${_i(summary['competitions_won'])}',
+              ),
+              _MetricCard(
+                title: l10n.deliveryCourierCompetitionsTotalRewards,
+                value: formatIqd(_d(summary['total_rewards'])),
+              ),
+              const SizedBox(height: 8),
+              Text(l10n.deliveryCourierCompetitionsActive),
+              const SizedBox(height: 8),
+              if (active.isEmpty)
+                _Empty(text: l10n.deliveryCourierCompetitionsNoActive)
+              else
+                ...active.map((competition) {
+                  final progressRow = findProgress(_i(competition['id']));
+                  final title =
+                      '${competition['title'] ?? l10n.deliveryCourierCompetitionsCompetitionFallback}';
+                  final rank =
+                      '${progressRow?['current_rank_title'] ?? competition['current_rank_title'] ?? ''}'
+                          .trim();
+                  final current = _d(
+                    progressRow?['current_value'] ??
+                        competition['current_value'],
+                  );
+                  final percent = _d(
+                    progressRow?['progress_percent'] ??
+                        competition['progress_percent'],
+                  ).clamp(0, 100);
+                  final remaining = _i(
+                    progressRow?['remaining_to_next_rank'] ??
+                        competition['remaining_to_next_rank'],
+                  );
+                  return Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Text(
-                            l10n.deliveryCourierCompetitionsCurrentRank(rank),
+                            title,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
-                        if (remaining > 0)
+                          if ('${competition['description'] ?? ''}'
+                              .trim()
+                              .isNotEmpty)
+                            Text('${competition['description']}'),
                           Text(
-                            l10n.deliveryCourierCompetitionsOrdersToNextRank(
-                              '$remaining',
+                            l10n.deliveryCourierCompetitionsCurrentProgress(
+                              current.toStringAsFixed(0),
                             ),
                           ),
-                        const SizedBox(height: 6),
-                        LinearProgressIndicator(
-                          value: (percent / 100).clamp(0, 1),
-                        ),
-                      ],
+                          if (rank.isNotEmpty)
+                            Text(
+                              l10n.deliveryCourierCompetitionsCurrentRank(rank),
+                            ),
+                          if (remaining > 0)
+                            Text(
+                              l10n.deliveryCourierCompetitionsOrdersToNextRank(
+                                '$remaining',
+                              ),
+                            ),
+                          const SizedBox(height: 6),
+                          LinearProgressIndicator(
+                            value: (percent / 100).clamp(0, 1),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+              const SizedBox(height: 8),
+              Text(l10n.deliveryCourierCompetitionsPast),
+              const SizedBox(height: 8),
+              if (history.isEmpty)
+                _Empty(text: l10n.deliveryCourierCompetitionsNoPast)
+              else
+                ...history.map(
+                  (competition) => ListTile(
+                    title: Text(
+                      '${competition['title'] ?? l10n.deliveryCourierCompetitionsCompetitionFallback}',
+                    ),
+                    subtitle: Text(
+                      '${competition['status'] ?? l10n.deliveryCourierCompetitionsEnded}',
                     ),
                   ),
-                );
-              }),
-            const SizedBox(height: 8),
-            Text(l10n.deliveryCourierCompetitionsPast),
-            const SizedBox(height: 8),
-            if (history.isEmpty)
-              _Empty(text: l10n.deliveryCourierCompetitionsNoPast)
-            else
-              ...history.map(
-                (competition) => ListTile(
-                  title: Text(
-                    '${competition['title'] ?? l10n.deliveryCourierCompetitionsCompetitionFallback}',
-                  ),
-                  subtitle: Text(
-                    '${competition['status'] ?? l10n.deliveryCourierCompetitionsEnded}',
-                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -503,43 +508,47 @@ class _CourierOrdersPageState extends ConsumerState<_CourierOrdersPage> {
 
     return Scaffold(
       appBar: AppBar(title: Text(_title(context))),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(12),
-          children: [
-            if (state.error != null) _Banner(text: state.error!, danger: true),
-            if (!_bootstrapped && state.loading)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            else if (orders.isEmpty)
-              _Empty(text: l10n.deliveryCourierNoItems)
-            else
-              ...orders.map(
-                (order) => _OrderCard(
-                  order: order,
-                  saving: state.saving,
-                  onOpen: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          CourierOrderDetailsPage(orderId: order.id),
-                    ),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(12),
+            children: [
+              if (state.error != null)
+                _Banner(text: state.error!, danger: true),
+              if (!_bootstrapped && state.loading)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: CircularProgressIndicator(),
                   ),
-                  onPickedUp: () => _confirmPickup(order),
-                  onArrived: () => controller.arrivedOrder(order.id),
-                  onDelivered: () => _confirmDelivery(order),
-                  showActions:
-                      widget.mode == _OrdersMode.current ||
-                      widget.mode == _OrdersMode.waitingPickup ||
-                      widget.mode == _OrdersMode.inDelivery,
+                )
+              else if (orders.isEmpty)
+                _Empty(text: l10n.deliveryCourierNoItems)
+              else
+                ...orders.map(
+                  (order) => _OrderCard(
+                    order: order,
+                    saving: state.saving,
+                    onOpen: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            CourierOrderDetailsPage(orderId: order.id),
+                      ),
+                    ),
+                    onPickedUp: () => _confirmPickup(order),
+                    onArrived: () => controller.arrivedOrder(order.id),
+                    onDelivered: () => _confirmDelivery(order),
+                    showActions:
+                        widget.mode == _OrdersMode.current ||
+                        widget.mode == _OrdersMode.waitingPickup ||
+                        widget.mode == _OrdersMode.inDelivery,
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -605,83 +614,92 @@ class _CourierMetricsPageState extends ConsumerState<_CourierMetricsPage> {
               : l10n.deliveryCourierReportsTitle,
         ),
       ),
-      body: RefreshIndicator(
-        onRefresh: () =>
-            ref.read(deliveryControllerProvider.notifier).bootstrap(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(12),
-          children: [
-            if (widget.earnings) ...[
-              _MetricCard(
-                title: l10n.deliveryCourierTodayFees,
-                value: formatIqd(todayFees),
-              ),
-              _MetricCard(
-                title: l10n.deliveryCourierCompletedToday,
-                value: '$completedToday',
-              ),
-              _MetricCard(
-                title: l10n.deliveryCourierAverageRating,
-                value: averageRating.toStringAsFixed(1),
-              ),
-            ] else if (reportPeriods.isEmpty) ...[
-              _Empty(text: l10n.deliveryCourierNoReportData),
-            ] else ...[
-              ...reportPeriods.map(
-                (period) => Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Text(
-                          period.label,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                        const SizedBox(height: 8),
-                        _MetricCard(
-                          title: l10n.deliveryCourierTodayFees,
-                          value: formatIqd(period.deliveryFees),
-                        ),
-                        _MetricCard(
-                          title: l10n.deliveryCourierCompletedToday,
-                          value: '${period.deliveredOrdersCount}',
-                        ),
-                        _MetricCard(
-                          title: l10n.deliveryCourierAverageRating,
-                          value: period.avgRating.toStringAsFixed(1),
-                        ),
-                        _MetricCard(
-                          title: context.lt(
-                            ar: 'رسوم الخدمة',
-                            en: 'Service fee',
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(deliveryControllerProvider.notifier).bootstrap(),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(12),
+            children: [
+              if (widget.earnings) ...[
+                _MetricCard(
+                  title: l10n.deliveryCourierTodayFees,
+                  value: formatIqd(todayFees),
+                ),
+                _MetricCard(
+                  title: l10n.deliveryCourierCompletedToday,
+                  value: '$completedToday',
+                ),
+                _MetricCard(
+                  title: l10n.deliveryCourierAverageRating,
+                  value: averageRating.toStringAsFixed(1),
+                ),
+              ] else if (reportPeriods.isEmpty) ...[
+                _Empty(text: l10n.deliveryCourierNoReportData),
+              ] else ...[
+                ...reportPeriods.map(
+                  (period) => Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            period.label,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
-                          value: formatIqd(period.serviceFeeAmount),
-                        ),
-                        _MetricCard(
-                          title: context.lt(ar: 'العمولة', en: 'Commission'),
-                          value: formatIqd(period.commissionAmount),
-                        ),
-                        _MetricCard(
-                          title: context.lt(ar: 'ذمة التطبيق', en: 'App due'),
-                          value: formatIqd(period.appDueFromDelivery),
-                        ),
-                        _MetricCard(
-                          title: context.lt(ar: 'الفروقات', en: 'Differences'),
-                          value: formatIqd(period.differenceAmount),
-                        ),
-                        _MetricCard(
-                          title: context.lt(ar: 'صافي المتجر', en: 'Store net'),
-                          value: formatIqd(period.storeNetReceivedAmount),
-                        ),
-                      ],
+                          const SizedBox(height: 8),
+                          _MetricCard(
+                            title: l10n.deliveryCourierTodayFees,
+                            value: formatIqd(period.deliveryFees),
+                          ),
+                          _MetricCard(
+                            title: l10n.deliveryCourierCompletedToday,
+                            value: '${period.deliveredOrdersCount}',
+                          ),
+                          _MetricCard(
+                            title: l10n.deliveryCourierAverageRating,
+                            value: period.avgRating.toStringAsFixed(1),
+                          ),
+                          _MetricCard(
+                            title: context.lt(
+                              ar: 'رسوم الخدمة',
+                              en: 'Service fee',
+                            ),
+                            value: formatIqd(period.serviceFeeAmount),
+                          ),
+                          _MetricCard(
+                            title: context.lt(ar: 'العمولة', en: 'Commission'),
+                            value: formatIqd(period.commissionAmount),
+                          ),
+                          _MetricCard(
+                            title: context.lt(ar: 'ذمة التطبيق', en: 'App due'),
+                            value: formatIqd(period.appDueFromDelivery),
+                          ),
+                          _MetricCard(
+                            title: context.lt(
+                              ar: 'الفروقات',
+                              en: 'Differences',
+                            ),
+                            value: formatIqd(period.differenceAmount),
+                          ),
+                          _MetricCard(
+                            title: context.lt(
+                              ar: 'صافي المتجر',
+                              en: 'Store net',
+                            ),
+                            value: formatIqd(period.storeNetReceivedAmount),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

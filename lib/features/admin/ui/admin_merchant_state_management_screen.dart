@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../merchants/models/store_activity_model.dart';
@@ -80,7 +82,7 @@ class _AdminMerchantStateManagementScreenState
     var isActive = true;
     var saving = false;
 
-    final ok = await showModalBottomSheet<bool>(
+    final ok = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -248,7 +250,7 @@ class _AdminMerchantStateManagementScreenState
           .toList(growable: false);
     }
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -420,7 +422,7 @@ class _AdminMerchantStateManagementScreenState
     var isActive = template?['isActive'] != false;
     var saving = false;
 
-    final result = await showModalBottomSheet<bool>(
+    final result = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -580,7 +582,7 @@ class _AdminMerchantStateManagementScreenState
     var optionsForActivity = '';
     var loadingOptions = false;
 
-    final ok = await showModalBottomSheet<bool>(
+    final ok = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {

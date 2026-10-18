@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
@@ -123,7 +125,7 @@ class _AdminTaxiCaptainRequestsScreenState
     final fieldErrors = <String, String?>{};
     String? formError;
     var submitting = false;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -313,131 +315,138 @@ class _AdminTaxiCaptainRequestsScreenState
           ),
         ],
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          RefreshIndicator(
-            onRefresh: () =>
-                ref.read(adminControllerProvider.notifier).bootstrap(),
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: state.pendingTaxiCaptainAccounts.isEmpty
-                  ? [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 28),
-                        child: Center(
-                          child: Text(l10n.adminTaxiCaptainNoPendingApprovals),
-                        ),
-                      ),
-                    ]
-                  : state.pendingTaxiCaptainAccounts
-                        .map(
-                          (item) => _CaptainApprovalCard(
-                            item: item,
-                            saving: state.saving,
-                            onApprove: () => ref
-                                .read(adminControllerProvider.notifier)
-                                .approveTaxiCaptainAccount(item.id),
-                            onOpenDetails: () => _openCaptainDetails(item.id),
-                          ),
-                        )
-                        .toList(growable: false),
-            ),
-          ),
-          RefreshIndicator(
-            onRefresh: () =>
-                ref.read(adminControllerProvider.notifier).bootstrap(),
-            child: ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: state.pendingTaxiProfileEditRequests.isEmpty
-                  ? [
-                      Padding(
-                        padding: const EdgeInsets.only(top: 28),
-                        child: Center(
-                          child: Text(
-                            l10n.adminTaxiCaptainNoPendingProfileEdits,
-                          ),
-                        ),
-                      ),
-                    ]
-                  : state.pendingTaxiProfileEditRequests
-                        .map(
-                          (item) => Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const CircleAvatar(
-                                        child: Icon(Icons.edit_note_outlined),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              item.fullName,
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .titleMedium
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(item.phone),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    l10n.adminTaxiCaptainChangedFields(
-                                      item.requestedChanges.length,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: OutlinedButton.icon(
-                                          onPressed: () => _openCaptainDetails(
-                                            item.captainUserId,
-                                          ),
-                                          icon: const Icon(
-                                            Icons.badge_outlined,
-                                          ),
-                                          label: Text(l10n.commonDetails),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: FilledButton.tonalIcon(
-                                          onPressed: () =>
-                                              _openEditReview(item),
-                                          icon: const Icon(Icons.open_in_new),
-                                          label: Text(l10n.commonOpen),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
+      body: SafeArea(
+        top: false,
+        child: TabBarView(
+          controller: _tabController,
+          children: [
+            RefreshIndicator(
+              onRefresh: () =>
+                  ref.read(adminControllerProvider.notifier).bootstrap(),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                children: state.pendingTaxiCaptainAccounts.isEmpty
+                    ? [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 28),
+                          child: Center(
+                            child: Text(
+                              l10n.adminTaxiCaptainNoPendingApprovals,
                             ),
                           ),
-                        )
-                        .toList(growable: false),
+                        ),
+                      ]
+                    : state.pendingTaxiCaptainAccounts
+                          .map(
+                            (item) => _CaptainApprovalCard(
+                              item: item,
+                              saving: state.saving,
+                              onApprove: () => ref
+                                  .read(adminControllerProvider.notifier)
+                                  .approveTaxiCaptainAccount(item.id),
+                              onOpenDetails: () => _openCaptainDetails(item.id),
+                            ),
+                          )
+                          .toList(growable: false),
+              ),
             ),
-          ),
-        ],
+            RefreshIndicator(
+              onRefresh: () =>
+                  ref.read(adminControllerProvider.notifier).bootstrap(),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16),
+                children: state.pendingTaxiProfileEditRequests.isEmpty
+                    ? [
+                        Padding(
+                          padding: const EdgeInsets.only(top: 28),
+                          child: Center(
+                            child: Text(
+                              l10n.adminTaxiCaptainNoPendingProfileEdits,
+                            ),
+                          ),
+                        ),
+                      ]
+                    : state.pendingTaxiProfileEditRequests
+                          .map(
+                            (item) => Card(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const CircleAvatar(
+                                          child: Icon(Icons.edit_note_outlined),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                item.fullName,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(
+                                                      fontWeight:
+                                                          FontWeight.w800,
+                                                    ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(item.phone),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      l10n.adminTaxiCaptainChangedFields(
+                                        item.requestedChanges.length,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton.icon(
+                                            onPressed: () =>
+                                                _openCaptainDetails(
+                                                  item.captainUserId,
+                                                ),
+                                            icon: const Icon(
+                                              Icons.badge_outlined,
+                                            ),
+                                            label: Text(l10n.commonDetails),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: FilledButton.tonalIcon(
+                                            onPressed: () =>
+                                                _openEditReview(item),
+                                            icon: const Icon(Icons.open_in_new),
+                                            label: Text(l10n.commonOpen),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

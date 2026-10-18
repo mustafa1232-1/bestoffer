@@ -21,129 +21,132 @@ class SocialInsightsScreen extends ConsumerWidget {
       textDirection: Directionality.of(context),
       child: Scaffold(
         appBar: AppBar(title: Text(title ?? l10n.socialProfileInsights)),
-        body: insightsAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.insights_outlined, size: 40),
-                  const SizedBox(height: 12),
-                  Text(
-                    mapAnyError(error, fallback: l10n.commonUnexpectedError),
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(
-                    onPressed: () =>
-                        ref.invalidate(socialProfileInsightsProvider(userId)),
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: Text(l10n.commonRetry),
-                  ),
-                ],
+        body: SafeArea(
+          top: false,
+          child: insightsAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.insights_outlined, size: 40),
+                    const SizedBox(height: 12),
+                    Text(
+                      mapAnyError(error, fallback: l10n.commonUnexpectedError),
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                    const SizedBox(height: 12),
+                    FilledButton.icon(
+                      onPressed: () =>
+                          ref.invalidate(socialProfileInsightsProvider(userId)),
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: Text(l10n.commonRetry),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-          data: (insights) {
-            final summary = insights.summary;
-            final cards = <_InsightCardData>[
-              _InsightCardData(
-                label: l10n.socialInsightsImpressions,
-                value: '${summary['impressionsCount'] ?? 0}',
-                icon: Icons.visibility_outlined,
-              ),
-              _InsightCardData(
-                label: l10n.socialInsightsLikes,
-                value: '${summary['likesCount'] ?? 0}',
-                icon: Icons.favorite_border_rounded,
-              ),
-              _InsightCardData(
-                label: l10n.socialInsightsComments,
-                value: '${summary['commentsCount'] ?? 0}',
-                icon: Icons.mode_comment_outlined,
-              ),
-              _InsightCardData(
-                label: l10n.socialInsightsSaves,
-                value: '${summary['savesCount'] ?? 0}',
-                icon: Icons.bookmark_outline_rounded,
-              ),
-              _InsightCardData(
-                label: l10n.socialInsightsReelViews,
-                value: '${summary['reelViewsCount'] ?? 0}',
-                icon: Icons.ondemand_video_outlined,
-              ),
-              _InsightCardData(
-                label: l10n.socialInsightsCompletion,
-                value:
-                    '${(((summary['averageCompletionRate'] ?? 0) as num).toDouble() * 100).toStringAsFixed(0)}%',
-                icon: Icons.track_changes_outlined,
-              ),
-            ];
-
-            return ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-              children: [
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: cards
-                      .map((card) => _InsightCard(data: card))
-                      .toList(growable: false),
+            data: (insights) {
+              final summary = insights.summary;
+              final cards = <_InsightCardData>[
+                _InsightCardData(
+                  label: l10n.socialInsightsImpressions,
+                  value: '${summary['impressionsCount'] ?? 0}',
+                  icon: Icons.visibility_outlined,
                 ),
-                const SizedBox(height: 18),
-                _SectionTitle(title: l10n.socialInsightsBestPostingTimes),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: insights.bestPostingTimes
-                      .map(
-                        (row) => Chip(
-                          label: Text(
-                            l10n.socialInsightsPostingHourSummary(
-                              _asInt(row['hourOfDay']),
-                              _asInt(row['postsCount']),
+                _InsightCardData(
+                  label: l10n.socialInsightsLikes,
+                  value: '${summary['likesCount'] ?? 0}',
+                  icon: Icons.favorite_border_rounded,
+                ),
+                _InsightCardData(
+                  label: l10n.socialInsightsComments,
+                  value: '${summary['commentsCount'] ?? 0}',
+                  icon: Icons.mode_comment_outlined,
+                ),
+                _InsightCardData(
+                  label: l10n.socialInsightsSaves,
+                  value: '${summary['savesCount'] ?? 0}',
+                  icon: Icons.bookmark_outline_rounded,
+                ),
+                _InsightCardData(
+                  label: l10n.socialInsightsReelViews,
+                  value: '${summary['reelViewsCount'] ?? 0}',
+                  icon: Icons.ondemand_video_outlined,
+                ),
+                _InsightCardData(
+                  label: l10n.socialInsightsCompletion,
+                  value:
+                      '${(((summary['averageCompletionRate'] ?? 0) as num).toDouble() * 100).toStringAsFixed(0)}%',
+                  icon: Icons.track_changes_outlined,
+                ),
+              ];
+
+              return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                children: [
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 12,
+                    children: cards
+                        .map((card) => _InsightCard(data: card))
+                        .toList(growable: false),
+                  ),
+                  const SizedBox(height: 18),
+                  _SectionTitle(title: l10n.socialInsightsBestPostingTimes),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: insights.bestPostingTimes
+                        .map(
+                          (row) => Chip(
+                            label: Text(
+                              l10n.socialInsightsPostingHourSummary(
+                                _asInt(row['hourOfDay']),
+                                _asInt(row['postsCount']),
+                              ),
                             ),
                           ),
-                        ),
-                      )
-                      .toList(growable: false),
-                ),
-                const SizedBox(height: 18),
-                _SectionTitle(title: l10n.socialInsightsAudienceLocality),
-                const SizedBox(height: 8),
-                ...insights.audienceLocality.map(
-                  (row) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.location_on_outlined),
-                    title: Text(
-                      [
-                        if ('${row['building'] ?? ''}'.trim().isNotEmpty)
-                          '${row['building']}',
-                        if ('${row['compound'] ?? ''}'.trim().isNotEmpty)
-                          '${row['compound']}',
-                        if ('${row['block'] ?? ''}'.trim().isNotEmpty)
-                          '${row['block']}',
-                      ].join(' - '),
+                        )
+                        .toList(growable: false),
+                  ),
+                  const SizedBox(height: 18),
+                  _SectionTitle(title: l10n.socialInsightsAudienceLocality),
+                  const SizedBox(height: 8),
+                  ...insights.audienceLocality.map(
+                    (row) => ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.location_on_outlined),
+                      title: Text(
+                        [
+                          if ('${row['building'] ?? ''}'.trim().isNotEmpty)
+                            '${row['building']}',
+                          if ('${row['compound'] ?? ''}'.trim().isNotEmpty)
+                            '${row['compound']}',
+                          if ('${row['block'] ?? ''}'.trim().isNotEmpty)
+                            '${row['block']}',
+                        ].join(' - '),
+                      ),
+                      trailing: Text('${row['impressionsCount'] ?? 0}'),
                     ),
-                    trailing: Text('${row['impressionsCount'] ?? 0}'),
                   ),
-                ),
-                const SizedBox(height: 18),
-                _SectionTitle(title: l10n.socialInsightsTopContent),
-                const SizedBox(height: 8),
-                ...insights.topContent.map(
-                  (post) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: SocialPostCardV2(post: post),
+                  const SizedBox(height: 18),
+                  _SectionTitle(title: l10n.socialInsightsTopContent),
+                  const SizedBox(height: 8),
+                  ...insights.topContent.map(
+                    (post) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: SocialPostCardV2(post: post),
+                    ),
                   ),
-                ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

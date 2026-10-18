@@ -305,7 +305,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
     final totals = Map<String, dynamic>.from(
       (preview['totals'] as Map? ?? const <String, dynamic>{}),
     );
-    final confirm = await showModalBottomSheet<bool>(
+    final confirm = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (context) {
@@ -674,7 +674,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                 ),
               ),
             ),
-      body: Directionality(
+      body: SafeArea(top: false, child: Directionality(
         textDirection: TextDirection.rtl,
         child: cart.items.isEmpty
             ? const Center(
@@ -1213,7 +1213,7 @@ class _CartScreenState extends ConsumerState<CartScreen> {
                   ),
                 ],
               ),
-      ),
+      )),
     );
   }
 

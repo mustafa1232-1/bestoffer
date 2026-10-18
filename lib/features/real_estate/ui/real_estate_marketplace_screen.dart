@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
@@ -127,7 +129,7 @@ class _RealEstateMarketplaceScreenState
   }
 
   Future<void> _openFilters() async {
-    final next = await showModalBottomSheet<RealEstateListingQuery>(
+    final next = await showMaslakiBottomSheet<RealEstateListingQuery>(
       context: context,
       isScrollControlled: true,
       builder: (_) => RealEstateFilterSheet(initialQuery: _query),
@@ -294,173 +296,179 @@ class _RealEstateMarketplaceScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-            child: TextField(
-              controller: _searchCtrl,
-              decoration: InputDecoration(
-                prefixIcon: const Icon(Icons.search_rounded),
-                hintText: l10n.realEstateSearchHint,
-                suffixIcon: IconButton(
-                  onPressed: _openFilters,
-                  icon: const Icon(Icons.tune_rounded),
-                  tooltip: l10n.commonFilters,
-                ),
-              ),
-            ),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Row(
-              children: [
-                ActionChip(
-                  label: Text(l10n.realEstateSearchSectionNewest),
-                  onPressed: () => _applyQuickPreset(sort: 'recent'),
-                ),
-                const SizedBox(width: 8),
-                ActionChip(
-                  label: Text(l10n.realEstateSearchSectionSale),
-                  onPressed: () => _applyQuickPreset(purpose: 'sale'),
-                ),
-                const SizedBox(width: 8),
-                ActionChip(
-                  label: Text(l10n.realEstateSearchSectionRent),
-                  onPressed: () => _applyQuickPreset(purpose: 'rent'),
-                ),
-                const SizedBox(width: 8),
-                ActionChip(
-                  label: Text(l10n.realEstateSearchSectionFurnished),
-                  onPressed: () => _applyQuickPreset(furnished: true),
-                ),
-                const SizedBox(width: 8),
-                ActionChip(
-                  label: Text(l10n.realEstateSearchSectionFeatured),
-                  onPressed: () => _applyQuickPreset(featuredOnly: true),
-                ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.realEstateFilterResults(_items.length),
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+              child: TextField(
+                controller: _searchCtrl,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  hintText: l10n.realEstateSearchHint,
+                  suffixIcon: IconButton(
+                    onPressed: _openFilters,
+                    icon: const Icon(Icons.tune_rounded),
+                    tooltip: l10n.commonFilters,
                   ),
                 ),
-                DropdownButton<String>(
-                  value: _query.sort,
-                  items: [
-                    DropdownMenuItem(
-                      value: 'recent',
-                      child: Text(l10n.realEstateNewest),
-                    ),
-                    DropdownMenuItem(
-                      value: 'oldest',
-                      child: Text(l10n.realEstateOldest),
-                    ),
-                    DropdownMenuItem(
-                      value: 'price_low',
-                      child: Text(l10n.realEstateLowestPrice),
-                    ),
-                    DropdownMenuItem(
-                      value: 'price_high',
-                      child: Text(l10n.realEstateHighestPrice),
-                    ),
-                    DropdownMenuItem(
-                      value: 'most_viewed',
-                      child: Text(l10n.realEstateMostViewed),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setState(() => _query = _query.copyWith(sort: value));
-                    _load();
-                  },
-                ),
-              ],
-            ),
-          ),
-          if (activeFilterChips.isNotEmpty)
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                child: Row(
-                  children: activeFilterChips
-                      .expand((chip) => [chip, const SizedBox(width: 8)])
-                      .toList(growable: false),
-                ),
               ),
             ),
-          const SizedBox(height: 10),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? ListView(
-                      children: [
-                        const SizedBox(height: 140),
-                        Center(child: Text(_error!)),
-                      ],
-                    )
-                  : _items.isEmpty
-                  ? ListView(
-                      children: [
-                        const SizedBox(height: 140),
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 28),
-                            child: Text(
-                              _activeFilterChips().isEmpty
-                                  ? l10n.realEstateNoListings
-                                  : l10n.realEstateNoFilterResults,
-                              textAlign: TextAlign.center,
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Row(
+                children: [
+                  ActionChip(
+                    label: Text(l10n.realEstateSearchSectionNewest),
+                    onPressed: () => _applyQuickPreset(sort: 'recent'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: Text(l10n.realEstateSearchSectionSale),
+                    onPressed: () => _applyQuickPreset(purpose: 'sale'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: Text(l10n.realEstateSearchSectionRent),
+                    onPressed: () => _applyQuickPreset(purpose: 'rent'),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: Text(l10n.realEstateSearchSectionFurnished),
+                    onPressed: () => _applyQuickPreset(furnished: true),
+                  ),
+                  const SizedBox(width: 8),
+                  ActionChip(
+                    label: Text(l10n.realEstateSearchSectionFeatured),
+                    onPressed: () => _applyQuickPreset(featuredOnly: true),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.realEstateFilterResults(_items.length),
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  DropdownButton<String>(
+                    value: _query.sort,
+                    items: [
+                      DropdownMenuItem(
+                        value: 'recent',
+                        child: Text(l10n.realEstateNewest),
+                      ),
+                      DropdownMenuItem(
+                        value: 'oldest',
+                        child: Text(l10n.realEstateOldest),
+                      ),
+                      DropdownMenuItem(
+                        value: 'price_low',
+                        child: Text(l10n.realEstateLowestPrice),
+                      ),
+                      DropdownMenuItem(
+                        value: 'price_high',
+                        child: Text(l10n.realEstateHighestPrice),
+                      ),
+                      DropdownMenuItem(
+                        value: 'most_viewed',
+                        child: Text(l10n.realEstateMostViewed),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() => _query = _query.copyWith(sort: value));
+                      _load();
+                    },
+                  ),
+                ],
+              ),
+            ),
+            if (activeFilterChips.isNotEmpty)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                  child: Row(
+                    children: activeFilterChips
+                        .expand((chip) => [chip, const SizedBox(width: 8)])
+                        .toList(growable: false),
+                  ),
+                ),
+              ),
+            const SizedBox(height: 10),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _error != null
+                    ? ListView(
+                        children: [
+                          const SizedBox(height: 140),
+                          Center(child: Text(_error!)),
+                        ],
+                      )
+                    : _items.isEmpty
+                    ? ListView(
+                        children: [
+                          const SizedBox(height: 140),
+                          Center(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 28,
+                              ),
+                              child: Text(
+                                _activeFilterChips().isEmpty
+                                    ? l10n.realEstateNoListings
+                                    : l10n.realEstateNoFilterResults,
+                                textAlign: TextAlign.center,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                      itemBuilder: (context, index) {
-                        final item = _items[index];
-                        return RealEstateListingCard(
-                          listing: item,
-                          onTap: () async {
-                            await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => RealEstateListingDetailsScreen(
-                                  listingId: item.id,
-                                  initialListing: item,
+                        ],
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                        itemBuilder: (context, index) {
+                          final item = _items[index];
+                          return RealEstateListingCard(
+                            listing: item,
+                            onTap: () async {
+                              await Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      RealEstateListingDetailsScreen(
+                                        listingId: item.id,
+                                        initialListing: item,
+                                      ),
                                 ),
-                              ),
-                            );
-                            if (mounted) {
-                              await _load();
-                            }
-                          },
-                          onToggleSaved: isAuthed
-                              ? () => _toggleSaved(item)
-                              : null,
-                        );
-                      },
-                      separatorBuilder: (_, _) => const SizedBox(height: 14),
-                      itemCount: _items.length,
-                    ),
+                              );
+                              if (mounted) {
+                                await _load();
+                              }
+                            },
+                            onToggleSaved: isAuthed
+                                ? () => _toggleSaved(item)
+                                : null,
+                          );
+                        },
+                        separatorBuilder: (_, _) => const SizedBox(height: 14),
+                        itemCount: _items.length,
+                      ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../data/games_api.dart';
 import '../state/team_code_voice_controller.dart';
@@ -61,7 +63,7 @@ class _KnowledgeGameScreenState extends ConsumerState<KnowledgeGameScreen> {
 
   Future<void> _createDuel() async {
     var bestOf = 3;
-    final size = await showModalBottomSheet<int>(
+    final size = await showMaslakiBottomSheet<int>(
       context: context,
       showDragHandle: true,
       builder: (context) => StatefulBuilder(
@@ -1044,7 +1046,7 @@ class _KnowledgeMatchScreenState extends ConsumerState<KnowledgeMatchScreen>
   }
 
   Future<void> _settings() async {
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       backgroundColor: Colors.white,
       builder: (context) => Directionality(

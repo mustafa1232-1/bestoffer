@@ -11,6 +11,8 @@ import 'job_application_details_screen.dart';
 import 'job_applications_screen.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 class JobSuperAdminMonitorScreen extends ConsumerStatefulWidget {
   const JobSuperAdminMonitorScreen({super.key});
@@ -213,7 +215,7 @@ class _JobSuperAdminMonitorScreenState
     String? tmpDepartment = _department;
     final jobIdCtrl = TextEditingController(text: _jobId?.toString() ?? '');
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (ctx) {
@@ -452,315 +454,331 @@ class _JobSuperAdminMonitorScreenState
           ),
         ],
       ),
-      body: Directionality(
-        textDirection: Directionality.of(context),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-              child: Column(
-                children: [
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(18),
-                      gradient: const LinearGradient(
-                        begin: Alignment.topRight,
-                        end: Alignment.bottomLeft,
-                        colors: [Color(0xFF1C4D87), Color(0xFF10345F)],
-                      ),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.15),
-                      ),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            l10n.jobSuperAdminMonitorHeroTitle,
-                            textAlign: TextAlign.right,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            l10n.jobSuperAdminMonitorHeroSubtitle,
-                            textAlign: TextAlign.right,
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.84),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              _statBadge(
-                                l10n.jobSuperAdminMonitorTotalApplications,
-                                _totalApplications,
-                              ),
-                              _statBadge(
-                                jobApplicationStatusGroupLabel(
-                                  context,
-                                  'submitted',
-                                ),
-                                submitted,
-                              ),
-                              _statBadge(
-                                jobApplicationStatusGroupLabel(
-                                  context,
-                                  'shortlisted',
-                                ),
-                                shortlisted,
-                              ),
-                              _statBadge(
-                                jobApplicationStatusGroupLabel(
-                                  context,
-                                  'rejected',
-                                ),
-                                rejected,
-                              ),
-                              _statBadge(
-                                jobApplicationStatusGroupLabel(
-                                  context,
-                                  'hired',
-                                ),
-                                hired,
-                              ),
-                              _statBadge(
-                                jobApplicationStatusGroupLabel(
-                                  context,
-                                  'withdrawn',
-                                ),
-                                withdrawn,
-                              ),
-                              _statBadge(
-                                jobApplicationStatusGroupLabel(
-                                  context,
-                                  'dismissed_after_hire',
-                                ),
-                                dismissedAfterHire,
-                              ),
-                              _statBadge(
-                                jobApplicationStatusGroupLabel(
-                                  context,
-                                  'archived',
-                                ),
-                                archived,
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _searchCtrl,
-                          textInputAction: TextInputAction.search,
-                          decoration: InputDecoration(
-                            hintText: l10n.jobSuperAdminMonitorSearchHint,
-                            prefixIcon: const Icon(Icons.search_rounded),
-                          ),
-                          onSubmitted: (_) => _loadData(),
+      body: SafeArea(
+        top: false,
+        child: Directionality(
+          textDirection: Directionality.of(context),
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                child: Column(
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(18),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topRight,
+                          end: Alignment.bottomLeft,
+                          colors: [Color(0xFF1C4D87), Color(0xFF10345F)],
+                        ),
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.15),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: _loading ? null : _loadData,
-                        child: Text(l10n.commonSearch),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : RefreshIndicator(
-                      onRefresh: _loadData,
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 14),
-                        children: [
-                          if (_groups.isNotEmpty) ...[
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
                             Text(
-                              l10n.jobSuperAdminMonitorDistributionTitle,
+                              l10n.jobSuperAdminMonitorHeroTitle,
                               textAlign: TextAlign.right,
                               style: const TextStyle(
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 6),
+                            Text(
+                              l10n.jobSuperAdminMonitorHeroSubtitle,
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.84),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
                             Wrap(
                               spacing: 8,
                               runSpacing: 8,
-                              children: _groups
-                                  .map(
-                                    (group) => _groupChip(
-                                      '${_taxonomyLabel(group.activityType)} / ${_taxonomyLabel(group.department)}',
-                                      group.totalApplications,
-                                    ),
-                                  )
-                                  .toList(growable: false),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-                          if (_applications.isEmpty)
-                            Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 20),
-                              child: Center(
-                                child: Text(l10n.jobSuperAdminMonitorEmpty),
-                              ),
-                            )
-                          else
-                            ..._applications.map((item) {
-                              final statusColor = _statusColor(item.status);
-                              final applicantName =
-                                  item.profileFullName ??
-                                  item.fullName ??
-                                  l10n.jobApplicationDetailsApplicantFallback;
-                              final subtitleParts = <String>[
-                                item.jobTitle ?? '-',
-                                item.jobCompanyName ?? '-',
-                              ];
-                              if (item.jobCategory?.trim().isNotEmpty == true) {
-                                subtitleParts.add(item.jobCategory!);
-                              }
-
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 10),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(12),
-                                  onTap: () => _openApplication(item),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(10),
-                                    child: Row(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        CircleAvatar(
-                                          backgroundImage:
-                                              item
-                                                      .applicantImageUrl
-                                                      ?.isNotEmpty ==
-                                                  true
-                                              ? AppCachedImageProvider(
-                                                  item.applicantImageUrl!,
-                                                )
-                                              : null,
-                                          child:
-                                              item
-                                                      .applicantImageUrl
-                                                      ?.isNotEmpty ==
-                                                  true
-                                              ? null
-                                              : const Icon(
-                                                  Icons.person_outline,
-                                                ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.end,
-                                            children: [
-                                              Text(
-                                                applicantName,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                textAlign: TextAlign.right,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w800,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                subtitleParts.join(' - '),
-                                                maxLines: 2,
-                                                overflow: TextOverflow.ellipsis,
-                                                textAlign: TextAlign.right,
-                                              ),
-                                              const SizedBox(height: 3),
-                                              Text(
-                                                item.profilePhone ??
-                                                    item.submittedPhone ??
-                                                    '-',
-                                                textAlign: TextAlign.right,
-                                                style: TextStyle(
-                                                  color: Colors.white
-                                                      .withValues(alpha: 0.78),
-                                                ),
-                                              ),
-                                              const SizedBox(height: 8),
-                                              Row(
-                                                children: [
-                                                  Container(
-                                                    padding:
-                                                        const EdgeInsets.symmetric(
-                                                          horizontal: 8,
-                                                          vertical: 4,
-                                                        ),
-                                                    decoration: BoxDecoration(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                            999,
-                                                          ),
-                                                      color: statusColor
-                                                          .withValues(
-                                                            alpha: 0.16,
-                                                          ),
-                                                      border: Border.all(
-                                                        color: statusColor
-                                                            .withValues(
-                                                              alpha: 0.45,
-                                                            ),
-                                                      ),
-                                                    ),
-                                                    child: Text(
-                                                      _statusLabel(item.status),
-                                                      style: TextStyle(
-                                                        color: statusColor,
-                                                        fontWeight:
-                                                            FontWeight.w800,
-                                                        fontSize: 11.5,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                  const Spacer(),
-                                                  IconButton(
-                                                    tooltip: l10n.commonDetails,
-                                                    visualDensity:
-                                                        VisualDensity.compact,
-                                                    onPressed: () =>
-                                                        _openApplication(item),
-                                                    icon: const Icon(
-                                                      Icons.open_in_new_rounded,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                              children: [
+                                _statBadge(
+                                  l10n.jobSuperAdminMonitorTotalApplications,
+                                  _totalApplications,
                                 ),
-                              );
-                            }),
-                        ],
+                                _statBadge(
+                                  jobApplicationStatusGroupLabel(
+                                    context,
+                                    'submitted',
+                                  ),
+                                  submitted,
+                                ),
+                                _statBadge(
+                                  jobApplicationStatusGroupLabel(
+                                    context,
+                                    'shortlisted',
+                                  ),
+                                  shortlisted,
+                                ),
+                                _statBadge(
+                                  jobApplicationStatusGroupLabel(
+                                    context,
+                                    'rejected',
+                                  ),
+                                  rejected,
+                                ),
+                                _statBadge(
+                                  jobApplicationStatusGroupLabel(
+                                    context,
+                                    'hired',
+                                  ),
+                                  hired,
+                                ),
+                                _statBadge(
+                                  jobApplicationStatusGroupLabel(
+                                    context,
+                                    'withdrawn',
+                                  ),
+                                  withdrawn,
+                                ),
+                                _statBadge(
+                                  jobApplicationStatusGroupLabel(
+                                    context,
+                                    'dismissed_after_hire',
+                                  ),
+                                  dismissedAfterHire,
+                                ),
+                                _statBadge(
+                                  jobApplicationStatusGroupLabel(
+                                    context,
+                                    'archived',
+                                  ),
+                                  archived,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-            ),
-          ],
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _searchCtrl,
+                            textInputAction: TextInputAction.search,
+                            decoration: InputDecoration(
+                              hintText: l10n.jobSuperAdminMonitorSearchHint,
+                              prefixIcon: const Icon(Icons.search_rounded),
+                            ),
+                            onSubmitted: (_) => _loadData(),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton(
+                          onPressed: _loading ? null : _loadData,
+                          child: Text(l10n.commonSearch),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : RefreshIndicator(
+                        onRefresh: _loadData,
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 14),
+                          children: [
+                            if (_groups.isNotEmpty) ...[
+                              Text(
+                                l10n.jobSuperAdminMonitorDistributionTitle,
+                                textAlign: TextAlign.right,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: _groups
+                                    .map(
+                                      (group) => _groupChip(
+                                        '${_taxonomyLabel(group.activityType)} / ${_taxonomyLabel(group.department)}',
+                                        group.totalApplications,
+                                      ),
+                                    )
+                                    .toList(growable: false),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
+                            if (_applications.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 20,
+                                ),
+                                child: Center(
+                                  child: Text(l10n.jobSuperAdminMonitorEmpty),
+                                ),
+                              )
+                            else
+                              ..._applications.map((item) {
+                                final statusColor = _statusColor(item.status);
+                                final applicantName =
+                                    item.profileFullName ??
+                                    item.fullName ??
+                                    l10n.jobApplicationDetailsApplicantFallback;
+                                final subtitleParts = <String>[
+                                  item.jobTitle ?? '-',
+                                  item.jobCompanyName ?? '-',
+                                ];
+                                if (item.jobCategory?.trim().isNotEmpty ==
+                                    true) {
+                                  subtitleParts.add(item.jobCategory!);
+                                }
+
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 10),
+                                  child: InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: () => _openApplication(item),
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(10),
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          CircleAvatar(
+                                            backgroundImage:
+                                                item
+                                                        .applicantImageUrl
+                                                        ?.isNotEmpty ==
+                                                    true
+                                                ? AppCachedImageProvider(
+                                                    item.applicantImageUrl!,
+                                                  )
+                                                : null,
+                                            child:
+                                                item
+                                                        .applicantImageUrl
+                                                        ?.isNotEmpty ==
+                                                    true
+                                                ? null
+                                                : const Icon(
+                                                    Icons.person_outline,
+                                                  ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.end,
+                                              children: [
+                                                Text(
+                                                  applicantName,
+                                                  maxLines: 1,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  textAlign: TextAlign.right,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  subtitleParts.join(' - '),
+                                                  maxLines: 2,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  textAlign: TextAlign.right,
+                                                ),
+                                                const SizedBox(height: 3),
+                                                Text(
+                                                  item.profilePhone ??
+                                                      item.submittedPhone ??
+                                                      '-',
+                                                  textAlign: TextAlign.right,
+                                                  style: TextStyle(
+                                                    color: Colors.white
+                                                        .withValues(
+                                                          alpha: 0.78,
+                                                        ),
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 8),
+                                                Row(
+                                                  children: [
+                                                    Container(
+                                                      padding:
+                                                          const EdgeInsets.symmetric(
+                                                            horizontal: 8,
+                                                            vertical: 4,
+                                                          ),
+                                                      decoration: BoxDecoration(
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                              999,
+                                                            ),
+                                                        color: statusColor
+                                                            .withValues(
+                                                              alpha: 0.16,
+                                                            ),
+                                                        border: Border.all(
+                                                          color: statusColor
+                                                              .withValues(
+                                                                alpha: 0.45,
+                                                              ),
+                                                        ),
+                                                      ),
+                                                      child: Text(
+                                                        _statusLabel(
+                                                          item.status,
+                                                        ),
+                                                        style: TextStyle(
+                                                          color: statusColor,
+                                                          fontWeight:
+                                                              FontWeight.w800,
+                                                          fontSize: 11.5,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                    const Spacer(),
+                                                    IconButton(
+                                                      tooltip:
+                                                          l10n.commonDetails,
+                                                      visualDensity:
+                                                          VisualDensity.compact,
+                                                      onPressed: () =>
+                                                          _openApplication(
+                                                            item,
+                                                          ),
+                                                      icon: const Icon(
+                                                        Icons
+                                                            .open_in_new_rounded,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }),
+                          ],
+                        ),
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );

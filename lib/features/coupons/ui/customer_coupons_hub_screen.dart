@@ -28,66 +28,69 @@ class CustomerCouponsHubScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(context.lt(ar: 'الكوبونات', en: 'Coupons')),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Text(
-            context.lt(
-              ar: 'اختر نوع الكوبونات التي تريد تصفحها',
-              en: 'Choose which coupons you want to browse',
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            Text(
+              context.lt(
+                ar: 'اختر نوع الكوبونات التي تريد تصفحها',
+                en: 'Choose which coupons you want to browse',
+              ),
+              textDirection: context.appTextDirection,
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
-            textDirection: context.appTextDirection,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 14),
-          _CategoryEntryCard(
-            title: context.lt(ar: 'كوبونات التسوق', en: 'Shopping coupons'),
-            subtitle: context.lt(
-              ar: 'كوبونات التطبيق وكوبونات المتاجر الصالحة للتسوق',
-              en: 'App and store coupons for shopping',
-            ),
-            icon: Icons.storefront_rounded,
-            gradient: const LinearGradient(
-              colors: [Color(0xFF3964E8), Color(0xFF4BB0FF)],
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-            ),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const CustomerCouponListScreen(
-                    category: CustomerCouponCategory.shopping,
+            const SizedBox(height: 14),
+            _CategoryEntryCard(
+              title: context.lt(ar: 'كوبونات التسوق', en: 'Shopping coupons'),
+              subtitle: context.lt(
+                ar: 'كوبونات التطبيق وكوبونات المتاجر الصالحة للتسوق',
+                en: 'App and store coupons for shopping',
+              ),
+              icon: Icons.storefront_rounded,
+              gradient: const LinearGradient(
+                colors: [Color(0xFF3964E8), Color(0xFF4BB0FF)],
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+              ),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const CustomerCouponListScreen(
+                      category: CustomerCouponCategory.shopping,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          _CategoryEntryCard(
-            title: context.lt(ar: 'كوبونات التكسي', en: 'Taxi coupons'),
-            subtitle: context.lt(
-              ar: 'كوبونات الرحلات المفعّلة على حسابك',
-              en: 'Ride coupons currently active for your account',
+                );
+              },
             ),
-            icon: Icons.local_taxi_rounded,
-            gradient: const LinearGradient(
-              colors: [Color(0xFF5A4BE4), Color(0xFF3AD5D9)],
-              begin: Alignment.topRight,
-              end: Alignment.bottomLeft,
-            ),
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const CustomerCouponListScreen(
-                    category: CustomerCouponCategory.taxi,
+            const SizedBox(height: 12),
+            _CategoryEntryCard(
+              title: context.lt(ar: 'كوبونات التكسي', en: 'Taxi coupons'),
+              subtitle: context.lt(
+                ar: 'كوبونات الرحلات المفعّلة على حسابك',
+                en: 'Ride coupons currently active for your account',
+              ),
+              icon: Icons.local_taxi_rounded,
+              gradient: const LinearGradient(
+                colors: [Color(0xFF5A4BE4), Color(0xFF3AD5D9)],
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+              ),
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const CustomerCouponListScreen(
+                      category: CustomerCouponCategory.taxi,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-        ],
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -186,44 +189,47 @@ class _CustomerCouponListScreenState
 
     return Scaffold(
       appBar: AppBar(title: Text(_title)),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(14),
-          children: [
-            if (_items.isEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 48),
-                child: Text(
-                  widget.category == CustomerCouponCategory.shopping
-                      ? context.lt(
-                          ar: 'لا توجد كوبونات تسوق فعالة حالياً.',
-                          en: 'No active shopping coupons right now.',
-                        )
-                      : context.l10n.taxiMyCouponsEmpty,
-                  textAlign: TextAlign.center,
-                  textDirection: context.appTextDirection,
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.all(14),
+            children: [
+              if (_items.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 48),
+                  child: Text(
+                    widget.category == CustomerCouponCategory.shopping
+                        ? context.lt(
+                            ar: 'لا توجد كوبونات تسوق فعالة حالياً.',
+                            en: 'No active shopping coupons right now.',
+                          )
+                        : context.l10n.taxiMyCouponsEmpty,
+                    textAlign: TextAlign.center,
+                    textDirection: context.appTextDirection,
+                  ),
                 ),
-              ),
-            for (final item in _items)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _CouponListCard(
-                  category: widget.category,
-                  item: item,
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => CustomerCouponDetailsScreen(
-                          category: widget.category,
-                          item: item,
+              for (final item in _items)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _CouponListCard(
+                    category: widget.category,
+                    item: item,
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => CustomerCouponDetailsScreen(
+                            category: widget.category,
+                            item: item,
+                          ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -378,185 +384,194 @@ class CustomerCouponDetailsScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(context.lt(ar: 'تفاصيل الكوبون', en: 'Coupon details')),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(14),
-        children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              color: Theme.of(
-                context,
-              ).colorScheme.primary.withValues(alpha: 0.09),
-              border: Border.all(
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(14),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
                 color: Theme.of(
                   context,
-                ).colorScheme.primary.withValues(alpha: 0.25),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text(
-                  _title(context),
-                  textDirection: context.appTextDirection,
-                  style: Theme.of(
+                ).colorScheme.primary.withValues(alpha: 0.09),
+                border: Border.all(
+                  color: Theme.of(
                     context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                  ).colorScheme.primary.withValues(alpha: 0.25),
                 ),
-                const SizedBox(height: 8),
-                SelectableText(
-                  code,
-                  textDirection: TextDirection.ltr,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  _description(context),
-                  textDirection: context.appTextDirection,
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.end,
-                  children: [
-                    _InfoChip(
-                      icon: Icons.percent_rounded,
-                      label: _discountText(context),
-                    ),
-                    if (remainingUses != null)
-                      _InfoChip(
-                        icon: Icons.repeat_rounded,
-                        label: context.lt(
-                          ar: 'الاستخدامات المتبقية: $remainingUses',
-                          en: 'Remaining uses: $remainingUses',
-                        ),
-                      ),
-                    if (validUntil != null)
-                      _InfoChip(
-                        icon: Icons.event_available_rounded,
-                        label: context.lt(
-                          ar: 'ينتهي: $validUntil',
-                          en: 'Expires: $validUntil',
-                        ),
-                      ),
-                    if (category == CustomerCouponCategory.shopping &&
-                        minOrder != null &&
-                        minOrder > 0)
-                      _InfoChip(
-                        icon: Icons.shopping_cart_checkout_rounded,
-                        label: context.lt(
-                          ar: 'الحد الأدنى: ${formatIqd(minOrder)}',
-                          en: 'Min order: ${formatIqd(minOrder)}',
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            context.lt(ar: 'أين يمكن استخدامه؟', en: 'Where can I use it?'),
-            textDirection: context.appTextDirection,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Text(
-                    _scopeText(context),
+                    _title(context),
                     textDirection: context.appTextDirection,
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
-                  if (targets.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      context.lt(ar: 'المتاجر المستهدفة', en: 'Target stores'),
-                      textDirection: context.appTextDirection,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
                     ),
-                    const SizedBox(height: 8),
-                    for (final target in targets)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Row(
-                          textDirection: TextDirection.rtl,
-                          children: [
-                            const Icon(
-                              Icons.store_mall_directory_outlined,
-                              size: 16,
-                            ),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                parseString(target['name'], fallback: '-'),
-                                textDirection: context.appTextDirection,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
+                  ),
+                  const SizedBox(height: 8),
+                  SelectableText(
+                    code,
+                    textDirection: TextDirection.ltr,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _description(context),
+                    textDirection: context.appTextDirection,
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      _InfoChip(
+                        icon: Icons.percent_rounded,
+                        label: _discountText(context),
                       ),
-                  ],
+                      if (remainingUses != null)
+                        _InfoChip(
+                          icon: Icons.repeat_rounded,
+                          label: context.lt(
+                            ar: 'الاستخدامات المتبقية: $remainingUses',
+                            en: 'Remaining uses: $remainingUses',
+                          ),
+                        ),
+                      if (validUntil != null)
+                        _InfoChip(
+                          icon: Icons.event_available_rounded,
+                          label: context.lt(
+                            ar: 'ينتهي: $validUntil',
+                            en: 'Expires: $validUntil',
+                          ),
+                        ),
+                      if (category == CustomerCouponCategory.shopping &&
+                          minOrder != null &&
+                          minOrder > 0)
+                        _InfoChip(
+                          icon: Icons.shopping_cart_checkout_rounded,
+                          label: context.lt(
+                            ar: 'الحد الأدنى: ${formatIqd(minOrder)}',
+                            en: 'Min order: ${formatIqd(minOrder)}',
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 14),
-          FilledButton.icon(
-            onPressed: () => _copyCode(context),
-            icon: const Icon(Icons.copy_rounded),
-            label: Text(
-              context.lt(ar: 'نسخ رمز الكوبون', en: 'Copy coupon code'),
+            const SizedBox(height: 14),
+            Text(
+              context.lt(ar: 'أين يمكن استخدامه؟', en: 'Where can I use it?'),
+              textDirection: context.appTextDirection,
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
-          ),
-          const SizedBox(height: 8),
-          if (category == CustomerCouponCategory.taxi)
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => MapPage(initialCouponCode: code),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.local_taxi_rounded),
-              label: Text(
-                context.lt(ar: 'استخدامه في رحلة تكسي', en: 'Use in taxi ride'),
-              ),
-            )
-          else
-            OutlinedButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const CustomerDiscoveryScreen(
-                      mode: CustomerDiscoveryMode.shoppingOnly,
+            const SizedBox(height: 8),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      _scopeText(context),
+                      textDirection: context.appTextDirection,
+                      style: Theme.of(context).textTheme.bodyLarge,
                     ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.storefront_rounded),
-              label: Text(
-                context.lt(ar: 'الذهاب إلى التسوق', en: 'Go to shopping'),
+                    if (targets.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        context.lt(
+                          ar: 'المتاجر المستهدفة',
+                          en: 'Target stores',
+                        ),
+                        textDirection: context.appTextDirection,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      for (final target in targets)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Row(
+                            textDirection: TextDirection.rtl,
+                            children: [
+                              const Icon(
+                                Icons.store_mall_directory_outlined,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 7),
+                              Expanded(
+                                child: Text(
+                                  parseString(target['name'], fallback: '-'),
+                                  textDirection: context.appTextDirection,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ],
+                ),
               ),
             ),
-          const SizedBox(height: 18),
-        ],
+            const SizedBox(height: 14),
+            FilledButton.icon(
+              onPressed: () => _copyCode(context),
+              icon: const Icon(Icons.copy_rounded),
+              label: Text(
+                context.lt(ar: 'نسخ رمز الكوبون', en: 'Copy coupon code'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (category == CustomerCouponCategory.taxi)
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => MapPage(initialCouponCode: code),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.local_taxi_rounded),
+                label: Text(
+                  context.lt(
+                    ar: 'استخدامه في رحلة تكسي',
+                    en: 'Use in taxi ride',
+                  ),
+                ),
+              )
+            else
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CustomerDiscoveryScreen(
+                        mode: CustomerDiscoveryMode.shoppingOnly,
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.storefront_rounded),
+                label: Text(
+                  context.lt(ar: 'الذهاب إلى التسوق', en: 'Go to shopping'),
+                ),
+              ),
+            const SizedBox(height: 18),
+          ],
+        ),
       ),
     );
   }

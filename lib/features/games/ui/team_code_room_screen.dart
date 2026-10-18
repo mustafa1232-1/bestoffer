@@ -161,7 +161,7 @@ class _TeamCodeRoomScreenState extends ConsumerState<TeamCodeRoomScreen>
             ),
           ],
         ),
-        body: state.loading && snapshot == null
+        body: SafeArea(top: false, child: state.loading && snapshot == null
             ? const Center(child: CircularProgressIndicator())
             : snapshot == null
             ? _RoomError(
@@ -176,7 +176,7 @@ class _TeamCodeRoomScreenState extends ConsumerState<TeamCodeRoomScreen>
             : AnimatedSwitcher(
                 duration: const Duration(milliseconds: 280),
                 child: _content(snapshot, state),
-              ),
+              )),
       ),
     );
   }

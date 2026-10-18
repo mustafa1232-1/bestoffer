@@ -260,92 +260,98 @@ class _SocialCommunityChatMonitorScreenState
             ),
           ],
         ),
-        body: RefreshIndicator(
-          onRefresh: () => _load(initial: false),
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : _error != null
-              ? ListView(
-                  padding: const EdgeInsets.only(top: 120),
-                  children: [
-                    Icon(
-                      Icons.error_outline_rounded,
-                      size: 42,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(_error!, textAlign: TextAlign.center),
-                  ],
-                )
-              : ListView(
-                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.secondaryContainer.withValues(alpha: 0.5),
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: () => _load(initial: false),
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? ListView(
+                    padding: const EdgeInsets.only(top: 120),
+                    children: [
+                      Icon(
+                        Icons.error_outline_rounded,
+                        size: 42,
+                        color: Theme.of(context).colorScheme.error,
                       ),
-                      child: Column(
-                        crossAxisAlignment: context.isEnglishLocale
-                            ? CrossAxisAlignment.start
-                            : CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            l10n.socialCommunityChatMonitorHeaderTitle,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            l10n.socialCommunityChatMonitorHeaderSubtitle,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w600,
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-                    if (_messages.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 80),
-                        child: Text(
-                          l10n.socialCommunityChatMonitorEmpty,
-                          textAlign: TextAlign.center,
-                        ),
-                      )
-                    else
-                      ..._messages.map(_buildMessageTile),
-                    if (_nextCursor != null) ...[
                       const SizedBox(height: 10),
-                      Center(
-                        child: OutlinedButton.icon(
-                          onPressed: _loadingMore
-                              ? null
-                              : () => _load(loadMore: true),
-                          icon: _loadingMore
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.expand_more_rounded),
-                          label: Text(l10n.socialCommunityChatMonitorLoadMore),
+                      Text(_error!, textAlign: TextAlign.center),
+                    ],
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          color: Theme.of(context)
+                              .colorScheme
+                              .secondaryContainer
+                              .withValues(alpha: 0.5),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: context.isEnglishLocale
+                              ? CrossAxisAlignment.start
+                              : CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              l10n.socialCommunityChatMonitorHeaderTitle,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 14,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              l10n.socialCommunityChatMonitorHeaderSubtitle,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      const SizedBox(height: 14),
+                      if (_messages.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 80),
+                          child: Text(
+                            l10n.socialCommunityChatMonitorEmpty,
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      else
+                        ..._messages.map(_buildMessageTile),
+                      if (_nextCursor != null) ...[
+                        const SizedBox(height: 10),
+                        Center(
+                          child: OutlinedButton.icon(
+                            onPressed: _loadingMore
+                                ? null
+                                : () => _load(loadMore: true),
+                            icon: _loadingMore
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Icon(Icons.expand_more_rounded),
+                            label: Text(
+                              l10n.socialCommunityChatMonitorLoadMore,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
-                ),
+                  ),
+          ),
         ),
       ),
     );

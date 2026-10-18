@@ -1738,7 +1738,7 @@ out center 20;
       return;
     }
 
-    final selected = await showModalBottomSheet<Map<String, dynamic>>(
+    final selected = await showMaslakiBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1794,7 +1794,7 @@ out center 20;
       return;
     }
 
-    final selected = await showModalBottomSheet<Map<String, dynamic>>(
+    final selected = await showMaslakiBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -3070,7 +3070,7 @@ out center 20;
     }
 
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -7239,7 +7239,7 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
-      body: Column(
+      body: SafeArea(top: false, child: Column(
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
@@ -7414,7 +7414,7 @@ class _TaxiLocationSearchPageState extends State<_TaxiLocationSearchPage> {
                   ),
           ),
         ],
-      ),
+      )),
     );
   }
 }

@@ -341,7 +341,7 @@ class _MerchantFinancialReportScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
+      body: SafeArea(top: false, child: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -463,7 +463,7 @@ class _MerchantFinancialReportScreenState
             const SizedBox(height: 90),
           ],
         ),
-      ),
+      )),
     );
   }
 }

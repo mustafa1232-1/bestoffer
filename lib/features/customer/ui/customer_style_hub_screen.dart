@@ -228,7 +228,7 @@ class CustomerStyleHubScreen extends StatelessWidget {
         title: Text(l10n.customerStyleHubTitle),
         actions: const [AppBarQuickActions()],
       ),
-      body: ListView(
+      body: SafeArea(top: false, child: ListView(
         padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
         children: [
           _HeaderCard(
@@ -257,7 +257,7 @@ class CustomerStyleHubScreen extends StatelessWidget {
             onTap: (topic) => _open(context, topic),
           ),
         ],
-      ),
+      )),
     );
   }
 }

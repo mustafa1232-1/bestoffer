@@ -106,67 +106,70 @@ class _SettingsCacheScreenState extends ConsumerState<SettingsCacheScreen> {
       appBar: AppBar(
         title: Text(_isArabic ? 'الملفات المؤقتة' : 'Cached media'),
       ),
-      body: RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: _loading
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 18),
-                          child: CircularProgressIndicator(),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: _loading
+                      ? const Center(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: 18),
+                            child: CircularProgressIndicator(),
+                          ),
+                        )
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _CacheRow(
+                              label: _isArabic ? 'الصور' : 'Images',
+                              value: _formatBytes(_imageBytes),
+                            ),
+                            const SizedBox(height: 8),
+                            _CacheRow(
+                              label: _isArabic ? 'الفيديوهات' : 'Videos',
+                              value: _formatBytes(_videoBytes),
+                            ),
+                            const Divider(height: 22),
+                            _CacheRow(
+                              label: _isArabic ? 'الإجمالي' : 'Total',
+                              value: _formatBytes(_totalBytes),
+                              emphasized: true,
+                            ),
+                          ],
                         ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: _clearing ? null : _clearCache,
+                icon: _clearing
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _CacheRow(
-                            label: _isArabic ? 'الصور' : 'Images',
-                            value: _formatBytes(_imageBytes),
-                          ),
-                          const SizedBox(height: 8),
-                          _CacheRow(
-                            label: _isArabic ? 'الفيديوهات' : 'Videos',
-                            value: _formatBytes(_videoBytes),
-                          ),
-                          const Divider(height: 22),
-                          _CacheRow(
-                            label: _isArabic ? 'الإجمالي' : 'Total',
-                            value: _formatBytes(_totalBytes),
-                            emphasized: true,
-                          ),
-                        ],
-                      ),
+                    : const Icon(Icons.delete_sweep_outlined),
+                label: Text(_isArabic ? 'مسح الكاش' : 'Clear cache'),
               ),
-            ),
-            const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: _clearing ? null : _clearCache,
-              icon: _clearing
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.delete_sweep_outlined),
-              label: Text(_isArabic ? 'مسح الكاش' : 'Clear cache'),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _isArabic
-                  ? 'يتم الاحتفاظ بالوسائط لمدة تصل إلى 30 يوم مع تنظيف تلقائي وحدود حجم.'
-                  : 'Media is cached for up to 30 days with auto cleanup and size limits.',
-              style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+              const SizedBox(height: 8),
+              Text(
+                _isArabic
+                    ? 'يتم الاحتفاظ بالوسائط لمدة تصل إلى 30 يوم مع تنظيف تلقائي وحدود حجم.'
+                    : 'Media is cached for up to 30 days with auto cleanup and size limits.',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../theme/app_theme.dart' show MaslakiSystemUiStyles;
+
 Future<void> configureEdgeToEdgeSystemUi() async {
   if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
 
@@ -14,13 +16,7 @@ Future<void> configureEdgeToEdgeSystemUi() async {
   // enableEdgeToEdge() in MainActivity.onCreate, so these colors are redundant here.
   // Only icon brightness is set — it routes to the non-deprecated WindowInsetsController
   // appearance APIs.
-  SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
-      statusBarIconBrightness: Brightness.light,
-      statusBarBrightness: Brightness.dark,
-      systemNavigationBarIconBrightness: Brightness.light,
-    ),
-  );
+  SystemChrome.setSystemUIOverlayStyle(MaslakiSystemUiStyles.lightIcons);
 }
 
 class EdgeToEdgeSystemUi extends StatefulWidget {
@@ -65,11 +61,7 @@ class _EdgeToEdgeSystemUiState extends State<EdgeToEdgeSystemUi>
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       // Colors intentionally omitted — see configureEdgeToEdgeSystemUi above.
-      value: const SystemUiOverlayStyle(
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark,
-        systemNavigationBarIconBrightness: Brightness.light,
-      ),
+      value: MaslakiSystemUiStyles.lightIcons,
       child: widget.child,
     );
   }

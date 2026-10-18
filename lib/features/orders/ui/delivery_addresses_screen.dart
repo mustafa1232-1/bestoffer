@@ -3,6 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
@@ -59,94 +61,99 @@ class _DeliveryAddressesScreenState
         icon: const Icon(Icons.add_location_alt_outlined),
         label: Text(l10n.deliveryAddressesAdd),
       ),
-      body: RefreshIndicator(
-        onRefresh: () =>
-            ref.read(deliveryAddressControllerProvider.notifier).bootstrap(),
-        child: state.loading
-            ? const Center(child: CircularProgressIndicator())
-            : state.addresses.isEmpty
-            ? ListView(
-                children: [
-                  const SizedBox(height: 180),
-                  Center(child: Text(l10n.deliveryAddressesEmpty)),
-                ],
-              )
-            : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
-                itemCount: state.addresses.length,
-                itemBuilder: (context, index) {
-                  final address = state.addresses[index];
-                  final selected = state.selectedAddressId == address.id;
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    child: ListTile(
-                      onTap: () {
-                        ref
-                            .read(deliveryAddressControllerProvider.notifier)
-                            .selectAddress(address.id);
-                        if (widget.selectOnTap) {
-                          Navigator.of(context).pop(true);
-                        }
-                      },
-                      title: Text(address.label),
-                      subtitle: Text(address.shortText),
-                      leading: Radio<int>(
-                        value: address.id,
-                        groupValue: state.selectedAddressId,
-                        onChanged: (value) {
-                          if (value == null) return;
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(deliveryAddressControllerProvider.notifier).bootstrap(),
+          child: state.loading
+              ? const Center(child: CircularProgressIndicator())
+              : state.addresses.isEmpty
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 180),
+                    Center(child: Text(l10n.deliveryAddressesEmpty)),
+                  ],
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
+                  itemCount: state.addresses.length,
+                  itemBuilder: (context, index) {
+                    final address = state.addresses[index];
+                    final selected = state.selectedAddressId == address.id;
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      child: ListTile(
+                        onTap: () {
                           ref
                               .read(deliveryAddressControllerProvider.notifier)
-                              .selectAddress(value);
+                              .selectAddress(address.id);
                           if (widget.selectOnTap) {
                             Navigator.of(context).pop(true);
                           }
                         },
-                      ),
-                      trailing: Wrap(
-                        spacing: 2,
-                        children: [
-                          if (!address.isDefault)
+                        title: Text(address.label),
+                        subtitle: Text(address.shortText),
+                        leading: Radio<int>(
+                          value: address.id,
+                          groupValue: state.selectedAddressId,
+                          onChanged: (value) {
+                            if (value == null) return;
+                            ref
+                                .read(
+                                  deliveryAddressControllerProvider.notifier,
+                                )
+                                .selectAddress(value);
+                            if (widget.selectOnTap) {
+                              Navigator.of(context).pop(true);
+                            }
+                          },
+                        ),
+                        trailing: Wrap(
+                          spacing: 2,
+                          children: [
+                            if (!address.isDefault)
+                              IconButton(
+                                tooltip: l10n.deliveryAddressesSetDefault,
+                                onPressed: state.saving
+                                    ? null
+                                    : () => ref
+                                          .read(
+                                            deliveryAddressControllerProvider
+                                                .notifier,
+                                          )
+                                          .setDefaultAddress(address.id),
+                                icon: const Icon(Icons.star_outline_rounded),
+                              ),
                             IconButton(
-                              tooltip: l10n.deliveryAddressesSetDefault,
+                              tooltip: l10n.commonEdit,
                               onPressed: state.saving
                                   ? null
-                                  : () => ref
-                                        .read(
-                                          deliveryAddressControllerProvider
-                                              .notifier,
-                                        )
-                                        .setDefaultAddress(address.id),
-                              icon: const Icon(Icons.star_outline_rounded),
+                                  : () => _openAddressForm(address: address),
+                              icon: const Icon(Icons.edit_outlined),
                             ),
-                          IconButton(
-                            tooltip: l10n.commonEdit,
-                            onPressed: state.saving
-                                ? null
-                                : () => _openAddressForm(address: address),
-                            icon: const Icon(Icons.edit_outlined),
-                          ),
-                          IconButton(
-                            tooltip: l10n.commonDelete,
-                            onPressed: state.saving
-                                ? null
-                                : () => _confirmDelete(address.id),
-                            icon: const Icon(Icons.delete_outline),
-                          ),
-                          if (selected)
-                            const Padding(
-                              padding: EdgeInsetsDirectional.only(start: 4),
-                              child: Icon(
-                                Icons.check_circle,
-                                color: Colors.green,
+                            IconButton(
+                              tooltip: l10n.commonDelete,
+                              onPressed: state.saving
+                                  ? null
+                                  : () => _confirmDelete(address.id),
+                              icon: const Icon(Icons.delete_outline),
+                            ),
+                            if (selected)
+                              const Padding(
+                                padding: EdgeInsetsDirectional.only(start: 4),
+                                child: Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                ),
                               ),
-                            ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }
@@ -177,7 +184,7 @@ class _DeliveryAddressesScreenState
   }
 
   Future<void> _openAddressForm({DeliveryAddressModel? address}) async {
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _AddressFormSheet(address: address),

@@ -147,50 +147,53 @@ class _AdminPayrollScreenState extends ConsumerState<AdminPayrollScreen> {
         icon: const Icon(Icons.add_rounded),
         label: Text(context.lt(ar: 'دورة جديدة', en: 'New run')),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : _runs.isEmpty
-          ? MaslakiEmptyState(
-              icon: Icons.payments_outlined,
-              title: context.lt(
-                ar: 'لا توجد دورات رواتب',
-                en: 'No payroll runs',
-              ),
-              body: context.lt(
-                ar: 'أنشئ دورة راتب جديدة.',
-                en: 'Create a new payroll run.',
-              ),
-            )
-          : ListView.separated(
-              padding: const EdgeInsets.all(MaslakiSpacing.md),
-              itemCount: _runs.length,
-              separatorBuilder: (_, _) =>
-                  const SizedBox(height: MaslakiSpacing.sm),
-              itemBuilder: (context, i) {
-                final r = _runs[i];
-                return MaslakiCard(
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text('${r['period_month'] ?? ''}'),
-                    subtitle: Text(
-                      payrollStatusLabel(context, '${r['status'] ?? ''}'),
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(child: Text(_error!))
+            : _runs.isEmpty
+            ? MaslakiEmptyState(
+                icon: Icons.payments_outlined,
+                title: context.lt(
+                  ar: 'لا توجد دورات رواتب',
+                  en: 'No payroll runs',
+                ),
+                body: context.lt(
+                  ar: 'أنشئ دورة راتب جديدة.',
+                  en: 'Create a new payroll run.',
+                ),
+              )
+            : ListView.separated(
+                padding: const EdgeInsets.all(MaslakiSpacing.md),
+                itemCount: _runs.length,
+                separatorBuilder: (_, _) =>
+                    const SizedBox(height: MaslakiSpacing.sm),
+                itemBuilder: (context, i) {
+                  final r = _runs[i];
+                  return MaslakiCard(
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text('${r['period_month'] ?? ''}'),
+                      subtitle: Text(
+                        payrollStatusLabel(context, '${r['status'] ?? ''}'),
+                      ),
+                      trailing: const Icon(Icons.chevron_left_rounded),
+                      onTap: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                AdminPayrollRunScreen(runId: parseInt(r['id'])),
+                          ),
+                        );
+                        _load();
+                      },
                     ),
-                    trailing: const Icon(Icons.chevron_left_rounded),
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              AdminPayrollRunScreen(runId: parseInt(r['id'])),
-                        ),
-                      );
-                      _load();
-                    },
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
+      ),
     );
   }
 }
@@ -417,73 +420,76 @@ class _AdminPayrollRunScreenState extends ConsumerState<AdminPayrollRunScreen> {
           '${context.lt(ar: 'دورة', en: 'Run')} ${_run['period_month'] ?? ''}',
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(MaslakiSpacing.md),
-              children: [
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ),
-                MaslakiCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${context.lt(ar: 'الحالة', en: 'Status')}: ${payrollStatusLabel(context, status)}',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${context.lt(ar: 'عدد الموظفين', en: 'Employees')}: ${_items.length}',
-                      ),
-                      Text(
-                        '${context.lt(ar: 'إجمالي الصافي', en: 'Total net')}: $totalNet د.ع',
-                      ),
-                      if (_run['payment_method'] != null)
-                        Text(
-                          '${context.lt(ar: 'طريقة الدفع', en: 'Payment')}: '
-                          '${_payMethodLabel(context, '${_run['payment_method']}')}',
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(MaslakiSpacing.md),
+                children: [
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
                         ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Wrap(spacing: 8, runSpacing: 8, children: _actions(status)),
-                const SizedBox(height: 12),
-                Text(
-                  context.lt(ar: 'البنود', en: 'Items'),
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-                const SizedBox(height: 6),
-                for (final it in _items)
-                  MaslakiCard(
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: Text(
-                        '${it['full_name'] ?? it['employee_user_id']}',
-                      ),
-                      subtitle: Text(
-                        '${context.lt(ar: 'أساسي', en: 'Base')} ${it['base_salary_iqd']} + '
-                        '${context.lt(ar: 'إضافات', en: 'Add')} ${it['additions_iqd']} - '
-                        '${context.lt(ar: 'خصم', en: 'Ded')} ${it['deductions_iqd']}',
-                      ),
-                      trailing: Text(
-                        '${it['net_iqd']} د.ع',
-                        style: const TextStyle(fontWeight: FontWeight.w800),
                       ),
                     ),
+                  MaslakiCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${context.lt(ar: 'الحالة', en: 'Status')}: ${payrollStatusLabel(context, status)}',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${context.lt(ar: 'عدد الموظفين', en: 'Employees')}: ${_items.length}',
+                        ),
+                        Text(
+                          '${context.lt(ar: 'إجمالي الصافي', en: 'Total net')}: $totalNet د.ع',
+                        ),
+                        if (_run['payment_method'] != null)
+                          Text(
+                            '${context.lt(ar: 'طريقة الدفع', en: 'Payment')}: '
+                            '${_payMethodLabel(context, '${_run['payment_method']}')}',
+                          ),
+                      ],
+                    ),
                   ),
-              ],
-            ),
+                  const SizedBox(height: 12),
+                  Wrap(spacing: 8, runSpacing: 8, children: _actions(status)),
+                  const SizedBox(height: 12),
+                  Text(
+                    context.lt(ar: 'البنود', en: 'Items'),
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  const SizedBox(height: 6),
+                  for (final it in _items)
+                    MaslakiCard(
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        title: Text(
+                          '${it['full_name'] ?? it['employee_user_id']}',
+                        ),
+                        subtitle: Text(
+                          '${context.lt(ar: 'أساسي', en: 'Base')} ${it['base_salary_iqd']} + '
+                          '${context.lt(ar: 'إضافات', en: 'Add')} ${it['additions_iqd']} - '
+                          '${context.lt(ar: 'خصم', en: 'Ded')} ${it['deductions_iqd']}',
+                        ),
+                        trailing: Text(
+                          '${it['net_iqd']} د.ع',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+      ),
     );
   }
 }

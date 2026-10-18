@@ -38,7 +38,7 @@ class _BuildDiagnosticsScreenState extends State<BuildDiagnosticsScreen> {
         title: 'Build diagnostics',
         subtitle: 'Authoritative build identity',
       ),
-      body: ListView(
+      body: SafeArea(top: false, child: ListView(
         padding: const EdgeInsets.all(12),
         children: [
           MaslakiCard(
@@ -121,7 +121,7 @@ class _BuildDiagnosticsScreenState extends State<BuildDiagnosticsScreen> {
             ),
           ),
         ],
-      ),
+      )),
     );
   }
 }

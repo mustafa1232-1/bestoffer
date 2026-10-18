@@ -81,67 +81,71 @@ class _AdminEmergencyRequestsScreenState
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : _items.isEmpty
-          ? const Center(child: Text('لا توجد طلبات طوارئ حالياً'))
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView.separated(
-                padding: const EdgeInsets.all(12),
-                itemCount: _items.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 8),
-                itemBuilder: (context, index) {
-                  final item = _items[index];
-                  final id = int.tryParse('${item['id']}') ?? 0;
-                  final contact = emergencyContactByKey(
-                    '${item['emergencyTarget'] ?? ''}',
-                  );
-                  final active = !const {
-                    'completed',
-                    'cancelled',
-                    'rejected',
-                    'expired',
-                  }.contains('${item['status']}');
-                  return Card(
-                    child: ListTile(
-                      onTap: id <= 0
-                          ? null
-                          : () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => EmergencyRequestTrackingScreen(
-                                  requestId: id,
-                                  adminMode: true,
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(child: Text(_error!))
+            : _items.isEmpty
+            ? const Center(child: Text('لا توجد طلبات طوارئ حالياً'))
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: _items.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    final id = int.tryParse('${item['id']}') ?? 0;
+                    final contact = emergencyContactByKey(
+                      '${item['emergencyTarget'] ?? ''}',
+                    );
+                    final active = !const {
+                      'completed',
+                      'cancelled',
+                      'rejected',
+                      'expired',
+                    }.contains('${item['status']}');
+                    return Card(
+                      child: ListTile(
+                        onTap: id <= 0
+                            ? null
+                            : () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      EmergencyRequestTrackingScreen(
+                                        requestId: id,
+                                        adminMode: true,
+                                      ),
                                 ),
                               ),
-                            ),
-                      leading: CircleAvatar(
-                        backgroundColor: active
-                            ? Theme.of(context).colorScheme.errorContainer
-                            : Theme.of(
-                                context,
-                              ).colorScheme.surfaceContainerHigh,
-                        child: Icon(contact?.icon ?? Icons.sos_rounded),
+                        leading: CircleAvatar(
+                          backgroundColor: active
+                              ? Theme.of(context).colorScheme.errorContainer
+                              : Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHigh,
+                          child: Icon(contact?.icon ?? Icons.sos_rounded),
+                        ),
+                        title: Text(
+                          '${contact?.title ?? 'طوارئ'} - ${item['customerFullName'] ?? 'مستخدم'}',
+                          textDirection: TextDirection.rtl,
+                          textAlign: TextAlign.right,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                        ),
+                        subtitle: Text(
+                          '${item['requestCode'] ?? '#$id'}  •  ${active ? 'نشط الآن' : 'مغلق'}\n${item['customerPhone'] ?? ''}',
+                          textDirection: TextDirection.rtl,
+                          textAlign: TextAlign.right,
+                        ),
+                        trailing: const Icon(Icons.chevron_left_rounded),
                       ),
-                      title: Text(
-                        '${contact?.title ?? 'طوارئ'} - ${item['customerFullName'] ?? 'مستخدم'}',
-                        textDirection: TextDirection.rtl,
-                        textAlign: TextAlign.right,
-                        style: const TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                      subtitle: Text(
-                        '${item['requestCode'] ?? '#$id'}  •  ${active ? 'نشط الآن' : 'مغلق'}\n${item['customerPhone'] ?? ''}',
-                        textDirection: TextDirection.rtl,
-                        textAlign: TextAlign.right,
-                      ),
-                      trailing: const Icon(Icons.chevron_left_rounded),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
+      ),
     );
   }
 }

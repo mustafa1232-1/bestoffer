@@ -8,7 +8,10 @@ import '../../../core/files/local_image_file.dart';
 
 import '../../../core/diagnostics/build_info.dart';
 import '../../../core/settings/app_settings_controller.dart';
+import '../../auth/state/auth_controller.dart';
 import '../../orders/state/cart_controller.dart';
+import '../brain/mimo_directory.dart';
+import '../brain/mimo_offline_brain.dart';
 import '../mimo_character.dart';
 import 'mimo_chat_api.dart';
 
@@ -152,6 +155,71 @@ class MimoChatController extends StateNotifier<MimoChatState> {
 
   final Ref ref;
   int _nextId = 1;
+
+  /// What the offline brain last listed (for "أعلى تقييم" follow-ups).
+  MimoTopic? _topic;
+
+  /// The user's text of the turn in flight (to rescue a failed AI reply).
+  String _turnText = '';
+
+  MimoOfflineBrain _brain() {
+    final lang = ref.read(appSettingsControllerProvider).locale.languageCode;
+    final name = ref.read(authControllerProvider).user?.fullName ?? '';
+    return MimoOfflineBrain(
+      ref.read(mimoDirectoryProvider),
+      lang: lang == 'en' ? 'en' : 'ar',
+      firstName: name.trim().isEmpty
+          ? null
+          : name.trim().split(RegExp(r'\s+')).first,
+    );
+  }
+
+  /// Compact memory of the cards shown, so the AI later knows them too.
+  static String _refsOf(List<Map<String, dynamic>> blocks) {
+    final parts = <String>[];
+    for (final b in blocks) {
+      for (final e in (b['items'] as List? ?? const [])) {
+        if (e is! Map) continue;
+        final name = '${e['name'] ?? e['title'] ?? ''}'.replaceAll('"', "'");
+        final kind = b['type'] == 'services' ? 'service' : 'store';
+        parts.add('$kind#${e['id']} "$name"');
+      }
+    }
+    return parts.take(10).join(' ');
+  }
+
+  /// Instant answer from the app's own directory (no AI, no network).
+  Future<MimoOfflineReply?> _offline(String text) async {
+    final directory = ref.read(mimoDirectoryProvider.notifier);
+    if (ref.read(mimoDirectoryProvider).isEmpty) {
+      // First launch: wait briefly for the directory instead of guessing.
+      await directory.refresh().timeout(
+        const Duration(seconds: 3),
+        onTimeout: () {},
+      );
+      if (ref.read(mimoDirectoryProvider).isEmpty) return null;
+    } else {
+      unawaited(directory.refresh());
+    }
+    return _brain().answer(text, topic: _topic);
+  }
+
+  void _showOffline(int replyId, MimoOfflineReply reply) {
+    if (reply.topic != null) _topic = reply.topic;
+    _replaceMessage(
+      replyId,
+      (m) => m.copyWith(
+        text: reply.text,
+        blocks: [for (final b in reply.blocks) MimoUiBlock(b)],
+        refs: _refsOf(reply.blocks),
+        streaming: false,
+        clearStatus: true,
+        failed: false,
+      ),
+    );
+    state = state.copyWith(sending: false, mood: reply.mood);
+  }
+
   CancelToken? _cancel;
   StreamSubscription<MimoStreamEvent>? _sub;
 
@@ -268,6 +336,15 @@ class MimoChatController extends StateNotifier<MimoChatState> {
       sending: true,
       mood: MimoMood.thinking,
     );
+    _turnText = clean;
+    if (photos.isEmpty) {
+      final offline = await _offline(clean);
+      if (offline != null) {
+        _showOffline(reply.id, offline);
+        return;
+      }
+    }
+
     final history = _history();
     final lang = lang0;
 
@@ -367,6 +444,16 @@ class MimoChatController extends StateNotifier<MimoChatState> {
           _replaceMessage(id, (m) => m.copyWith(blocks: [...m.blocks, block]));
         }
       case 'done':
+        if (e.data['fallback'] == true) {
+          // The AI is unavailable: answer from the app's own data instead.
+          final rescue =
+              _brain().answer(_turnText, topic: _topic) ??
+              _brain().search(_turnText);
+          if (rescue != null) {
+            _showOffline(id, rescue);
+            return;
+          }
+        }
         final refs = '${e.data['refs'] ?? ''}';
         final summarized = (e.data['summarized'] as num?)?.toInt() ?? 0;
         if (summarized > 0 && summarized <= _sentForTurn.length) {

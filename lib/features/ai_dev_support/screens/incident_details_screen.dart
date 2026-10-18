@@ -251,7 +251,7 @@ class _IncidentDetailsScreenState extends ConsumerState<IncidentDetailsScreen> {
           ),
         ],
       ),
-      body: _loading
+      body: SafeArea(top: false, child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
           ? OpsFeedbackState(
@@ -345,7 +345,7 @@ class _IncidentDetailsScreenState extends ConsumerState<IncidentDetailsScreen> {
                   IncidentTimeline(logs: _auditLogs),
                 ],
               ),
-            ),
+            )),
     );
   }
 }

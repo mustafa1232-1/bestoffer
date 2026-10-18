@@ -76,95 +76,100 @@ class _AdminCrashErrorCenterScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: DropdownButtonFormField<String>(
-              initialValue: _platform,
-              decoration: InputDecoration(
-                labelText: l10n.adminOpsCrashCenterPlatformFilter,
-                border: const OutlineInputBorder(),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: DropdownButtonFormField<String>(
+                initialValue: _platform,
+                decoration: InputDecoration(
+                  labelText: l10n.adminOpsCrashCenterPlatformFilter,
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _platform = value);
+                  _load();
+                },
+                items: const ['all', 'android', 'ios', 'web', 'windows']
+                    .map(
+                      (v) => DropdownMenuItem<String>(
+                        value: v,
+                        child: Text(v == 'all' ? l10n.commonAll : v),
+                      ),
+                    )
+                    .toList(growable: false),
               ),
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() => _platform = value);
-                _load();
-              },
-              items: const ['all', 'android', 'ios', 'web', 'windows']
-                  .map(
-                    (v) => DropdownMenuItem<String>(
-                      value: v,
-                      child: Text(v == 'all' ? l10n.commonAll : v),
-                    ),
-                  )
-                  .toList(growable: false),
             ),
-          ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                ? Center(child: Text(_error!))
-                : _items.isEmpty
-                ? Center(child: Text(l10n.adminOpsCrashCenterEmpty))
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
-                      itemCount: _items.length,
-                      itemBuilder: (context, index) {
-                        final item = _items[index];
-                        final message = '${item['message'] ?? ''}'.trim();
-                        final stack = '${item['stack_trace'] ?? ''}'.trim();
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: ExpansionTile(
-                            leading: const Icon(Icons.bug_report_outlined),
-                            title: Text(
-                              message.isEmpty
-                                  ? l10n.adminOpsCrashCenterUnknownCrash
-                                  : message,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: Text(
-                              '${item['platform'] ?? '-'} • ${item['source'] ?? '-'} • ${_formatTime(item['created_at']?.toString())}',
-                            ),
-                            childrenPadding: const EdgeInsets.fromLTRB(
-                              16,
-                              0,
-                              16,
-                              16,
-                            ),
-                            children: [
-                              if ('${item['user_name'] ?? ''}'
-                                  .trim()
-                                  .isNotEmpty)
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(child: Text(_error!))
+                  : _items.isEmpty
+                  ? Center(child: Text(l10n.adminOpsCrashCenterEmpty))
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+                        itemCount: _items.length,
+                        itemBuilder: (context, index) {
+                          final item = _items[index];
+                          final message = '${item['message'] ?? ''}'.trim();
+                          final stack = '${item['stack_trace'] ?? ''}'.trim();
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            child: ExpansionTile(
+                              leading: const Icon(Icons.bug_report_outlined),
+                              title: Text(
+                                message.isEmpty
+                                    ? l10n.adminOpsCrashCenterUnknownCrash
+                                    : message,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                '${item['platform'] ?? '-'} • ${item['source'] ?? '-'} • ${_formatTime(item['created_at']?.toString())}',
+                              ),
+                              childrenPadding: const EdgeInsets.fromLTRB(
+                                16,
+                                0,
+                                16,
+                                16,
+                              ),
+                              children: [
+                                if ('${item['user_name'] ?? ''}'
+                                    .trim()
+                                    .isNotEmpty)
+                                  Align(
+                                    alignment: AlignmentDirectional.centerStart,
+                                    child: Text(
+                                      '${l10n.commonCustomer}: ${item['user_name']}',
+                                    ),
+                                  ),
+                                const SizedBox(height: 8),
                                 Align(
                                   alignment: AlignmentDirectional.centerStart,
                                   child: Text(
-                                    '${l10n.commonCustomer}: ${item['user_name']}',
+                                    stack.isEmpty
+                                        ? l10n.adminOpsCrashCenterNoStackTrace
+                                        : stack,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodySmall,
                                   ),
                                 ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: AlignmentDirectional.centerStart,
-                                child: Text(
-                                  stack.isEmpty
-                                      ? l10n.adminOpsCrashCenterNoStackTrace
-                                      : stack,
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }

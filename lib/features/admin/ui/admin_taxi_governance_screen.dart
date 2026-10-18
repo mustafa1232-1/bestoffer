@@ -790,244 +790,252 @@ class _AdminTaxiGovernanceScreenState
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(16),
-                gradient: LinearGradient(
-                  colors: [colors.primaryContainer, colors.secondaryContainer],
-                  begin: AlignmentDirectional.topStart,
-                  end: AlignmentDirectional.bottomEnd,
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: LinearGradient(
+                    colors: [
+                      colors.primaryContainer,
+                      colors.secondaryContainer,
+                    ],
+                    begin: AlignmentDirectional.topStart,
+                    end: AlignmentDirectional.bottomEnd,
+                  ),
                 ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.adminTaxiKpiOverview,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.adminTaxiKpiOverview,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        _KpiChip(
-                          label: l10n.adminTaxiKpiTotalRides,
-                          value: _asInt(rides['total']).toString(),
-                        ),
-                        _KpiChip(
-                          label: l10n.adminTaxiKpiCompletedRides,
-                          value: _asInt(rides['completed']).toString(),
-                        ),
-                        _KpiChip(
-                          label: l10n.adminTaxiKpiOpenComplaints,
-                          value: _asInt(complaintsKpi['open']).toString(),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    _sectionHeader(
-                      context,
-                      title: l10n.adminTaxiCouponsTitle,
-                      onCreate: _createCoupon,
-                    ),
-                    const SizedBox(height: 10),
-                    if (_coupons.isEmpty)
-                      ListTile(title: Text(l10n.commonNoItems))
-                    else
-                      ..._coupons.map((item) {
-                        final isActive = item['isActive'] == true;
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        item['title']?.toString() ?? '-',
-                                        style: theme.textTheme.titleSmall,
-                                      ),
-                                    ),
-                                    Chip(
-                                      label: Text(
-                                        isActive
-                                            ? l10n.commonActive
-                                            : l10n.commonInactive,
-                                      ),
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    Chip(
-                                      label: Text(
-                                        item['code']?.toString() ?? '-',
-                                      ),
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                    Chip(
-                                      label: Text(
-                                        '${l10n.couponManagementMaxUsesLabel}: ${_asInt(item['maxUsesPerUser'], 1)}',
-                                      ),
-                                      visualDensity: VisualDensity.compact,
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  '${l10n.couponManagementDiscountValueLabel}: ${_couponTiersSummary(item)}',
-                                ),
-                              ],
-                            ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _KpiChip(
+                            label: l10n.adminTaxiKpiTotalRides,
+                            value: _asInt(rides['total']).toString(),
                           ),
-                        );
-                      }),
-                  ],
+                          _KpiChip(
+                            label: l10n.adminTaxiKpiCompletedRides,
+                            value: _asInt(rides['completed']).toString(),
+                          ),
+                          _KpiChip(
+                            label: l10n.adminTaxiKpiOpenComplaints,
+                            value: _asInt(complaintsKpi['open']).toString(),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  children: [
-                    _sectionHeader(
-                      context,
-                      title: l10n.adminTaxiContestsTitle,
-                      onCreate: _createContest,
-                    ),
-                    const SizedBox(height: 10),
-                    if (_contests.isEmpty)
-                      ListTile(title: Text(l10n.adminCompetitionsListEmpty))
-                    else
-                      ..._contests.map((item) {
-                        final id = _asInt(item['id']);
-                        final reward = _contestRewardsFromItem(item);
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          child: ListTile(
-                            title: Text(item['title']?.toString() ?? '-'),
-                            subtitle: Text(
-                              '${l10n.adminCompetitionsRequiredOrders}: ${item['targetValue'] ?? '-'}\n'
-                              '${l10n.adminCompetitionsFirstPlace}: ${_money(reward.first)}\n'
-                              '${l10n.adminCompetitionsSecondPlace}: ${_money(reward.second)}\n'
-                              '${l10n.adminCompetitionsThirdPlace}: ${_money(reward.third)}',
+              const SizedBox(height: 14),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      _sectionHeader(
+                        context,
+                        title: l10n.adminTaxiCouponsTitle,
+                        onCreate: _createCoupon,
+                      ),
+                      const SizedBox(height: 10),
+                      if (_coupons.isEmpty)
+                        ListTile(title: Text(l10n.commonNoItems))
+                      else
+                        ..._coupons.map((item) {
+                          final isActive = item['isActive'] == true;
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            child: Padding(
+                              padding: const EdgeInsets.all(10),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          item['title']?.toString() ?? '-',
+                                          style: theme.textTheme.titleSmall,
+                                        ),
+                                      ),
+                                      Chip(
+                                        label: Text(
+                                          isActive
+                                              ? l10n.commonActive
+                                              : l10n.commonInactive,
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      Chip(
+                                        label: Text(
+                                          item['code']?.toString() ?? '-',
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                      Chip(
+                                        label: Text(
+                                          '${l10n.couponManagementMaxUsesLabel}: ${_asInt(item['maxUsesPerUser'], 1)}',
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '${l10n.couponManagementDiscountValueLabel}: ${_couponTiersSummary(item)}',
+                                  ),
+                                ],
+                              ),
                             ),
-                            trailing: TextButton(
-                              onPressed: id <= 0
-                                  ? null
-                                  : () async {
-                                      try {
-                                        await _taxiApi(
-                                          ref,
-                                        ).finalizeAdminTaxiContest(id);
-                                        await _load();
-                                        _showSnack(
-                                          l10n.adminCompetitionsEndSuccess,
-                                        );
-                                      } catch (error) {
-                                        _showSnack(
-                                          mapAnyErrorL10n(
-                                            error,
-                                            fallbackBuilder: (l10n) =>
-                                                l10n.errorsUnknown,
+                          );
+                        }),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      _sectionHeader(
+                        context,
+                        title: l10n.adminTaxiContestsTitle,
+                        onCreate: _createContest,
+                      ),
+                      const SizedBox(height: 10),
+                      if (_contests.isEmpty)
+                        ListTile(title: Text(l10n.adminCompetitionsListEmpty))
+                      else
+                        ..._contests.map((item) {
+                          final id = _asInt(item['id']);
+                          final reward = _contestRewardsFromItem(item);
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            child: ListTile(
+                              title: Text(item['title']?.toString() ?? '-'),
+                              subtitle: Text(
+                                '${l10n.adminCompetitionsRequiredOrders}: ${item['targetValue'] ?? '-'}\n'
+                                '${l10n.adminCompetitionsFirstPlace}: ${_money(reward.first)}\n'
+                                '${l10n.adminCompetitionsSecondPlace}: ${_money(reward.second)}\n'
+                                '${l10n.adminCompetitionsThirdPlace}: ${_money(reward.third)}',
+                              ),
+                              trailing: TextButton(
+                                onPressed: id <= 0
+                                    ? null
+                                    : () async {
+                                        try {
+                                          await _taxiApi(
+                                            ref,
+                                          ).finalizeAdminTaxiContest(id);
+                                          await _load();
+                                          _showSnack(
+                                            l10n.adminCompetitionsEndSuccess,
+                                          );
+                                        } catch (error) {
+                                          _showSnack(
+                                            mapAnyErrorL10n(
+                                              error,
+                                              fallbackBuilder: (l10n) =>
+                                                  l10n.errorsUnknown,
+                                            ),
+                                            error: true,
+                                          );
+                                        }
+                                      },
+                                child: Text(
+                                  l10n.adminCompetitionsEndNowTooltip,
+                                ),
+                              ),
+                            ),
+                          );
+                        }),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.adminTaxiComplaintsTitle,
+                        style: theme.textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 10),
+                      if (_complaints.isEmpty)
+                        ListTile(title: Text(l10n.commonNoItems))
+                      else
+                        ..._complaints.map((item) {
+                          final complaintId = _asInt(item['id']);
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            child: ListTile(
+                              title: Text(item['category']?.toString() ?? '-'),
+                              subtitle: Text(
+                                '${item['reason'] ?? '-'}\n'
+                                '${l10n.commonStatus}: ${item['status'] ?? '-'}',
+                              ),
+                              trailing: Wrap(
+                                spacing: 6,
+                                children: [
+                                  TextButton(
+                                    onPressed: complaintId <= 0
+                                        ? null
+                                        : () => _reviewComplaint(
+                                            complaintId,
+                                            'resolved',
                                           ),
-                                          error: true,
-                                        );
-                                      }
-                                    },
-                              child: Text(l10n.adminCompetitionsEndNowTooltip),
+                                    child: Text(l10n.commonApprove),
+                                  ),
+                                  TextButton(
+                                    onPressed: complaintId <= 0
+                                        ? null
+                                        : () => _reviewComplaint(
+                                            complaintId,
+                                            'rejected',
+                                          ),
+                                    child: Text(l10n.commonReject),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      }),
-                  ],
+                          );
+                        }),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.adminTaxiComplaintsTitle,
-                      style: theme.textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 10),
-                    if (_complaints.isEmpty)
-                      ListTile(title: Text(l10n.commonNoItems))
-                    else
-                      ..._complaints.map((item) {
-                        final complaintId = _asInt(item['id']);
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 4),
-                          child: ListTile(
-                            title: Text(item['category']?.toString() ?? '-'),
-                            subtitle: Text(
-                              '${item['reason'] ?? '-'}\n'
-                              '${l10n.commonStatus}: ${item['status'] ?? '-'}',
-                            ),
-                            trailing: Wrap(
-                              spacing: 6,
-                              children: [
-                                TextButton(
-                                  onPressed: complaintId <= 0
-                                      ? null
-                                      : () => _reviewComplaint(
-                                          complaintId,
-                                          'resolved',
-                                        ),
-                                  child: Text(l10n.commonApprove),
-                                ),
-                                TextButton(
-                                  onPressed: complaintId <= 0
-                                      ? null
-                                      : () => _reviewComplaint(
-                                          complaintId,
-                                          'rejected',
-                                        ),
-                                  child: Text(l10n.commonReject),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      }),
-                  ],
-                ),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

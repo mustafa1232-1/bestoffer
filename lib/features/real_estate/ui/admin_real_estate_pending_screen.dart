@@ -143,135 +143,140 @@ class _AdminRealEstatePendingScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(
-                    child: Text(
-                      _error!,
-                      textDirection: context.appTextDirection,
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(
+                      child: Text(
+                        _error!,
+                        textDirection: context.appTextDirection,
+                      ),
                     ),
-                  ),
-                ],
-              )
-            : _items.isEmpty
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(
-                    child: Text(
-                      l10n.adminRealEstatePendingEmpty,
-                      textDirection: context.appTextDirection,
+                  ],
+                )
+              : _items.isEmpty
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(
+                      child: Text(
+                        l10n.adminRealEstatePendingEmpty,
+                        textDirection: context.appTextDirection,
+                      ),
                     ),
-                  ),
-                ],
-              )
-            : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-                itemCount: _items.length,
-                itemBuilder: (context, index) {
-                  final item = _items[index];
-                  final cover = item.media.isNotEmpty
-                      ? item.media.first.imageUrl
-                      : null;
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            if ((cover ?? '').isNotEmpty)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(16),
-                                child: AspectRatio(
-                                  aspectRatio: 16 / 9,
-                                  child: CachedAppImage(
-                                    imageUrl: cover!,
-                                    fit: BoxFit.cover,
+                  ],
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+                  itemCount: _items.length,
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    final cover = item.media.isNotEmpty
+                        ? item.media.first.imageUrl
+                        : null;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              if ((cover ?? '').isNotEmpty)
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: AspectRatio(
+                                    aspectRatio: 16 / 9,
+                                    child: CachedAppImage(
+                                      imageUrl: cover!,
+                                      fit: BoxFit.cover,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            if ((cover ?? '').isNotEmpty)
-                              const SizedBox(height: 12),
-                            Text(
-                              item.title,
-                              textDirection: context.appTextDirection,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                                fontSize: 16,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              l10n.adminRealEstatePendingOwnerLine(
-                                item.ownerFullName ?? '-',
-                                item.ownerId,
-                              ),
-                              textDirection: context.appTextDirection,
-                            ),
-                            if ((item.ownerPhone ?? '').trim().isNotEmpty)
+                              if ((cover ?? '').isNotEmpty)
+                                const SizedBox(height: 12),
                               Text(
-                                l10n.adminRealEstatePendingOwnerPhoneLine(
-                                  item.ownerPhone!,
+                                item.title,
+                                textDirection: context.appTextDirection,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                l10n.adminRealEstatePendingOwnerLine(
+                                  item.ownerFullName ?? '-',
+                                  item.ownerId,
                                 ),
                                 textDirection: context.appTextDirection,
                               ),
-                            Text(
-                              '${item.purpose == 'sale' ? l10n.adminRealEstatePendingPurposeSale : l10n.adminRealEstatePendingPurposeRent} • ${item.areaSqm}m² • ${formatIqd(item.price)}',
-                              textDirection: context.appTextDirection,
-                            ),
-                            Text(
-                              l10n.adminRealEstatePendingPhoneLine(item.phone),
-                              textDirection: context.appTextDirection,
-                            ),
-                            if ((item.description ?? '').trim().isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 6),
-                                child: Text(
-                                  item.description!,
+                              if ((item.ownerPhone ?? '').trim().isNotEmpty)
+                                Text(
+                                  l10n.adminRealEstatePendingOwnerPhoneLine(
+                                    item.ownerPhone!,
+                                  ),
                                   textDirection: context.appTextDirection,
                                 ),
+                              Text(
+                                '${item.purpose == 'sale' ? l10n.adminRealEstatePendingPurposeSale : l10n.adminRealEstatePendingPurposeRent} • ${item.areaSqm}m² • ${formatIqd(item.price)}',
+                                textDirection: context.appTextDirection,
                               ),
-                            const SizedBox(height: 12),
-                            Wrap(
-                              alignment: WrapAlignment.end,
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: [
-                                OutlinedButton.icon(
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _review(item, approve: false),
-                                  icon: const Icon(Icons.close_rounded),
-                                  label: Text(
-                                    l10n.adminRealEstatePendingRejectAction,
+                              Text(
+                                l10n.adminRealEstatePendingPhoneLine(
+                                  item.phone,
+                                ),
+                                textDirection: context.appTextDirection,
+                              ),
+                              if ((item.description ?? '').trim().isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child: Text(
+                                    item.description!,
+                                    textDirection: context.appTextDirection,
                                   ),
                                 ),
-                                FilledButton.icon(
-                                  onPressed: _busy
-                                      ? null
-                                      : () => _review(item, approve: true),
-                                  icon: const Icon(Icons.check_rounded),
-                                  label: Text(
-                                    l10n.adminRealEstatePendingApproveAction,
+                              const SizedBox(height: 12),
+                              Wrap(
+                                alignment: WrapAlignment.end,
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  OutlinedButton.icon(
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _review(item, approve: false),
+                                    icon: const Icon(Icons.close_rounded),
+                                    label: Text(
+                                      l10n.adminRealEstatePendingRejectAction,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                          ],
+                                  FilledButton.icon(
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _review(item, approve: true),
+                                    icon: const Icon(Icons.check_rounded),
+                                    label: Text(
+                                      l10n.adminRealEstatePendingApproveAction,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    );
+                  },
+                ),
+        ),
       ),
     );
   }

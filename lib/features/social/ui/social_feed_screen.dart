@@ -2,6 +2,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
@@ -88,7 +90,7 @@ class _SocialFeedScreenState extends ConsumerState<SocialFeedScreen> {
       return;
     }
     final l10n = context.l10n;
-    final action = await showModalBottomSheet<String>(
+    final action = await showMaslakiBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) {

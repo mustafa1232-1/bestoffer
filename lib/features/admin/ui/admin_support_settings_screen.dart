@@ -123,71 +123,74 @@ class _AdminSupportSettingsScreenState
       appBar: AppBar(
         title: Text(context.lt(ar: 'رقم الدعم المركزي', en: 'Central support')),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(MaslakiSpacing.md),
-              children: [
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: MaslakiSpacing.sm),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(MaslakiSpacing.md),
+                children: [
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: MaslakiSpacing.sm),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
+                  if (_success != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: MaslakiSpacing.sm),
+                      child: Text(
+                        _success!,
+                        style: const TextStyle(color: Colors.green),
+                      ),
+                    ),
+                  _field(
+                    _e164,
+                    context.lt(
+                      ar: 'رقم الدعم (E164)',
+                      en: 'Support phone (E164)',
+                    ),
+                    hint: '+9647XXXXXXXXX',
+                    keyboard: TextInputType.phone,
                   ),
-                if (_success != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: MaslakiSpacing.sm),
-                    child: Text(
-                      _success!,
-                      style: const TextStyle(color: Colors.green),
+                  _field(
+                    _display,
+                    context.lt(ar: 'الرقم كما يُعرض', en: 'Display number'),
+                  ),
+                  _field(
+                    _whatsapp,
+                    context.lt(ar: 'واتساب (E164)', en: 'WhatsApp (E164)'),
+                    keyboard: TextInputType.phone,
+                  ),
+                  _field(
+                    _hours,
+                    context.lt(ar: 'ساعات العمل', en: 'Working hours'),
+                  ),
+                  _field(
+                    _emergency,
+                    context.lt(
+                      ar: 'رقم الطوارئ (E164)',
+                      en: 'Emergency phone (E164)',
+                    ),
+                    keyboard: TextInputType.phone,
+                  ),
+                  const SizedBox(height: MaslakiSpacing.md),
+                  FilledButton.icon(
+                    onPressed: _saving ? null : _save,
+                    icon: const Icon(Icons.save_rounded),
+                    label: Text(
+                      _saving
+                          ? context.lt(ar: 'جارٍ الحفظ…', en: 'Saving…')
+                          : context.lt(ar: 'حفظ', en: 'Save'),
                     ),
                   ),
-                _field(
-                  _e164,
-                  context.lt(
-                    ar: 'رقم الدعم (E164)',
-                    en: 'Support phone (E164)',
-                  ),
-                  hint: '+9647XXXXXXXXX',
-                  keyboard: TextInputType.phone,
-                ),
-                _field(
-                  _display,
-                  context.lt(ar: 'الرقم كما يُعرض', en: 'Display number'),
-                ),
-                _field(
-                  _whatsapp,
-                  context.lt(ar: 'واتساب (E164)', en: 'WhatsApp (E164)'),
-                  keyboard: TextInputType.phone,
-                ),
-                _field(
-                  _hours,
-                  context.lt(ar: 'ساعات العمل', en: 'Working hours'),
-                ),
-                _field(
-                  _emergency,
-                  context.lt(
-                    ar: 'رقم الطوارئ (E164)',
-                    en: 'Emergency phone (E164)',
-                  ),
-                  keyboard: TextInputType.phone,
-                ),
-                const SizedBox(height: MaslakiSpacing.md),
-                FilledButton.icon(
-                  onPressed: _saving ? null : _save,
-                  icon: const Icon(Icons.save_rounded),
-                  label: Text(
-                    _saving
-                        ? context.lt(ar: 'جارٍ الحفظ…', en: 'Saving…')
-                        : context.lt(ar: 'حفظ', en: 'Save'),
-                  ),
-                ),
-              ],
-            ),
+                ],
+              ),
+      ),
     );
   }
 

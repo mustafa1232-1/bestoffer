@@ -73,14 +73,17 @@ class TaxiCustomerToolsScreen extends ConsumerWidget {
             ],
           ),
         ),
-        body: const TabBarView(
-          children: [
-            _SavedPlacesTab(),
-            _FavoriteTripsTab(),
-            _ScheduledRidesTab(),
-            _RideHistoryTab(),
-            _MyCouponsTab(),
-          ],
+        body: SafeArea(
+          top: false,
+          child: const TabBarView(
+            children: [
+              _SavedPlacesTab(),
+              _FavoriteTripsTab(),
+              _ScheduledRidesTab(),
+              _RideHistoryTab(),
+              _MyCouponsTab(),
+            ],
+          ),
         ),
       ),
     );
@@ -1439,214 +1442,219 @@ class _SavedPlaceEditorScreenState extends State<_SavedPlaceEditorScreen> {
     final tokens = context.maslakiTokens;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.taxiSavedPlaceCreateTitle)),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(MaslakiSpacing.md),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _searchCtrl,
-                  onChanged: _onSearchChanged,
-                  decoration: InputDecoration(
-                    labelText: 'ابحث عن مكان',
-                    hintText: 'ابحث ثم اختر من النتائج أو حرك الخريطة',
-                    suffixIcon: _loadingSearch
-                        ? const Padding(
-                            padding: EdgeInsets.all(12),
-                            child: SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          )
-                        : const Icon(Icons.search_rounded),
-                  ),
-                ),
-                if (_searchResults.isNotEmpty) ...[
-                  const SizedBox(height: MaslakiSpacing.sm),
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 220),
-                    child: MaslakiCard(
-                      padding: EdgeInsets.zero,
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: _searchResults.length,
-                        separatorBuilder: (_, _) =>
-                            Divider(height: 1, color: tokens.borderSubtle),
-                        itemBuilder: (context, index) {
-                          final item = _searchResults[index];
-                          return ListTile(
-                            leading: const Icon(Icons.place_outlined),
-                            title: Text(item.title),
-                            subtitle: Text(
-                              item.address,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            onTap: () => _onSearchResultTap(item),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          Expanded(
-            child: Stack(
-              children: [
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _center,
-                    initialZoom: 15.4,
-                    onPositionChanged: _onMapMoved,
-                    interactionOptions: const InteractionOptions(
-                      flags: InteractiveFlag.all,
-                    ),
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      maxZoom: 19,
-                      userAgentPackageName: 'app.maslaki.user',
-                    ),
-                    const RichAttributionWidget(
-                      attributions: [
-                        TextSourceAttribution('OpenStreetMap contributors'),
-                      ],
-                    ),
-                  ],
-                ),
-                IgnorePointer(
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.location_on_rounded,
-                          size: 44,
-                          color: tokens.secondaryAccent,
-                        ),
-                        Container(
-                          width: 10,
-                          height: 10,
-                          decoration: BoxDecoration(
-                            color: tokens.secondaryAccent,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                PositionedDirectional(
-                  top: 12,
-                  end: 12,
-                  child: FloatingActionButton.small(
-                    heroTag: 'saved_place_current_location',
-                    onPressed: _goToCurrentLocation,
-                    child: const Icon(Icons.my_location_rounded),
-                  ),
-                ),
-                Positioned(
-                  left: 12,
-                  right: 12,
-                  bottom: 12,
-                  child: MaslakiCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Row(
-                          children: [
-                            if (_loadingAddress)
-                              const SizedBox(
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(MaslakiSpacing.md),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _searchCtrl,
+                    onChanged: _onSearchChanged,
+                    decoration: InputDecoration(
+                      labelText: 'ابحث عن مكان',
+                      hintText: 'ابحث ثم اختر من النتائج أو حرك الخريطة',
+                      suffixIcon: _loadingSearch
+                          ? const Padding(
+                              padding: EdgeInsets.all(12),
+                              child: SizedBox(
                                 width: 16,
                                 height: 16,
                                 child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                 ),
                               ),
-                            const Spacer(),
-                            Text(
-                              'الموقع المحدد',
-                              textDirection: TextDirection.rtl,
-                              style: Theme.of(context).textTheme.titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w900),
-                            ),
-                          ],
+                            )
+                          : const Icon(Icons.search_rounded),
+                    ),
+                  ),
+                  if (_searchResults.isNotEmpty) ...[
+                    const SizedBox(height: MaslakiSpacing.sm),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 220),
+                      child: MaslakiCard(
+                        padding: EdgeInsets.zero,
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: _searchResults.length,
+                          separatorBuilder: (_, _) =>
+                              Divider(height: 1, color: tokens.borderSubtle),
+                          itemBuilder: (context, index) {
+                            final item = _searchResults[index];
+                            return ListTile(
+                              leading: const Icon(Icons.place_outlined),
+                              title: Text(item.title),
+                              subtitle: Text(
+                                item.address,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              onTap: () => _onSearchResultTap(item),
+                            );
+                          },
                         ),
-                        const SizedBox(height: MaslakiSpacing.sm),
-                        Text(
-                          (_addressText ??
-                                  'حرك الخريطة أو اختر نتيجة بحث لتحديد الموقع')
-                              .trim(),
-                          textDirection: TextDirection.rtl,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                        const SizedBox(height: MaslakiSpacing.md),
-                        TextField(
-                          controller: _labelCtrl,
-                          decoration: InputDecoration(
-                            labelText: l10n.taxiSavedPlaceLabelField,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Expanded(
+              child: Stack(
+                children: [
+                  FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: _center,
+                      initialZoom: 15.4,
+                      onPositionChanged: _onMapMoved,
+                      interactionOptions: const InteractionOptions(
+                        flags: InteractiveFlag.all,
+                      ),
+                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate:
+                            'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        maxZoom: 19,
+                        userAgentPackageName: 'app.maslaki.user',
+                      ),
+                      const RichAttributionWidget(
+                        attributions: [
+                          TextSourceAttribution('OpenStreetMap contributors'),
+                        ],
+                      ),
+                    ],
+                  ),
+                  IgnorePointer(
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.location_on_rounded,
+                            size: 44,
+                            color: tokens.secondaryAccent,
                           ),
-                        ),
-                        const SizedBox(height: MaslakiSpacing.sm),
-                        DropdownButtonFormField<String>(
-                          initialValue: _placeType,
-                          decoration: InputDecoration(
-                            labelText: l10n.taxiSavedPlaceTypeLabel,
-                          ),
-                          items: [
-                            DropdownMenuItem(
-                              value: 'home',
-                              child: Text(l10n.taxiSavedPlaceTypeHome),
-                            ),
-                            DropdownMenuItem(
-                              value: 'work',
-                              child: Text(l10n.taxiSavedPlaceTypeWork),
-                            ),
-                            DropdownMenuItem(
-                              value: 'custom',
-                              child: Text(l10n.taxiSavedPlaceTypeCustom),
-                            ),
-                          ],
-                          onChanged: _submitting
-                              ? null
-                              : (value) {
-                                  setState(() {
-                                    _placeType = value ?? 'custom';
-                                  });
-                                },
-                        ),
-                        if (_error != null) ...[
-                          const SizedBox(height: MaslakiSpacing.sm),
-                          Text(
-                            _error!,
-                            textDirection: TextDirection.rtl,
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.error,
-                              fontWeight: FontWeight.w700,
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: tokens.secondaryAccent,
+                              shape: BoxShape.circle,
                             ),
                           ),
                         ],
-                        const SizedBox(height: MaslakiSpacing.md),
-                        MaslakiPrimaryButton(
-                          onPressed: _submitting ? null : _save,
-                          icon: Icons.check_circle_outline_rounded,
-                          label: l10n.commonSave,
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                  PositionedDirectional(
+                    top: 12,
+                    end: 12,
+                    child: FloatingActionButton.small(
+                      heroTag: 'saved_place_current_location',
+                      onPressed: _goToCurrentLocation,
+                      child: const Icon(Icons.my_location_rounded),
+                    ),
+                  ),
+                  Positioned(
+                    left: 12,
+                    right: 12,
+                    bottom: 12,
+                    child: MaslakiCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Row(
+                            children: [
+                              if (_loadingAddress)
+                                const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                ),
+                              const Spacer(),
+                              Text(
+                                'الموقع المحدد',
+                                textDirection: TextDirection.rtl,
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.w900),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: MaslakiSpacing.sm),
+                          Text(
+                            (_addressText ??
+                                    'حرك الخريطة أو اختر نتيجة بحث لتحديد الموقع')
+                                .trim(),
+                            textDirection: TextDirection.rtl,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: MaslakiSpacing.md),
+                          TextField(
+                            controller: _labelCtrl,
+                            decoration: InputDecoration(
+                              labelText: l10n.taxiSavedPlaceLabelField,
+                            ),
+                          ),
+                          const SizedBox(height: MaslakiSpacing.sm),
+                          DropdownButtonFormField<String>(
+                            initialValue: _placeType,
+                            decoration: InputDecoration(
+                              labelText: l10n.taxiSavedPlaceTypeLabel,
+                            ),
+                            items: [
+                              DropdownMenuItem(
+                                value: 'home',
+                                child: Text(l10n.taxiSavedPlaceTypeHome),
+                              ),
+                              DropdownMenuItem(
+                                value: 'work',
+                                child: Text(l10n.taxiSavedPlaceTypeWork),
+                              ),
+                              DropdownMenuItem(
+                                value: 'custom',
+                                child: Text(l10n.taxiSavedPlaceTypeCustom),
+                              ),
+                            ],
+                            onChanged: _submitting
+                                ? null
+                                : (value) {
+                                    setState(() {
+                                      _placeType = value ?? 'custom';
+                                    });
+                                  },
+                          ),
+                          if (_error != null) ...[
+                            const SizedBox(height: MaslakiSpacing.sm),
+                            Text(
+                              _error!,
+                              textDirection: TextDirection.rtl,
+                              style: TextStyle(
+                                color: Theme.of(context).colorScheme.error,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                          const SizedBox(height: MaslakiSpacing.md),
+                          MaslakiPrimaryButton(
+                            onPressed: _submitting ? null : _save,
+                            icon: Icons.check_circle_outline_rounded,
+                            label: l10n.commonSave,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

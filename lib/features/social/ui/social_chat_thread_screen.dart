@@ -46,6 +46,8 @@ import 'widgets/social_voice_message_widgets.dart';
 import 'social_message_client_id.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 final _liveNotificationsApiProvider = Provider<NotificationsApi>((ref) {
   final dio = ref.read(dioClientProvider).dio;
@@ -479,7 +481,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     final currentKey = (_thread?.state.themeKey ?? 'default')
         .trim()
         .toLowerCase();
-    final selectedKey = await showModalBottomSheet<String>(
+    final selectedKey = await showMaslakiBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
@@ -991,7 +993,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   Future<void> _openGroupManagementSheet() async {
     final thread = _thread;
     if (thread == null || !thread.isGroup) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1818,7 +1820,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   Future<void> _openAttachmentsMenu() async {
     if (_sending || widget.readOnly || _voiceComposerBusy) return;
     final l10n = context.l10n;
-    final action = await showModalBottomSheet<_ChatComposerAttachmentAction>(
+    final action = await showMaslakiBottomSheet<_ChatComposerAttachmentAction>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
@@ -1876,7 +1878,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
     if (_sending || widget.readOnly || _voiceComposerBusy) return;
     final stickers = await _loadStickers();
     if (!mounted) return;
-    final pick = await showModalBottomSheet<_StickerPick>(
+    final pick = await showMaslakiBottomSheet<_StickerPick>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
@@ -1951,7 +1953,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   /// Opens the Giphy-backed GIF picker; the chosen GIF is sent as an image.
   Future<void> _openGifPicker() async {
     if (_sending || widget.readOnly || _voiceComposerBusy) return;
-    final gif = await showModalBottomSheet<SocialGif>(
+    final gif = await showMaslakiBottomSheet<SocialGif>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
@@ -2347,7 +2349,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
         !canTranslate) {
       return;
     }
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (_) => SafeArea(
@@ -2547,7 +2549,7 @@ class _SocialChatThreadScreenState extends ConsumerState<SocialChatThreadScreen>
   }
 
   Future<void> _openReactionEmojiPicker(SocialChatMessage message) async {
-    final picked = await showModalBottomSheet<String>(
+    final picked = await showMaslakiBottomSheet<String>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,

@@ -30,118 +30,121 @@ class SettingsAppearanceScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.settingsAppearance)),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          Card(
-            child: Column(
-              children: [
-                SwitchListTile(
-                  value: settings.animationsEnabled,
-                  title: Text(l10n.settingsAnimation),
-                  subtitle: Text(l10n.settingsAnimationHint),
-                  onChanged: (value) {
-                    ref
-                        .read(appSettingsControllerProvider.notifier)
-                        .setAnimationsEnabled(value);
-                  },
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  value: settings.mimoEnabled,
-                  title: Text(
-                    context.lt(ar: 'ميمو المساعد', en: 'Mimo assistant'),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            Card(
+              child: Column(
+                children: [
+                  SwitchListTile(
+                    value: settings.animationsEnabled,
+                    title: Text(l10n.settingsAnimation),
+                    subtitle: Text(l10n.settingsAnimationHint),
+                    onChanged: (value) {
+                      ref
+                          .read(appSettingsControllerProvider.notifier)
+                          .setAnimationsEnabled(value);
+                    },
                   ),
-                  subtitle: Text(
-                    context.lt(
-                      ar: 'إظهار ميمو فوق شاشات التطبيق',
-                      en: 'Show Mimo on top of the app screens',
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    value: settings.mimoEnabled,
+                    title: Text(
+                      context.lt(ar: 'ميمو المساعد', en: 'Mimo assistant'),
+                    ),
+                    subtitle: Text(
+                      context.lt(
+                        ar: 'إظهار ميمو فوق شاشات التطبيق',
+                        en: 'Show Mimo on top of the app screens',
+                      ),
+                    ),
+                    onChanged: (value) {
+                      ref
+                          .read(appSettingsControllerProvider.notifier)
+                          .setMimoEnabled(value);
+                    },
+                  ),
+                  SwitchListTile(
+                    value: settings.mimoProactive,
+                    title: Text(
+                      context.lt(ar: 'ميمو يبادر', en: 'Mimo speaks up'),
+                    ),
+                    subtitle: Text(
+                      context.lt(
+                        ar: 'يخبرك بحالة طلبك ويذكّرك بالكوبونات والسلة المنسية',
+                        en: 'Order updates, expiring coupons and forgotten-cart tips',
+                      ),
+                    ),
+                    onChanged: settings.mimoEnabled
+                        ? (value) {
+                            ref
+                                .read(appSettingsControllerProvider.notifier)
+                                .setMimoProactive(value);
+                          }
+                        : null,
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    value: settings.weatherEffectsEnabled,
+                    title: Text(l10n.settingsWeatherEffects),
+                    subtitle: Text(l10n.settingsWeatherEffectsHint),
+                    onChanged: (value) {
+                      ref
+                          .read(appSettingsControllerProvider.notifier)
+                          .setWeatherEffectsEnabled(value);
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.restart_alt_rounded),
+                    title: Text(l10n.settingsResetVisual),
+                    subtitle: Text(l10n.settingsResetVisualHint),
+                    onTap: () async {
+                      await ref
+                          .read(appSettingsControllerProvider.notifier)
+                          .resetVisualDefaults();
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+            Card(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
+                    child: Text(
+                      l10n.settingsColorPresetTitle,
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
                   ),
-                  onChanged: (value) {
-                    ref
-                        .read(appSettingsControllerProvider.notifier)
-                        .setMimoEnabled(value);
-                  },
-                ),
-                SwitchListTile(
-                  value: settings.mimoProactive,
-                  title: Text(
-                    context.lt(ar: 'ميمو يبادر', en: 'Mimo speaks up'),
-                  ),
-                  subtitle: Text(
-                    context.lt(
-                      ar: 'يخبرك بحالة طلبك ويذكّرك بالكوبونات والسلة المنسية',
-                      en: 'Order updates, expiring coupons and forgotten-cart tips',
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Text(
+                      _ar(context)
+                          ? 'اختر أحد ثيمات مسلكي الرسمية الثلاثة. الشعار ثابت في كل الثيمات.'
+                          : 'Choose one of the three official Maslaki themes. The logo stays the same across all themes.',
+                      style: Theme.of(context).textTheme.bodySmall,
                     ),
                   ),
-                  onChanged: settings.mimoEnabled
-                      ? (value) {
-                          ref
-                              .read(appSettingsControllerProvider.notifier)
-                              .setMimoProactive(value);
-                        }
-                      : null,
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  value: settings.weatherEffectsEnabled,
-                  title: Text(l10n.settingsWeatherEffects),
-                  subtitle: Text(l10n.settingsWeatherEffectsHint),
-                  onChanged: (value) {
-                    ref
-                        .read(appSettingsControllerProvider.notifier)
-                        .setWeatherEffectsEnabled(value);
-                  },
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.restart_alt_rounded),
-                  title: Text(l10n.settingsResetVisual),
-                  subtitle: Text(l10n.settingsResetVisualHint),
-                  onTap: () async {
-                    await ref
-                        .read(appSettingsControllerProvider.notifier)
-                        .resetVisualDefaults();
-                  },
-                ),
-              ],
+                  for (final theme in MaslakiTheme.values)
+                    _ThemeOption(
+                      theme: theme,
+                      label: _themeName(context, theme),
+                      selected: settings.maslakiTheme == theme,
+                      onTap: () => ref
+                          .read(appSettingsControllerProvider.notifier)
+                          .setMaslakiTheme(theme),
+                    ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
-                  child: Text(
-                    l10n.settingsColorPresetTitle,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                  child: Text(
-                    _ar(context)
-                        ? 'اختر أحد ثيمات مسلكي الرسمية الثلاثة. الشعار ثابت في كل الثيمات.'
-                        : 'Choose one of the three official Maslaki themes. The logo stays the same across all themes.',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                for (final theme in MaslakiTheme.values)
-                  _ThemeOption(
-                    theme: theme,
-                    label: _themeName(context, theme),
-                    selected: settings.maslakiTheme == theme,
-                    onTap: () => ref
-                        .read(appSettingsControllerProvider.notifier)
-                        .setMaslakiTheme(theme),
-                  ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

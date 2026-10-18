@@ -158,175 +158,180 @@ class _SocialSearchScreenState extends ConsumerState<SocialSearchScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.socialSearchTitle)),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: TextField(
-              controller: _searchCtrl,
-              onChanged: (_) => _scheduleSearch(),
-              textInputAction: TextInputAction.search,
-              decoration: InputDecoration(
-                hintText: l10n.socialSearchHint,
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _searchCtrl.text.trim().isEmpty
-                    ? null
-                    : IconButton(
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          _scheduleSearch();
-                        },
-                        icon: const Icon(Icons.close_rounded),
-                      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (_) => _scheduleSearch(),
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: l10n.socialSearchHint,
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _searchCtrl.text.trim().isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            _scheduleSearch();
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                ),
               ),
             ),
-          ),
-          SizedBox(
-            height: 44,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              children: _tabs
-                  .map(
-                    (tab) => Padding(
-                      padding: const EdgeInsetsDirectional.only(end: 8),
-                      child: ChoiceChip(
-                        selected: state.tab == tab,
-                        label: Text(_tabLabel(context, tab)),
-                        onSelected: (_) => notifier.setTab(tab),
+            SizedBox(
+              height: 44,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                children: _tabs
+                    .map(
+                      (tab) => Padding(
+                        padding: const EdgeInsetsDirectional.only(end: 8),
+                        child: ChoiceChip(
+                          selected: state.tab == tab,
+                          label: Text(_tabLabel(context, tab)),
+                          onSelected: (_) => notifier.setTab(tab),
+                        ),
                       ),
-                    ),
-                  )
-                  .toList(growable: false),
+                    )
+                    .toList(growable: false),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Expanded(
-            child: state.loading && results == null
-                ? const Center(child: CircularProgressIndicator())
-                : results == null
-                ? const SizedBox.shrink()
-                : ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                    children: [
-                      if (results.recentSearches.isNotEmpty &&
-                          state.query.trim().isEmpty) ...[
-                        _SearchSectionTitle(
-                          title: l10n.socialSearchRecentSearches,
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: results.recentSearches
-                              .map(
-                                (row) => ActionChip(
-                                  label: Text('${row['rawQuery'] ?? ''}'),
-                                  onPressed: () {
-                                    _searchCtrl.text =
-                                        '${row['rawQuery'] ?? ''}';
-                                    notifier.search(
-                                      query: _searchCtrl.text.trim(),
-                                    );
-                                  },
-                                ),
-                              )
-                              .toList(growable: false),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      if (results.suggestedPeople.isNotEmpty &&
-                          state.query.trim().isEmpty) ...[
-                        _SearchSectionTitle(
-                          title: l10n.socialSearchSuggestedPeople,
-                        ),
-                        const SizedBox(height: 8),
-                        ...results.suggestedPeople.map(buildUserTile),
-                        const SizedBox(height: 16),
-                      ],
-                      if (results.users.isNotEmpty) ...[
-                        _SearchSectionTitle(title: l10n.socialSearchUsers),
-                        ...results.users.map(buildUserTile),
-                        const SizedBox(height: 16),
-                      ],
-                      if (results.hashtags.isNotEmpty) ...[
-                        _SearchSectionTitle(title: l10n.socialSearchHashtags),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: results.hashtags
-                              .map(
-                                (tag) => ActionChip(
-                                  label: Text('#${tag.tag}'),
-                                  onPressed: () {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute<void>(
-                                        builder: (_) =>
-                                            SocialHashtagScreen(tag: tag.tag),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              )
-                              .toList(growable: false),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-                      if (results.posts.isNotEmpty) ...[
-                        _SearchSectionTitle(title: l10n.socialSearchPosts),
-                        const SizedBox(height: 8),
-                        ...results.posts.map(
-                          (post) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: SocialPostCardV2(
-                              post: post,
-                              onOpenDetails: () => openSocialContent(
-                                context,
+            const SizedBox(height: 8),
+            Expanded(
+              child: state.loading && results == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : results == null
+                  ? const SizedBox.shrink()
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                      children: [
+                        if (results.recentSearches.isNotEmpty &&
+                            state.query.trim().isEmpty) ...[
+                          _SearchSectionTitle(
+                            title: l10n.socialSearchRecentSearches,
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: results.recentSearches
+                                .map(
+                                  (row) => ActionChip(
+                                    label: Text('${row['rawQuery'] ?? ''}'),
+                                    onPressed: () {
+                                      _searchCtrl.text =
+                                          '${row['rawQuery'] ?? ''}';
+                                      notifier.search(
+                                        query: _searchCtrl.text.trim(),
+                                      );
+                                    },
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                        if (results.suggestedPeople.isNotEmpty &&
+                            state.query.trim().isEmpty) ...[
+                          _SearchSectionTitle(
+                            title: l10n.socialSearchSuggestedPeople,
+                          ),
+                          const SizedBox(height: 8),
+                          ...results.suggestedPeople.map(buildUserTile),
+                          const SizedBox(height: 16),
+                        ],
+                        if (results.users.isNotEmpty) ...[
+                          _SearchSectionTitle(title: l10n.socialSearchUsers),
+                          ...results.users.map(buildUserTile),
+                          const SizedBox(height: 16),
+                        ],
+                        if (results.hashtags.isNotEmpty) ...[
+                          _SearchSectionTitle(title: l10n.socialSearchHashtags),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: results.hashtags
+                                .map(
+                                  (tag) => ActionChip(
+                                    label: Text('#${tag.tag}'),
+                                    onPressed: () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute<void>(
+                                          builder: (_) =>
+                                              SocialHashtagScreen(tag: tag.tag),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                )
+                                .toList(growable: false),
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                        if (results.posts.isNotEmpty) ...[
+                          _SearchSectionTitle(title: l10n.socialSearchPosts),
+                          const SizedBox(height: 8),
+                          ...results.posts.map(
+                            (post) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: SocialPostCardV2(
                                 post: post,
-                                reelContextPosts: results.posts,
+                                onOpenDetails: () => openSocialContent(
+                                  context,
+                                  post: post,
+                                  reelContextPosts: results.posts,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ],
-                      if (results.reels.isNotEmpty) ...[
-                        _SearchSectionTitle(title: l10n.socialSearchReels),
-                        const SizedBox(height: 8),
-                        ...results.reels.map(
-                          (post) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: SocialPostCardV2(
-                              post: post,
-                              onOpenDetails: () {
-                                openSocialReelsV3(
-                                  context,
-                                  reelId:
-                                      socialCanonicalReelIdForPost(post) ??
-                                      post.id,
-                                );
-                              },
+                        ],
+                        if (results.reels.isNotEmpty) ...[
+                          _SearchSectionTitle(title: l10n.socialSearchReels),
+                          const SizedBox(height: 8),
+                          ...results.reels.map(
+                            (post) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: SocialPostCardV2(
+                                post: post,
+                                onOpenDetails: () {
+                                  openSocialReelsV3(
+                                    context,
+                                    reelId:
+                                        socialCanonicalReelIdForPost(post) ??
+                                        post.id,
+                                  );
+                                },
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                      if (results.reviews.isNotEmpty) ...[
-                        _SearchSectionTitle(title: l10n.socialSearchReviews),
-                        const SizedBox(height: 8),
-                        ...results.reviews.map(
-                          (post) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: SocialPostCardV2(post: post),
+                        ],
+                        if (results.reviews.isNotEmpty) ...[
+                          _SearchSectionTitle(title: l10n.socialSearchReviews),
+                          const SizedBox(height: 8),
+                          ...results.reviews.map(
+                            (post) => Padding(
+                              padding: const EdgeInsets.only(bottom: 12),
+                              child: SocialPostCardV2(post: post),
+                            ),
                           ),
-                        ),
+                        ],
+                        if (results.merchants.isNotEmpty) ...[
+                          _SearchSectionTitle(
+                            title: l10n.socialSearchMerchants,
+                          ),
+                          ...results.merchants.map(buildMerchantTile),
+                        ],
                       ],
-                      if (results.merchants.isNotEmpty) ...[
-                        _SearchSectionTitle(title: l10n.socialSearchMerchants),
-                        ...results.merchants.map(buildMerchantTile),
-                      ],
-                    ],
-                  ),
-          ),
-        ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

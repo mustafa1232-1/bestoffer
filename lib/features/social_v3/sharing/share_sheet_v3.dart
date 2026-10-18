@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import 'canonical_links.dart';
 
@@ -85,7 +87,7 @@ class ShareSheetV3 extends StatelessWidget {
     void Function(String shareText)? onExternalShare,
     VoidCallback? onRepost,
   }) {
-    return showModalBottomSheet<void>(
+    return showMaslakiBottomSheet<void>(
       context: context,
       backgroundColor: const Color(0xFF0D1B2A),
       showDragHandle: true,

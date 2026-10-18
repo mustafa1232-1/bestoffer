@@ -339,27 +339,30 @@ class _DeliveryDashboardScreenState
             const NotificationsBellButton(),
           ],
         ),
-        body: RefreshIndicator(
-          onRefresh: () => ref
-              .read(deliveryControllerProvider.notifier)
-              .bootstrap(includeExtended: false),
-          child: Theme(
-            data: Theme.of(context).copyWith(
-              cardTheme: CardThemeData(
-                color: Colors.white.withValues(alpha: 0.96),
-                surfaceTintColor: Colors.transparent,
-                elevation: 2,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  side: BorderSide(
-                    color: AppColors.brandGold.withValues(alpha: 0.28),
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: () => ref
+                .read(deliveryControllerProvider.notifier)
+                .bootstrap(includeExtended: false),
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                cardTheme: CardThemeData(
+                  color: Colors.white.withValues(alpha: 0.96),
+                  surfaceTintColor: Colors.transparent,
+                  elevation: 2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                    side: BorderSide(
+                      color: AppColors.brandGold.withValues(alpha: 0.28),
+                    ),
                   ),
                 ),
               ),
+              child: state.loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildDeliveryTabBody(state: state, auth: auth),
             ),
-            child: state.loading
-                ? const Center(child: CircularProgressIndicator())
-                : _buildDeliveryTabBody(state: state, auth: auth),
           ),
         ),
       ),

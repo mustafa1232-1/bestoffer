@@ -103,77 +103,80 @@ class _TaxiCaptainLoyaltyScreenState
     }
     return Scaffold(
       appBar: AppBar(title: Text(l10n.taxiCaptainContestsTitle)),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.account_balance_wallet_outlined),
-                title: Text(l10n.taxiCaptainSubscriptionSummary),
-                subtitle: Text(
-                  '${l10n.taxiCaptainMonthlySubscription}: ${_summary['monthlySubscriptionAmountIqd'] ?? 0}\n'
-                  '${l10n.taxiCaptainApprovedCredits}: ${_summary['approvedCreditsIqd'] ?? 0}\n'
-                  '${l10n.taxiCaptainPayableAmount}: ${_summary['payableAmountIqd'] ?? 0}',
-                ),
-                isThreeLine: true,
-              ),
-            ),
-            Card(
-              child: ListTile(
-                leading: const Icon(Icons.shield_outlined),
-                title: Text(l10n.taxiCaptainGovernanceStatus),
-                subtitle: Text(
-                  '${_governance['governanceStatus'] ?? 'active'}\n'
-                  '${l10n.taxiCaptainWarningsCount}: ${_warnings.length}',
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              l10n.taxiCaptainLedgerTitle,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            ..._ledger.map(
-              (item) => Card(
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              Card(
                 child: ListTile(
-                  title: Text(item['entryType']?.toString() ?? '-'),
-                  subtitle: Text(item['createdAt']?.toString() ?? '-'),
-                  trailing: Text('${item['amountIqd'] ?? 0}'),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              l10n.taxiCaptainContestsTitle,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            ..._contests.map(
-              (item) => Card(
-                child: ListTile(
-                  title: Text(item['title']?.toString() ?? '-'),
+                  leading: const Icon(Icons.account_balance_wallet_outlined),
+                  title: Text(l10n.taxiCaptainSubscriptionSummary),
                   subtitle: Text(
-                    '${item['progressValue'] ?? 0} / ${item['targetValue'] ?? 0}',
+                    '${l10n.taxiCaptainMonthlySubscription}: ${_summary['monthlySubscriptionAmountIqd'] ?? 0}\n'
+                    '${l10n.taxiCaptainApprovedCredits}: ${_summary['approvedCreditsIqd'] ?? 0}\n'
+                    '${l10n.taxiCaptainPayableAmount}: ${_summary['payableAmountIqd'] ?? 0}',
+                  ),
+                  isThreeLine: true,
+                ),
+              ),
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: Text(l10n.taxiCaptainGovernanceStatus),
+                  subtitle: Text(
+                    '${_governance['governanceStatus'] ?? 'active'}\n'
+                    '${l10n.taxiCaptainWarningsCount}: ${_warnings.length}',
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              l10n.taxiCaptainRewardsTitle,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            ..._rewards.map(
-              (item) => Card(
-                child: ListTile(
-                  title: Text(item['rewardType']?.toString() ?? '-'),
-                  subtitle: Text(item['createdAt']?.toString() ?? '-'),
-                  trailing: Text('${item['rewardValue'] ?? 0}'),
+              const SizedBox(height: 8),
+              Text(
+                l10n.taxiCaptainLedgerTitle,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              ..._ledger.map(
+                (item) => Card(
+                  child: ListTile(
+                    title: Text(item['entryType']?.toString() ?? '-'),
+                    subtitle: Text(item['createdAt']?.toString() ?? '-'),
+                    trailing: Text('${item['amountIqd'] ?? 0}'),
+                  ),
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 8),
+              Text(
+                l10n.taxiCaptainContestsTitle,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              ..._contests.map(
+                (item) => Card(
+                  child: ListTile(
+                    title: Text(item['title']?.toString() ?? '-'),
+                    subtitle: Text(
+                      '${item['progressValue'] ?? 0} / ${item['targetValue'] ?? 0}',
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                l10n.taxiCaptainRewardsTitle,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              ..._rewards.map(
+                (item) => Card(
+                  child: ListTile(
+                    title: Text(item['rewardType']?.toString() ?? '-'),
+                    subtitle: Text(item['createdAt']?.toString() ?? '-'),
+                    trailing: Text('${item['rewardValue'] ?? 0}'),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

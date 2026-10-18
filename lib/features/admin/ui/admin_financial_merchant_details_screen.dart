@@ -492,74 +492,77 @@ class _AdminFinancialMerchantDetailsScreenState
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(12),
-          children: [
-            AdminFinancialFilterBar(
-              period: _period,
-              customRangeLabel: _periodLabel(context),
-              onPeriodChanged: (value) async {
-                setState(() => _period = value);
-                if (value == AdminFinancialPeriod.custom &&
-                    (_from == null || _to == null)) {
-                  await _pickRange();
-                  return;
-                }
-                await _load();
-              },
-              onPickCustomRange: _pickRange,
-            ),
-            if (detail != null) ...[
-              Card(
-                child: ListTile(
-                  title: Text(detail.merchant.name),
-                  subtitle: Text(
-                    '${l10n.adminFinancialMerchantLabelPeriod}: ${_periodLabel(context)}',
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(12),
+            children: [
+              AdminFinancialFilterBar(
+                period: _period,
+                customRangeLabel: _periodLabel(context),
+                onPeriodChanged: (value) async {
+                  setState(() => _period = value);
+                  if (value == AdminFinancialPeriod.custom &&
+                      (_from == null || _to == null)) {
+                    await _pickRange();
+                    return;
+                  }
+                  await _load();
+                },
+                onPickCustomRange: _pickRange,
+              ),
+              if (detail != null) ...[
+                Card(
+                  child: ListTile(
+                    title: Text(detail.merchant.name),
+                    subtitle: Text(
+                      '${l10n.adminFinancialMerchantLabelPeriod}: ${_periodLabel(context)}',
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 8),
-              AdminFinancialPrintActions(
-                onPrintPdf: _print,
-                onExportExcel: _exportExcel,
-              ),
-              const SizedBox(height: 8),
+                const SizedBox(height: 8),
+                AdminFinancialPrintActions(
+                  onPrintPdf: _print,
+                  onExportExcel: _exportExcel,
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (_loading)
+                const Padding(
+                  padding: EdgeInsets.only(top: 40),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_error != null)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      children: [
+                        Text(_error!),
+                        const SizedBox(height: 8),
+                        OutlinedButton(
+                          onPressed: _load,
+                          child: Text(l10n.commonRetry),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else if (detail == null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 30),
+                  child: Center(
+                    child: Text(l10n.adminFinancialMerchantNoDetailData),
+                  ),
+                )
+              else
+                ..._buildDetailRows(context, detail),
+              const SizedBox(height: 16),
             ],
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.only(top: 40),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else if (_error != null)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    children: [
-                      Text(_error!),
-                      const SizedBox(height: 8),
-                      OutlinedButton(
-                        onPressed: _load,
-                        child: Text(l10n.commonRetry),
-                      ),
-                    ],
-                  ),
-                ),
-              )
-            else if (detail == null)
-              Padding(
-                padding: const EdgeInsets.only(top: 30),
-                child: Center(
-                  child: Text(l10n.adminFinancialMerchantNoDetailData),
-                ),
-              )
-            else
-              ..._buildDetailRows(context, detail),
-            const SizedBox(height: 16),
-          ],
+          ),
         ),
       ),
     );

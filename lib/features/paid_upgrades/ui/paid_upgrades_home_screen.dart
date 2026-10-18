@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/forms/backend_field_error_parser.dart';
 import '../../../core/forms/form_error_banner.dart';
@@ -365,7 +367,7 @@ class _PaidUpgradesHomeScreenState
   Future<void> _openRequestSheet() async {
     final summary = _summary;
     if (summary == null || _busy) return;
-    final created = await showModalBottomSheet<bool>(
+    final created = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _PaidUpgradeRequestSheet(plans: summary.plans),
@@ -744,210 +746,216 @@ class _PaidUpgradesHomeScreenState
               icon: const Icon(Icons.upgrade_rounded),
               label: Text(l10n.paidUpgradesRequestUpgrade),
             ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Text(
-                        _error!,
-                        textDirection: context.appTextDirection,
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ],
-              )
-            : ListView(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
-                children: [
-                  if (summary != null && summary.premiumBadgeActive)
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.workspace_premium_rounded),
-                        title: Text(l10n.paidUpgradesPremiumBadgeActive),
-                        subtitle: Text(
-                          l10n.paidUpgradesPremiumBadgeSubtitle(
-                            _formatDate(summary.premiumBadgeExpiresAt),
-                            _remainingLabel(summary.premiumBadgeExpiresAt),
-                          ),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Text(
+                          _error!,
                           textDirection: context.appTextDirection,
+                          textAlign: TextAlign.center,
                         ),
                       ),
                     ),
-                  if (summary != null) _buildActiveSubscriptions(summary),
-                  const SizedBox(height: 10),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            l10n.paidUpgradesAvailablePlans,
-                            textDirection: context.appTextDirection,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 18,
+                  ],
+                )
+              : ListView(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 90),
+                  children: [
+                    if (summary != null && summary.premiumBadgeActive)
+                      Card(
+                        child: ListTile(
+                          leading: const Icon(Icons.workspace_premium_rounded),
+                          title: Text(l10n.paidUpgradesPremiumBadgeActive),
+                          subtitle: Text(
+                            l10n.paidUpgradesPremiumBadgeSubtitle(
+                              _formatDate(summary.premiumBadgeExpiresAt),
+                              _remainingLabel(summary.premiumBadgeExpiresAt),
                             ),
+                            textDirection: context.appTextDirection,
                           ),
-                          const SizedBox(height: 12),
-                          ...?summary?.plans.map(
-                            (plan) => _buildPlanCard(plan, summary),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(14),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            l10n.paidUpgradesYourRequests,
-                            textDirection: context.appTextDirection,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 18,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          if (summary == null || summary.requests.isEmpty)
+                    if (summary != null) _buildActiveSubscriptions(summary),
+                    const SizedBox(height: 10),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
                             Text(
-                              l10n.paidUpgradesNoRequests,
+                              l10n.paidUpgradesAvailablePlans,
                               textDirection: context.appTextDirection,
-                            )
-                          else
-                            ...summary.requests.map((request) {
-                              final pending =
-                                  request.status == 'pending_admin_review';
-                              return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: Container(
-                                  padding: const EdgeInsets.all(14),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(16),
-                                    color: Theme.of(context)
-                                        .colorScheme
-                                        .surfaceContainerHighest
-                                        .withValues(alpha: 0.3),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.end,
-                                    children: [
-                                      Row(
-                                        textDirection: context.appTextDirection,
-                                        children: [
-                                          Expanded(
-                                            child: Text(
-                                              request.planTitle ??
-                                                  request.planCode ??
-                                                  '-',
-                                              textDirection:
-                                                  context.appTextDirection,
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w900,
-                                              ),
-                                            ),
-                                          ),
-                                          Text(
-                                            _statusLabel(request.status),
-                                            style: TextStyle(
-                                              color: _statusColor(
-                                                request.status,
-                                              ),
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 8),
-                                      if ((request.activityName ?? '')
-                                          .trim()
-                                          .isNotEmpty)
-                                        Text(
-                                          l10n.paidUpgradesActivityLine(
-                                            request.activityName!,
-                                          ),
-                                          textDirection:
-                                              context.appTextDirection,
-                                        ),
-                                      if ((request.contactPhone ?? '')
-                                          .trim()
-                                          .isNotEmpty)
-                                        Text(
-                                          l10n.paidUpgradesPhoneLine(
-                                            request.contactPhone!,
-                                          ),
-                                          textDirection:
-                                              context.appTextDirection,
-                                        ),
-                                      Text(
-                                        l10n.paidUpgradesMonthlyFeeLine(
-                                          formatIqd(request.monthlyFeeIqd),
-                                        ),
-                                        textDirection: context.appTextDirection,
-                                      ),
-                                      if ((request.reviewNote ?? '')
-                                          .trim()
-                                          .isNotEmpty)
-                                        Text(
-                                          l10n.paidUpgradesReviewNoteLine(
-                                            request.reviewNote!,
-                                          ),
-                                          textDirection:
-                                              context.appTextDirection,
-                                        ),
-                                      if (request.activatedAt != null)
-                                        Text(
-                                          l10n.paidUpgradesActivatedOn(
-                                            _formatDate(request.activatedAt),
-                                          ),
-                                          textDirection:
-                                              context.appTextDirection,
-                                        ),
-                                      if (pending)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 10,
-                                          ),
-                                          child: Align(
-                                            alignment: Alignment.centerRight,
-                                            child: OutlinedButton.icon(
-                                              onPressed: _busy
-                                                  ? null
-                                                  : () => _cancelRequest(
-                                                      request.id,
-                                                    ),
-                                              icon: const Icon(
-                                                Icons.close_rounded,
-                                              ),
-                                              label: Text(
-                                                l10n.paidUpgradesCancelRequest,
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            }),
-                        ],
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 18,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            ...?summary?.plans.map(
+                              (plan) => _buildPlanCard(plan, summary),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    const SizedBox(height: 10),
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              l10n.paidUpgradesYourRequests,
+                              textDirection: context.appTextDirection,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 18,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            if (summary == null || summary.requests.isEmpty)
+                              Text(
+                                l10n.paidUpgradesNoRequests,
+                                textDirection: context.appTextDirection,
+                              )
+                            else
+                              ...summary.requests.map((request) {
+                                final pending =
+                                    request.status == 'pending_admin_review';
+                                return Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      borderRadius: BorderRadius.circular(16),
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .surfaceContainerHighest
+                                          .withValues(alpha: 0.3),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: [
+                                        Row(
+                                          textDirection:
+                                              context.appTextDirection,
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                request.planTitle ??
+                                                    request.planCode ??
+                                                    '-',
+                                                textDirection:
+                                                    context.appTextDirection,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                            ),
+                                            Text(
+                                              _statusLabel(request.status),
+                                              style: TextStyle(
+                                                color: _statusColor(
+                                                  request.status,
+                                                ),
+                                                fontWeight: FontWeight.w800,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 8),
+                                        if ((request.activityName ?? '')
+                                            .trim()
+                                            .isNotEmpty)
+                                          Text(
+                                            l10n.paidUpgradesActivityLine(
+                                              request.activityName!,
+                                            ),
+                                            textDirection:
+                                                context.appTextDirection,
+                                          ),
+                                        if ((request.contactPhone ?? '')
+                                            .trim()
+                                            .isNotEmpty)
+                                          Text(
+                                            l10n.paidUpgradesPhoneLine(
+                                              request.contactPhone!,
+                                            ),
+                                            textDirection:
+                                                context.appTextDirection,
+                                          ),
+                                        Text(
+                                          l10n.paidUpgradesMonthlyFeeLine(
+                                            formatIqd(request.monthlyFeeIqd),
+                                          ),
+                                          textDirection:
+                                              context.appTextDirection,
+                                        ),
+                                        if ((request.reviewNote ?? '')
+                                            .trim()
+                                            .isNotEmpty)
+                                          Text(
+                                            l10n.paidUpgradesReviewNoteLine(
+                                              request.reviewNote!,
+                                            ),
+                                            textDirection:
+                                                context.appTextDirection,
+                                          ),
+                                        if (request.activatedAt != null)
+                                          Text(
+                                            l10n.paidUpgradesActivatedOn(
+                                              _formatDate(request.activatedAt),
+                                            ),
+                                            textDirection:
+                                                context.appTextDirection,
+                                          ),
+                                        if (pending)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 10,
+                                            ),
+                                            child: Align(
+                                              alignment: Alignment.centerRight,
+                                              child: OutlinedButton.icon(
+                                                onPressed: _busy
+                                                    ? null
+                                                    : () => _cancelRequest(
+                                                        request.id,
+                                                      ),
+                                                icon: const Icon(
+                                                  Icons.close_rounded,
+                                                ),
+                                                label: Text(
+                                                  l10n.paidUpgradesCancelRequest,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              }),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+        ),
       ),
     );
   }

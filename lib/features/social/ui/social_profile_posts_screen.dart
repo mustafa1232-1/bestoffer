@@ -410,7 +410,7 @@ class _SocialProfilePostsScreenState
       textDirection: Directionality.of(context),
       child: Scaffold(
         appBar: AppBar(title: Text(widget.title)),
-        body: body,
+        body: SafeArea(top: false, child: body),
       ),
     );
   }

@@ -94,14 +94,17 @@ class _QaHomeTabs extends StatelessWidget {
             ],
           ),
         ),
-        body: const TabBarView(
-          children: [
-            CustomerDiscoveryScreen(),
-            MerchantsListScreen(
-              compactCustomerMode: true,
-              initialType: 'market',
-            ),
-          ],
+        body: const SafeArea(
+          top: false,
+          child: TabBarView(
+            children: [
+              CustomerDiscoveryScreen(),
+              MerchantsListScreen(
+                compactCustomerMode: true,
+                initialType: 'market',
+              ),
+            ],
+          ),
         ),
       ),
     );

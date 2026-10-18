@@ -23,11 +23,11 @@ class AiDevSupportDashboardScreen extends ConsumerWidget {
     if (!auth.isSuperAdmin) {
       return Scaffold(
         appBar: AppBar(title: const Text('AI DEV SUPPORT')),
-        body: const OpsFeedbackState(
+        body: const SafeArea(top: false, child: OpsFeedbackState(
           icon: Icons.lock_outline_rounded,
           title: 'Access denied',
           message: 'This workspace is available to the super admin only.',
-        ),
+        )),
       );
     }
 
@@ -48,7 +48,7 @@ class AiDevSupportDashboardScreen extends ConsumerWidget {
             ],
           ),
         ),
-        body: const TabBarView(
+        body: const SafeArea(top: false, child: TabBarView(
           children: [
             _OverviewTab(),
             _IncidentsTab(),
@@ -57,7 +57,7 @@ class AiDevSupportDashboardScreen extends ConsumerWidget {
             _NotificationsTab(),
             AiDevSupportSettingsScreen(),
           ],
-        ),
+        )),
       ),
     );
   }

@@ -133,7 +133,7 @@ class _StoreOwnerCouriersScreenState
         icon: const Icon(Icons.person_add_alt_1_rounded),
         label: Text(l10n.ownerCouriersAddCourierButton),
       ),
-      body: RefreshIndicator(
+      body: SafeArea(top: false, child: RefreshIndicator(
         onRefresh: _reload,
         child: ListView(
           padding: const EdgeInsets.all(12),
@@ -233,7 +233,7 @@ class _StoreOwnerCouriersScreenState
             const SizedBox(height: 80),
           ],
         ),
-      ),
+      )),
     );
   }
 }

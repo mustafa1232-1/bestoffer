@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../../core/i18n/app_localizations_context.dart';
 import '../../../../core/utils/currency.dart';
@@ -197,7 +199,7 @@ class _MerchantFinancialRequestFormSheetState
     final invoices = invoicesRaw
         .map(MerchantReceivableInvoiceModel.fromJson)
         .toList(growable: false);
-    final selected = await showModalBottomSheet<List<int>>(
+    final selected = await showMaslakiBottomSheet<List<int>>(
       context: context,
       isScrollControlled: true,
       builder: (_) => MerchantReceivableInvoicePickerSheet(
@@ -244,7 +246,7 @@ class _MerchantFinancialRequestFormSheetState
       Map<String, dynamic>.from((raw['preview'] as Map?) ?? const {}),
     );
     if (preview.requiresAmountConfirmation) {
-      final approvedAmount = await showModalBottomSheet<double>(
+      final approvedAmount = await showMaslakiBottomSheet<double>(
         context: context,
         builder: (_) => MerchantAutoMatchSuggestionSheet(preview: preview),
       );

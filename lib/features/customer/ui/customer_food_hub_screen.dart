@@ -106,26 +106,29 @@ class CustomerFoodHubScreen extends StatelessWidget {
         title: Text(l10n.customerFoodHubTitle),
         actions: const [AppBarQuickActions()],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
-        children: [
-          const CustomerMarketplaceAdSurface(
-            request: MarketplaceAdRequest(
-              placement: 'MARKETPLACE_CATEGORY',
-              categoryKey: 'food',
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
+          children: [
+            const CustomerMarketplaceAdSurface(
+              request: MarketplaceAdRequest(
+                placement: 'MARKETPLACE_CATEGORY',
+                categoryKey: 'food',
+              ),
+              showEmptyState: true,
             ),
-            showEmptyState: true,
-          ),
-          _HeaderCard(
-            title: l10n.customerFoodHubHeaderTitle,
-            subtitle: l10n.customerFoodHubHeaderSubtitle,
-          ),
-          const SizedBox(height: 12),
-          _TopicGrid(
-            topics: _topics(context),
-            onTap: (topic) => _open(context, topic),
-          ),
-        ],
+            _HeaderCard(
+              title: l10n.customerFoodHubHeaderTitle,
+              subtitle: l10n.customerFoodHubHeaderSubtitle,
+            ),
+            const SizedBox(height: 12),
+            _TopicGrid(
+              topics: _topics(context),
+              onTap: (topic) => _open(context, topic),
+            ),
+          ],
+        ),
       ),
     );
   }

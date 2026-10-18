@@ -178,8 +178,7 @@ void main() {
     tester,
   ) async {
     final container = await _pump(tester);
-    final orders =
-        container.read(ordersControllerProvider.notifier) as _Orders;
+    final orders = container.read(ordersControllerProvider.notifier) as _Orders;
 
     orders.setOrders([_order('pending')]);
     await _frames(tester, 100);
@@ -200,8 +199,7 @@ void main() {
 
   testWidgets('"ميمو يبادر" off keeps him quiet about orders', (tester) async {
     final container = await _pump(tester, proactive: false);
-    final orders =
-        container.read(ordersControllerProvider.notifier) as _Orders;
+    final orders = container.read(ordersControllerProvider.notifier) as _Orders;
     orders.setOrders([_order('preparing')]);
     await _frames(tester, 100);
     orders.setOrders([_order('on_the_way')]);

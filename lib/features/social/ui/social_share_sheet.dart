@@ -15,6 +15,8 @@ import 'social_message_client_id.dart';
 import '../../social_v3/sharing/canonical_links.dart';
 
 import 'package:maslaki/core/media/cached_app_image.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 String socialEntityTypeFromPost(SocialPost post) {
   if ((post.sharedEntity?.type.trim().toLowerCase() ?? '') == 'reel') {
@@ -111,7 +113,7 @@ Future<bool?> showSocialShareSheet({
   String? externalShareText,
   Map<String, dynamic>? sharedSnapshot,
 }) {
-  return showModalBottomSheet<bool>(
+  return showMaslakiBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,

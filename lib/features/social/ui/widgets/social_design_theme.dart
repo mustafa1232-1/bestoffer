@@ -1,3 +1,5 @@
+import 'package:core_design_system/core_design_system.dart'
+    show MaslakiSystemUiStyles;
 import 'package:flutter/material.dart';
 
 /// Scoped to community: commerce, orders and taxi keep their existing theme.
@@ -32,6 +34,7 @@ abstract final class SocialDesignTheme {
       scaffoldBackgroundColor: background,
       textTheme: base.textTheme.apply(bodyColor: ink, displayColor: ink),
       appBarTheme: base.appBarTheme.copyWith(
+        systemOverlayStyle: MaslakiSystemUiStyles.darkIcons,
         backgroundColor: background,
         foregroundColor: indigo,
         surfaceTintColor: Colors.transparent,

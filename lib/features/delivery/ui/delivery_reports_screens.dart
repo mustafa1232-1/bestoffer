@@ -89,130 +89,143 @@ class _DeliveryEarningsScreenState
       appBar: AppBar(
         title: Text(context.lt(ar: 'أرباح التوصيل', en: 'Delivery earnings')),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _ErrorRetry(message: _error!, onRetry: _load)
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _MetricChip(
-                        label: context.lt(ar: 'أجور اليوم', en: 'Today'),
-                        value: formatIqd(_money(_data?['todayEarnings'])),
-                      ),
-                      _MetricChip(
-                        label: context.lt(ar: 'أجور الشهر', en: 'Month'),
-                        value: formatIqd(_money(_data?['monthEarnings'])),
-                      ),
-                      _MetricChip(
-                        label: context.lt(ar: 'مكتمل اليوم', en: 'Done today'),
-                        value: '${_int(_data?['completedTodayCount'])}',
-                      ),
-                      _MetricChip(
-                        label: context.lt(ar: 'مكتمل الشهر', en: 'Done month'),
-                        value: '${_int(_data?['completedMonthCount'])}',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _MetricChip(
-                        label: context.lt(
-                          ar: 'Ø±Ø³ÙˆÙ… Ø§Ù„Ø®Ø¯Ù…Ø©',
-                          en: 'Service fee',
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? _ErrorRetry(message: _error!, onRetry: _load)
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _MetricChip(
+                          label: context.lt(ar: 'أجور اليوم', en: 'Today'),
+                          value: formatIqd(_money(_data?['todayEarnings'])),
                         ),
-                        value: formatIqd(_money(_data?['serviceFeeSum'])),
-                      ),
-                      _MetricChip(
-                        label: context.lt(
-                          ar: 'Ø°Ù…Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚',
-                          en: 'App due',
+                        _MetricChip(
+                          label: context.lt(ar: 'أجور الشهر', en: 'Month'),
+                          value: formatIqd(_money(_data?['monthEarnings'])),
                         ),
-                        value: formatIqd(
-                          _money(_data?['appDueFromDeliverySum']),
-                        ),
-                      ),
-                      _MetricChip(
-                        label: context.lt(
-                          ar: 'Ø§Ù„ÙØ±ÙˆÙ‚Ø§Øª',
-                          en: 'Differences',
-                        ),
-                        value: formatIqd(_money(_data?['differenceAmountSum'])),
-                      ),
-                      _MetricChip(
-                        label: context.lt(
-                          ar: 'ØµØ§ÙÙŠ Ø§Ù„Ù…ØªØ¬Ø±',
-                          en: 'Store net',
-                        ),
-                        value: formatIqd(
-                          _money(_data?['storeNetReceivedAmountSum']),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  if (rows.isEmpty)
-                    _EmptyState(
-                      text: context.lt(
-                        ar: 'لا توجد طلبات مكتملة بعد.',
-                        en: 'No completed orders yet.',
-                      ),
-                    )
-                  else
-                    ...rows.map(
-                      (row) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          onTap: () =>
-                              _openOrder(context, _int(row['orderId'])),
-                          title: Text(
-                            '#${_int(row['orderNumber'])} · ${_str(row['merchantName']) ?? '-'}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                        _MetricChip(
+                          label: context.lt(
+                            ar: 'مكتمل اليوم',
+                            en: 'Done today',
                           ),
-                          subtitle: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${_str(row['customerName']) ?? '-'} · ${_str(row['deliveredAt']) ?? ''}',
-                              ),
-                              Text(
-                                '${context.lt(ar: "رسوم الخدمة", en: "Service fee")}: ${formatIqd(_money(row['serviceFee']))} · ${context.lt(ar: "ذمة التطبيق", en: "App due")}: ${formatIqd(_money(row['appDueFromDelivery']))} · ${context.lt(ar: "الفروقات", en: "Differences")}: ${formatIqd(_money(row['differenceAmount']))}',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
-                          trailing: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                formatIqd(_money(row['deliveryFee'])),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              Text(
-                                context.lt(ar: 'أجور', en: 'fee'),
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ),
+                          value: '${_int(_data?['completedTodayCount'])}',
                         ),
-                      ),
+                        _MetricChip(
+                          label: context.lt(
+                            ar: 'مكتمل الشهر',
+                            en: 'Done month',
+                          ),
+                          value: '${_int(_data?['completedMonthCount'])}',
+                        ),
+                      ],
                     ),
-                ],
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _MetricChip(
+                          label: context.lt(
+                            ar: 'Ø±Ø³ÙˆÙ… Ø§Ù„Ø®Ø¯Ù…Ø©',
+                            en: 'Service fee',
+                          ),
+                          value: formatIqd(_money(_data?['serviceFeeSum'])),
+                        ),
+                        _MetricChip(
+                          label: context.lt(
+                            ar: 'Ø°Ù…Ø© Ø§Ù„ØªØ·Ø¨ÙŠÙ‚',
+                            en: 'App due',
+                          ),
+                          value: formatIqd(
+                            _money(_data?['appDueFromDeliverySum']),
+                          ),
+                        ),
+                        _MetricChip(
+                          label: context.lt(
+                            ar: 'Ø§Ù„ÙØ±ÙˆÙ‚Ø§Øª',
+                            en: 'Differences',
+                          ),
+                          value: formatIqd(
+                            _money(_data?['differenceAmountSum']),
+                          ),
+                        ),
+                        _MetricChip(
+                          label: context.lt(
+                            ar: 'ØµØ§ÙÙŠ Ø§Ù„Ù…ØªØ¬Ø±',
+                            en: 'Store net',
+                          ),
+                          value: formatIqd(
+                            _money(_data?['storeNetReceivedAmountSum']),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    if (rows.isEmpty)
+                      _EmptyState(
+                        text: context.lt(
+                          ar: 'لا توجد طلبات مكتملة بعد.',
+                          en: 'No completed orders yet.',
+                        ),
+                      )
+                    else
+                      ...rows.map(
+                        (row) => Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            onTap: () =>
+                                _openOrder(context, _int(row['orderId'])),
+                            title: Text(
+                              '#${_int(row['orderNumber'])} · ${_str(row['merchantName']) ?? '-'}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            subtitle: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${_str(row['customerName']) ?? '-'} · ${_str(row['deliveredAt']) ?? ''}',
+                                ),
+                                Text(
+                                  '${context.lt(ar: "رسوم الخدمة", en: "Service fee")}: ${formatIqd(_money(row['serviceFee']))} · ${context.lt(ar: "ذمة التطبيق", en: "App due")}: ${formatIqd(_money(row['appDueFromDelivery']))} · ${context.lt(ar: "الفروقات", en: "Differences")}: ${formatIqd(_money(row['differenceAmount']))}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                            trailing: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  formatIqd(_money(row['deliveryFee'])),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                Text(
+                                  context.lt(ar: 'أجور', en: 'fee'),
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }
@@ -270,62 +283,70 @@ class _DeliveryRatingsScreenState extends ConsumerState<DeliveryRatingsScreen> {
       appBar: AppBar(
         title: Text(context.lt(ar: 'تقييمات التوصيل', en: 'Delivery ratings')),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _ErrorRetry(message: _error!, onRetry: _load)
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _MetricChip(
-                        label: context.lt(ar: 'المتوسط', en: 'Average'),
-                        value: _money(
-                          _data?['averageRating'],
-                        ).toStringAsFixed(1),
-                      ),
-                      _MetricChip(
-                        label: context.lt(ar: 'عدد التقييمات', en: 'Count'),
-                        value: '${_int(_data?['ratingCount'])}',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  if (rows.isEmpty)
-                    _EmptyState(
-                      text: context.lt(
-                        ar: 'لا توجد تقييمات بعد.',
-                        en: 'No ratings yet.',
-                      ),
-                    )
-                  else
-                    ...rows.map(
-                      (row) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          onTap: () =>
-                              _openOrder(context, _int(row['orderId'])),
-                          leading: _Stars(stars: _int(row['stars'])),
-                          title: Text(
-                            '#${_int(row['orderNumber'])} · ${_str(row['customerName']) ?? '-'}',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? _ErrorRetry(message: _error!, onRetry: _load)
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _MetricChip(
+                          label: context.lt(ar: 'المتوسط', en: 'Average'),
+                          value: _money(
+                            _data?['averageRating'],
+                          ).toStringAsFixed(1),
+                        ),
+                        _MetricChip(
+                          label: context.lt(ar: 'عدد التقييمات', en: 'Count'),
+                          value: '${_int(_data?['ratingCount'])}',
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    if (rows.isEmpty)
+                      _EmptyState(
+                        text: context.lt(
+                          ar: 'لا توجد تقييمات بعد.',
+                          en: 'No ratings yet.',
+                        ),
+                      )
+                    else
+                      ...rows.map(
+                        (row) => Card(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: ListTile(
+                            onTap: () =>
+                                _openOrder(context, _int(row['orderId'])),
+                            leading: _Stars(stars: _int(row['stars'])),
+                            title: Text(
+                              '#${_int(row['orderNumber'])} · ${_str(row['customerName']) ?? '-'}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            subtitle: Text(
+                              _str(row['comment']) ??
+                                  context.lt(
+                                    ar: 'بدون تعليق',
+                                    en: 'No comment',
+                                  ),
+                            ),
+                            trailing: const Icon(Icons.chevron_right),
                           ),
-                          subtitle: Text(
-                            _str(row['comment']) ??
-                                context.lt(ar: 'بدون تعليق', en: 'No comment'),
-                          ),
-                          trailing: const Icon(Icons.chevron_right),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }
@@ -389,260 +410,275 @@ class _DeliveryReconciliationScreenState
           context.lt(ar: 'تقرير الذمم والفروقات', en: 'Cash reconciliation'),
         ),
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? _ErrorRetry(message: _error!, onRetry: _load)
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(12),
-                children: [
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _MetricChip(
-                        label: context.lt(ar: 'ذمة التطبيق', en: 'App due'),
-                        value: formatIqd(appDue),
-                      ),
-                      _MetricChip(
-                        label: context.lt(ar: 'ذمة الدلفري', en: 'Courier due'),
-                        value: formatIqd(courierDue),
-                      ),
-                      _MetricChip(
-                        label: context.lt(
-                          ar: 'رسوم الخدمة',
-                          en: 'Service fees',
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? _ErrorRetry(message: _error!, onRetry: _load)
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(12),
+                  children: [
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _MetricChip(
+                          label: context.lt(ar: 'ذمة التطبيق', en: 'App due'),
+                          value: formatIqd(appDue),
                         ),
-                        value: formatIqd(_money(summary['service_fee_total'])),
-                      ),
-                      if (_money(summary['coupon_discount_total']) > 0)
                         _MetricChip(
                           label: context.lt(
-                            ar: 'خصومات الكوبونات',
-                            en: 'Coupon discounts',
+                            ar: 'ذمة الدلفري',
+                            en: 'Courier due',
+                          ),
+                          value: formatIqd(courierDue),
+                        ),
+                        _MetricChip(
+                          label: context.lt(
+                            ar: 'رسوم الخدمة',
+                            en: 'Service fees',
                           ),
                           value: formatIqd(
-                            _money(summary['coupon_discount_total']),
+                            _money(summary['service_fee_total']),
                           ),
                         ),
-                      _MetricChip(
-                        label: context.lt(
-                          ar: 'قيد المراجعة',
-                          en: 'Open review',
-                        ),
-                        value: '${_int(summary['open_review_count'])}',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      color: net >= 0
-                          ? Theme.of(context).colorScheme.primaryContainer
-                          : Theme.of(context).colorScheme.errorContainer,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      net >= 0
-                          ? context.lt(
-                              ar: 'يجب عليك دفع ${formatIqd(net)} إلى التطبيق.',
-                              en: 'You need to pay ${formatIqd(net)} to the app.',
-                            )
-                          : context.lt(
-                              ar: 'يجب على التطبيق دفع ${formatIqd(net.abs())} لك.',
-                              en: 'The app needs to pay you ${formatIqd(net.abs())}.',
+                        if (_money(summary['coupon_discount_total']) > 0)
+                          _MetricChip(
+                            label: context.lt(
+                              ar: 'خصومات الكوبونات',
+                              en: 'Coupon discounts',
                             ),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+                            value: formatIqd(
+                              _money(summary['coupon_discount_total']),
+                            ),
+                          ),
+                        _MetricChip(
+                          label: context.lt(
+                            ar: 'قيد المراجعة',
+                            en: 'Open review',
+                          ),
+                          value: '${_int(summary['open_review_count'])}',
+                        ),
+                      ],
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  if (rows.isEmpty)
-                    _EmptyState(
-                      text: context.lt(
-                        ar: 'لا توجد تسويات مسجلة بعد.',
-                        en: 'No reconciliations recorded yet.',
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: net >= 0
+                            ? Theme.of(context).colorScheme.primaryContainer
+                            : Theme.of(context).colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                    )
-                  else
-                    ...rows.map((row) {
-                      final noReceipt =
-                          row['merchant_payment_without_receipt'] == true;
-                      final orderId = _int(row['order_id']);
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        child: InkWell(
-                          onTap: () => _openOrder(context, orderId),
-                          borderRadius: BorderRadius.circular(8),
-                          child: Padding(
-                            padding: const EdgeInsets.all(14),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        '${context.lt(ar: 'الطلب', en: 'Order')} #$orderId · ${_str(row['customer_name']) ?? '-'}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w800,
+                      child: Text(
+                        net >= 0
+                            ? context.lt(
+                                ar: 'يجب عليك دفع ${formatIqd(net)} إلى التطبيق.',
+                                en: 'You need to pay ${formatIqd(net)} to the app.',
+                              )
+                            : context.lt(
+                                ar: 'يجب على التطبيق دفع ${formatIqd(net.abs())} لك.',
+                                en: 'The app needs to pay you ${formatIqd(net.abs())}.',
+                              ),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    if (rows.isEmpty)
+                      _EmptyState(
+                        text: context.lt(
+                          ar: 'لا توجد تسويات مسجلة بعد.',
+                          en: 'No reconciliations recorded yet.',
+                        ),
+                      )
+                    else
+                      ...rows.map((row) {
+                        final noReceipt =
+                            row['merchant_payment_without_receipt'] == true;
+                        final orderId = _int(row['order_id']);
+                        return Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: InkWell(
+                            onTap: () => _openOrder(context, orderId),
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.all(14),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${context.lt(ar: 'الطلب', en: 'Order')} #$orderId · ${_str(row['customer_name']) ?? '-'}',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w800,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    Icon(
-                                      noReceipt
-                                          ? Icons.receipt_long_outlined
-                                          : Icons.verified_outlined,
-                                      color: noReceipt
-                                          ? Theme.of(context).colorScheme.error
-                                          : Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 4),
-                                Text(_str(row['merchant_name']) ?? '-'),
-                                const Divider(height: 18),
-                                _ReportLine(
-                                  label: context.lt(
-                                    ar: 'قيمة المنتجات',
-                                    en: 'Product value',
+                                      Icon(
+                                        noReceipt
+                                            ? Icons.receipt_long_outlined
+                                            : Icons.verified_outlined,
+                                        color: noReceipt
+                                            ? Theme.of(
+                                                context,
+                                              ).colorScheme.error
+                                            : Theme.of(
+                                                context,
+                                              ).colorScheme.primary,
+                                      ),
+                                    ],
                                   ),
-                                  value: formatIqd(
-                                    _money(row['expected_store_amount']),
-                                  ),
-                                ),
-                                _ReportLine(
-                                  label: context.lt(
-                                    ar: 'المدفوع للمتجر',
-                                    en: 'Paid to store',
-                                  ),
-                                  value: formatIqd(
-                                    _money(row['merchant_paid_actual']),
-                                  ),
-                                ),
-                                _ReportLine(
-                                  label: context.lt(
-                                    ar: 'المستلم من الزبون',
-                                    en: 'Received from customer',
-                                  ),
-                                  value: formatIqd(
-                                    _money(
-                                      row['customer_cash_received_actual'],
-                                    ),
-                                  ),
-                                ),
-                                _ReportLine(
-                                  label: context.lt(
-                                    ar: 'فرق الشراء',
-                                    en: 'Purchase difference',
-                                  ),
-                                  value: formatIqd(
-                                    _money(row['purchase_difference_amount']),
-                                  ),
-                                ),
-                                _ReportLine(
-                                  label: context.lt(
-                                    ar: 'فرق التحصيل',
-                                    en: 'Collection difference',
-                                  ),
-                                  value: formatIqd(
-                                    _money(row['collection_difference_amount']),
-                                  ),
-                                ),
-                                _ReportLine(
-                                  label: context.lt(
-                                    ar: 'رسوم الخدمة',
-                                    en: 'Service fee',
-                                  ),
-                                  value: formatIqd(_money(row['service_fee'])),
-                                ),
-                                if (_money(row['coupon_discount_total']) > 0)
+                                  const SizedBox(height: 4),
+                                  Text(_str(row['merchant_name']) ?? '-'),
+                                  const Divider(height: 18),
                                   _ReportLine(
                                     label: context.lt(
-                                      ar: 'خصم الكوبون',
-                                      en: 'Coupon discount',
+                                      ar: 'قيمة المنتجات',
+                                      en: 'Product value',
                                     ),
                                     value: formatIqd(
-                                      _money(row['coupon_discount_total']),
+                                      _money(row['expected_store_amount']),
                                     ),
                                   ),
-                                const Divider(height: 18),
-                                _ReportLine(
-                                  label: context.lt(
-                                    ar: 'للتطبيق',
-                                    en: 'Due to app',
+                                  _ReportLine(
+                                    label: context.lt(
+                                      ar: 'المدفوع للمتجر',
+                                      en: 'Paid to store',
+                                    ),
+                                    value: formatIqd(
+                                      _money(row['merchant_paid_actual']),
+                                    ),
                                   ),
-                                  value: formatIqd(
-                                    _money(row['app_due_from_delivery']),
-                                  ),
-                                  strong: true,
-                                ),
-                                _ReportLine(
-                                  label: context.lt(
-                                    ar: 'للدلفري',
-                                    en: 'Due to courier',
-                                  ),
-                                  value: formatIqd(
-                                    _money(row['courier_due_from_app']),
-                                  ),
-                                  strong: true,
-                                ),
-                                if (noReceipt)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 8),
-                                    child: Text(
-                                      context.lt(
-                                        ar: 'بدون فاتورة: بانتظار مراجعة الإدارة',
-                                        en: 'No receipt: awaiting admin review',
-                                      ),
-                                      style: TextStyle(
-                                        color: Theme.of(
-                                          context,
-                                        ).colorScheme.error,
-                                        fontWeight: FontWeight.w700,
+                                  _ReportLine(
+                                    label: context.lt(
+                                      ar: 'المستلم من الزبون',
+                                      en: 'Received from customer',
+                                    ),
+                                    value: formatIqd(
+                                      _money(
+                                        row['customer_cash_received_actual'],
                                       ),
                                     ),
                                   ),
-                                if (!noReceipt &&
-                                    (_str(row['merchant_payment_receipt_url']) ??
-                                            '')
-                                        .isNotEmpty)
-                                  Align(
-                                    alignment: AlignmentDirectional.centerStart,
-                                    child: TextButton.icon(
-                                      onPressed: () => launchUrl(
-                                        Uri.parse(
-                                          _str(
-                                            row['merchant_payment_receipt_url'],
-                                          )!,
-                                        ),
-                                        mode: LaunchMode.externalApplication,
+                                  _ReportLine(
+                                    label: context.lt(
+                                      ar: 'فرق الشراء',
+                                      en: 'Purchase difference',
+                                    ),
+                                    value: formatIqd(
+                                      _money(row['purchase_difference_amount']),
+                                    ),
+                                  ),
+                                  _ReportLine(
+                                    label: context.lt(
+                                      ar: 'فرق التحصيل',
+                                      en: 'Collection difference',
+                                    ),
+                                    value: formatIqd(
+                                      _money(
+                                        row['collection_difference_amount'],
                                       ),
-                                      icon: const Icon(
-                                        Icons.receipt_long_outlined,
+                                    ),
+                                  ),
+                                  _ReportLine(
+                                    label: context.lt(
+                                      ar: 'رسوم الخدمة',
+                                      en: 'Service fee',
+                                    ),
+                                    value: formatIqd(
+                                      _money(row['service_fee']),
+                                    ),
+                                  ),
+                                  if (_money(row['coupon_discount_total']) > 0)
+                                    _ReportLine(
+                                      label: context.lt(
+                                        ar: 'خصم الكوبون',
+                                        en: 'Coupon discount',
                                       ),
-                                      label: Text(
+                                      value: formatIqd(
+                                        _money(row['coupon_discount_total']),
+                                      ),
+                                    ),
+                                  const Divider(height: 18),
+                                  _ReportLine(
+                                    label: context.lt(
+                                      ar: 'للتطبيق',
+                                      en: 'Due to app',
+                                    ),
+                                    value: formatIqd(
+                                      _money(row['app_due_from_delivery']),
+                                    ),
+                                    strong: true,
+                                  ),
+                                  _ReportLine(
+                                    label: context.lt(
+                                      ar: 'للدلفري',
+                                      en: 'Due to courier',
+                                    ),
+                                    value: formatIqd(
+                                      _money(row['courier_due_from_app']),
+                                    ),
+                                    strong: true,
+                                  ),
+                                  if (noReceipt)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: Text(
                                         context.lt(
-                                          ar: 'عرض المرفق',
-                                          en: 'View receipt',
+                                          ar: 'بدون فاتورة: بانتظار مراجعة الإدارة',
+                                          en: 'No receipt: awaiting admin review',
+                                        ),
+                                        style: TextStyle(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.error,
+                                          fontWeight: FontWeight.w700,
                                         ),
                                       ),
                                     ),
-                                  ),
-                              ],
+                                  if (!noReceipt &&
+                                      (_str(row['merchant_payment_receipt_url']) ??
+                                              '')
+                                          .isNotEmpty)
+                                    Align(
+                                      alignment:
+                                          AlignmentDirectional.centerStart,
+                                      child: TextButton.icon(
+                                        onPressed: () => launchUrl(
+                                          Uri.parse(
+                                            _str(
+                                              row['merchant_payment_receipt_url'],
+                                            )!,
+                                          ),
+                                          mode: LaunchMode.externalApplication,
+                                        ),
+                                        icon: const Icon(
+                                          Icons.receipt_long_outlined,
+                                        ),
+                                        label: Text(
+                                          context.lt(
+                                            ar: 'عرض المرفق',
+                                            en: 'View receipt',
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      );
-                    }),
-                ],
+                        );
+                      }),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }

@@ -205,144 +205,148 @@ class _JobApplyScreenState extends State<JobApplyScreen> {
           ),
         ),
       ),
-      body: Directionality(
-        textDirection: context.appTextDirection,
-        child: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            _JobSummaryCard(
-              title: widget.job.title,
-              companyName: widget.job.companyName,
-              location: location,
-              salary: _salaryText(),
-              description: widget.job.description,
-              requirements: widget.job.requirements,
-              responsibilities: widget.job.responsibilities,
-              benefits: widget.job.benefits,
-              skills: widget.job.skills,
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _submitting ? null : _submit,
-              icon: const Icon(Icons.send_rounded),
-              label: Text(context.l10n.jobApplySendApplication),
-            ),
-            const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    FormErrorBanner(message: _formError),
-                    Text(
-                      context.l10n.jobApplyApplicationDetails,
-                      textAlign: TextAlign.right,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w900,
-                        fontSize: 16,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    _scrollCoordinator.anchor(
-                      'phone',
-                      TextField(
-                        controller: _phoneCtrl,
-                        focusNode: _scrollCoordinator.focusNodeFor('phone'),
-                        keyboardType: TextInputType.phone,
-                        onChanged: (_) => _clearFieldError('phone'),
-                        decoration: InputDecoration(
-                          labelText: context.l10n.jobApplyApplicantPhone,
-                          errorText: _fieldErrors['phone'],
+      body: SafeArea(
+        top: false,
+        child: Directionality(
+          textDirection: context.appTextDirection,
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              _JobSummaryCard(
+                title: widget.job.title,
+                companyName: widget.job.companyName,
+                location: location,
+                salary: _salaryText(),
+                description: widget.job.description,
+                requirements: widget.job.requirements,
+                responsibilities: widget.job.responsibilities,
+                benefits: widget.job.benefits,
+                skills: widget.job.skills,
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _submitting ? null : _submit,
+                icon: const Icon(Icons.send_rounded),
+                label: Text(context.l10n.jobApplySendApplication),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      FormErrorBanner(message: _formError),
+                      Text(
+                        context.l10n.jobApplyApplicationDetails,
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 16,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    _scrollCoordinator.anchor(
-                      'email',
-                      TextField(
-                        controller: _emailCtrl,
-                        focusNode: _scrollCoordinator.focusNodeFor('email'),
-                        keyboardType: TextInputType.emailAddress,
-                        onChanged: (_) => _clearFieldError('email'),
-                        decoration: InputDecoration(
-                          labelText: context.l10n.jobApplyEmailOptional,
-                          errorText: _fieldErrors['email'],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _scrollCoordinator.anchor(
-                      'expectedSalary',
-                      TextField(
-                        controller: _expectedSalaryCtrl,
-                        focusNode: _scrollCoordinator.focusNodeFor(
-                          'expectedSalary',
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        onChanged: (_) => _clearFieldError('expectedSalary'),
-                        decoration: InputDecoration(
-                          labelText:
-                              context.l10n.jobApplyExpectedSalaryOptional,
-                          errorText: _fieldErrors['expectedSalary'],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    _scrollCoordinator.anchor(
-                      'message',
-                      TextField(
-                        controller: _messageCtrl,
-                        focusNode: _scrollCoordinator.focusNodeFor('message'),
-                        minLines: 3,
-                        maxLines: 5,
-                        onChanged: (_) => _clearFieldError('message'),
-                        decoration: InputDecoration(
-                          labelText: context.l10n.jobApplyCoverMessage,
-                          errorText: _fieldErrors['message'],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton.icon(
-                            onPressed: _pickAttachment,
-                            icon: const Icon(Icons.attach_file_rounded),
-                            label: Text(context.l10n.jobApplyUploadPdfImage),
+                      const SizedBox(height: 10),
+                      _scrollCoordinator.anchor(
+                        'phone',
+                        TextField(
+                          controller: _phoneCtrl,
+                          focusNode: _scrollCoordinator.focusNodeFor('phone'),
+                          keyboardType: TextInputType.phone,
+                          onChanged: (_) => _clearFieldError('phone'),
+                          decoration: InputDecoration(
+                            labelText: context.l10n.jobApplyApplicantPhone,
+                            errorText: _fieldErrors['phone'],
                           ),
                         ),
-                        if (_attachment != null) ...[
-                          const SizedBox(width: 8),
-                          IconButton(
-                            tooltip: context.l10n.jobApplyRemoveAttachment,
-                            onPressed: () => setState(() => _attachment = null),
-                            icon: const Icon(Icons.close_rounded),
+                      ),
+                      const SizedBox(height: 8),
+                      _scrollCoordinator.anchor(
+                        'email',
+                        TextField(
+                          controller: _emailCtrl,
+                          focusNode: _scrollCoordinator.focusNodeFor('email'),
+                          keyboardType: TextInputType.emailAddress,
+                          onChanged: (_) => _clearFieldError('email'),
+                          decoration: InputDecoration(
+                            labelText: context.l10n.jobApplyEmailOptional,
+                            errorText: _fieldErrors['email'],
                           ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _scrollCoordinator.anchor(
+                        'expectedSalary',
+                        TextField(
+                          controller: _expectedSalaryCtrl,
+                          focusNode: _scrollCoordinator.focusNodeFor(
+                            'expectedSalary',
+                          ),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          onChanged: (_) => _clearFieldError('expectedSalary'),
+                          decoration: InputDecoration(
+                            labelText:
+                                context.l10n.jobApplyExpectedSalaryOptional,
+                            errorText: _fieldErrors['expectedSalary'],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _scrollCoordinator.anchor(
+                        'message',
+                        TextField(
+                          controller: _messageCtrl,
+                          focusNode: _scrollCoordinator.focusNodeFor('message'),
+                          minLines: 3,
+                          maxLines: 5,
+                          onChanged: (_) => _clearFieldError('message'),
+                          decoration: InputDecoration(
+                            labelText: context.l10n.jobApplyCoverMessage,
+                            errorText: _fieldErrors['message'],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed: _pickAttachment,
+                              icon: const Icon(Icons.attach_file_rounded),
+                              label: Text(context.l10n.jobApplyUploadPdfImage),
+                            ),
+                          ),
+                          if (_attachment != null) ...[
+                            const SizedBox(width: 8),
+                            IconButton(
+                              tooltip: context.l10n.jobApplyRemoveAttachment,
+                              onPressed: () =>
+                                  setState(() => _attachment = null),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ],
                         ],
-                      ],
-                    ),
-                    if (_attachment != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          '${context.l10n.jobApplyAttachment}: ${_attachment!.name}',
-                          textAlign: TextAlign.right,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF9EE4FF),
+                      ),
+                      if (_attachment != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            '${context.l10n.jobApplyAttachment}: ${_attachment!.name}',
+                            textAlign: TextAlign.right,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF9EE4FF),
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-          ],
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );

@@ -389,7 +389,7 @@ class _JobMyApplicationsScreenState
   Future<void> _openAcceptOfferSheet(JobApplicationModel item) async {
     LocalMediaFile? attachment;
     var busy = false;
-    final ok = await showModalBottomSheet<bool>(
+    final ok = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) => StatefulBuilder(

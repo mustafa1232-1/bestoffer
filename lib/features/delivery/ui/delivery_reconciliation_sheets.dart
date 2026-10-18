@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
@@ -54,7 +56,7 @@ Future<CourierPickupSettlementInput?> showCourierPickupSettlementSheet(
   var withoutReceipt = false;
   String? validationMessage;
 
-  final result = await showModalBottomSheet<CourierPickupSettlementInput>(
+  final result = await showMaslakiBottomSheet<CourierPickupSettlementInput>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
@@ -287,7 +289,7 @@ Future<CourierDeliveryCashInput?> showCourierDeliveryCashSheet(
     text: invoiceTotal.round().toString(),
   );
   String? error;
-  final result = await showModalBottomSheet<CourierDeliveryCashInput>(
+  final result = await showMaslakiBottomSheet<CourierDeliveryCashInput>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,

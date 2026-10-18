@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/locale_text.dart';
 import '../../../core/utils/currency.dart';
@@ -20,7 +22,7 @@ Future<List<Map<String, dynamic>>?> showProductVariantPickerSheet(
     return Future.value(const <Map<String, dynamic>>[]);
   }
 
-  return showModalBottomSheet<List<Map<String, dynamic>>>(
+  return showMaslakiBottomSheet<List<Map<String, dynamic>>>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,

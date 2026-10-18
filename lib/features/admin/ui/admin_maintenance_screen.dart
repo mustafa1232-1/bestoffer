@@ -266,167 +266,174 @@ class _AdminMaintenanceScreenState
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _error!,
-                      textDirection: Directionality.of(context),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 12),
-                    FilledButton.icon(
-                      onPressed: _runDiagnostics,
-                      icon: const Icon(Icons.refresh_rounded),
-                      label: Text(l10n.commonRetry),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : RefreshIndicator(
-              onRefresh: _runDiagnostics,
-              child: ListView(
-                padding: const EdgeInsets.all(12),
-                children: [
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            l10n.adminMaintenanceHealthSummary,
-                            textDirection: Directionality.of(context),
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            alignment: WrapAlignment.end,
-                            children: [
-                              Chip(
-                                label: Text(
-                                  l10n.adminMaintenanceHealthyCount(okCount),
-                                ),
-                                backgroundColor: const Color(0x1616A34A),
-                              ),
-                              Chip(
-                                label: Text(
-                                  l10n.adminMaintenanceWarningCount(warnCount),
-                                ),
-                                backgroundColor: const Color(0x16F59E0B),
-                              ),
-                              Chip(
-                                label: Text(
-                                  l10n.adminMaintenanceFailedCount(failCount),
-                                ),
-                                backgroundColor: const Color(0x16DC2626),
-                              ),
-                            ],
-                          ),
-                        ],
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _error!,
+                        textDirection: Directionality.of(context),
+                        textAlign: TextAlign.center,
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                      FilledButton.icon(
+                        onPressed: _runDiagnostics,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: Text(l10n.commonRetry),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 8),
-                  for (final check in _checks)
+                ),
+              )
+            : RefreshIndicator(
+                onRefresh: _runDiagnostics,
+                child: ListView(
+                  padding: const EdgeInsets.all(12),
+                  children: [
                     Card(
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
-                            Row(
+                            Text(
+                              l10n.adminMaintenanceHealthSummary,
                               textDirection: Directionality.of(context),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 16,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              alignment: WrapAlignment.end,
                               children: [
-                                Expanded(
-                                  child: Text(
-                                    check.title,
-                                    textDirection: Directionality.of(context),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                    ),
+                                Chip(
+                                  label: Text(
+                                    l10n.adminMaintenanceHealthyCount(okCount),
                                   ),
+                                  backgroundColor: const Color(0x1616A34A),
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 10,
-                                    vertical: 4,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: _statusColor(
-                                      check.status,
-                                    ).withValues(alpha: 0.14),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    _statusLabel(check.status),
-                                    style: TextStyle(
-                                      color: _statusColor(check.status),
-                                      fontWeight: FontWeight.w800,
+                                Chip(
+                                  label: Text(
+                                    l10n.adminMaintenanceWarningCount(
+                                      warnCount,
                                     ),
                                   ),
+                                  backgroundColor: const Color(0x16F59E0B),
+                                ),
+                                Chip(
+                                  label: Text(
+                                    l10n.adminMaintenanceFailedCount(failCount),
+                                  ),
+                                  backgroundColor: const Color(0x16DC2626),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              check.details,
-                              textDirection: Directionality.of(context),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              l10n.adminMaintenanceProbeTime(check.elapsedMs),
-                              textDirection: Directionality.of(context),
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            if ((check.fixHint ?? '').trim().isNotEmpty) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                check.fixHint!,
-                                textDirection: Directionality.of(context),
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: OutlinedButton.icon(
-                                  onPressed: _runningFix
-                                      ? null
-                                      : () => _quickFix(check),
-                                  icon: _runningFix
-                                      ? const SizedBox(
-                                          width: 14,
-                                          height: 14,
-                                          child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                          ),
-                                        )
-                                      : const Icon(Icons.build_circle_outlined),
-                                  label: Text(
-                                    l10n.adminMaintenanceQuickFixAction,
-                                  ),
-                                ),
-                              ),
-                            ],
                           ],
                         ),
                       ),
                     ),
-                ],
+                    const SizedBox(height: 8),
+                    for (final check in _checks)
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Row(
+                                textDirection: Directionality.of(context),
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      check.title,
+                                      textDirection: Directionality.of(context),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: _statusColor(
+                                        check.status,
+                                      ).withValues(alpha: 0.14),
+                                      borderRadius: BorderRadius.circular(999),
+                                    ),
+                                    child: Text(
+                                      _statusLabel(check.status),
+                                      style: TextStyle(
+                                        color: _statusColor(check.status),
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                check.details,
+                                textDirection: Directionality.of(context),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                l10n.adminMaintenanceProbeTime(check.elapsedMs),
+                                textDirection: Directionality.of(context),
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                              if ((check.fixHint ?? '').trim().isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  check.fixHint!,
+                                  textDirection: Directionality.of(context),
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                                const SizedBox(height: 8),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: OutlinedButton.icon(
+                                    onPressed: _runningFix
+                                        ? null
+                                        : () => _quickFix(check),
+                                    icon: _runningFix
+                                        ? const SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.build_circle_outlined,
+                                          ),
+                                    label: Text(
+                                      l10n.adminMaintenanceQuickFixAction,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }

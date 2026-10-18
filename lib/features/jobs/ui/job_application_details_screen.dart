@@ -275,94 +275,206 @@ class _JobApplicationDetailsScreenState
           ),
         ],
       ),
-      body: Directionality(
-        textDirection: Directionality.of(context),
-        child: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CircleAvatar(
-                      radius: 28,
-                      backgroundImage:
-                          _application.applicantImageUrl?.isNotEmpty == true
-                          ? AppCachedImageProvider(
-                              _application.applicantImageUrl!,
-                            )
-                          : null,
-                      child: _application.applicantImageUrl?.isNotEmpty == true
-                          ? null
-                          : const Icon(Icons.person_outline, size: 28),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            fullName,
-                            textAlign: TextAlign.right,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w900,
-                              fontSize: 17,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${l10n.commonSubmitted}: ${_dateTimeText(_application.createdAt)}',
-                            textAlign: TextAlign.right,
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            '${l10n.commonAccountId}: ${_application.applicantUserId > 0 ? _application.applicantUserId : '-'}',
-                            textAlign: TextAlign.right,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 5,
-                            ),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(999),
-                              border: Border.all(
-                                color: statusColor.withValues(alpha: 0.55),
-                              ),
-                              color: statusColor.withValues(alpha: 0.16),
-                            ),
-                            child: Text(
-                              _statusLabel(_application.status),
-                              style: TextStyle(
-                                color: statusColor,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ],
+      body: SafeArea(
+        top: false,
+        child: Directionality(
+          textDirection: Directionality.of(context),
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        radius: 28,
+                        backgroundImage:
+                            _application.applicantImageUrl?.isNotEmpty == true
+                            ? AppCachedImageProvider(
+                                _application.applicantImageUrl!,
+                              )
+                            : null,
+                        child:
+                            _application.applicantImageUrl?.isNotEmpty == true
+                            ? null
+                            : const Icon(Icons.person_outline, size: 28),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              fullName,
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 17,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${l10n.commonSubmitted}: ${_dateTimeText(_application.createdAt)}',
+                              textAlign: TextAlign.right,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${l10n.commonAccountId}: ${_application.applicantUserId > 0 ? _application.applicantUserId : '-'}',
+                              textAlign: TextAlign.right,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 5,
+                              ),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: statusColor.withValues(alpha: 0.55),
+                                ),
+                                color: statusColor.withValues(alpha: 0.16),
+                              ),
+                              child: Text(
+                                _statusLabel(_application.status),
+                                style: TextStyle(
+                                  color: statusColor,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            if (_application.applicantUserId > 0) ...[
+              if (_application.applicantUserId > 0) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    onPressed: _openLinkedProfile,
+                    icon: const Icon(Icons.person_search_rounded),
+                    label: Text(l10n.jobApplicationDetailsOpenLinkedAccount),
+                  ),
+                ),
+              ],
               const SizedBox(height: 10),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.tonalIcon(
-                  onPressed: _openLinkedProfile,
-                  icon: const Icon(Icons.person_search_rounded),
-                  label: Text(l10n.jobApplicationDetailsOpenLinkedAccount),
+              if (hasOfferBlock) ...[
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          l10n.jobApplicationDetailsOfferSection,
+                          style: const TextStyle(fontWeight: FontWeight.w900),
+                          textAlign: TextAlign.right,
+                        ),
+                        const SizedBox(height: 8),
+                        _line(
+                          title: l10n.jobApplicationDetailsOfferSentAt,
+                          value: _dateTimeText(_application.offerSentAt),
+                        ),
+                        _line(
+                          title: l10n.commonSalary,
+                          value: _application.offerSalary == null
+                              ? '-'
+                              : '${formatIqd(_application.offerSalary!, withCode: false)} IQD',
+                        ),
+                        _line(
+                          title: l10n.commonWorkHours,
+                          value:
+                              (_application.offerWorkHours ?? '')
+                                  .trim()
+                                  .isNotEmpty
+                              ? _application.offerWorkHours!.trim()
+                              : '-',
+                        ),
+                        _line(
+                          title: l10n.commonWorkDays,
+                          value:
+                              (_application.offerWorkDays ?? '')
+                                  .trim()
+                                  .isNotEmpty
+                              ? _application.offerWorkDays!.trim()
+                              : '-',
+                        ),
+                        _line(
+                          title: l10n.jobApplicationDetailsOfferDetails,
+                          value:
+                              (_application.offerMessage ?? '')
+                                  .trim()
+                                  .isNotEmpty
+                              ? _application.offerMessage!.trim()
+                              : '-',
+                        ),
+                        _line(
+                          title: l10n.jobApplicationDetailsOfferAcceptedAt,
+                          value: _dateTimeText(_application.offerAcceptedAt),
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            if (_application.offerAttachmentUrl
+                                    ?.trim()
+                                    .isNotEmpty ==
+                                true)
+                              OutlinedButton.icon(
+                                onPressed: () => _openExternal(
+                                  _application.offerAttachmentUrl!,
+                                ),
+                                icon: const Icon(Icons.description_outlined),
+                                label: Text(
+                                  _application.offerAttachmentName
+                                              ?.trim()
+                                              .isNotEmpty ==
+                                          true
+                                      ? l10n.jobApplicationDetailsOfferAttachmentNamed(
+                                          _application.offerAttachmentName!,
+                                        )
+                                      : l10n.jobApplicationDetailsOpenOfferAttachment,
+                                ),
+                              ),
+                            if (_application.offerAcceptanceAttachmentUrl
+                                    ?.trim()
+                                    .isNotEmpty ==
+                                true)
+                              OutlinedButton.icon(
+                                onPressed: () => _openExternal(
+                                  _application.offerAcceptanceAttachmentUrl!,
+                                ),
+                                icon: const Icon(Icons.verified_rounded),
+                                label: Text(
+                                  _application.offerAcceptanceAttachmentName
+                                              ?.trim()
+                                              .isNotEmpty ==
+                                          true
+                                      ? l10n.jobApplicationDetailsAcceptanceAttachmentNamed(
+                                          _application
+                                              .offerAcceptanceAttachmentName!,
+                                        )
+                                      : l10n.jobApplicationDetailsOpenAcceptanceAttachment,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-            ],
-            const SizedBox(height: 10),
-            if (hasOfferBlock) ...[
+                const SizedBox(height: 10),
+              ],
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -370,92 +482,139 @@ class _JobApplicationDetailsScreenState
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        l10n.jobApplicationDetailsOfferSection,
+                        l10n.jobApplicationDetailsJobInfo,
                         style: const TextStyle(fontWeight: FontWeight.w900),
                         textAlign: TextAlign.right,
                       ),
                       const SizedBox(height: 8),
                       _line(
-                        title: l10n.jobApplicationDetailsOfferSentAt,
-                        value: _dateTimeText(_application.offerSentAt),
+                        title: l10n.commonTitle,
+                        value: _application.jobTitle ?? '-',
                       ),
                       _line(
-                        title: l10n.commonSalary,
-                        value: _application.offerSalary == null
+                        title: l10n.commonCompany,
+                        value: _application.jobCompanyName ?? '-',
+                      ),
+                      _line(
+                        title: l10n.commonActivity,
+                        value: _application.jobActivityType == null
                             ? '-'
-                            : '${formatIqd(_application.offerSalary!, withCode: false)} IQD',
+                            : _taxonomyLabel(_application.jobActivityType!),
                       ),
                       _line(
-                        title: l10n.commonWorkHours,
-                        value:
-                            (_application.offerWorkHours ?? '')
-                                .trim()
-                                .isNotEmpty
-                            ? _application.offerWorkHours!.trim()
-                            : '-',
+                        title: l10n.commonDepartment,
+                        value: _application.jobDepartment == null
+                            ? '-'
+                            : _taxonomyLabel(_application.jobDepartment!),
                       ),
                       _line(
-                        title: l10n.commonWorkDays,
-                        value:
-                            (_application.offerWorkDays ?? '').trim().isNotEmpty
-                            ? _application.offerWorkDays!.trim()
-                            : '-',
+                        title: l10n.commonCategory,
+                        value: _application.jobCategory ?? '-',
                       ),
                       _line(
-                        title: l10n.jobApplicationDetailsOfferDetails,
-                        value:
-                            (_application.offerMessage ?? '').trim().isNotEmpty
-                            ? _application.offerMessage!.trim()
-                            : '-',
+                        title: l10n.commonMerchant,
+                        value: _application.jobMerchantName ?? '-',
                       ),
-                      _line(
-                        title: l10n.jobApplicationDetailsOfferAcceptedAt,
-                        value: _dateTimeText(_application.offerAcceptedAt),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        l10n.jobApplicationDetailsApplicantInfo,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                        textAlign: TextAlign.right,
                       ),
                       const SizedBox(height: 8),
+                      _line(
+                        title: l10n.jobApplicationDetailsProfileName,
+                        value:
+                            _application.profileFullName ??
+                            _application.fullName ??
+                            '-',
+                      ),
+                      _line(
+                        title: l10n.jobApplicationDetailsProfilePhone,
+                        value: _application.profilePhone ?? '-',
+                      ),
+                      _line(
+                        title: l10n.jobApplicationDetailsSubmittedPhone,
+                        value:
+                            _application.submittedPhone ??
+                            _application.phone ??
+                            '-',
+                      ),
+                      _line(
+                        title: l10n.commonEmail,
+                        value: _application.applicantEmail ?? '-',
+                      ),
+                      _line(
+                        title: l10n.commonAddress,
+                        value:
+                            '${_application.applicantBlock ?? '-'} / ${_application.applicantBuildingNumber ?? '-'} / ${_application.applicantApartment ?? '-'}',
+                      ),
+                      _line(
+                        title: l10n.jobApplicationDetailsExpectedSalary,
+                        value: _application.expectedSalary == null
+                            ? '-'
+                            : '${formatIqd(_application.expectedSalary!, withCode: false)} IQD',
+                      ),
+                      if ((_application.message ?? '').trim().isNotEmpty)
+                        _line(
+                          title: l10n.jobApplicationDetailsIntroductionMessage,
+                          value: _application.message!.trim(),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        l10n.jobApplicationDetailsResumeSection,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                        textAlign: TextAlign.right,
+                      ),
+                      const SizedBox(height: 10),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          if (_application.offerAttachmentUrl
-                                  ?.trim()
-                                  .isNotEmpty ==
+                          if (_application.attachmentUrl?.trim().isNotEmpty ==
                               true)
                             OutlinedButton.icon(
-                              onPressed: () => _openExternal(
-                                _application.offerAttachmentUrl!,
-                              ),
-                              icon: const Icon(Icons.description_outlined),
+                              onPressed: () =>
+                                  _openExternal(_application.attachmentUrl!),
+                              icon: const Icon(Icons.download_rounded),
                               label: Text(
-                                _application.offerAttachmentName
+                                _application.attachmentName
                                             ?.trim()
                                             .isNotEmpty ==
                                         true
-                                    ? l10n.jobApplicationDetailsOfferAttachmentNamed(
-                                        _application.offerAttachmentName!,
+                                    ? l10n.jobApplicationDetailsDownloadAttachmentNamed(
+                                        _application.attachmentName!,
                                       )
-                                    : l10n.jobApplicationDetailsOpenOfferAttachment,
+                                    : l10n.jobApplicationDetailsDownloadAttachment,
                               ),
                             ),
-                          if (_application.offerAcceptanceAttachmentUrl
-                                  ?.trim()
-                                  .isNotEmpty ==
-                              true)
+                          if (_application.resumeUrl?.trim().isNotEmpty == true)
                             OutlinedButton.icon(
-                              onPressed: () => _openExternal(
-                                _application.offerAcceptanceAttachmentUrl!,
-                              ),
-                              icon: const Icon(Icons.verified_rounded),
+                              onPressed: () =>
+                                  _openExternal(_application.resumeUrl!),
+                              icon: const Icon(Icons.link_rounded),
                               label: Text(
-                                _application.offerAcceptanceAttachmentName
-                                            ?.trim()
-                                            .isNotEmpty ==
-                                        true
-                                    ? l10n.jobApplicationDetailsAcceptanceAttachmentNamed(
-                                        _application
-                                            .offerAcceptanceAttachmentName!,
-                                      )
-                                    : l10n.jobApplicationDetailsOpenAcceptanceAttachment,
+                                l10n.jobApplicationDetailsOpenResumeLink,
                               ),
                             ),
                         ],
@@ -465,286 +624,140 @@ class _JobApplicationDetailsScreenState
                 ),
               ),
               const SizedBox(height: 10),
-            ],
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      l10n.jobApplicationDetailsJobInfo,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                      textAlign: TextAlign.right,
-                    ),
-                    const SizedBox(height: 8),
-                    _line(
-                      title: l10n.commonTitle,
-                      value: _application.jobTitle ?? '-',
-                    ),
-                    _line(
-                      title: l10n.commonCompany,
-                      value: _application.jobCompanyName ?? '-',
-                    ),
-                    _line(
-                      title: l10n.commonActivity,
-                      value: _application.jobActivityType == null
-                          ? '-'
-                          : _taxonomyLabel(_application.jobActivityType!),
-                    ),
-                    _line(
-                      title: l10n.commonDepartment,
-                      value: _application.jobDepartment == null
-                          ? '-'
-                          : _taxonomyLabel(_application.jobDepartment!),
-                    ),
-                    _line(
-                      title: l10n.commonCategory,
-                      value: _application.jobCategory ?? '-',
-                    ),
-                    _line(
-                      title: l10n.commonMerchant,
-                      value: _application.jobMerchantName ?? '-',
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      l10n.jobApplicationDetailsApplicantInfo,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                      textAlign: TextAlign.right,
-                    ),
-                    const SizedBox(height: 8),
-                    _line(
-                      title: l10n.jobApplicationDetailsProfileName,
-                      value:
-                          _application.profileFullName ??
-                          _application.fullName ??
-                          '-',
-                    ),
-                    _line(
-                      title: l10n.jobApplicationDetailsProfilePhone,
-                      value: _application.profilePhone ?? '-',
-                    ),
-                    _line(
-                      title: l10n.jobApplicationDetailsSubmittedPhone,
-                      value:
-                          _application.submittedPhone ??
-                          _application.phone ??
-                          '-',
-                    ),
-                    _line(
-                      title: l10n.commonEmail,
-                      value: _application.applicantEmail ?? '-',
-                    ),
-                    _line(
-                      title: l10n.commonAddress,
-                      value:
-                          '${_application.applicantBlock ?? '-'} / ${_application.applicantBuildingNumber ?? '-'} / ${_application.applicantApartment ?? '-'}',
-                    ),
-                    _line(
-                      title: l10n.jobApplicationDetailsExpectedSalary,
-                      value: _application.expectedSalary == null
-                          ? '-'
-                          : '${formatIqd(_application.expectedSalary!, withCode: false)} IQD',
-                    ),
-                    if ((_application.message ?? '').trim().isNotEmpty)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        l10n.jobApplicationDetailsDecisionSection,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                        textAlign: TextAlign.right,
+                      ),
+                      const SizedBox(height: 8),
                       _line(
-                        title: l10n.jobApplicationDetailsIntroductionMessage,
-                        value: _application.message!.trim(),
+                        title: l10n.jobApplicationDetailsCurrentStatus,
+                        value: _statusLabel(_application.status),
                       ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      l10n.jobApplicationDetailsResumeSection,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                      textAlign: TextAlign.right,
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        if (_application.attachmentUrl?.trim().isNotEmpty ==
-                            true)
-                          OutlinedButton.icon(
-                            onPressed: () =>
-                                _openExternal(_application.attachmentUrl!),
-                            icon: const Icon(Icons.download_rounded),
-                            label: Text(
-                              _application.attachmentName?.trim().isNotEmpty ==
-                                      true
-                                  ? l10n.jobApplicationDetailsDownloadAttachmentNamed(
-                                      _application.attachmentName!,
-                                    )
-                                  : l10n.jobApplicationDetailsDownloadAttachment,
+                      _line(
+                        title: l10n.commonReason,
+                        value:
+                            (_application.statusReason ?? '').trim().isNotEmpty
+                            ? _application.statusReason!.trim()
+                            : '-',
+                      ),
+                      _line(
+                        title: l10n.jobApplicationDetailsLastStatusUpdate,
+                        value: _dateTimeText(_application.statusChangedAt),
+                      ),
+                      const SizedBox(height: 10),
+                      if (_canChangeStatus)
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _statusBtn(
+                              'submitted',
+                              jobApplicationStatusLabel(context, 'submitted'),
                             ),
-                          ),
-                        if (_application.resumeUrl?.trim().isNotEmpty == true)
-                          OutlinedButton.icon(
-                            onPressed: () =>
-                                _openExternal(_application.resumeUrl!),
-                            icon: const Icon(Icons.link_rounded),
-                            label: Text(
-                              l10n.jobApplicationDetailsOpenResumeLink,
+                            _statusBtn(
+                              'shortlisted',
+                              jobApplicationStatusLabel(context, 'shortlisted'),
                             ),
+                            _statusBtn(
+                              'rejected',
+                              jobApplicationStatusLabel(context, 'rejected'),
+                            ),
+                            _statusBtn(
+                              'hired',
+                              jobApplicationStatusLabel(context, 'hired'),
+                            ),
+                            _statusBtn(
+                              'dismissed_after_hire',
+                              l10n.jobsStatusDismissed,
+                            ),
+                            _statusBtn('archived', l10n.commonArchive),
+                          ],
+                        )
+                      else
+                        Text(
+                          l10n.jobApplicationDetailsStatusLocked,
+                          textAlign: TextAlign.right,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.75),
+                            fontWeight: FontWeight.w600,
                           ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      l10n.jobApplicationDetailsDecisionSection,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                      textAlign: TextAlign.right,
-                    ),
-                    const SizedBox(height: 8),
-                    _line(
-                      title: l10n.jobApplicationDetailsCurrentStatus,
-                      value: _statusLabel(_application.status),
-                    ),
-                    _line(
-                      title: l10n.commonReason,
-                      value: (_application.statusReason ?? '').trim().isNotEmpty
-                          ? _application.statusReason!.trim()
-                          : '-',
-                    ),
-                    _line(
-                      title: l10n.jobApplicationDetailsLastStatusUpdate,
-                      value: _dateTimeText(_application.statusChangedAt),
-                    ),
-                    const SizedBox(height: 10),
-                    if (_canChangeStatus)
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          _statusBtn(
-                            'submitted',
-                            jobApplicationStatusLabel(context, 'submitted'),
-                          ),
-                          _statusBtn(
-                            'shortlisted',
-                            jobApplicationStatusLabel(context, 'shortlisted'),
-                          ),
-                          _statusBtn(
-                            'rejected',
-                            jobApplicationStatusLabel(context, 'rejected'),
-                          ),
-                          _statusBtn(
-                            'hired',
-                            jobApplicationStatusLabel(context, 'hired'),
-                          ),
-                          _statusBtn(
-                            'dismissed_after_hire',
-                            l10n.jobsStatusDismissed,
-                          ),
-                          _statusBtn('archived', l10n.commonArchive),
-                        ],
-                      )
-                    else
-                      Text(
-                        l10n.jobApplicationDetailsStatusLocked,
-                        textAlign: TextAlign.right,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.75),
-                          fontWeight: FontWeight.w600,
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      l10n.jobApplicationDetailsHistorySection,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                      textAlign: TextAlign.right,
-                    ),
-                    const SizedBox(height: 8),
-                    if (_application.statusHistory.isEmpty)
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
                       Text(
-                        l10n.jobApplicationDetailsHistoryEmpty,
+                        l10n.jobApplicationDetailsHistorySection,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
                         textAlign: TextAlign.right,
-                      )
-                    else
-                      ..._application.statusHistory.map(
-                        (item) => Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(12),
-                            color: Colors.white.withValues(alpha: 0.05),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08),
+                      ),
+                      const SizedBox(height: 8),
+                      if (_application.statusHistory.isEmpty)
+                        Text(
+                          l10n.jobApplicationDetailsHistoryEmpty,
+                          textAlign: TextAlign.right,
+                        )
+                      else
+                        ..._application.statusHistory.map(
+                          (item) => Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(12),
+                              color: Colors.white.withValues(alpha: 0.05),
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.08),
+                              ),
                             ),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                '${_statusLabel(item.previousStatus ?? 'submitted')} → ${_statusLabel(item.nextStatus)}',
-                                textAlign: TextAlign.right,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${l10n.commonBy}: ${_changedByText(item)}',
-                                textAlign: TextAlign.right,
-                              ),
-                              Text(
-                                '${l10n.commonTime}: ${_dateTimeText(item.changedAt)}',
-                                textAlign: TextAlign.right,
-                              ),
-                              if ((item.reason ?? '').trim().isNotEmpty)
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
                                 Text(
-                                  '${l10n.commonReason}: ${item.reason!.trim()}',
+                                  '${_statusLabel(item.previousStatus ?? 'submitted')} → ${_statusLabel(item.nextStatus)}',
+                                  textAlign: TextAlign.right,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${l10n.commonBy}: ${_changedByText(item)}',
                                   textAlign: TextAlign.right,
                                 ),
-                            ],
+                                Text(
+                                  '${l10n.commonTime}: ${_dateTimeText(item.changedAt)}',
+                                  textAlign: TextAlign.right,
+                                ),
+                                if ((item.reason ?? '').trim().isNotEmpty)
+                                  Text(
+                                    '${l10n.commonReason}: ${item.reason!.trim()}',
+                                    textAlign: TextAlign.right,
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 20),
-          ],
+              const SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );

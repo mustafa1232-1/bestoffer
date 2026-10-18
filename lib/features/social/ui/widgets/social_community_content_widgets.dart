@@ -678,110 +678,113 @@ class _CommunityMediaViewerPageState extends State<CommunityMediaViewerPage>
           ],
         ),
       ),
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          if (!widget.isVideo)
-            InteractiveViewer(
-              minScale: 0.9,
-              maxScale: 4,
-              child: Center(
-                child: CachedAppImage(
-                  imageUrl: widget.mediaUrl,
-                  cacheIdentity:
-                      'community_viewer_image_${widget.mediaUrl.hashCode}',
-                  fit: BoxFit.contain,
-                  errorWidget: (context, error, stackTrace) => Center(
-                    child: Text(
-                      context.l10n.socialCommunityImageLoadFailed,
-                      textDirection: Directionality.of(context),
-                      style: const TextStyle(color: Colors.white),
-                    ),
-                  ),
-                ),
-              ),
-            )
-          else if (_videoError != null)
-            Center(
-              child: Text(
-                _videoError!,
-                textDirection: Directionality.of(context),
-                style: const TextStyle(color: Colors.white),
-              ),
-            )
-          else if (!_videoReady)
-            const Center(child: CircularProgressIndicator())
-          else
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: _togglePlayPause,
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  FittedBox(
+      body: SafeArea(
+        top: false,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (!widget.isVideo)
+              InteractiveViewer(
+                minScale: 0.9,
+                maxScale: 4,
+                child: Center(
+                  child: CachedAppImage(
+                    imageUrl: widget.mediaUrl,
+                    cacheIdentity:
+                        'community_viewer_image_${widget.mediaUrl.hashCode}',
                     fit: BoxFit.contain,
-                    child: SizedBox(
-                      width: _video!.value.size.width,
-                      height: _video!.value.size.height,
-                      child: VideoPlayer(_video!),
-                    ),
-                  ),
-                  Positioned(
-                    left: 12,
-                    bottom: 16,
-                    child: FilledButton.tonalIcon(
-                      onPressed: _toggleMute,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.black.withValues(alpha: 0.52),
-                        foregroundColor: Colors.white,
-                      ),
-                      icon: Icon(
-                        _muted
-                            ? Icons.volume_off_rounded
-                            : Icons.volume_up_rounded,
-                      ),
-                      label: Text(
-                        _muted
-                            ? context.l10n.socialCommunityMuted
-                            : context.l10n.socialCommunitySoundOn,
+                    errorWidget: (context, error, stackTrace) => Center(
+                      child: Text(
+                        context.l10n.socialCommunityImageLoadFailed,
+                        textDirection: Directionality.of(context),
+                        style: const TextStyle(color: Colors.white),
                       ),
                     ),
                   ),
-                  if (!_video!.value.isPlaying)
-                    const Center(
-                      child: Icon(
-                        Icons.play_circle_fill_rounded,
-                        size: 72,
-                        color: Colors.white,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          if ((widget.caption ?? '').trim().isNotEmpty)
-            Positioned(
-              right: 12,
-              left: 12,
-              bottom: 72,
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.52),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white24),
                 ),
+              )
+            else if (_videoError != null)
+              Center(
                 child: Text(
-                  widget.caption!.trim(),
+                  _videoError!,
                   textDirection: Directionality.of(context),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    height: 1.35,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              )
+            else if (!_videoReady)
+              const Center(child: CircularProgressIndicator())
+            else
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _togglePlayPause,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.contain,
+                      child: SizedBox(
+                        width: _video!.value.size.width,
+                        height: _video!.value.size.height,
+                        child: VideoPlayer(_video!),
+                      ),
+                    ),
+                    Positioned(
+                      left: 12,
+                      bottom: 16,
+                      child: FilledButton.tonalIcon(
+                        onPressed: _toggleMute,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.black.withValues(alpha: 0.52),
+                          foregroundColor: Colors.white,
+                        ),
+                        icon: Icon(
+                          _muted
+                              ? Icons.volume_off_rounded
+                              : Icons.volume_up_rounded,
+                        ),
+                        label: Text(
+                          _muted
+                              ? context.l10n.socialCommunityMuted
+                              : context.l10n.socialCommunitySoundOn,
+                        ),
+                      ),
+                    ),
+                    if (!_video!.value.isPlaying)
+                      const Center(
+                        child: Icon(
+                          Icons.play_circle_fill_rounded,
+                          size: 72,
+                          color: Colors.white,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            if ((widget.caption ?? '').trim().isNotEmpty)
+              Positioned(
+                right: 12,
+                left: 12,
+                bottom: 72,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.52),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Text(
+                    widget.caption!.trim(),
+                    textDirection: Directionality.of(context),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      height: 1.35,
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

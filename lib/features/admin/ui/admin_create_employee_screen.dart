@@ -246,11 +246,14 @@ class _AdminCreateEmployeeScreenState
       textDirection: TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(title: const Text('إنشاء حساب موظف')),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? _errorView()
-            : _form(isSuper || _canManagePermissions),
+        body: SafeArea(
+          top: false,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? _errorView()
+              : _form(isSuper || _canManagePermissions),
+        ),
         bottomNavigationBar: (_loading || _error != null)
             ? null
             : SafeArea(

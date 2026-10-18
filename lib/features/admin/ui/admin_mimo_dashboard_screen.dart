@@ -89,7 +89,7 @@ class _AdminMimoDashboardScreenState
             ],
           ),
         ),
-        body: FutureBuilder<Map<String, dynamic>>(
+        body: SafeArea(top: false, child: FutureBuilder<Map<String, dynamic>>(
           future: _future,
           builder: (context, snap) {
             if (snap.connectionState != ConnectionState.done) {
@@ -109,7 +109,7 @@ class _AdminMimoDashboardScreenState
               ],
             );
           },
-        ),
+        )),
       ),
     );
   }

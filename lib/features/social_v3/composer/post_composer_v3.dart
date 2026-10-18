@@ -161,141 +161,146 @@ class _PostComposerV3State extends State<PostComposerV3> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          if (_isReview && widget.review != null) ...[
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const CircleAvatar(
-                child: Icon(Icons.storefront_rounded),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            if (_isReview && widget.review != null) ...[
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const CircleAvatar(
+                  child: Icon(Icons.storefront_rounded),
+                ),
+                title: Text(
+                  widget.review!.merchantName,
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+                subtitle: Text(_reviewContextLabel(widget.review!)),
               ),
-              title: Text(
-                widget.review!.merchantName,
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-              subtitle: Text(_reviewContextLabel(widget.review!)),
-            ),
-            Row(
-              children: List.generate(
-                5,
-                (i) => IconButton(
-                  onPressed: () => setState(() => _rating = i + 1),
-                  icon: Icon(
-                    i < _rating
-                        ? Icons.star_rounded
-                        : Icons.star_border_rounded,
-                    color: Colors.amber,
+              Row(
+                children: List.generate(
+                  5,
+                  (i) => IconButton(
+                    onPressed: () => setState(() => _rating = i + 1),
+                    icon: Icon(
+                      i < _rating
+                          ? Icons.star_rounded
+                          : Icons.star_border_rounded,
+                      color: Colors.amber,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const Divider(),
-          ],
-          if (_media.isNotEmpty)
-            SizedBox(
-              height: 220,
-              child: ReorderableListView.builder(
-                scrollDirection: Axis.horizontal,
-                buildDefaultDragHandles: true,
-                itemCount: _media.length,
-                onReorderItem: (oldI, newI) {
-                  // onReorderItem already adjusts newI for the removed item.
-                  setState(() {
-                    final m = _media.removeAt(oldI);
-                    _media.insert(newI, m);
-                  });
-                },
-                itemBuilder: (context, i) {
-                  final m = _media[i];
-                  return Padding(
-                    key: ValueKey('post-media-${m.path}-$i'),
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: SizedBox(
-                        width: 150,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            m.isVideo
-                                ? const ColoredBox(
-                                    color: Color(0xFF0D1B2A),
+              const Divider(),
+            ],
+            if (_media.isNotEmpty)
+              SizedBox(
+                height: 220,
+                child: ReorderableListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  buildDefaultDragHandles: true,
+                  itemCount: _media.length,
+                  onReorderItem: (oldI, newI) {
+                    // onReorderItem already adjusts newI for the removed item.
+                    setState(() {
+                      final m = _media.removeAt(oldI);
+                      _media.insert(newI, m);
+                    });
+                  },
+                  itemBuilder: (context, i) {
+                    final m = _media[i];
+                    return Padding(
+                      key: ValueKey('post-media-${m.path}-$i'),
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(
+                          width: 150,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              m.isVideo
+                                  ? const ColoredBox(
+                                      color: Color(0xFF0D1B2A),
+                                      child: Icon(
+                                        Icons.movie_creation_outlined,
+                                        color: Colors.white38,
+                                        size: 36,
+                                      ),
+                                    )
+                                  : SocialSafeImage(imageUrl: m.path),
+                              Positioned(
+                                top: 4,
+                                right: 4,
+                                child: GestureDetector(
+                                  onTap: () =>
+                                      setState(() => _media.removeAt(i)),
+                                  child: const CircleAvatar(
+                                    radius: 12,
+                                    backgroundColor: Colors.black54,
                                     child: Icon(
-                                      Icons.movie_creation_outlined,
-                                      color: Colors.white38,
-                                      size: 36,
+                                      Icons.close,
+                                      size: 14,
+                                      color: Colors.white,
                                     ),
-                                  )
-                                : SocialSafeImage(imageUrl: m.path),
-                            Positioned(
-                              top: 4,
-                              right: 4,
-                              child: GestureDetector(
-                                onTap: () => setState(() => _media.removeAt(i)),
-                                child: const CircleAvatar(
-                                  radius: 12,
-                                  backgroundColor: Colors.black54,
-                                  child: Icon(
-                                    Icons.close,
-                                    size: 14,
-                                    color: Colors.white,
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
+              ),
+            if (widget.onAddMore != null)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: () async {
+                    final more = await widget.onAddMore!.call();
+                    if (more.isNotEmpty) setState(() => _media.addAll(more));
+                  },
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  label: const Text('إضافة وسائط'),
+                ),
+              ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _caption,
+              maxLines: 5,
+              decoration: const InputDecoration(
+                hintText: 'اكتب شيئًا…  #وسم  @إشارة',
+                border: OutlineInputBorder(),
               ),
             ),
-          if (widget.onAddMore != null)
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: TextButton.icon(
-                onPressed: () async {
-                  final more = await widget.onAddMore!.call();
-                  if (more.isNotEmpty) setState(() => _media.addAll(more));
-                },
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: const Text('إضافة وسائط'),
+            const SizedBox(height: 12),
+            SwitchListTile(
+              value: _comments,
+              onChanged: (v) => setState(() => _comments = v),
+              title: const Text('السماح بالتعليقات'),
+            ),
+            ListTile(
+              leading: Icon(_audience == 'public' ? Icons.public : Icons.group),
+              title: Text(_audience == 'public' ? 'الجميع' : 'المتابعون'),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: () => setState(
+                () =>
+                    _audience = _audience == 'public' ? 'followers' : 'public',
               ),
             ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _caption,
-            maxLines: 5,
-            decoration: const InputDecoration(
-              hintText: 'اكتب شيئًا…  #وسم  @إشارة',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SwitchListTile(
-            value: _comments,
-            onChanged: (v) => setState(() => _comments = v),
-            title: const Text('السماح بالتعليقات'),
-          ),
-          ListTile(
-            leading: Icon(_audience == 'public' ? Icons.public : Icons.group),
-            title: Text(_audience == 'public' ? 'الجميع' : 'المتابعون'),
-            trailing: const Icon(Icons.chevron_left),
-            onTap: () => setState(
-              () => _audience = _audience == 'public' ? 'followers' : 'public',
-            ),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }

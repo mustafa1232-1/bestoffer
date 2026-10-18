@@ -313,169 +313,174 @@ class _SocialResidenceChangeScreenState
 
     return Scaffold(
       appBar: AppBar(title: Text(l10n.socialResidenceChangeTitle)),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.all(16),
-                children: [
-                  _snapshotCard(
-                    title: l10n.socialResidenceChangeCurrentResidenceTitle,
-                    snapshot: _currentSnapshot,
-                  ),
-                  const SizedBox(height: 14),
-                  if (request != null) ...[
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView(
+                  padding: const EdgeInsets.all(16),
+                  children: [
                     _snapshotCard(
-                      title: _hasPendingRequest
-                          ? l10n.socialResidenceChangePendingRequestTitle
-                          : l10n.socialResidenceChangeLastReviewedTitle,
-                      snapshot: requestedSnapshot,
-                      accent: _hasPendingRequest
-                          ? Theme.of(context).colorScheme.primary
-                          : Theme.of(context).colorScheme.secondary,
+                      title: l10n.socialResidenceChangeCurrentResidenceTitle,
+                      snapshot: _currentSnapshot,
                     ),
-                    const SizedBox(height: 10),
-                    Text(
-                      l10n.socialResidenceChangeStatusLine(
-                        '${request['status']}',
+                    const SizedBox(height: 14),
+                    if (request != null) ...[
+                      _snapshotCard(
+                        title: _hasPendingRequest
+                            ? l10n.socialResidenceChangePendingRequestTitle
+                            : l10n.socialResidenceChangeLastReviewedTitle,
+                        snapshot: requestedSnapshot,
+                        accent: _hasPendingRequest
+                            ? Theme.of(context).colorScheme.primary
+                            : Theme.of(context).colorScheme.secondary,
                       ),
+                      const SizedBox(height: 10),
+                      Text(
+                        l10n.socialResidenceChangeStatusLine(
+                          '${request['status']}',
+                        ),
+                        textDirection: context.appTextDirection,
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      if ((request['reviewNote'] ?? '')
+                          .toString()
+                          .trim()
+                          .isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            l10n.socialResidenceChangeReviewNoteLine(
+                              '${request['reviewNote']}',
+                            ),
+                            textDirection: context.appTextDirection,
+                            textAlign: TextAlign.right,
+                          ),
+                        ),
+                      if (_hasPendingRequest) ...[
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: _saving ? null : _cancelPending,
+                          icon: const Icon(Icons.cancel_outlined),
+                          label: Text(l10n.socialResidenceChangeCancelRequest),
+                        ),
+                      ],
+                    ],
+                    const SizedBox(height: 18),
+                    Text(
+                      l10n.socialResidenceChangeNewRequestTitle,
                       textDirection: context.appTextDirection,
                       textAlign: TextAlign.right,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    if ((request['reviewNote'] ?? '')
-                        .toString()
-                        .trim()
-                        .isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          l10n.socialResidenceChangeReviewNoteLine(
-                            '${request['reviewNote']}',
-                          ),
-                          textDirection: context.appTextDirection,
-                          textAlign: TextAlign.right,
-                        ),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
                       ),
-                    if (_hasPendingRequest) ...[
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        onPressed: _saving ? null : _cancelPending,
-                        icon: const Icon(Icons.cancel_outlined),
-                        label: Text(l10n.socialResidenceChangeCancelRequest),
-                      ),
-                    ],
-                  ],
-                  const SizedBox(height: 18),
-                  Text(
-                    l10n.socialResidenceChangeNewRequestTitle,
-                    textDirection: context.appTextDirection,
-                    textAlign: TextAlign.right,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w900,
-                      fontSize: 18,
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  IgnorePointer(
-                    ignoring: _hasPendingRequest,
-                    child: Opacity(
-                      opacity: _hasPendingRequest ? 0.55 : 1,
-                      child: Column(
-                        children: [
-                          BasmayaAddressSelector(
-                            selectedBlock: _selectedBlock,
-                            selectedBuilding: _selectedBuilding,
-                            selectedApartment: _selectedApartment,
-                            onBlockChanged: (value) {
-                              setState(() {
-                                _selectedBlock = value;
-                                _selectedBuilding = null;
-                                _selectedApartment = null;
-                              });
-                            },
-                            onBuildingChanged: (value) {
-                              setState(() {
-                                _selectedBuilding = value;
-                                _selectedApartment = null;
-                              });
-                            },
-                            onApartmentChanged: (value) {
-                              setState(() => _selectedApartment = value);
-                            },
-                            enabled: !_saving && !_hasPendingRequest,
-                          ),
-                          const SizedBox(height: 12),
-                          TextField(
-                            controller: _noteCtrl,
-                            minLines: 2,
-                            maxLines: 4,
-                            textDirection: context.appTextDirection,
-                            decoration: InputDecoration(
-                              labelText:
-                                  l10n.socialResidenceChangeAdditionalNote,
-                              alignLabelWithHint: true,
+                    const SizedBox(height: 12),
+                    IgnorePointer(
+                      ignoring: _hasPendingRequest,
+                      child: Opacity(
+                        opacity: _hasPendingRequest ? 0.55 : 1,
+                        child: Column(
+                          children: [
+                            BasmayaAddressSelector(
+                              selectedBlock: _selectedBlock,
+                              selectedBuilding: _selectedBuilding,
+                              selectedApartment: _selectedApartment,
+                              onBlockChanged: (value) {
+                                setState(() {
+                                  _selectedBlock = value;
+                                  _selectedBuilding = null;
+                                  _selectedApartment = null;
+                                });
+                              },
+                              onBuildingChanged: (value) {
+                                setState(() {
+                                  _selectedBuilding = value;
+                                  _selectedApartment = null;
+                                });
+                              },
+                              onApartmentChanged: (value) {
+                                setState(() => _selectedApartment = value);
+                              },
+                              enabled: !_saving && !_hasPendingRequest,
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed: (_saving || _hasPendingRequest)
-                                ? null
-                                : _pickDocumentImage,
-                            icon: const Icon(Icons.upload_file_rounded),
-                            label: Text(
-                              l10n.socialResidenceChangeAttachDocument,
-                            ),
-                          ),
-                          _buildDocumentPreview(),
-                          if ((_error ?? '').trim().isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Text(
-                              _error!,
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: _noteCtrl,
+                              minLines: 2,
+                              maxLines: 4,
                               textDirection: context.appTextDirection,
-                              textAlign: TextAlign.right,
-                              style: TextStyle(
-                                color: Theme.of(context).colorScheme.error,
-                                fontWeight: FontWeight.w700,
+                              decoration: InputDecoration(
+                                labelText:
+                                    l10n.socialResidenceChangeAdditionalNote,
+                                alignLabelWithHint: true,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: (_saving || _hasPendingRequest)
+                                  ? null
+                                  : _pickDocumentImage,
+                              icon: const Icon(Icons.upload_file_rounded),
+                              label: Text(
+                                l10n.socialResidenceChangeAttachDocument,
+                              ),
+                            ),
+                            _buildDocumentPreview(),
+                            if ((_error ?? '').trim().isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              Text(
+                                _error!,
+                                textDirection: context.appTextDirection,
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  color: Theme.of(context).colorScheme.error,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 14),
+                            FilledButton.icon(
+                              onPressed: (_saving || _hasPendingRequest)
+                                  ? null
+                                  : _submit,
+                              icon: _saving
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Icon(Icons.send_rounded),
+                              label: Text(
+                                l10n.socialResidenceChangeSubmitAction,
                               ),
                             ),
                           ],
-                          const SizedBox(height: 14),
-                          FilledButton.icon(
-                            onPressed: (_saving || _hasPendingRequest)
-                                ? null
-                                : _submit,
-                            icon: _saving
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                : const Icon(Icons.send_rounded),
-                            label: Text(l10n.socialResidenceChangeSubmitAction),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                  if (_hasPendingRequest) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      l10n.socialResidenceChangePendingLockMessage,
-                      textDirection: context.appTextDirection,
-                      textAlign: TextAlign.right,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.primary,
-                        fontWeight: FontWeight.w700,
+                    if (_hasPendingRequest) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        l10n.socialResidenceChangePendingLockMessage,
+                        textDirection: context.appTextDirection,
+                        textAlign: TextAlign.right,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }

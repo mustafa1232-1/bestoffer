@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../models/social_models.dart';
@@ -30,7 +32,7 @@ class _SocialCollectionsScreenState
     final descriptionCtrl = TextEditingController(
       text: collection?.description ?? '',
     );
-    final approved = await showModalBottomSheet<bool>(
+    final approved = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -107,56 +109,62 @@ class _SocialCollectionsScreenState
           ),
         ],
       ),
-      body: state.loading && state.collections.isEmpty
-          ? const Center(child: CircularProgressIndicator())
-          : ListView.separated(
-              padding: const EdgeInsets.all(16),
-              itemCount: state.collections.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 12),
-              itemBuilder: (_, index) {
-                final collection = state.collections[index];
-                return Card(
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(14),
-                    title: Text(
-                      collection.title,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
+      body: SafeArea(
+        top: false,
+        child: state.loading && state.collections.isEmpty
+            ? const Center(child: CircularProgressIndicator())
+            : ListView.separated(
+                padding: const EdgeInsets.all(16),
+                itemCount: state.collections.length,
+                separatorBuilder: (context, index) =>
+                    const SizedBox(height: 12),
+                itemBuilder: (_, index) {
+                  final collection = state.collections[index];
+                  return Card(
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(14),
+                      title: Text(
+                        collection.title,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      subtitle: Text(
+                        [
+                          if ((collection.description ?? '').trim().isNotEmpty)
+                            collection.description!.trim(),
+                          l10n.socialCollectionsItemsCount(
+                            collection.itemsCount,
+                          ),
+                        ].join('\n'),
+                      ),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) async {
+                          switch (value) {
+                            case 'edit':
+                              await _showCreateSheet(collection: collection);
+                              break;
+                            case 'delete':
+                              await ref
+                                  .read(socialSavedControllerProvider.notifier)
+                                  .deleteCollection(collection.id);
+                              break;
+                          }
+                        },
+                        itemBuilder: (_) => [
+                          PopupMenuItem(
+                            value: 'edit',
+                            child: Text(l10n.commonEdit),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text(l10n.commonDelete),
+                          ),
+                        ],
+                      ),
                     ),
-                    subtitle: Text(
-                      [
-                        if ((collection.description ?? '').trim().isNotEmpty)
-                          collection.description!.trim(),
-                        l10n.socialCollectionsItemsCount(collection.itemsCount),
-                      ].join('\n'),
-                    ),
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (value) async {
-                        switch (value) {
-                          case 'edit':
-                            await _showCreateSheet(collection: collection);
-                            break;
-                          case 'delete':
-                            await ref
-                                .read(socialSavedControllerProvider.notifier)
-                                .deleteCollection(collection.id);
-                            break;
-                        }
-                      },
-                      itemBuilder: (_) => [
-                        PopupMenuItem(
-                          value: 'edit',
-                          child: Text(l10n.commonEdit),
-                        ),
-                        PopupMenuItem(
-                          value: 'delete',
-                          child: Text(l10n.commonDelete),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
+                  );
+                },
+              ),
+      ),
     );
   }
 }

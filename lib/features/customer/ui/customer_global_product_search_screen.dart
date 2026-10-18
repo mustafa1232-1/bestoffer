@@ -275,240 +275,249 @@ class _CustomerGlobalProductSearchScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('بحث المنتجات')),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          TextField(
-            controller: _searchCtrl,
-            textDirection: TextDirection.rtl,
-            onSubmitted: (_) => _search(reset: true),
-            decoration: InputDecoration(
-              hintText: 'ابحث عن منتج أو طبق',
-              prefixIcon: const Icon(Icons.search),
-              suffixIcon: IconButton(
-                onPressed: () => _search(reset: true),
-                icon: const Icon(Icons.arrow_forward_rounded),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            TextField(
+              controller: _searchCtrl,
+              textDirection: TextDirection.rtl,
+              onSubmitted: (_) => _search(reset: true),
+              decoration: InputDecoration(
+                hintText: 'ابحث عن منتج أو طبق',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: IconButton(
+                  onPressed: () => _search(reset: true),
+                  icon: const Icon(Icons.arrow_forward_rounded),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              DropdownButton<_SearchSort>(
-                value: _sort,
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => _sort = value);
-                  _search(reset: true);
-                },
-                items: _SearchSort.values
-                    .map(
-                      (sort) => DropdownMenuItem<_SearchSort>(
-                        value: sort,
-                        child: Text(sort.label),
-                      ),
-                    )
-                    .toList(),
-              ),
-              FilterChip(
-                label: const Text('المتوفر فقط'),
-                selected: _onlyAvailable,
-                onSelected: (value) {
-                  setState(() => _onlyAvailable = value);
-                  _search(reset: true);
-                },
-              ),
-              FilterChip(
-                label: const Text('عروض فقط'),
-                selected: _onlyDiscounted,
-                onSelected: (value) {
-                  setState(() => _onlyDiscounted = value);
-                  _search(reset: true);
-                },
-              ),
-              DropdownButton<String>(
-                value: _merchantType,
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => _merchantType = value);
-                  _search(reset: true);
-                },
-                items: const [
-                  DropdownMenuItem(value: '', child: Text('كل المتاجر')),
-                  DropdownMenuItem(value: 'restaurant', child: Text('مطاعم')),
-                  DropdownMenuItem(value: 'market', child: Text('أسواق')),
-                  DropdownMenuItem(value: 'pharmacy', child: Text('صيدليات')),
-                ],
-              ),
-              DropdownButton<double?>(
-                value: _minRating,
-                onChanged: (value) {
-                  setState(() => _minRating = value);
-                  _search(reset: true);
-                },
-                items: const [
-                  DropdownMenuItem<double?>(
-                    value: null,
-                    child: Text('كل التقييمات'),
-                  ),
-                  DropdownMenuItem<double?>(value: 3, child: Text('3★ فأعلى')),
-                  DropdownMenuItem<double?>(value: 4, child: Text('4★ فأعلى')),
-                  DropdownMenuItem<double?>(
-                    value: 4.5,
-                    child: Text('4.5★ فأعلى'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                _error!,
-                textDirection: TextDirection.rtl,
-                style: const TextStyle(color: Colors.redAccent),
-              ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                DropdownButton<_SearchSort>(
+                  value: _sort,
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() => _sort = value);
+                    _search(reset: true);
+                  },
+                  items: _SearchSort.values
+                      .map(
+                        (sort) => DropdownMenuItem<_SearchSort>(
+                          value: sort,
+                          child: Text(sort.label),
+                        ),
+                      )
+                      .toList(),
+                ),
+                FilterChip(
+                  label: const Text('المتوفر فقط'),
+                  selected: _onlyAvailable,
+                  onSelected: (value) {
+                    setState(() => _onlyAvailable = value);
+                    _search(reset: true);
+                  },
+                ),
+                FilterChip(
+                  label: const Text('عروض فقط'),
+                  selected: _onlyDiscounted,
+                  onSelected: (value) {
+                    setState(() => _onlyDiscounted = value);
+                    _search(reset: true);
+                  },
+                ),
+                DropdownButton<String>(
+                  value: _merchantType,
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() => _merchantType = value);
+                    _search(reset: true);
+                  },
+                  items: const [
+                    DropdownMenuItem(value: '', child: Text('كل المتاجر')),
+                    DropdownMenuItem(value: 'restaurant', child: Text('مطاعم')),
+                    DropdownMenuItem(value: 'market', child: Text('أسواق')),
+                    DropdownMenuItem(value: 'pharmacy', child: Text('صيدليات')),
+                  ],
+                ),
+                DropdownButton<double?>(
+                  value: _minRating,
+                  onChanged: (value) {
+                    setState(() => _minRating = value);
+                    _search(reset: true);
+                  },
+                  items: const [
+                    DropdownMenuItem<double?>(
+                      value: null,
+                      child: Text('كل التقييمات'),
+                    ),
+                    DropdownMenuItem<double?>(
+                      value: 3,
+                      child: Text('3★ فأعلى'),
+                    ),
+                    DropdownMenuItem<double?>(
+                      value: 4,
+                      child: Text('4★ فأعلى'),
+                    ),
+                    DropdownMenuItem<double?>(
+                      value: 4.5,
+                      child: Text('4.5★ فأعلى'),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          if (_loading && _items.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          ..._items.map((item) {
-            final merchant = Map<String, dynamic>.from(
-              item['merchant'] as Map? ?? const {},
-            );
-            final product = _toProduct(item);
-            final merchantModel = _toMerchant(item);
-            final variantLabels = productVariantLabelsForCatalogType(
-              merchantModel.type,
-            );
-            final cardData = ProductSummaryCardData.fromProduct(
-              product,
-              locale: Localizations.localeOf(context),
-              colorGroupLabelAr: variantLabels.colorLabelAr,
-              colorGroupLabelEn: variantLabels.colorLabelEn,
-              sizeGroupLabelAr: variantLabels.sizeLabelAr,
-              sizeGroupLabelEn: variantLabels.sizeLabelEn,
-            );
-            final selection =
-                _cardSelections[product.id] ?? cardData.resolveSelection();
-            _cardSelections[product.id] ??= selection;
-            final etaMinutes = (item['stats']?['etaMinutes'] as num?)
-                ?.toDouble();
-            final etaLabel = etaMinutes == null
-                ? 'غير محدد'
-                : '${etaMinutes.toStringAsFixed(0)} دقيقة';
-            final merchantName = merchant['name']?.toString() ?? '';
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: ProductSummaryCard.fromProduct(
+            const SizedBox(height: 10),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  _error!,
+                  textDirection: TextDirection.rtl,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            if (_loading && _items.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ..._items.map((item) {
+              final merchant = Map<String, dynamic>.from(
+                item['merchant'] as Map? ?? const {},
+              );
+              final product = _toProduct(item);
+              final merchantModel = _toMerchant(item);
+              final variantLabels = productVariantLabelsForCatalogType(
+                merchantModel.type,
+              );
+              final cardData = ProductSummaryCardData.fromProduct(
                 product,
-                key: ValueKey(product.id),
-                appearance: ProductSummaryCardAppearance.fromContext(context),
                 locale: Localizations.localeOf(context),
                 colorGroupLabelAr: variantLabels.colorLabelAr,
                 colorGroupLabelEn: variantLabels.colorLabelEn,
                 sizeGroupLabelAr: variantLabels.sizeLabelAr,
                 sizeGroupLabelEn: variantLabels.sizeLabelEn,
-                compact: true,
-                heroAspectRatio: 1.36,
-                maxAttributeBadges: 3,
-                maxVariantBadges: 2,
-                maxStatusBadges: 2,
-                selectedColorCode: selection.colorCode,
-                selectedSizeCode: selection.sizeCode,
-                onSelectionChanged: (next) {
-                  setState(() => _cardSelections[product.id] = next);
-                },
-                onTap: () => _openSearchResult(item),
-                trailing: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  alignment: WrapAlignment.end,
-                  children: [
-                    if (merchantName.isNotEmpty)
-                      Text(
-                        merchantName,
-                        textDirection: TextDirection.rtl,
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.white.withValues(alpha: 0.78),
-                          fontWeight: FontWeight.w600,
+              );
+              final selection =
+                  _cardSelections[product.id] ?? cardData.resolveSelection();
+              _cardSelections[product.id] ??= selection;
+              final etaMinutes = (item['stats']?['etaMinutes'] as num?)
+                  ?.toDouble();
+              final etaLabel = etaMinutes == null
+                  ? 'غير محدد'
+                  : '${etaMinutes.toStringAsFixed(0)} دقيقة';
+              final merchantName = merchant['name']?.toString() ?? '';
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: ProductSummaryCard.fromProduct(
+                  product,
+                  key: ValueKey(product.id),
+                  appearance: ProductSummaryCardAppearance.fromContext(context),
+                  locale: Localizations.localeOf(context),
+                  colorGroupLabelAr: variantLabels.colorLabelAr,
+                  colorGroupLabelEn: variantLabels.colorLabelEn,
+                  sizeGroupLabelAr: variantLabels.sizeLabelAr,
+                  sizeGroupLabelEn: variantLabels.sizeLabelEn,
+                  compact: true,
+                  heroAspectRatio: 1.36,
+                  maxAttributeBadges: 3,
+                  maxVariantBadges: 2,
+                  maxStatusBadges: 2,
+                  selectedColorCode: selection.colorCode,
+                  selectedSizeCode: selection.sizeCode,
+                  onSelectionChanged: (next) {
+                    setState(() => _cardSelections[product.id] = next);
+                  },
+                  onTap: () => _openSearchResult(item),
+                  trailing: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      if (merchantName.isNotEmpty)
+                        Text(
+                          merchantName,
+                          textDirection: TextDirection.rtl,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white.withValues(alpha: 0.78),
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ),
-                    Chip(
-                      label: Text(
-                        merchantScopeTag(
-                          merchantType: merchantModel.type,
-                          activityType: merchantModel.activityType,
+                      Chip(
+                        label: Text(
+                          merchantScopeTag(
+                            merchantType: merchantModel.type,
+                            activityType: merchantModel.activityType,
+                          ),
                         ),
-                      ),
-                      visualDensity: VisualDensity.compact,
-                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      backgroundColor: Colors.white.withValues(alpha: 0.06),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.24),
-                      ),
-                      labelStyle: const TextStyle(fontSize: 11),
-                    ),
-                    if (etaLabel.isNotEmpty)
-                      Text(
-                        '⏱ $etaLabel',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Colors.white.withValues(alpha: 0.68),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor: Colors.white.withValues(alpha: 0.06),
+                        side: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.24),
                         ),
+                        labelStyle: const TextStyle(fontSize: 11),
                       ),
-                    OutlinedButton(
-                      onPressed: () => _openSearchResult(item),
-                      child: const Text('فتح المتجر'),
-                    ),
-                    FilledButton.tonalIcon(
-                      onPressed: () => _quickOrder(item),
-                      icon: const Icon(Icons.flash_on_rounded),
-                      label: const Text('طلب سريع'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: () => _addToCart(item),
-                      icon: Icon(
-                        product.hasVariants
-                            ? Icons.tune_rounded
-                            : Icons.add_shopping_cart_rounded,
+                      if (etaLabel.isNotEmpty)
+                        Text(
+                          '⏱ $etaLabel',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.white.withValues(alpha: 0.68),
+                          ),
+                        ),
+                      OutlinedButton(
+                        onPressed: () => _openSearchResult(item),
+                        child: const Text('فتح المتجر'),
                       ),
-                      label: const Text('إضافة'),
-                    ),
-                  ],
+                      FilledButton.tonalIcon(
+                        onPressed: () => _quickOrder(item),
+                        icon: const Icon(Icons.flash_on_rounded),
+                        label: const Text('طلب سريع'),
+                      ),
+                      FilledButton.icon(
+                        onPressed: () => _addToCart(item),
+                        icon: Icon(
+                          product.hasVariants
+                              ? Icons.tune_rounded
+                              : Icons.add_shopping_cart_rounded,
+                        ),
+                        label: const Text('إضافة'),
+                      ),
+                    ],
+                  ),
+                  showDescription: false,
+                  showVariantControls: true,
+                  interactiveGallery: false,
                 ),
-                showDescription: false,
-                showVariantControls: true,
-                interactiveGallery: false,
+              );
+            }),
+            if (_nextOffset != null) ...[
+              const SizedBox(height: 6),
+              FilledButton(
+                onPressed: _loading
+                    ? null
+                    : () {
+                        _offset = _nextOffset!;
+                        _search(reset: false);
+                      },
+                child: _loading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text('تحميل المزيد'),
               ),
-            );
-          }),
-          if (_nextOffset != null) ...[
-            const SizedBox(height: 6),
-            FilledButton(
-              onPressed: _loading
-                  ? null
-                  : () {
-                      _offset = _nextOffset!;
-                      _search(reset: false);
-                    },
-              child: _loading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('تحميل المزيد'),
-            ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

@@ -73,45 +73,49 @@ class _AdminAuditSecurityCenterScreenState
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
-          : _events.isEmpty
-          ? Center(child: Text(l10n.adminOpsAuditSecurityEmpty))
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
-                itemCount: _events.length,
-                itemBuilder: (context, index) {
-                  final item = _events[index];
-                  final actor =
-                      '${item['actorName'] ?? item['full_name'] ?? ''}'.trim();
-                  final action = '${item['action'] ?? item['eventType'] ?? '-'}'
-                      .trim();
-                  final scope = '${item['scope'] ?? item['source'] ?? '-'}'
-                      .trim();
-                  final notes = '${item['note'] ?? item['description'] ?? ''}'
-                      .trim();
-                  final createdAt = _formatDate(
-                    item['createdAt']?.toString() ??
-                        item['created_at']?.toString(),
-                  );
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 6),
-                    child: ListTile(
-                      leading: const Icon(Icons.security_rounded),
-                      title: Text(action.isEmpty ? '-' : action),
-                      subtitle: Text(
-                        '${l10n.adminOpsAuditSecurityActor}: ${actor.isEmpty ? '-' : actor}\n${l10n.adminOpsAuditSecurityScope}: $scope\n$createdAt${notes.isEmpty ? '' : '\n$notes'}',
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null
+            ? Center(child: Text(_error!))
+            : _events.isEmpty
+            ? Center(child: Text(l10n.adminOpsAuditSecurityEmpty))
+            : RefreshIndicator(
+                onRefresh: _load,
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 24),
+                  itemCount: _events.length,
+                  itemBuilder: (context, index) {
+                    final item = _events[index];
+                    final actor =
+                        '${item['actorName'] ?? item['full_name'] ?? ''}'
+                            .trim();
+                    final action =
+                        '${item['action'] ?? item['eventType'] ?? '-'}'.trim();
+                    final scope = '${item['scope'] ?? item['source'] ?? '-'}'
+                        .trim();
+                    final notes = '${item['note'] ?? item['description'] ?? ''}'
+                        .trim();
+                    final createdAt = _formatDate(
+                      item['createdAt']?.toString() ??
+                          item['created_at']?.toString(),
+                    );
+                    return Card(
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      child: ListTile(
+                        leading: const Icon(Icons.security_rounded),
+                        title: Text(action.isEmpty ? '-' : action),
+                        subtitle: Text(
+                          '${l10n.adminOpsAuditSecurityActor}: ${actor.isEmpty ? '-' : actor}\n${l10n.adminOpsAuditSecurityScope}: $scope\n$createdAt${notes.isEmpty ? '' : '\n$notes'}',
+                        ),
+                        isThreeLine: true,
                       ),
-                      isThreeLine: true,
-                    ),
-                  );
-                },
+                    );
+                  },
+                ),
               ),
-            ),
+      ),
     );
   }
 }

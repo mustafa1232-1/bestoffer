@@ -87,90 +87,93 @@ class _AdminDeviceReliabilityScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: DropdownButtonFormField<String>(
-              initialValue: _status,
-              decoration: InputDecoration(
-                labelText: l10n.adminOpsFilterStatus,
-                border: const OutlineInputBorder(),
-              ),
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() => _status = value);
-                _load();
-              },
-              items:
-                  const [
-                        'all',
-                        'sent',
-                        'retry',
-                        'failed',
-                        'dead_token',
-                        'opened',
-                      ]
-                      .map(
-                        (v) => DropdownMenuItem<String>(
-                          value: v,
-                          child: Text(v == 'all' ? l10n.commonAll : v),
-                        ),
-                      )
-                      .toList(growable: false),
-            ),
-          ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                ? Center(child: Text(_error!))
-                : _items.isEmpty
-                ? Center(child: Text(l10n.adminOpsDeviceReliabilityEmpty))
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
-                      itemCount: _items.length,
-                      itemBuilder: (context, index) {
-                        final item = _items[index];
-                        final status = '${item['last_status'] ?? 'unknown'}'
-                            .trim();
-                        final color = _statusColor(status, scheme);
-                        final successCount =
-                            int.tryParse('${item['success_count']}') ?? 0;
-                        final failureCount =
-                            int.tryParse('${item['failure_count']}') ?? 0;
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: color.withValues(alpha: 0.16),
-                              foregroundColor: color,
-                              child: const Icon(Icons.phonelink_lock_rounded),
-                            ),
-                            title: Text(
-                              '${item['user_name'] ?? l10n.commonUnknown} (${item['platform'] ?? '-'})',
-                            ),
-                            subtitle: Text(
-                              '${l10n.commonStatus}: $status\n${l10n.adminOpsDeviceReliabilitySuccess}: $successCount • ${l10n.adminOpsDeviceReliabilityFailures}: $failureCount\n${item['push_token'] ?? '-'}',
-                            ),
-                            isThreeLine: true,
-                            trailing: item['last_error_code'] == null
-                                ? null
-                                : Tooltip(
-                                    message: '${item['last_error_code']}',
-                                    child: const Icon(
-                                      Icons.error_outline_rounded,
-                                    ),
-                                  ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: DropdownButtonFormField<String>(
+                initialValue: _status,
+                decoration: InputDecoration(
+                  labelText: l10n.adminOpsFilterStatus,
+                  border: const OutlineInputBorder(),
+                ),
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _status = value);
+                  _load();
+                },
+                items:
+                    const [
+                          'all',
+                          'sent',
+                          'retry',
+                          'failed',
+                          'dead_token',
+                          'opened',
+                        ]
+                        .map(
+                          (v) => DropdownMenuItem<String>(
+                            value: v,
+                            child: Text(v == 'all' ? l10n.commonAll : v),
                           ),
-                        );
-                      },
+                        )
+                        .toList(growable: false),
+              ),
+            ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(child: Text(_error!))
+                  : _items.isEmpty
+                  ? Center(child: Text(l10n.adminOpsDeviceReliabilityEmpty))
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
+                        itemCount: _items.length,
+                        itemBuilder: (context, index) {
+                          final item = _items[index];
+                          final status = '${item['last_status'] ?? 'unknown'}'
+                              .trim();
+                          final color = _statusColor(status, scheme);
+                          final successCount =
+                              int.tryParse('${item['success_count']}') ?? 0;
+                          final failureCount =
+                              int.tryParse('${item['failure_count']}') ?? 0;
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            child: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: color.withValues(alpha: 0.16),
+                                foregroundColor: color,
+                                child: const Icon(Icons.phonelink_lock_rounded),
+                              ),
+                              title: Text(
+                                '${item['user_name'] ?? l10n.commonUnknown} (${item['platform'] ?? '-'})',
+                              ),
+                              subtitle: Text(
+                                '${l10n.commonStatus}: $status\n${l10n.adminOpsDeviceReliabilitySuccess}: $successCount • ${l10n.adminOpsDeviceReliabilityFailures}: $failureCount\n${item['push_token'] ?? '-'}',
+                              ),
+                              isThreeLine: true,
+                              trailing: item['last_error_code'] == null
+                                  ? null
+                                  : Tooltip(
+                                      message: '${item['last_error_code']}',
+                                      child: const Icon(
+                                        Icons.error_outline_rounded,
+                                      ),
+                                    ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }

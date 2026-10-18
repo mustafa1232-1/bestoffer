@@ -235,51 +235,54 @@ class _SupportTicketDetailsScreenState
                   : context.lt(ar: 'طلب الدعم', en: 'Support request'),
             ),
           ),
-          body: RefreshIndicator(
-            onRefresh: () async => _refresh(),
-            child: Builder(
-              builder: (context) {
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    details == null) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (snapshot.hasError && details == null) {
-                  return _SupportErrorState(
-                    error: snapshot.error,
-                    onRetry: _refresh,
-                  );
-                }
-                if (details == null) {
-                  return const SizedBox.shrink();
-                }
-                return ListView(
-                  padding: EdgeInsets.fromLTRB(12, 12, 12, closed ? 96 : 132),
-                  children: [
-                    _SupportTicketHeader(ticket: details.ticket),
-                    if (details.links.isNotEmpty) ...[
-                      const SizedBox(height: 8),
-                      _TicketLinksCard(links: details.links),
-                    ],
-                    const SizedBox(height: 12),
-                    if (details.messages.isEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 32),
-                        child: Text(
-                          context.lt(
-                            ar: 'لا توجد رسائل بعد.',
-                            en: 'No messages yet.',
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      )
-                    else
-                      for (final message in details.messages) ...[
-                        _SupportMessageBubble(message: message),
+          body: SafeArea(
+            top: false,
+            child: RefreshIndicator(
+              onRefresh: () async => _refresh(),
+              child: Builder(
+                builder: (context) {
+                  if (snapshot.connectionState == ConnectionState.waiting &&
+                      details == null) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError && details == null) {
+                    return _SupportErrorState(
+                      error: snapshot.error,
+                      onRetry: _refresh,
+                    );
+                  }
+                  if (details == null) {
+                    return const SizedBox.shrink();
+                  }
+                  return ListView(
+                    padding: EdgeInsets.fromLTRB(12, 12, 12, closed ? 96 : 132),
+                    children: [
+                      _SupportTicketHeader(ticket: details.ticket),
+                      if (details.links.isNotEmpty) ...[
                         const SizedBox(height: 8),
+                        _TicketLinksCard(links: details.links),
                       ],
-                  ],
-                );
-              },
+                      const SizedBox(height: 12),
+                      if (details.messages.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 32),
+                          child: Text(
+                            context.lt(
+                              ar: 'لا توجد رسائل بعد.',
+                              en: 'No messages yet.',
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      else
+                        for (final message in details.messages) ...[
+                          _SupportMessageBubble(message: message),
+                          const SizedBox(height: 8),
+                        ],
+                    ],
+                  );
+                },
+              ),
             ),
           ),
           bottomNavigationBar: ticket == null

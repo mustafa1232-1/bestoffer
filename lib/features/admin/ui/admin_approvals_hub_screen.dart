@@ -114,119 +114,123 @@ class AdminApprovalsHubScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(adminControllerProvider.notifier).bootstrap(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          children: [
-            Text(
-              l10n.adminApprovalsHubSubtitle,
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.start,
-            ),
-            const SizedBox(height: 16),
-            _ApprovalHubTile(
-              icon: Icons.storefront_outlined,
-              title: l10n.adminApprovalsHubMerchantTitle,
-              subtitle: l10n.adminApprovalsHubMerchantSubtitle,
-              count: state.pendingMerchants.length,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AdminMerchantApprovalsScreen(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _ApprovalHubTile(
-              icon: Icons.delivery_dining_outlined,
-              title: l10n.adminApprovalsHubDeliveryTitle,
-              subtitle: l10n.adminApprovalsHubDeliverySubtitle,
-              count: state.pendingDeliveryAccounts.length,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AdminDeliveryApprovalsScreen(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _ApprovalHubTile(
-              icon: Icons.local_taxi_outlined,
-              title: l10n.adminApprovalsHubTaxiTitle,
-              subtitle: l10n.adminApprovalsHubTaxiSubtitle,
-              count:
-                  state.pendingTaxiCaptainAccounts.length +
-                  state.pendingTaxiProfileEditRequests.length,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AdminTaxiCaptainRequestsScreen(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _ApprovalHubTile(
-              icon: Icons.payments_outlined,
-              title: l10n.adminApprovalsHubTaxiPaymentsTitle,
-              subtitle: l10n.adminApprovalsHubTaxiPaymentsSubtitle,
-              count: state.pendingTaxiCashPayments.length,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AdminTaxiCashPaymentsScreen(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _ApprovalHubTile(
-              icon: Icons.home_repair_service_outlined,
-              title: 'الخدمات بانتظار المراجعة',
-              subtitle: 'مراجعة الخدمات المنشورة أو المعدلة قبل الظهور العام',
-              count: state.pendingServiceOfferings.length,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AdminServicesHubScreen(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _ApprovalHubTile(
-              icon: Icons.home_repair_service_outlined,
-              title: 'اشتراكات أصحاب الخدمة',
-              subtitle: 'تسعير الاشتراك، الموافقة، وتأكيد الاستلام النقدي',
-              count: state.pendingServiceProviderApplications.length,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) =>
-                        const AdminServiceProviderApplicationsScreen(),
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 12),
-            _ApprovalHubTile(
-              icon: Icons.account_balance_wallet_outlined,
-              title: l10n.adminApprovalsHubFinancialTitle,
-              subtitle: l10n.adminApprovalsHubFinancialSubtitle,
-              count: state.pendingSettlements.length,
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AdminReceivablesScreen(),
-                  ),
-                );
-              },
-            ),
-          ],
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(adminControllerProvider.notifier).bootstrap(),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              Text(
+                l10n.adminApprovalsHubSubtitle,
+                style: Theme.of(context).textTheme.bodyMedium,
+                textAlign: TextAlign.start,
+              ),
+              const SizedBox(height: 16),
+              _ApprovalHubTile(
+                icon: Icons.storefront_outlined,
+                title: l10n.adminApprovalsHubMerchantTitle,
+                subtitle: l10n.adminApprovalsHubMerchantSubtitle,
+                count: state.pendingMerchants.length,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AdminMerchantApprovalsScreen(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              _ApprovalHubTile(
+                icon: Icons.delivery_dining_outlined,
+                title: l10n.adminApprovalsHubDeliveryTitle,
+                subtitle: l10n.adminApprovalsHubDeliverySubtitle,
+                count: state.pendingDeliveryAccounts.length,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AdminDeliveryApprovalsScreen(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              _ApprovalHubTile(
+                icon: Icons.local_taxi_outlined,
+                title: l10n.adminApprovalsHubTaxiTitle,
+                subtitle: l10n.adminApprovalsHubTaxiSubtitle,
+                count:
+                    state.pendingTaxiCaptainAccounts.length +
+                    state.pendingTaxiProfileEditRequests.length,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AdminTaxiCaptainRequestsScreen(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              _ApprovalHubTile(
+                icon: Icons.payments_outlined,
+                title: l10n.adminApprovalsHubTaxiPaymentsTitle,
+                subtitle: l10n.adminApprovalsHubTaxiPaymentsSubtitle,
+                count: state.pendingTaxiCashPayments.length,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AdminTaxiCashPaymentsScreen(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              _ApprovalHubTile(
+                icon: Icons.home_repair_service_outlined,
+                title: 'الخدمات بانتظار المراجعة',
+                subtitle: 'مراجعة الخدمات المنشورة أو المعدلة قبل الظهور العام',
+                count: state.pendingServiceOfferings.length,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AdminServicesHubScreen(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              _ApprovalHubTile(
+                icon: Icons.home_repair_service_outlined,
+                title: 'اشتراكات أصحاب الخدمة',
+                subtitle: 'تسعير الاشتراك، الموافقة، وتأكيد الاستلام النقدي',
+                count: state.pendingServiceProviderApplications.length,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          const AdminServiceProviderApplicationsScreen(),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              _ApprovalHubTile(
+                icon: Icons.account_balance_wallet_outlined,
+                title: l10n.adminApprovalsHubFinancialTitle,
+                subtitle: l10n.adminApprovalsHubFinancialSubtitle,
+                count: state.pendingSettlements.length,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const AdminReceivablesScreen(),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );

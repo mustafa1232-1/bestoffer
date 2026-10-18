@@ -1,6 +1,7 @@
 import { env } from "../../config/env.js";
 import { runMimoTurn } from "./mimo.agent.js";
 import { buildDashboard, createDefaultDashboardDeps, estimateCost } from "./mimo.dashboard.js";
+import { loadDirectory } from "./mimo.directory.js";
 import { createMimoLlm, meterLlm } from "./mimo.llm.js";
 import { createDefaultProactiveDeps, pickNudge } from "./mimo.proactive.js";
 import { createDefaultKnowledgeDeps } from "./mimo.knowledge.js";
@@ -272,6 +273,16 @@ export async function adminDeleteKnowledge(req, res, next) {
   }
 }
 
+/** GET /api/mimo/directory — every store & service, for Mimo's instant offline brain. */
+export async function directory(req, res, next) {
+  try {
+    res.setHeader("Cache-Control", "private, max-age=60");
+    return res.json(await loadDirectory());
+  } catch (error) {
+    return next(error);
+  }
+}
+
 /** GET /api/mimo/nudge?lang=ar — today's proactive suggestion (or null). */
 export async function nudge(req, res, next) {
   try {
@@ -299,20 +310,32 @@ export async function proactiveEvent(req, res, next) {
   }
 }
 
-/** Offline brain: used when the LLM is unavailable so Mimo still helps. */
+const FALLBACK_SECTIONS = [
+  ["shopping", "التسوق", "Shopping"],
+  ["taxi", "التكسي", "Taxi"],
+  ["services", "الخدمات", "Services"],
+  ["pharmacy", "الصيدليات", "Pharmacy"],
+  ["offers", "العروض", "Offers"],
+  ["orders", "طلباتي", "My orders"],
+];
+
+/**
+ * Offline brain: used when the LLM is unavailable (no credit, disabled,
+ * provider down). It offers buttons that OPEN the sections directly — quick
+ * replies would just ask the same unavailable brain again and loop.
+ */
 export function fallbackReply(lang = "ar") {
   const ar = lang !== "en";
   return {
     text: ar
-      ? "هسه دماغي شوية تعبان 😅 بس أگدر أساعدك تختار: شتريد تسوي اليوم؟"
-      : "My brain is a bit tired right now 😅 but I can still help: what do you feel like today?",
+      ? "هسه دماغي شوية تعبان 😅 ما أگدر أجاوب على الأسئلة بهاللحظة، بس أگدر أوديك مباشرة للي تريده:"
+      : "My brain is resting right now 😅 I can't answer questions at the moment, but I can take you straight there:",
     ui: [
-      {
-        type: "replies",
-        options: ar
-          ? ["أكل", "تسوق", "تكسي", "خدمات", "صيدلية", "عروض"]
-          : ["Food", "Shopping", "Taxi", "Services", "Pharmacy", "Offers"],
-      },
+      ...FALLBACK_SECTIONS.map(([section, arLabel, enLabel]) => ({
+        type: "open_section",
+        section,
+        label: ar ? arLabel : enLabel,
+      })),
       { type: "mood", mood: "thinking" },
     ],
   };
@@ -414,6 +437,8 @@ export async function chat(req, res, next) {
     });
   } catch (error) {
     if (!abort.signal.aborted) {
+      // Visible in the server logs (e.g. MIMO_LLM_NO_CREDIT = OpenAI credit ran out).
+      console.warn(`[mimo] fallback reply: ${error?.code || error?.message || "MIMO_FAILED"}`);
       const fb = fallbackReply(lang);
       emit("delta", { text: fb.text });
       for (const event of fb.ui) emit("ui", event);

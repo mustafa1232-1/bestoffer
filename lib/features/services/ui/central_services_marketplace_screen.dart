@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/media/cached_app_image.dart';
 import '../../../core/sections/section_availability_controller.dart';
@@ -110,7 +112,7 @@ class _CentralServicesMarketplaceScreenState
     }
     final auth = ref.read(authControllerProvider);
     if (!auth.isAuthed || auth.isGuest) {
-      final login = await showModalBottomSheet<bool>(
+      final login = await showMaslakiBottomSheet<bool>(
         context: context,
         showDragHandle: true,
         builder: (context) => Padding(
@@ -246,115 +248,54 @@ class _CentralServicesMarketplaceScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
-          children: [
-            _ServicesIntro(
-              onEmergency: emergency == null ? null : () => _open(emergency),
-            ),
-            const SizedBox(height: 14),
-            TextField(
-              controller: _searchController,
-              textDirection: TextDirection.rtl,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                hintText: 'ما الخدمة التي تحتاجها؟',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: query.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'مسح البحث',
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() {});
-                        },
-                        icon: const Icon(Icons.close_rounded),
-                      ),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
+            children: [
+              _ServicesIntro(
+                onEmergency: emergency == null ? null : () => _open(emergency),
               ),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                _error!,
-                textDirection: TextDirection.rtl,
-                textAlign: TextAlign.right,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-            const SizedBox(height: 18),
-            Row(
-              textDirection: TextDirection.rtl,
-              children: [
-                Expanded(
-                  child: Text(
-                    'اختر نوع المساعدة',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textDirection: TextDirection.rtl,
-                    textAlign: TextAlign.right,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                ),
-                if (_loading)
-                  const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (!_loading && visible.isEmpty)
-              const _EmptySearch()
-            else
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  final wide = constraints.maxWidth >= 650;
-                  return GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: regular.length,
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: wide ? 3 : 2,
-                      crossAxisSpacing: 10,
-                      mainAxisSpacing: 10,
-                      childAspectRatio: wide ? 1.32 : 0.95,
-                    ),
-                    itemBuilder: (context, index) =>
-                        TweenAnimationBuilder<double>(
-                          duration: Duration(milliseconds: 260 + (index * 45)),
-                          tween: Tween(begin: 0, end: 1),
-                          curve: Curves.easeOutCubic,
-                          builder: (context, value, child) =>
-                              Transform.translate(
-                                offset: Offset(0, 12 * (1 - value)),
-                                child: Opacity(opacity: value, child: child),
-                              ),
-                          child: _ServiceCard(
-                            item: regular[index],
-                            onTap: () => _open(regular[index]),
-                          ),
-                        ),
-                  );
-                },
-              ),
-            if (emergency != null) ...[
               const SizedBox(height: 14),
-              _EmergencyStrip(item: emergency, onTap: () => _open(emergency)),
-            ],
-            if (visibleOfferings.isNotEmpty) ...[
-              const SizedBox(height: 22),
+              TextField(
+                controller: _searchController,
+                textDirection: TextDirection.rtl,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  hintText: 'ما الخدمة التي تحتاجها؟',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: query.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'مسح البحث',
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                ),
+              ),
+              if (_error != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _error!,
+                  textDirection: TextDirection.rtl,
+                  textAlign: TextAlign.right,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 18),
               Row(
                 textDirection: TextDirection.rtl,
                 children: [
                   Expanded(
                     child: Text(
-                      query.isEmpty
-                          ? 'خدمات متاحة للحجز'
-                          : 'نتائج الخدمات المنشورة',
+                      'اختر نوع المساعدة',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       textDirection: TextDirection.rtl,
                       textAlign: TextAlign.right,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -362,32 +303,98 @@ class _CentralServicesMarketplaceScreenState
                       ),
                     ),
                   ),
-                  Text(
-                    '${visibleOfferings.length}',
-                    style: Theme.of(context).textTheme.labelLarge,
-                  ),
+                  if (_loading)
+                    const SizedBox.square(
+                      dimension: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                 ],
               ),
-              const SizedBox(height: 10),
-              ...visibleOfferings.map(
-                (offering) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _PublishedOfferingCard(
-                    offering: offering,
-                    onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ServiceOfferingDetailsScreen(
-                          offeringId: offering.id,
+              const SizedBox(height: 12),
+              if (!_loading && visible.isEmpty)
+                const _EmptySearch()
+              else
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final wide = constraints.maxWidth >= 650;
+                    return GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: regular.length,
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: wide ? 3 : 2,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                        childAspectRatio: wide ? 1.32 : 0.95,
+                      ),
+                      itemBuilder: (context, index) =>
+                          TweenAnimationBuilder<double>(
+                            duration: Duration(
+                              milliseconds: 260 + (index * 45),
+                            ),
+                            tween: Tween(begin: 0, end: 1),
+                            curve: Curves.easeOutCubic,
+                            builder: (context, value, child) =>
+                                Transform.translate(
+                                  offset: Offset(0, 12 * (1 - value)),
+                                  child: Opacity(opacity: value, child: child),
+                                ),
+                            child: _ServiceCard(
+                              item: regular[index],
+                              onTap: () => _open(regular[index]),
+                            ),
+                          ),
+                    );
+                  },
+                ),
+              if (emergency != null) ...[
+                const SizedBox(height: 14),
+                _EmergencyStrip(item: emergency, onTap: () => _open(emergency)),
+              ],
+              if (visibleOfferings.isNotEmpty) ...[
+                const SizedBox(height: 22),
+                Row(
+                  textDirection: TextDirection.rtl,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        query.isEmpty
+                            ? 'خدمات متاحة للحجز'
+                            : 'نتائج الخدمات المنشورة',
+                        textDirection: TextDirection.rtl,
+                        textAlign: TextAlign.right,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${visibleOfferings.length}',
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ...visibleOfferings.map(
+                  (offering) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _PublishedOfferingCard(
+                      offering: offering,
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ServiceOfferingDetailsScreen(
+                            offeringId: offering.id,
+                          ),
                         ),
                       ),
                     ),
                   ),
                 ),
-              ),
+              ],
+              const SizedBox(height: 18),
+              const _HowItWorks(),
             ],
-            const SizedBox(height: 18),
-            const _HowItWorks(),
-          ],
+          ),
         ),
       ),
     );
@@ -660,46 +667,49 @@ class _CentralCategoryServicesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(category.title)),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
-        children: [
-          Text(
-            'اختر الخدمة المناسبة',
-            textDirection: TextDirection.rtl,
-            textAlign: TextAlign.right,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            'اطلع على الصور والتفاصيل والسعر، ثم أكمل الحجز بخطوات قصيرة.',
-            textDirection: TextDirection.rtl,
-            textAlign: TextAlign.right,
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 14),
-          ...offerings.map(
-            (offering) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _PublishedOfferingCard(
-                offering: offering,
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) =>
-                        ServiceOfferingDetailsScreen(offeringId: offering.id),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 32),
+          children: [
+            Text(
+              'اختر الخدمة المناسبة',
+              textDirection: TextDirection.rtl,
+              textAlign: TextAlign.right,
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+            ),
+            const SizedBox(height: 5),
+            Text(
+              'اطلع على الصور والتفاصيل والسعر، ثم أكمل الحجز بخطوات قصيرة.',
+              textDirection: TextDirection.rtl,
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 14),
+            ...offerings.map(
+              (offering) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _PublishedOfferingCard(
+                  offering: offering,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          ServiceOfferingDetailsScreen(offeringId: offering.id),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 4),
-          OutlinedButton.icon(
-            onPressed: onCustomRequest,
-            icon: const Icon(Icons.edit_note_rounded),
-            label: const Text('لم تجد خدمتك؟ أرسل طلباً مخصصاً'),
-          ),
-        ],
+            const SizedBox(height: 4),
+            OutlinedButton.icon(
+              onPressed: onCustomRequest,
+              icon: const Icon(Icons.edit_note_rounded),
+              label: const Text('لم تجد خدمتك؟ أرسل طلباً مخصصاً'),
+            ),
+          ],
+        ),
       ),
     );
   }

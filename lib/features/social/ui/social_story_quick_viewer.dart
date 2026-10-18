@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/auth/auth_guard.dart';
 import '../../../core/i18n/app_localizations_context.dart';
@@ -111,7 +113,7 @@ Future<void> showSocialStoryQuickViewer({
             }
             if (!context.mounted) return null;
             var commentsAdded = 0;
-            await showModalBottomSheet<void>(
+            await showMaslakiBottomSheet<void>(
               context: context,
               isScrollControlled: true,
               showDragHandle: true,
@@ -563,7 +565,7 @@ class _SocialStoryQuickViewerSheetState
     final story = _currentStory;
     _consumeNextTapUp = true;
     await _withOverlayPause(() {
-      return showModalBottomSheet<void>(
+      return showMaslakiBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,

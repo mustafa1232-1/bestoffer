@@ -217,134 +217,143 @@ class _AdminServiceProviderApplicationsScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-            child: DropdownButtonFormField<String>(
-              initialValue: _statusFilter,
-              items: const [
-                DropdownMenuItem(value: 'pending', child: Text('Under review')),
-                DropdownMenuItem(value: 'approved', child: Text('Approved')),
-                DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
-                DropdownMenuItem(value: 'suspended', child: Text('Suspended')),
-              ],
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() => _statusFilter = value);
-                _load();
-              },
-              decoration: const InputDecoration(labelText: 'Review status'),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+              child: DropdownButtonFormField<String>(
+                initialValue: _statusFilter,
+                items: const [
+                  DropdownMenuItem(
+                    value: 'pending',
+                    child: Text('Under review'),
+                  ),
+                  DropdownMenuItem(value: 'approved', child: Text('Approved')),
+                  DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
+                  DropdownMenuItem(
+                    value: 'suspended',
+                    child: Text('Suspended'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _statusFilter = value);
+                  _load();
+                },
+                decoration: const InputDecoration(labelText: 'Review status'),
+              ),
             ),
-          ),
-          if (_saving) const LinearProgressIndicator(minHeight: 2),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _load,
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? ListView(
-                      children: [
-                        const SizedBox(height: 120),
-                        Center(child: Text(_error!)),
-                      ],
-                    )
-                  : _items.isEmpty
-                  ? ListView(
-                      children: const [
-                        SizedBox(height: 120),
-                        Center(child: Text('No provider applications.')),
-                      ],
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _items.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final row = _items[index];
-                        final status = _asText(
-                          row['providerApprovalStatus'] ?? row['status'],
-                        );
-                        return Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _asText(row['businessName']).isEmpty
-                                      ? _asText(row['ownerFullName'])
-                                      : _asText(row['businessName']),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text('Phone: ${_asText(row['phone'])}'),
-                                Text('City: ${_asText(row['city'])}'),
-                                Text(
-                                  'Category: ${_asText(row['mainCategoryName'])}',
-                                ),
-                                Text('Review status: $status'),
-                                if (_asText(row['approvalNote']).isNotEmpty)
+            if (_saving) const LinearProgressIndicator(minHeight: 2),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _load,
+                child: _loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _error != null
+                    ? ListView(
+                        children: [
+                          const SizedBox(height: 120),
+                          Center(child: Text(_error!)),
+                        ],
+                      )
+                    : _items.isEmpty
+                    ? ListView(
+                        children: const [
+                          SizedBox(height: 120),
+                          Center(child: Text('No provider applications.')),
+                        ],
+                      )
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(12),
+                        itemCount: _items.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
+                        itemBuilder: (context, index) {
+                          final row = _items[index];
+                          final status = _asText(
+                            row['providerApprovalStatus'] ?? row['status'],
+                          );
+                          return Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
                                   Text(
-                                    'Review note: ${_asText(row['approvalNote'])}',
+                                    _asText(row['businessName']).isEmpty
+                                        ? _asText(row['ownerFullName'])
+                                        : _asText(row['businessName']),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 16,
+                                    ),
                                   ),
-                                const SizedBox(height: 10),
-                                Wrap(
-                                  spacing: 8,
-                                  runSpacing: 8,
-                                  children: [
-                                    if (status != 'approved')
-                                      FilledButton.icon(
-                                        onPressed: _saving
-                                            ? null
-                                            : () => _updateStatus(
-                                                row,
-                                                'approved',
-                                              ),
-                                        icon: const Icon(
-                                          Icons.check_circle_outline,
+                                  const SizedBox(height: 4),
+                                  Text('Phone: ${_asText(row['phone'])}'),
+                                  Text('City: ${_asText(row['city'])}'),
+                                  Text(
+                                    'Category: ${_asText(row['mainCategoryName'])}',
+                                  ),
+                                  Text('Review status: $status'),
+                                  if (_asText(row['approvalNote']).isNotEmpty)
+                                    Text(
+                                      'Review note: ${_asText(row['approvalNote'])}',
+                                    ),
+                                  const SizedBox(height: 10),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      if (status != 'approved')
+                                        FilledButton.icon(
+                                          onPressed: _saving
+                                              ? null
+                                              : () => _updateStatus(
+                                                  row,
+                                                  'approved',
+                                                ),
+                                          icon: const Icon(
+                                            Icons.check_circle_outline,
+                                          ),
+                                          label: const Text('Approve'),
                                         ),
-                                        label: const Text('Approve'),
-                                      ),
-                                    if (status != 'rejected')
-                                      TextButton.icon(
-                                        onPressed: _saving
-                                            ? null
-                                            : () => _updateStatus(
-                                                row,
-                                                'rejected',
-                                              ),
-                                        icon: const Icon(Icons.block_rounded),
-                                        label: const Text('Reject'),
-                                      ),
-                                    if (status == 'approved')
-                                      OutlinedButton.icon(
-                                        onPressed: _saving
-                                            ? null
-                                            : () => _updateStatus(
-                                                row,
-                                                'suspended',
-                                              ),
-                                        icon: const Icon(
-                                          Icons.pause_circle_outline,
+                                      if (status != 'rejected')
+                                        TextButton.icon(
+                                          onPressed: _saving
+                                              ? null
+                                              : () => _updateStatus(
+                                                  row,
+                                                  'rejected',
+                                                ),
+                                          icon: const Icon(Icons.block_rounded),
+                                          label: const Text('Reject'),
                                         ),
-                                        label: const Text('Suspend'),
-                                      ),
-                                  ],
-                                ),
-                              ],
+                                      if (status == 'approved')
+                                        OutlinedButton.icon(
+                                          onPressed: _saving
+                                              ? null
+                                              : () => _updateStatus(
+                                                  row,
+                                                  'suspended',
+                                                ),
+                                          icon: const Icon(
+                                            Icons.pause_circle_outline,
+                                          ),
+                                          label: const Text('Suspend'),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      ),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -97,85 +97,90 @@ class _SettingsActivityScreenState
           ),
         ],
       ),
-      body: _initialLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null && _events.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!),
-                  const SizedBox(height: 10),
-                  FilledButton.icon(
-                    onPressed: _loadInitial,
-                    icon: const Icon(Icons.refresh_rounded),
-                    label: Text(l10n.commonRetry),
-                  ),
-                ],
-              ),
-            )
-          : _events.isEmpty
-          ? Center(child: Text(l10n.settingsActivityNoEntries))
-          : ListView.separated(
-              padding: const EdgeInsets.all(12),
-              itemCount: _events.length + 1,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, index) {
-                if (index == _events.length) {
-                  if (_loadingMore) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-                  if (_nextCursor == null) {
-                    return Center(
-                      child: Text(
-                        l10n.settingsActivityEndOfLog,
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.72),
-                          fontWeight: FontWeight.w700,
+      body: SafeArea(
+        top: false,
+        child: _initialLoading
+            ? const Center(child: CircularProgressIndicator())
+            : _error != null && _events.isEmpty
+            ? Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_error!),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: _loadInitial,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: Text(l10n.commonRetry),
+                    ),
+                  ],
+                ),
+              )
+            : _events.isEmpty
+            ? Center(child: Text(l10n.settingsActivityNoEntries))
+            : ListView.separated(
+                padding: const EdgeInsets.all(12),
+                itemCount: _events.length + 1,
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  if (index == _events.length) {
+                    if (_loadingMore) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 8),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (_nextCursor == null) {
+                      return Center(
+                        child: Text(
+                          l10n.settingsActivityEndOfLog,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.72),
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
+                      );
+                    }
+                    return Center(
+                      child: OutlinedButton.icon(
+                        onPressed: _loadMore,
+                        icon: const Icon(Icons.expand_more_rounded),
+                        label: Text(l10n.settingsActivityLoadMore),
                       ),
                     );
                   }
-                  return Center(
-                    child: OutlinedButton.icon(
-                      onPressed: _loadMore,
-                      icon: const Icon(Icons.expand_more_rounded),
-                      label: Text(l10n.settingsActivityLoadMore),
+
+                  final item = _events[index];
+                  final event = _stringValue(
+                    item['eventName'] ?? item['event_name'],
+                  );
+                  final category = _stringValue(item['category']);
+                  final action = _stringValue(item['action']);
+                  final at = _formatDate(
+                    item['createdAt'] ?? item['created_at'],
+                  );
+
+                  return Card(
+                    child: ListTile(
+                      leading: const Icon(Icons.history_rounded),
+                      title: Text(
+                        event.isEmpty ? l10n.settingsActivityEventLabel : event,
+                      ),
+                      subtitle: Text(
+                        [
+                          if (category.isNotEmpty)
+                            '${l10n.settingsActivityCategoryLabel}: $category',
+                          if (action.isNotEmpty)
+                            '${l10n.settingsActivityActionLabel}: $action',
+                          '${l10n.settingsActivityTimeLabel}: $at',
+                        ].join('\n'),
+                      ),
+                      isThreeLine: true,
                     ),
                   );
-                }
-
-                final item = _events[index];
-                final event = _stringValue(
-                  item['eventName'] ?? item['event_name'],
-                );
-                final category = _stringValue(item['category']);
-                final action = _stringValue(item['action']);
-                final at = _formatDate(item['createdAt'] ?? item['created_at']);
-
-                return Card(
-                  child: ListTile(
-                    leading: const Icon(Icons.history_rounded),
-                    title: Text(
-                      event.isEmpty ? l10n.settingsActivityEventLabel : event,
-                    ),
-                    subtitle: Text(
-                      [
-                        if (category.isNotEmpty)
-                          '${l10n.settingsActivityCategoryLabel}: $category',
-                        if (action.isNotEmpty)
-                          '${l10n.settingsActivityActionLabel}: $action',
-                        '${l10n.settingsActivityTimeLabel}: $at',
-                      ].join('\n'),
-                    ),
-                    isThreeLine: true,
-                  ),
-                );
-              },
-            ),
+                },
+              ),
+      ),
     );
   }
 

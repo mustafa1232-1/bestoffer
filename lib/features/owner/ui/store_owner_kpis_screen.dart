@@ -283,7 +283,7 @@ class _StoreOwnerKpisScreenState extends ConsumerState<StoreOwnerKpisScreen> {
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      body: RefreshIndicator(
+      body: SafeArea(top: false, child: RefreshIndicator(
         onRefresh: _load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -354,7 +354,7 @@ class _StoreOwnerKpisScreenState extends ConsumerState<StoreOwnerKpisScreen> {
             ],
           ],
         ),
-      ),
+      )),
     );
   }
 }

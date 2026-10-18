@@ -94,101 +94,104 @@ class _MonitoringTaxiRidesScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          SizedBox(
-            height: 52,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(
-                horizontal: MaslakiSpacing.md,
-                vertical: MaslakiSpacing.sm,
-              ),
-              children: [
-                _StatusChip(
-                  label: context.lt(ar: 'الكل', en: 'All'),
-                  selected: _status == null,
-                  onTap: () => _selectStatus(null),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            SizedBox(
+              height: 52,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: MaslakiSpacing.md,
+                  vertical: MaslakiSpacing.sm,
                 ),
-                for (final status in _statuses)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _StatusChip(
-                      label: _statusLabel(context, status),
-                      selected: _status == status,
-                      onTap: () => _selectStatus(status),
-                    ),
+                children: [
+                  _StatusChip(
+                    label: context.lt(ar: 'الكل', en: 'All'),
+                    selected: _status == null,
+                    onTap: () => _selectStatus(null),
                   ),
-              ],
-            ),
-          ),
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(MaslakiSpacing.md),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  for (final status in _statuses)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: _StatusChip(
+                        label: _statusLabel(context, status),
+                        selected: _status == status,
+                        onTap: () => _selectStatus(status),
+                      ),
+                    ),
+                ],
               ),
             ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _items.isEmpty
-                ? MaslakiEmptyState(
-                    icon: Icons.local_taxi_outlined,
-                    title: context.lt(ar: 'لا توجد رحلات', en: 'No rides'),
-                    body: context.lt(
-                      ar: 'لا توجد رحلات مطابقة للفلتر الحالي.',
-                      en: 'No rides match the current filter.',
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(MaslakiSpacing.md),
-                    itemCount: _items.length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(height: MaslakiSpacing.sm),
-                    itemBuilder: (context, index) {
-                      final ride = _items[index];
-                      final id = _toInt(ride['id']);
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: id <= 0
-                            ? null
-                            : () => Navigator.of(context).push(
-                                MaterialPageRoute<void>(
-                                  builder: (_) => MonitoringDetailScreen(
-                                    mode: MonitoringDetailMode.taxiRide,
-                                    id: id,
-                                    title: 'Ride #$id',
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(MaslakiSpacing.md),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _items.isEmpty
+                  ? MaslakiEmptyState(
+                      icon: Icons.local_taxi_outlined,
+                      title: context.lt(ar: 'لا توجد رحلات', en: 'No rides'),
+                      body: context.lt(
+                        ar: 'لا توجد رحلات مطابقة للفلتر الحالي.',
+                        en: 'No rides match the current filter.',
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(MaslakiSpacing.md),
+                      itemCount: _items.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(height: MaslakiSpacing.sm),
+                      itemBuilder: (context, index) {
+                        final ride = _items[index];
+                        final id = _toInt(ride['id']);
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: id <= 0
+                              ? null
+                              : () => Navigator.of(context).push(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => MonitoringDetailScreen(
+                                      mode: MonitoringDetailMode.taxiRide,
+                                      id: id,
+                                      title: 'Ride #$id',
+                                    ),
                                   ),
                                 ),
-                              ),
-                        child: _RideTile(ride: ride),
+                          child: _RideTile(ride: ride),
+                        );
+                      },
+                    ),
+            ),
+            _Pager(
+              offset: _offset,
+              pageSize: _pageSize,
+              total: _total,
+              loading: _loading,
+              onPrev: _offset > 0
+                  ? () {
+                      setState(
+                        () => _offset = (_offset - _pageSize).clamp(0, _offset),
                       );
-                    },
-                  ),
-          ),
-          _Pager(
-            offset: _offset,
-            pageSize: _pageSize,
-            total: _total,
-            loading: _loading,
-            onPrev: _offset > 0
-                ? () {
-                    setState(
-                      () => _offset = (_offset - _pageSize).clamp(0, _offset),
-                    );
-                    _load();
-                  }
-                : null,
-            onNext: (_offset + _pageSize) < _total
-                ? () {
-                    setState(() => _offset += _pageSize);
-                    _load();
-                  }
-                : null,
-          ),
-        ],
+                      _load();
+                    }
+                  : null,
+              onNext: (_offset + _pageSize) < _total
+                  ? () {
+                      setState(() => _offset += _pageSize);
+                      _load();
+                    }
+                  : null,
+            ),
+          ],
+        ),
       ),
     );
   }

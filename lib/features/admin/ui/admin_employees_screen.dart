@@ -168,135 +168,141 @@ class _AdminEmployeesScreenState extends ConsumerState<AdminEmployeesScreen> {
               label: Text(context.lt(ar: 'موظف جديد', en: 'New employee')),
             )
           : null,
-      body: Column(
-        children: [
-          if (_canReadEmployees) ...[
-            Padding(
-              padding: const EdgeInsets.all(MaslakiSpacing.md),
-              child: TextField(
-                onChanged: (v) => _search = v,
-                onSubmitted: (_) => _load(),
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.search_rounded),
-                  hintText: context.lt(
-                    ar: 'ابحث بالاسم أو الهاتف',
-                    en: 'Search name/phone',
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            if (_canReadEmployees) ...[
+              Padding(
+                padding: const EdgeInsets.all(MaslakiSpacing.md),
+                child: TextField(
+                  onChanged: (v) => _search = v,
+                  onSubmitted: (_) => _load(),
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    hintText: context.lt(
+                      ar: 'ابحث بالاسم أو الهاتف',
+                      en: 'Search name/phone',
+                    ),
+                    border: const OutlineInputBorder(),
                   ),
-                  border: const OutlineInputBorder(),
                 ),
               ),
-            ),
-            SizedBox(
-              height: 46,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: MaslakiSpacing.md,
-                ),
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(context.lt(ar: 'الكل', en: 'All')),
-                      selected: _department == null,
-                      onSelected: (_) {
-                        setState(() => _department = null);
-                        _load();
-                      },
-                    ),
+              SizedBox(
+                height: 46,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: MaslakiSpacing.md,
                   ),
-                  for (final d in _departments)
+                  children: [
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: ChoiceChip(
-                        label: Text(deptLabel(context, d)),
-                        selected: _department == d,
+                        label: Text(context.lt(ar: 'الكل', en: 'All')),
+                        selected: _department == null,
                         onSelected: (_) {
-                          setState(() => _department = d);
+                          setState(() => _department = null);
                           _load();
                         },
                       ),
                     ),
-                ],
-              ),
-            ),
-          ],
-          if (_error != null)
-            Padding(
-              padding: const EdgeInsets.all(MaslakiSpacing.md),
-              child: Text(
-                _error!,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : !_canReadEmployees
-                ? MaslakiEmptyState(
-                    icon: _canCreateEmployees
-                        ? Icons.person_add_alt_1_rounded
-                        : Icons.lock_outline_rounded,
-                    title: _canCreateEmployees
-                        ? context.lt(
-                            ar: 'إنشاء موظف فقط',
-                            en: 'Create employees only',
-                          )
-                        : context.lt(
-                            ar: 'لا تملك صلاحية عرض الموظفين',
-                            en: 'No employee read permission',
-                          ),
-                    body: _canCreateEmployees
-                        ? context.lt(
-                            ar: 'استخدم زر موظف جديد لإنشاء حساب موظف مسلكي.',
-                            en: 'Use New employee to create a Maslaki employee account.',
-                          )
-                        : context.lt(
-                            ar: 'تحتاج صلاحية قراءة الموظفين لعرض هذه القائمة.',
-                            en: 'Employee read permission is required to view this list.',
-                          ),
-                  )
-                : _items.isEmpty
-                ? MaslakiEmptyState(
-                    icon: Icons.badge_outlined,
-                    title: context.lt(ar: 'لا يوجد موظفون', en: 'No employees'),
-                    body: context.lt(
-                      ar: 'أضف موظفاً جديداً من الزر بالأسفل.',
-                      en: 'Add a new employee from the button below.',
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.all(MaslakiSpacing.md),
-                    itemCount: _items.length,
-                    separatorBuilder: (_, _) =>
-                        const SizedBox(height: MaslakiSpacing.sm),
-                    itemBuilder: (context, i) {
-                      final e = _items[i];
-                      return MaslakiCard(
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Text('${e['full_name'] ?? '—'}'),
-                          subtitle: Text(
-                            '${deptLabel(context, '${e['department'] ?? ''}')} · '
-                            '${_statusLabel(context, '${e['status'] ?? ''}')}',
-                          ),
-                          trailing: const Icon(Icons.chevron_left_rounded),
-                          onTap: () async {
-                            await Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => AdminEmployeeDetailScreen(
-                                  userId: parseInt(e['user_id']),
-                                ),
-                              ),
-                            );
+                    for (final d in _departments)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(deptLabel(context, d)),
+                          selected: _department == d,
+                          onSelected: (_) {
+                            setState(() => _department = d);
                             _load();
                           },
                         ),
-                      );
-                    },
-                  ),
-          ),
-        ],
+                      ),
+                  ],
+                ),
+              ),
+            ],
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(MaslakiSpacing.md),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : !_canReadEmployees
+                  ? MaslakiEmptyState(
+                      icon: _canCreateEmployees
+                          ? Icons.person_add_alt_1_rounded
+                          : Icons.lock_outline_rounded,
+                      title: _canCreateEmployees
+                          ? context.lt(
+                              ar: 'إنشاء موظف فقط',
+                              en: 'Create employees only',
+                            )
+                          : context.lt(
+                              ar: 'لا تملك صلاحية عرض الموظفين',
+                              en: 'No employee read permission',
+                            ),
+                      body: _canCreateEmployees
+                          ? context.lt(
+                              ar: 'استخدم زر موظف جديد لإنشاء حساب موظف مسلكي.',
+                              en: 'Use New employee to create a Maslaki employee account.',
+                            )
+                          : context.lt(
+                              ar: 'تحتاج صلاحية قراءة الموظفين لعرض هذه القائمة.',
+                              en: 'Employee read permission is required to view this list.',
+                            ),
+                    )
+                  : _items.isEmpty
+                  ? MaslakiEmptyState(
+                      icon: Icons.badge_outlined,
+                      title: context.lt(
+                        ar: 'لا يوجد موظفون',
+                        en: 'No employees',
+                      ),
+                      body: context.lt(
+                        ar: 'أضف موظفاً جديداً من الزر بالأسفل.',
+                        en: 'Add a new employee from the button below.',
+                      ),
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.all(MaslakiSpacing.md),
+                      itemCount: _items.length,
+                      separatorBuilder: (_, _) =>
+                          const SizedBox(height: MaslakiSpacing.sm),
+                      itemBuilder: (context, i) {
+                        final e = _items[i];
+                        return MaslakiCard(
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text('${e['full_name'] ?? '—'}'),
+                            subtitle: Text(
+                              '${deptLabel(context, '${e['department'] ?? ''}')} · '
+                              '${_statusLabel(context, '${e['status'] ?? ''}')}',
+                            ),
+                            trailing: const Icon(Icons.chevron_left_rounded),
+                            onTap: () async {
+                              await Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => AdminEmployeeDetailScreen(
+                                    userId: parseInt(e['user_id']),
+                                  ),
+                                ),
+                              );
+                              _load();
+                            },
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -717,7 +723,7 @@ class _AdminEmployeeDetailScreenState
   }
 
   Future<void> _edit() async {
-    final ok = await showModalBottomSheet<bool>(
+    final ok = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -812,204 +818,220 @@ class _AdminEmployeeDetailScreenState
             IconButton(onPressed: _edit, icon: const Icon(Icons.edit_rounded)),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView(
-              padding: const EdgeInsets.all(MaslakiSpacing.md),
-              children: [
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Text(
-                      _error!,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+      body: SafeArea(
+        top: false,
+        child: _loading
+            ? const Center(child: CircularProgressIndicator())
+            : ListView(
+                padding: const EdgeInsets.all(MaslakiSpacing.md),
+                children: [
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ),
-                  ),
-                MaslakiCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _row(
-                        context,
-                        'القسم',
-                        'Department',
-                        deptLabel(context, '${e['department'] ?? ''}'),
-                      ),
-                      _row(
-                        context,
-                        'المسمى',
-                        'Job',
-                        '${e['job_title'] ?? '—'}',
-                      ),
-                      _row(
-                        context,
-                        'نوع الدوام',
-                        'Type',
-                        _empTypeLabel(context, '${e['employment_type'] ?? ''}'),
-                      ),
-                      _row(
-                        context,
-                        'الحالة',
-                        'Status',
-                        _statusLabel(context, '${e['status'] ?? ''}'),
-                      ),
-                      _row(context, 'الهاتف', 'Phone', '${e['phone'] ?? '—'}'),
-                      _row(
-                        context,
-                        'قالب الدور',
-                        'Role',
-                        '${e['admin_role_key'] ?? '—'}',
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                MaslakiCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        context.lt(
-                          ar: 'ملخص الأداء',
-                          en: 'Performance summary',
-                        ),
-                        style: Theme.of(context).textTheme.titleSmall,
-                      ),
-                      const SizedBox(height: 8),
-                      _row(
-                        context,
-                        'أيام الحضور هذا الشهر',
-                        'Present days this month',
-                        '${attendance['present_days_this_month'] ?? 0}',
-                      ),
-                      _row(
-                        context,
-                        'أيام الغياب هذا الشهر',
-                        'Absent days this month',
-                        '${attendance['absent_days_this_month'] ?? 0}',
-                      ),
-                      _row(
-                        context,
-                        'ساعات الحضور',
-                        'Attendance hours',
-                        '${attendance['hours_this_month'] ?? 0}',
-                      ),
-                      _row(
-                        context,
-                        'حالة اليوم',
-                        'Current state',
-                        attendance['currently_checked_in'] == true
-                            ? context.lt(ar: 'حاضر الآن', en: 'Checked in')
-                            : context.lt(
-                                ar: 'غير مسجل حضور',
-                                en: 'Not checked in',
-                              ),
-                      ),
-                      _row(
-                        context,
-                        'استخدام الكوبون',
-                        'Coupon redemptions',
-                        '${couponSummary['totalRedemptions'] ?? 0}',
-                      ),
-                      _row(
-                        context,
-                        'إضافات الكوبون',
-                        'Coupon earnings',
-                        formatIqd(parseInt(couponSummary['totalEarnings'])),
-                      ),
-                      _row(
-                        context,
-                        'المصاريف المعتمدة',
-                        'Approved expenses',
-                        formatIqd(
-                          parseInt(_map(expenses['approved'])['amountIqd']),
-                        ),
-                      ),
-                      _row(
-                        context,
-                        'المصاريف المنتظرة',
-                        'Pending expenses',
-                        formatIqd(
-                          parseInt(_map(expenses['submitted'])['amountIqd']),
-                        ),
-                      ),
-                      if (latestPayroll.isNotEmpty) ...[
-                        const Divider(),
+                  MaslakiCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         _row(
                           context,
-                          'آخر راتب صافي',
-                          'Latest net salary',
-                          formatIqd(parseInt(latestPayroll['netIqd'])),
+                          'القسم',
+                          'Department',
+                          deptLabel(context, '${e['department'] ?? ''}'),
                         ),
                         _row(
                           context,
-                          'إضافات الراتب',
-                          'Payroll additions',
-                          formatIqd(parseInt(latestPayroll['additionsIqd'])),
+                          'المسمى',
+                          'Job',
+                          '${e['job_title'] ?? '—'}',
                         ),
                         _row(
                           context,
-                          'خصومات الراتب',
-                          'Payroll deductions',
-                          formatIqd(parseInt(latestPayroll['deductionsIqd'])),
+                          'نوع الدوام',
+                          'Type',
+                          _empTypeLabel(
+                            context,
+                            '${e['employment_type'] ?? ''}',
+                          ),
+                        ),
+                        _row(
+                          context,
+                          'الحالة',
+                          'Status',
+                          _statusLabel(context, '${e['status'] ?? ''}'),
+                        ),
+                        _row(
+                          context,
+                          'الهاتف',
+                          'Phone',
+                          '${e['phone'] ?? '—'}',
+                        ),
+                        _row(
+                          context,
+                          'قالب الدور',
+                          'Role',
+                          '${e['admin_role_key'] ?? '—'}',
                         ),
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                MaslakiCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              '${context.lt(ar: 'الراتب الحالي', en: 'Current salary')}: '
-                              '${e['base_salary_iqd'] ?? '—'} د.ع',
-                              style: Theme.of(context).textTheme.titleSmall,
-                            ),
+                  const SizedBox(height: 12),
+                  MaslakiCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          context.lt(
+                            ar: 'ملخص الأداء',
+                            en: 'Performance summary',
                           ),
-                          TextButton.icon(
-                            onPressed: _updateSalary,
-                            icon: const Icon(Icons.payments_rounded, size: 18),
-                            label: Text(context.lt(ar: 'تحديث', en: 'Update')),
-                          ),
-                        ],
-                      ),
-                      const Divider(),
-                      for (final h in _salaryHistory)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Text(
-                            '${h['base_salary_iqd']} د.ع — ${h['effective_from'] ?? ''}'
-                            '${h['reason'] != null ? ' (${h['reason']})' : ''}',
-                            style: Theme.of(context).textTheme.bodySmall,
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        _row(
+                          context,
+                          'أيام الحضور هذا الشهر',
+                          'Present days this month',
+                          '${attendance['present_days_this_month'] ?? 0}',
+                        ),
+                        _row(
+                          context,
+                          'أيام الغياب هذا الشهر',
+                          'Absent days this month',
+                          '${attendance['absent_days_this_month'] ?? 0}',
+                        ),
+                        _row(
+                          context,
+                          'ساعات الحضور',
+                          'Attendance hours',
+                          '${attendance['hours_this_month'] ?? 0}',
+                        ),
+                        _row(
+                          context,
+                          'حالة اليوم',
+                          'Current state',
+                          attendance['currently_checked_in'] == true
+                              ? context.lt(ar: 'حاضر الآن', en: 'Checked in')
+                              : context.lt(
+                                  ar: 'غير مسجل حضور',
+                                  en: 'Not checked in',
+                                ),
+                        ),
+                        _row(
+                          context,
+                          'استخدام الكوبون',
+                          'Coupon redemptions',
+                          '${couponSummary['totalRedemptions'] ?? 0}',
+                        ),
+                        _row(
+                          context,
+                          'إضافات الكوبون',
+                          'Coupon earnings',
+                          formatIqd(parseInt(couponSummary['totalEarnings'])),
+                        ),
+                        _row(
+                          context,
+                          'المصاريف المعتمدة',
+                          'Approved expenses',
+                          formatIqd(
+                            parseInt(_map(expenses['approved'])['amountIqd']),
                           ),
                         ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-                OutlinedButton.icon(
-                  onPressed: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const AdminRbacManagementScreen(),
+                        _row(
+                          context,
+                          'المصاريف المنتظرة',
+                          'Pending expenses',
+                          formatIqd(
+                            parseInt(_map(expenses['submitted'])['amountIqd']),
+                          ),
+                        ),
+                        if (latestPayroll.isNotEmpty) ...[
+                          const Divider(),
+                          _row(
+                            context,
+                            'آخر راتب صافي',
+                            'Latest net salary',
+                            formatIqd(parseInt(latestPayroll['netIqd'])),
+                          ),
+                          _row(
+                            context,
+                            'إضافات الراتب',
+                            'Payroll additions',
+                            formatIqd(parseInt(latestPayroll['additionsIqd'])),
+                          ),
+                          _row(
+                            context,
+                            'خصومات الراتب',
+                            'Payroll deductions',
+                            formatIqd(parseInt(latestPayroll['deductionsIqd'])),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
-                  icon: const Icon(Icons.admin_panel_settings_rounded),
-                  label: Text(
-                    context.lt(
-                      ar: 'إدارة صلاحيات هذا الموظف',
-                      en: 'Manage this employee\'s permissions',
+                  const SizedBox(height: 12),
+                  MaslakiCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                '${context.lt(ar: 'الراتب الحالي', en: 'Current salary')}: '
+                                '${e['base_salary_iqd'] ?? '—'} د.ع',
+                                style: Theme.of(context).textTheme.titleSmall,
+                              ),
+                            ),
+                            TextButton.icon(
+                              onPressed: _updateSalary,
+                              icon: const Icon(
+                                Icons.payments_rounded,
+                                size: 18,
+                              ),
+                              label: Text(
+                                context.lt(ar: 'تحديث', en: 'Update'),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(),
+                        for (final h in _salaryHistory)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2),
+                            child: Text(
+                              '${h['base_salary_iqd']} د.ع — ${h['effective_from'] ?? ''}'
+                              '${h['reason'] != null ? ' (${h['reason']})' : ''}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const AdminRbacManagementScreen(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.admin_panel_settings_rounded),
+                    label: Text(
+                      context.lt(
+                        ar: 'إدارة صلاحيات هذا الموظف',
+                        en: 'Manage this employee\'s permissions',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+      ),
     );
   }
 

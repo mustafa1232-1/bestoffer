@@ -79,67 +79,70 @@ class _RealEstateSavedListingsScreenState
     final l10n = context.l10n;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.realEstateSavedTitle)),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(child: Text(_error!)),
-                ],
-              )
-            : _items.isEmpty
-            ? ListView(
-                children: [
-                  const SizedBox(height: 140),
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 28),
-                      child: Column(
-                        children: [
-                          Text(
-                            l10n.realEstateNoSaved,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            l10n.realEstateSavedEmptyHint,
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(child: Text(_error!)),
+                  ],
+                )
+              : _items.isEmpty
+              ? ListView(
+                  children: [
+                    const SizedBox(height: 140),
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 28),
+                        child: Column(
+                          children: [
+                            Text(
+                              l10n.realEstateNoSaved,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              l10n.realEstateSavedEmptyHint,
+                              textAlign: TextAlign.center,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                itemBuilder: (context, index) {
-                  final item = _items[index];
-                  return RealEstateListingCard(
-                    listing: item,
-                    compact: true,
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => RealEstateListingDetailsScreen(
-                            listingId: item.id,
-                            initialListing: item,
+                  ],
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    return RealEstateListingCard(
+                      listing: item,
+                      compact: true,
+                      onTap: () async {
+                        await Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => RealEstateListingDetailsScreen(
+                              listingId: item.id,
+                              initialListing: item,
+                            ),
                           ),
-                        ),
-                      );
-                      if (mounted) {
-                        await _load();
-                      }
-                    },
-                    onToggleSaved: () => _toggleSaved(item),
-                  );
-                },
-                separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemCount: _items.length,
-              ),
+                        );
+                        if (mounted) {
+                          await _load();
+                        }
+                      },
+                      onToggleSaved: () => _toggleSaved(item),
+                    );
+                  },
+                  separatorBuilder: (_, _) => const SizedBox(height: 12),
+                  itemCount: _items.length,
+                ),
+        ),
       ),
     );
   }

@@ -37,97 +37,100 @@ class _SettingsAccountScreenState extends ConsumerState<SettingsAccountScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(strings.t('accountSecurity'))),
-      body: ListView(
-        padding: const EdgeInsets.all(12),
-        children: [
-          if (!auth.isAuthed)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(strings.t('loginRequiredAccount')),
-              ),
-            )
-          else ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      '${strings.t('phoneLabel')}: ${auth.user?.phone ?? '-'}',
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      strings.t('changePhone'),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    _pinField(
-                      controller: currentPinForPhoneCtrl,
-                      label: strings.t('currentPin'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: newPhoneCtrl,
-                      keyboardType: TextInputType.phone,
-                      decoration: InputDecoration(
-                        labelText: strings.t('newPhone'),
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.all(12),
+          children: [
+            if (!auth.isAuthed)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Text(strings.t('loginRequiredAccount')),
+                ),
+              )
+            else ...[
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        '${strings.t('phoneLabel')}: ${auth.user?.phone ?? '-'}',
                       ),
-                    ),
-                    const SizedBox(height: 10),
-                    ElevatedButton.icon(
-                      onPressed: auth.loading ? null : _savePhone,
-                      icon: const Icon(Icons.phone_android_rounded),
-                      label: Text(strings.t('savePhone')),
-                    ),
-                  ],
+                      const SizedBox(height: 12),
+                      Text(
+                        strings.t('changePhone'),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 8),
+                      _pinField(
+                        controller: currentPinForPhoneCtrl,
+                        label: strings.t('currentPin'),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: newPhoneCtrl,
+                        keyboardType: TextInputType.phone,
+                        decoration: InputDecoration(
+                          labelText: strings.t('newPhone'),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      ElevatedButton.icon(
+                        onPressed: auth.loading ? null : _savePhone,
+                        icon: const Icon(Icons.phone_android_rounded),
+                        label: Text(strings.t('savePhone')),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text(
-                      strings.t('changePin'),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 8),
-                    _pinField(
-                      controller: currentPinForPinCtrl,
-                      label: strings.t('currentPin'),
-                    ),
-                    const SizedBox(height: 8),
-                    _pinField(
-                      controller: newPinCtrl,
-                      label: strings.t('newPin'),
-                    ),
-                    const SizedBox(height: 8),
-                    _pinField(
-                      controller: confirmPinCtrl,
-                      label: strings.t('confirmNewPin'),
-                    ),
-                    const SizedBox(height: 10),
-                    ElevatedButton.icon(
-                      onPressed: auth.loading ? null : _savePin,
-                      icon: const Icon(Icons.lock_outline_rounded),
-                      label: Text(strings.t('savePin')),
-                    ),
-                  ],
+              const SizedBox(height: 10),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        strings.t('changePin'),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 8),
+                      _pinField(
+                        controller: currentPinForPinCtrl,
+                        label: strings.t('currentPin'),
+                      ),
+                      const SizedBox(height: 8),
+                      _pinField(
+                        controller: newPinCtrl,
+                        label: strings.t('newPin'),
+                      ),
+                      const SizedBox(height: 8),
+                      _pinField(
+                        controller: confirmPinCtrl,
+                        label: strings.t('confirmNewPin'),
+                      ),
+                      const SizedBox(height: 10),
+                      ElevatedButton.icon(
+                        onPressed: auth.loading ? null : _savePin,
+                        icon: const Icon(Icons.lock_outline_rounded),
+                        label: Text(strings.t('savePin')),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 10),
-            _DeleteAccountCard(
-              loading: auth.loading,
-              onDelete: _confirmDeleteAccount,
-            ),
+              const SizedBox(height: 10),
+              _DeleteAccountCard(
+                loading: auth.loading,
+                onDelete: _confirmDeleteAccount,
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

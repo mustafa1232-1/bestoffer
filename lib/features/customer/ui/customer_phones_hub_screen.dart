@@ -66,32 +66,35 @@ class CustomerPhonesHubScreen extends StatelessWidget {
         ),
         actions: const [AppBarQuickActions()],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
-        children: [
-          const CustomerMarketplaceAdSurface(
-            request: MarketplaceAdRequest(
-              placement: 'MARKETPLACE_CATEGORY',
-              categoryKey: 'phones',
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 20),
+          children: [
+            const CustomerMarketplaceAdSurface(
+              request: MarketplaceAdRequest(
+                placement: 'MARKETPLACE_CATEGORY',
+                categoryKey: 'phones',
+              ),
+              showEmptyState: true,
             ),
-            showEmptyState: true,
-          ),
-          _HeaderCard(
-            title: context.lt(
-              ar: 'كل ما يخص الهواتف في مكان واحد',
-              en: 'Everything phones in one place',
+            _HeaderCard(
+              title: context.lt(
+                ar: 'كل ما يخص الهواتف في مكان واحد',
+                en: 'Everything phones in one place',
+              ),
+              subtitle: context.lt(
+                ar: 'بيع الهواتف والتقنيات، صيانة محترفة، وضمان تقني وملحقات.',
+                en: 'Phone sales, professional maintenance, technical warranty & accessories.',
+              ),
             ),
-            subtitle: context.lt(
-              ar: 'بيع الهواتف والتقنيات، صيانة محترفة، وضمان تقني وملحقات.',
-              en: 'Phone sales, professional maintenance, technical warranty & accessories.',
+            const SizedBox(height: 12),
+            _TopicGrid(
+              topics: _topics(context),
+              onTap: (topic) => _open(context, topic),
             ),
-          ),
-          const SizedBox(height: 12),
-          _TopicGrid(
-            topics: _topics(context),
-            onTap: (topic) => _open(context, topic),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/network/api_error_mapper.dart';
@@ -77,7 +79,7 @@ class _AdminCompetitionsScreenState
     final leaderboard = _mapList(details['leaderboard']);
     final winners = _mapList(details['winners']);
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       builder: (_) => DraggableScrollableSheet(
@@ -200,54 +202,57 @@ class _AdminCompetitionsScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _KpiChip(
-                  label: l10n.adminCompetitionsKpiTotal,
-                  value: '${_asInt(platform['totalCompetitions'])}',
-                ),
-                _KpiChip(
-                  label: l10n.adminCompetitionsKpiActive,
-                  value: '${_asInt(platform['activeCompetitions'])}',
-                ),
-                _KpiChip(
-                  label: l10n.adminCompetitionsKpiEnded,
-                  value: '${_asInt(platform['endedCompetitions'])}',
-                ),
-                _KpiChip(
-                  label: l10n.adminCompetitionsKpiRewards,
-                  value: formatIqd(_asDouble(platform['competitionRewards'])),
-                ),
-              ],
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _KpiChip(
+                    label: l10n.adminCompetitionsKpiTotal,
+                    value: '${_asInt(platform['totalCompetitions'])}',
+                  ),
+                  _KpiChip(
+                    label: l10n.adminCompetitionsKpiActive,
+                    value: '${_asInt(platform['activeCompetitions'])}',
+                  ),
+                  _KpiChip(
+                    label: l10n.adminCompetitionsKpiEnded,
+                    value: '${_asInt(platform['endedCompetitions'])}',
+                  ),
+                  _KpiChip(
+                    label: l10n.adminCompetitionsKpiRewards,
+                    value: formatIqd(_asDouble(platform['competitionRewards'])),
+                  ),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _AdminCompetitionListTab(
-                  status: 'active',
-                  refreshToken: _refreshToken,
-                  onOpenDetails: _openCompetitionDetails,
-                  onUpdated: _refreshAll,
-                ),
-                _AdminCompetitionListTab(
-                  status: 'ended',
-                  refreshToken: _refreshToken,
-                  onOpenDetails: _openCompetitionDetails,
-                  onUpdated: _refreshAll,
-                ),
-                _AdminCompetitionCreateTab(onCreated: _refreshAll),
-              ],
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _AdminCompetitionListTab(
+                    status: 'active',
+                    refreshToken: _refreshToken,
+                    onOpenDetails: _openCompetitionDetails,
+                    onUpdated: _refreshAll,
+                  ),
+                  _AdminCompetitionListTab(
+                    status: 'ended',
+                    refreshToken: _refreshToken,
+                    onOpenDetails: _openCompetitionDetails,
+                    onUpdated: _refreshAll,
+                  ),
+                  _AdminCompetitionCreateTab(onCreated: _refreshAll),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -403,7 +408,9 @@ class _AdminCompetitionListTabState
                                       ? null
                                       : () async {
                                           final updated =
-                                              await showModalBottomSheet<bool>(
+                                              await showMaslakiBottomSheet<
+                                                bool
+                                              >(
                                                 context: context,
                                                 isScrollControlled: true,
                                                 builder: (_) =>

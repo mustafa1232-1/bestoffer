@@ -1403,7 +1403,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   Future<void> _openCommunityAttachmentsMenu() async {
     if (_sending || _voiceComposerBusy) return;
     final action =
-        await showModalBottomSheet<_CommunityChatComposerAttachmentAction>(
+        await showMaslakiBottomSheet<_CommunityChatComposerAttachmentAction>(
           context: context,
           showDragHandle: true,
           builder: (sheetContext) => SafeArea(
@@ -1448,7 +1448,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
 
   Future<void> _openCommunityStickersGifMenu() async {
     if (_sending || _voiceComposerBusy) return;
-    final selectedText = await showModalBottomSheet<String>(
+    final selectedText = await showMaslakiBottomSheet<String>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(
@@ -1518,7 +1518,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   /// Opens the Giphy-backed picker; the chosen GIF is sent as an image message.
   Future<void> _openCommunityGifPicker() async {
     if (_sending || _voiceComposerBusy) return;
-    final gif = await showModalBottomSheet<SocialGif>(
+    final gif = await showMaslakiBottomSheet<SocialGif>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
@@ -1835,7 +1835,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _openChatModerationSheet() async {
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1849,7 +1849,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
   }
 
   Future<void> _openManagerAssignmentSheet() async {
-    final selectedUserId = await showModalBottomSheet<int>(
+    final selectedUserId = await showMaslakiBottomSheet<int>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -2591,7 +2591,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
       return;
     }
     if (!mounted) return;
-    final created = await showModalBottomSheet<bool>(
+    final created = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -2808,7 +2808,7 @@ class _SocialCommunityScreenState extends ConsumerState<SocialCommunityScreen>
     final canReply = !message.isDeleted;
     if (!canEdit && !canDelete && !canReact && !canReply) return;
 
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (_) => SafeArea(

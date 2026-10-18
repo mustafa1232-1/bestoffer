@@ -70,7 +70,7 @@ class _AppGuideScreenState extends ConsumerState<AppGuideScreen> {
           IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      body: _loading
+      body: SafeArea(top: false, child: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? Center(child: Text(_error!))
@@ -119,7 +119,7 @@ class _AppGuideScreenState extends ConsumerState<AppGuideScreen> {
                             ),
                     ),
                   ],
-                ),
+                )),
     );
   }
 }

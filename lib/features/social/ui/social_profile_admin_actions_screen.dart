@@ -25,7 +25,7 @@ class SocialProfileAdminActionsScreen extends StatelessWidget {
             context.l10n.socialProfileAdminActionsTitle,
           ),
         ),
-        body: ListView(
+        body: SafeArea(top: false, child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
             Container(
@@ -62,7 +62,7 @@ class SocialProfileAdminActionsScreen extends StatelessWidget {
             const SizedBox(height: 16),
             content,
           ],
-        ),
+        )),
       ),
     );
   }

@@ -96,82 +96,85 @@ class _SocialSavedScreenState extends ConsumerState<SocialSavedScreen> {
             ),
           ],
         ),
-        body: RefreshIndicator(
-          onRefresh: notifier.refresh,
-          child: ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: filters.entries
-                    .map(
-                      (entry) => ChoiceChip(
-                        selected: _entityType == entry.key,
-                        label: Text(entry.value),
-                        onSelected: (_) async {
-                          setState(() => _entityType = entry.key);
-                          await notifier.load(
-                            refresh: true,
-                            entityType: entry.key,
+        body: SafeArea(
+          top: false,
+          child: RefreshIndicator(
+            onRefresh: notifier.refresh,
+            child: ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: filters.entries
+                      .map(
+                        (entry) => ChoiceChip(
+                          selected: _entityType == entry.key,
+                          label: Text(entry.value),
+                          onSelected: (_) async {
+                            setState(() => _entityType = entry.key);
+                            await notifier.load(
+                              refresh: true,
+                              entityType: entry.key,
+                            );
+                          },
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+                const SizedBox(height: 16),
+                if (state.loading && state.items.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 80),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (state.items.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 80),
+                    child: Center(child: Text(l10n.socialSavedEmpty)),
+                  )
+                else
+                  ...state.items.map(
+                    (item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: SocialPostCardV2(
+                        post: item.content,
+                        onOpenDetails: () {
+                          openSocialContent(context, post: item.content);
+                        },
+                        onOpenProfile: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => SocialProfileScreen(
+                                userId: item.content.userId,
+                                initialName: item.content.author.fullName,
+                              ),
+                            ),
                           );
                         },
+                        onOpenMerchantLink: () => _openMerchant(item.content),
+                        onToggleLike: () => _toggleLike(item.content),
+                        onToggleSave: () async {
+                          if (!await requireAuthBeforeAction(
+                            context,
+                            featureArabic: 'إزالة المنشور من المحفوظات',
+                            featureEnglish: 'updating saved content',
+                          )) {
+                            return;
+                          }
+                          await notifier.toggleSaved(
+                            entityType: item.entityType,
+                            entityId: item.entityId,
+                          );
+                        },
+                        onOpenComments: () {
+                          openSocialComments(context, post: item.content);
+                        },
                       ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 16),
-              if (state.loading && state.items.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.only(top: 80),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (state.items.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 80),
-                  child: Center(child: Text(l10n.socialSavedEmpty)),
-                )
-              else
-                ...state.items.map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: SocialPostCardV2(
-                      post: item.content,
-                      onOpenDetails: () {
-                        openSocialContent(context, post: item.content);
-                      },
-                      onOpenProfile: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute<void>(
-                            builder: (_) => SocialProfileScreen(
-                              userId: item.content.userId,
-                              initialName: item.content.author.fullName,
-                            ),
-                          ),
-                        );
-                      },
-                      onOpenMerchantLink: () => _openMerchant(item.content),
-                      onToggleLike: () => _toggleLike(item.content),
-                      onToggleSave: () async {
-                        if (!await requireAuthBeforeAction(
-                          context,
-                          featureArabic: 'إزالة المنشور من المحفوظات',
-                          featureEnglish: 'updating saved content',
-                        )) {
-                          return;
-                        }
-                        await notifier.toggleSaved(
-                          entityType: item.entityType,
-                          entityId: item.entityId,
-                        );
-                      },
-                      onOpenComments: () {
-                        openSocialComments(context, post: item.content);
-                      },
                     ),
                   ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

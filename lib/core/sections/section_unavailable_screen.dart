@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import 'section_availability_models.dart';
 
@@ -6,7 +8,7 @@ Future<void> showSectionUnavailableSheet(
   BuildContext context,
   SectionAvailabilityEntry entry,
 ) {
-  return showModalBottomSheet<void>(
+  return showMaslakiBottomSheet<void>(
     context: context,
     showDragHandle: true,
     builder: (context) => SafeArea(

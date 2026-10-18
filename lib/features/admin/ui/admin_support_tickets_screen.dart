@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/files/image_picker_service.dart';
 import '../../../core/files/local_image_file.dart';
@@ -52,7 +54,7 @@ class _AdminSupportTicketsScreenState
   void _refresh() => setState(() => _future = _load());
 
   Future<void> _openCreateTicket() async {
-    final created = await showModalBottomSheet<bool>(
+    final created = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -70,64 +72,67 @@ class _AdminSupportTicketsScreenState
         icon: const Icon(Icons.add_call),
         label: const Text('تذكرة مكالمة'),
       ),
-      body: RefreshIndicator(
-        onRefresh: () async => _refresh(),
-        child: FutureBuilder<Map<String, dynamic>>(
-          future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return _ErrorState(error: snapshot.error, onRetry: _refresh);
-            }
-            final data = snapshot.data ?? const {};
-            final items = List<dynamic>.from(
-              data['items'] as List? ?? const [],
-            );
-            final supervisorOverview = _map(data['supervisorOverview']);
-            final supportKpis = _map(data['supportKpis']);
-            return ListView(
-              padding: const EdgeInsets.all(12),
-              children: [
-                TextField(
-                  controller: _search,
-                  textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => _refresh(),
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.search_rounded),
-                    suffixIcon: IconButton(
-                      onPressed: _refresh,
-                      icon: const Icon(Icons.refresh_rounded),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () async => _refresh(),
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: _future,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return _ErrorState(error: snapshot.error, onRetry: _refresh);
+              }
+              final data = snapshot.data ?? const {};
+              final items = List<dynamic>.from(
+                data['items'] as List? ?? const [],
+              );
+              final supervisorOverview = _map(data['supervisorOverview']);
+              final supportKpis = _map(data['supportKpis']);
+              return ListView(
+                padding: const EdgeInsets.all(12),
+                children: [
+                  TextField(
+                    controller: _search,
+                    textInputAction: TextInputAction.search,
+                    onSubmitted: (_) => _refresh(),
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: IconButton(
+                        onPressed: _refresh,
+                        icon: const Icon(Icons.refresh_rounded),
+                      ),
+                      labelText: 'بحث في التذاكر',
                     ),
-                    labelText: 'بحث في التذاكر',
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (supervisorOverview.isNotEmpty) ...[
-                  _SupervisorOverviewCard(
-                    data: supervisorOverview,
-                    kpis: supportKpis,
                   ),
                   const SizedBox(height: 12),
-                ],
-                if (items.isEmpty)
-                  const Center(child: Text('لا توجد تذاكر دعم مطابقة.'))
-                else
-                  for (final raw in items)
-                    _TicketTile(
-                      ticket: _map(raw),
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => AdminSupportTicketDetailsScreen(
-                            ticketId: parseInt(_map(raw)['id']),
+                  if (supervisorOverview.isNotEmpty) ...[
+                    _SupervisorOverviewCard(
+                      data: supervisorOverview,
+                      kpis: supportKpis,
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                  if (items.isEmpty)
+                    const Center(child: Text('لا توجد تذاكر دعم مطابقة.'))
+                  else
+                    for (final raw in items)
+                      _TicketTile(
+                        ticket: _map(raw),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => AdminSupportTicketDetailsScreen(
+                              ticketId: parseInt(_map(raw)['id']),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+          ),
         ),
       ),
     );
@@ -524,7 +529,7 @@ class _AdminSupportTicketDetailsScreenState
       parseInt(order['merchant_id']),
     );
     if (!mounted) return;
-    final result = await showModalBottomSheet<_RevisionDraftResult>(
+    final result = await showMaslakiBottomSheet<_RevisionDraftResult>(
       context: context,
       isScrollControlled: true,
       builder: (_) => _RevisionDraftSheet(
@@ -577,137 +582,140 @@ class _AdminSupportTicketDetailsScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('تذكرة #${widget.ticketId}')),
-      body: FutureBuilder<_TicketDetailsData>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return _ErrorState(error: snapshot.error, onRetry: _refresh);
-          }
-          final data = snapshot.data!;
-          final ticket = _map(data.ticket['ticket']);
-          final order = _map(data.orderContext['order']);
-          final revisions = _list(
-            data.orderContext['revisions'],
-          ).map(OrderRevisionModel.fromJson).toList(growable: false);
-          return ListView(
-            padding: const EdgeInsets.all(12),
-            children: [
-              _TicketSummary(ticket: ticket),
-              if (parseString(ticket['channel']) == 'mimo' &&
-                  _can('support.tickets.reply')) ...[
+      body: SafeArea(
+        top: false,
+        child: FutureBuilder<_TicketDetailsData>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return _ErrorState(error: snapshot.error, onRetry: _refresh);
+            }
+            final data = snapshot.data!;
+            final ticket = _map(data.ticket['ticket']);
+            final order = _map(data.orderContext['order']);
+            final revisions = _list(
+              data.orderContext['revisions'],
+            ).map(OrderRevisionModel.fromJson).toList(growable: false);
+            return ListView(
+              padding: const EdgeInsets.all(12),
+              children: [
+                _TicketSummary(ticket: ticket),
+                if (parseString(ticket['channel']) == 'mimo' &&
+                    _can('support.tickets.reply')) ...[
+                  const SizedBox(height: 12),
+                  _TeachMimoPanel(ticketId: widget.ticketId),
+                ],
                 const SizedBox(height: 12),
-                _TeachMimoPanel(ticketId: widget.ticketId),
-              ],
-              const SizedBox(height: 12),
-              if (_can('support.tickets.assign')) ...[
-                _LinkSuggestionsSection(
-                  ticketId: widget.ticketId,
-                  onLinked: () async => _refresh(),
-                ),
-                const SizedBox(height: 12),
-              ],
-              _ConversationSection(
-                detail: data.ticket,
-                ticketId: widget.ticketId,
-                ticketNumber:
-                    '${ticket['ticket_number'] ?? ticket['ticketNumber'] ?? ''}',
-                subject: '${ticket['subject'] ?? ''}',
-              ),
-              if (_can('support.tickets.reply')) ...[
-                const SizedBox(height: 8),
-                _SupportComposer(
-                  ticketId: widget.ticketId,
-                  domain: parseString(ticket['domain']),
-                  type: parseString(ticket['type']),
-                  onSent: () async => _refresh(),
-                ),
-                const SizedBox(height: 8),
-                _CallbacksSection(
-                  ticketId: widget.ticketId,
-                  data: data.callbacks,
-                  onChanged: () async => _refresh(),
-                ),
-              ],
-              const SizedBox(height: 12),
-              _LinkedOrderSection(contextData: data.orderContext),
-              const SizedBox(height: 12),
-              OrderRevisionPanel(
-                title: 'مراجعات الطلب',
-                emptyText: 'لا توجد مراجعات على الطلب المرتبط.',
-                loadRevisions: () async => revisions,
-                canSubmit: (revision) =>
-                    _can('orders.revisions.submit') &&
-                    revision.status == 'DRAFT',
-                canApply: (revision) =>
-                    _can('orders.revisions.apply') && revision.canApply,
-                onSubmit: (revision) async {
-                  await ref
-                      .read(adminApiProvider)
-                      .submitOrderRevision(
-                        orderId: parseInt(order['id']),
-                        revisionId: revision.id,
-                      );
-                  _refresh();
-                },
-                onApply: (revision) async {
-                  await ref
-                      .read(adminApiProvider)
-                      .applyOrderRevision(
-                        orderId: parseInt(order['id']),
-                        revisionId: revision.id,
-                      );
-                  _refresh();
-                },
-              ),
-              const SizedBox(height: 12),
-              if (!_can('orders.revisions.create'))
-                const Text('لا تملك صلاحية اقتراح تعديل على الطلب.')
-              else if (parseInt(order['id']) > 0)
-                FilledButton.icon(
-                  onPressed: _saving ? null : () => _createDraft(data),
-                  icon: _saving
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.edit_note_rounded),
-                  label: const Text('اقتراح تعديل على الطلب'),
-                )
-              else
-                // لا يمكن اقتراح تعديل دون طلب مرتبط — نوضّح ذلك بدل زر لا يعمل.
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(12),
+                if (_can('support.tickets.assign')) ...[
+                  _LinkSuggestionsSection(
+                    ticketId: widget.ticketId,
+                    onLinked: () async => _refresh(),
                   ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline_rounded,
-                        size: 18,
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'اربط التذكرة بطلب أولاً (من قسم «ربط بطلب/رحلة») '
-                          'لتتمكّن من اقتراح تعديل عليه.',
-                          style: Theme.of(context).textTheme.bodySmall,
+                  const SizedBox(height: 12),
+                ],
+                _ConversationSection(
+                  detail: data.ticket,
+                  ticketId: widget.ticketId,
+                  ticketNumber:
+                      '${ticket['ticket_number'] ?? ticket['ticketNumber'] ?? ''}',
+                  subject: '${ticket['subject'] ?? ''}',
+                ),
+                if (_can('support.tickets.reply')) ...[
+                  const SizedBox(height: 8),
+                  _SupportComposer(
+                    ticketId: widget.ticketId,
+                    domain: parseString(ticket['domain']),
+                    type: parseString(ticket['type']),
+                    onSent: () async => _refresh(),
+                  ),
+                  const SizedBox(height: 8),
+                  _CallbacksSection(
+                    ticketId: widget.ticketId,
+                    data: data.callbacks,
+                    onChanged: () async => _refresh(),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                _LinkedOrderSection(contextData: data.orderContext),
+                const SizedBox(height: 12),
+                OrderRevisionPanel(
+                  title: 'مراجعات الطلب',
+                  emptyText: 'لا توجد مراجعات على الطلب المرتبط.',
+                  loadRevisions: () async => revisions,
+                  canSubmit: (revision) =>
+                      _can('orders.revisions.submit') &&
+                      revision.status == 'DRAFT',
+                  canApply: (revision) =>
+                      _can('orders.revisions.apply') && revision.canApply,
+                  onSubmit: (revision) async {
+                    await ref
+                        .read(adminApiProvider)
+                        .submitOrderRevision(
+                          orderId: parseInt(order['id']),
+                          revisionId: revision.id,
+                        );
+                    _refresh();
+                  },
+                  onApply: (revision) async {
+                    await ref
+                        .read(adminApiProvider)
+                        .applyOrderRevision(
+                          orderId: parseInt(order['id']),
+                          revisionId: revision.id,
+                        );
+                    _refresh();
+                  },
+                ),
+                const SizedBox(height: 12),
+                if (!_can('orders.revisions.create'))
+                  const Text('لا تملك صلاحية اقتراح تعديل على الطلب.')
+                else if (parseInt(order['id']) > 0)
+                  FilledButton.icon(
+                    onPressed: _saving ? null : () => _createDraft(data),
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.edit_note_rounded),
+                    label: const Text('اقتراح تعديل على الطلب'),
+                  )
+                else
+                  // لا يمكن اقتراح تعديل دون طلب مرتبط — نوضّح ذلك بدل زر لا يعمل.
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.info_outline_rounded,
+                          size: 18,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'اربط التذكرة بطلب أولاً (من قسم «ربط بطلب/رحلة») '
+                            'لتتمكّن من اقتراح تعديل عليه.',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-            ],
-          );
-        },
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -2025,7 +2033,7 @@ class _CallbacksSectionState extends ConsumerState<_CallbacksSection> {
   bool _busy = false;
 
   Future<void> _schedule() async {
-    final created = await showModalBottomSheet<bool>(
+    final created = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,

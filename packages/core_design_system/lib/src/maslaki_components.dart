@@ -755,6 +755,38 @@ class MaslakiBottomNavItem {
   });
 }
 
+/// Body insets for a `Scaffold(extendBody: true)` whose bottom bar is a
+/// [MaslakiBottomNavShell] that can slide away.
+///
+/// With extendBody the Scaffold reports the bar's full height as the body's
+/// bottom padding even while the bar is hidden, so pushed pages would reserve
+/// an empty strip. While the bar is hidden this restores the real system
+/// inset; while it is shown pages keep clearing the bar.
+class MaslakiBottomBarBodyInsets extends StatelessWidget {
+  final bool barVisible;
+  final double systemBottomPadding;
+  final Widget child;
+
+  const MaslakiBottomBarBodyInsets({
+    super.key,
+    required this.barVisible,
+    required this.systemBottomPadding,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (barVisible) return child;
+    final media = MediaQuery.of(context);
+    return MediaQuery(
+      data: media.copyWith(
+        padding: media.padding.copyWith(bottom: systemBottomPadding),
+      ),
+      child: child,
+    );
+  }
+}
+
 class MaslakiBottomNavShell extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;

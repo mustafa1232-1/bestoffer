@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/forms/form_error_banner.dart';
 import '../../../core/forms/form_field_error_resolver.dart';
@@ -165,7 +167,7 @@ class _AdminTaxiCaptainDetailsScreenState
     var submitting = false;
     var rewardType = 'credit';
 
-    final submitted = await showModalBottomSheet<bool>(
+    final submitted = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -386,7 +388,7 @@ class _AdminTaxiCaptainDetailsScreenState
     var affectsStatus = true;
     String? statusEffect;
 
-    final submitted = await showModalBottomSheet<bool>(
+    final submitted = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -643,7 +645,7 @@ class _AdminTaxiCaptainDetailsScreenState
     var newStatus = 'active';
     DateTime? suspendedUntil;
 
-    final submitted = await showModalBottomSheet<bool>(
+    final submitted = await showMaslakiBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
@@ -922,329 +924,334 @@ class _AdminTaxiCaptainDetailsScreenState
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh_rounded)),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => _load(silent: true),
-        child: ListView(
-          padding: const EdgeInsets.all(12),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                gradient: LinearGradient(
-                  colors: [
-                    Theme.of(context).colorScheme.primaryContainer,
-                    Theme.of(context).colorScheme.tertiaryContainer,
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () => _load(silent: true),
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  gradient: LinearGradient(
+                    colors: [
+                      Theme.of(context).colorScheme.primaryContainer,
+                      Theme.of(context).colorScheme.tertiaryContainer,
+                    ],
+                    begin: AlignmentDirectional.topStart,
+                    end: AlignmentDirectional.bottomEnd,
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const CircleAvatar(
+                          radius: 24,
+                          child: Icon(Icons.local_taxi_rounded),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                name,
+                                style: Theme.of(context).textTheme.titleLarge
+                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                phone,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _InfoChip(
+                          label: l10n.commonStatus,
+                          value: _governanceStatusLabel(statusRaw),
+                        ),
+                        _InfoChip(
+                          label: l10n.commonRating,
+                          value: rating.toStringAsFixed(2),
+                        ),
+                        _InfoChip(
+                          label: l10n.adminTaxiKpiTotalRides,
+                          value: ridesCount.toString(),
+                        ),
+                        _InfoChip(
+                          label: l10n.taxiCaptainWarningsCount,
+                          value: warningCount.toString(),
+                        ),
+                      ],
+                    ),
                   ],
-                  begin: AlignmentDirectional.topStart,
-                  end: AlignmentDirectional.bottomEnd,
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const CircleAvatar(
-                        radius: 24,
-                        child: Icon(Icons.local_taxi_rounded),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              name,
-                              style: Theme.of(context).textTheme.titleLarge
-                                  ?.copyWith(fontWeight: FontWeight.w800),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              phone,
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _InfoChip(
-                        label: l10n.commonStatus,
-                        value: _governanceStatusLabel(statusRaw),
-                      ),
-                      _InfoChip(
-                        label: l10n.commonRating,
-                        value: rating.toStringAsFixed(2),
-                      ),
-                      _InfoChip(
-                        label: l10n.adminTaxiKpiTotalRides,
-                        value: ridesCount.toString(),
-                      ),
-                      _InfoChip(
-                        label: l10n.taxiCaptainWarningsCount,
-                        value: warningCount.toString(),
-                      ),
-                    ],
-                  ),
-                ],
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: l10n.adminTaxiCaptainDetailsActionsSection,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.tonalIcon(
+                      onPressed: _openGiftDialog,
+                      icon: const Icon(Icons.card_giftcard_rounded),
+                      label: Text(l10n.adminTaxiCaptainDetailsIssueGift),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: _openWarningDialog,
+                      icon: const Icon(Icons.warning_amber_rounded),
+                      label: Text(l10n.adminTaxiCaptainDetailsIssueWarning),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: _openStatusDialog,
+                      icon: const Icon(Icons.shield_rounded),
+                      label: Text(l10n.adminTaxiCaptainDetailsUpdateStatus),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: l10n.adminTaxiCaptainDetailsActionsSection,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: _openGiftDialog,
-                    icon: const Icon(Icons.card_giftcard_rounded),
-                    label: Text(l10n.adminTaxiCaptainDetailsIssueGift),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: _openWarningDialog,
-                    icon: const Icon(Icons.warning_amber_rounded),
-                    label: Text(l10n.adminTaxiCaptainDetailsIssueWarning),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: _openStatusDialog,
-                    icon: const Icon(Icons.shield_rounded),
-                    label: Text(l10n.adminTaxiCaptainDetailsUpdateStatus),
-                  ),
-                ],
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: l10n.adminTaxiCaptainDetailsSubscriptionSection,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _InfoChip(
+                      label: l10n.taxiCaptainMonthlySubscription,
+                      value: formatIqd(
+                        _asInt(subscription['monthlySubscriptionAmountIqd']),
+                      ),
+                    ),
+                    _InfoChip(
+                      label: l10n.taxiCaptainApprovedCredits,
+                      value: formatIqd(
+                        _asInt(subscription['approvedCreditsIqd']),
+                      ),
+                    ),
+                    _InfoChip(
+                      label: l10n.adminTaxiCashPaymentsDiscount,
+                      value: formatIqd(
+                        _asInt(subscription['approvedDiscountsIqd']),
+                      ),
+                    ),
+                    _InfoChip(
+                      label: l10n.taxiCaptainPayableAmount,
+                      value: formatIqd(
+                        _asInt(subscription['payableAmountIqd']),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: l10n.adminTaxiCaptainDetailsSubscriptionSection,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _InfoChip(
-                    label: l10n.taxiCaptainMonthlySubscription,
-                    value: formatIqd(
-                      _asInt(subscription['monthlySubscriptionAmountIqd']),
-                    ),
-                  ),
-                  _InfoChip(
-                    label: l10n.taxiCaptainApprovedCredits,
-                    value: formatIqd(
-                      _asInt(subscription['approvedCreditsIqd']),
-                    ),
-                  ),
-                  _InfoChip(
-                    label: l10n.adminTaxiCashPaymentsDiscount,
-                    value: formatIqd(
-                      _asInt(subscription['approvedDiscountsIqd']),
-                    ),
-                  ),
-                  _InfoChip(
-                    label: l10n.taxiCaptainPayableAmount,
-                    value: formatIqd(_asInt(subscription['payableAmountIqd'])),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: l10n.adminTaxiCaptainDetailsLedgerSection,
-              child: ledger.isEmpty
-                  ? Text(l10n.commonNoData)
-                  : Column(
-                      children: ledger
-                          .take(12)
-                          .map((item) {
-                            final amount = _asInt(item['amountIqd']);
-                            final status = '${item['status'] ?? '-'}';
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                '${item['entryType'] ?? '-'}',
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              subtitle: Text('${item['createdAt'] ?? '-'}'),
-                              trailing: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(formatIqd(amount)),
-                                  Text(
-                                    status,
-                                    style: Theme.of(
-                                      context,
-                                    ).textTheme.bodySmall,
-                                  ),
-                                ],
-                              ),
-                            );
-                          })
-                          .toList(growable: false),
-                    ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: l10n.taxiCaptainContestsTitle,
-              child: contests.isEmpty
-                  ? Text(l10n.commonNoData)
-                  : Column(
-                      children: contests
-                          .take(8)
-                          .map((item) {
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text('${item['title'] ?? '-'}'),
-                              subtitle: Text(
-                                '${item['progressValue'] ?? 0} / ${item['targetValue'] ?? 0}',
-                              ),
-                            );
-                          })
-                          .toList(growable: false),
-                    ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: l10n.taxiCaptainRewardsTitle,
-              child: rewards.isEmpty
-                  ? Text(l10n.commonNoData)
-                  : Column(
-                      children: rewards
-                          .take(8)
-                          .map((item) {
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                _rewardTypeLabel(
-                                  '${item['rewardType'] ?? '-'}',
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: l10n.adminTaxiCaptainDetailsLedgerSection,
+                child: ledger.isEmpty
+                    ? Text(l10n.commonNoData)
+                    : Column(
+                        children: ledger
+                            .take(12)
+                            .map((item) {
+                              final amount = _asInt(item['amountIqd']);
+                              final status = '${item['status'] ?? '-'}';
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  '${item['entryType'] ?? '-'}',
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(fontWeight: FontWeight.w700),
                                 ),
-                              ),
-                              subtitle: Text('${item['createdAt'] ?? '-'}'),
-                              trailing: Text(
-                                formatIqd(_asInt(item['rewardValue'])),
-                              ),
-                            );
-                          })
-                          .toList(growable: false),
-                    ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: l10n.adminTaxiCaptainDetailsWarningsSection,
-              child: warnings.isEmpty
-                  ? Text(l10n.commonNoData)
-                  : Column(
-                      children: warnings
-                          .take(8)
-                          .map((item) {
-                            final severity = _warningSeverityLabel(
-                              '${item['severity'] ?? ''}',
-                            );
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                severity,
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              subtitle: Text(
-                                '${item['reason_text'] ?? item['reasonText'] ?? item['reason_code'] ?? '-'}\n${item['created_at'] ?? item['createdAt'] ?? '-'}',
-                              ),
-                              isThreeLine: true,
-                            );
-                          })
-                          .toList(growable: false),
-                    ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: l10n.adminTaxiCaptainDetailsComplaintsSection,
-              child: complaints.isEmpty
-                  ? Text(l10n.commonNoData)
-                  : Column(
-                      children: complaints
-                          .take(8)
-                          .map((item) {
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text('${item['category'] ?? '-'}'),
-                              subtitle: Text(
-                                '${item['reason'] ?? '-'}\n${item['status'] ?? '-'}',
-                              ),
-                              isThreeLine: true,
-                            );
-                          })
-                          .toList(growable: false),
-                    ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: l10n.adminTaxiCaptainDetailsStatusHistorySection,
-              child: statusHistory.isEmpty
-                  ? Text(l10n.commonNoData)
-                  : Column(
-                      children: statusHistory
-                          .take(8)
-                          .map((item) {
-                            final oldStatus = _governanceStatusLabel(
-                              '${item['oldStatus'] ?? item['old_status'] ?? '-'}',
-                            );
-                            final newStatus = _governanceStatusLabel(
-                              '${item['newStatus'] ?? item['new_status'] ?? '-'}',
-                            );
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text('$oldStatus -> $newStatus'),
-                              subtitle: Text(
-                                '${item['createdAt'] ?? item['created_at'] ?? '-'}',
-                              ),
-                            );
-                          })
-                          .toList(growable: false),
-                    ),
-            ),
-            const SizedBox(height: 12),
-            _SectionCard(
-              title: l10n.adminTaxiCaptainDetailsRidesSection,
-              child: rides.isEmpty
-                  ? Text(l10n.commonNoData)
-                  : Column(
-                      children: rides
-                          .take(10)
-                          .map((item) {
-                            return ListTile(
-                              dense: true,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                '#${item['id'] ?? '-'} - ${item['status'] ?? '-'}',
-                              ),
-                              subtitle: Text('${item['created_at'] ?? '-'}'),
-                              trailing: Text(
-                                formatIqd(
-                                  _asInt(
-                                    item['agreed_fare_iqd'] ??
-                                        item['proposed_fare_iqd'],
+                                subtitle: Text('${item['createdAt'] ?? '-'}'),
+                                trailing: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(formatIqd(amount)),
+                                    Text(
+                                      status,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                  ],
+                                ),
+                              );
+                            })
+                            .toList(growable: false),
+                      ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: l10n.taxiCaptainContestsTitle,
+                child: contests.isEmpty
+                    ? Text(l10n.commonNoData)
+                    : Column(
+                        children: contests
+                            .take(8)
+                            .map((item) {
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text('${item['title'] ?? '-'}'),
+                                subtitle: Text(
+                                  '${item['progressValue'] ?? 0} / ${item['targetValue'] ?? 0}',
+                                ),
+                              );
+                            })
+                            .toList(growable: false),
+                      ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: l10n.taxiCaptainRewardsTitle,
+                child: rewards.isEmpty
+                    ? Text(l10n.commonNoData)
+                    : Column(
+                        children: rewards
+                            .take(8)
+                            .map((item) {
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  _rewardTypeLabel(
+                                    '${item['rewardType'] ?? '-'}',
                                   ),
                                 ),
-                              ),
-                            );
-                          })
-                          .toList(growable: false),
-                    ),
-            ),
-          ],
+                                subtitle: Text('${item['createdAt'] ?? '-'}'),
+                                trailing: Text(
+                                  formatIqd(_asInt(item['rewardValue'])),
+                                ),
+                              );
+                            })
+                            .toList(growable: false),
+                      ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: l10n.adminTaxiCaptainDetailsWarningsSection,
+                child: warnings.isEmpty
+                    ? Text(l10n.commonNoData)
+                    : Column(
+                        children: warnings
+                            .take(8)
+                            .map((item) {
+                              final severity = _warningSeverityLabel(
+                                '${item['severity'] ?? ''}',
+                              );
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  severity,
+                                  style: Theme.of(context).textTheme.bodyMedium
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                                subtitle: Text(
+                                  '${item['reason_text'] ?? item['reasonText'] ?? item['reason_code'] ?? '-'}\n${item['created_at'] ?? item['createdAt'] ?? '-'}',
+                                ),
+                                isThreeLine: true,
+                              );
+                            })
+                            .toList(growable: false),
+                      ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: l10n.adminTaxiCaptainDetailsComplaintsSection,
+                child: complaints.isEmpty
+                    ? Text(l10n.commonNoData)
+                    : Column(
+                        children: complaints
+                            .take(8)
+                            .map((item) {
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text('${item['category'] ?? '-'}'),
+                                subtitle: Text(
+                                  '${item['reason'] ?? '-'}\n${item['status'] ?? '-'}',
+                                ),
+                                isThreeLine: true,
+                              );
+                            })
+                            .toList(growable: false),
+                      ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: l10n.adminTaxiCaptainDetailsStatusHistorySection,
+                child: statusHistory.isEmpty
+                    ? Text(l10n.commonNoData)
+                    : Column(
+                        children: statusHistory
+                            .take(8)
+                            .map((item) {
+                              final oldStatus = _governanceStatusLabel(
+                                '${item['oldStatus'] ?? item['old_status'] ?? '-'}',
+                              );
+                              final newStatus = _governanceStatusLabel(
+                                '${item['newStatus'] ?? item['new_status'] ?? '-'}',
+                              );
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text('$oldStatus -> $newStatus'),
+                                subtitle: Text(
+                                  '${item['createdAt'] ?? item['created_at'] ?? '-'}',
+                                ),
+                              );
+                            })
+                            .toList(growable: false),
+                      ),
+              ),
+              const SizedBox(height: 12),
+              _SectionCard(
+                title: l10n.adminTaxiCaptainDetailsRidesSection,
+                child: rides.isEmpty
+                    ? Text(l10n.commonNoData)
+                    : Column(
+                        children: rides
+                            .take(10)
+                            .map((item) {
+                              return ListTile(
+                                dense: true,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  '#${item['id'] ?? '-'} - ${item['status'] ?? '-'}',
+                                ),
+                                subtitle: Text('${item['created_at'] ?? '-'}'),
+                                trailing: Text(
+                                  formatIqd(
+                                    _asInt(
+                                      item['agreed_fare_iqd'] ??
+                                          item['proposed_fare_iqd'],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            })
+                            .toList(growable: false),
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );

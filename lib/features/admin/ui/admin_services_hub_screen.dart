@@ -850,209 +850,214 @@ class _AdminServicesHubScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
-          children: [
-            if (_error != null)
-              _ServicesStatusCard(
-                phase: _phase,
-                message: _error!,
-                loading: _loading,
-                onRetry: (_saving || _loading) ? null : _load,
-              ),
-            if (_loading)
-              Padding(
-                padding: const EdgeInsets.only(top: 120),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const CircularProgressIndicator(),
-                      if (_phase == _ServicesLoadPhase.recoveringSession) ...[
-                        const SizedBox(height: 12),
-                        const Text(_servicesRecoveryMessage),
-                      ],
-                    ],
-                  ),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: _load,
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
+            children: [
+              if (_error != null)
+                _ServicesStatusCard(
+                  phase: _phase,
+                  message: _error!,
+                  loading: _loading,
+                  onRetry: (_saving || _loading) ? null : _load,
                 ),
-              )
-            else if (_isBlockingErrorPhase(_phase) && !_hasAnyData)
-              const SizedBox.shrink()
-            else ...[
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          const AdminServiceProviderApplicationsScreen(),
+              if (_loading)
+                Padding(
+                  padding: const EdgeInsets.only(top: 120),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        if (_phase == _ServicesLoadPhase.recoveringSession) ...[
+                          const SizedBox(height: 12),
+                          const Text(_servicesRecoveryMessage),
+                        ],
+                      ],
                     ),
-                  );
-                },
-                icon: const Icon(Icons.home_repair_service_outlined),
-                label: const Text('فتح شاشة اشتراكات أصحاب الخدمة'),
-              ),
-              const SizedBox(height: 14),
-              _StatsSection(stats: _stats),
-              const SizedBox(height: 14),
-              _SectionCard(
-                title: 'مقدمو الخدمة بانتظار المراجعة',
-                count: _providers.length,
-                children: _providers
-                    .map(
-                      (row) => ListTile(
-                        title: Text(_text(row['businessName'], 'مقدم خدمة')),
-                        subtitle: Text(
-                          [
-                            _text(row['ownerFullName']),
-                            _text(row['city']),
-                            _text(row['mainCategoryName']),
-                            'الحالة: ${_text(row['providerApprovalStatus'])}',
-                          ].where((item) => item.isNotEmpty).join(' • '),
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.rule_folder_outlined),
-                          onPressed: _saving
-                              ? null
-                              : () => _reviewProvider(row),
-                        ),
+                  ),
+                )
+              else if (_isBlockingErrorPhase(_phase) && !_hasAnyData)
+                const SizedBox.shrink()
+              else ...[
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const AdminServiceProviderApplicationsScreen(),
                       ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 14),
-              _SectionCard(
-                title: 'كل الخدمات',
-                count: _offerings.length,
-                children: _offerings
-                    .map(
-                      (row) => ListTile(
-                        title: Text(_text(row['name'], 'خدمة')),
-                        subtitle: Text(
-                          [
-                            _text(row['providerBusinessName']),
-                            _text(row['mainCategoryName']),
-                            'الحالة: ${_text(row['moderationStatus'])}',
-                          ].where((item) => item.isNotEmpty).join(' • '),
+                    );
+                  },
+                  icon: const Icon(Icons.home_repair_service_outlined),
+                  label: const Text('فتح شاشة اشتراكات أصحاب الخدمة'),
+                ),
+                const SizedBox(height: 14),
+                _StatsSection(stats: _stats),
+                const SizedBox(height: 14),
+                _SectionCard(
+                  title: 'مقدمو الخدمة بانتظار المراجعة',
+                  count: _providers.length,
+                  children: _providers
+                      .map(
+                        (row) => ListTile(
+                          title: Text(_text(row['businessName'], 'مقدم خدمة')),
+                          subtitle: Text(
+                            [
+                              _text(row['ownerFullName']),
+                              _text(row['city']),
+                              _text(row['mainCategoryName']),
+                              'الحالة: ${_text(row['providerApprovalStatus'])}',
+                            ].where((item) => item.isNotEmpty).join(' • '),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.rule_folder_outlined),
+                            onPressed: _saving
+                                ? null
+                                : () => _reviewProvider(row),
+                          ),
                         ),
-                        trailing: Wrap(
-                          spacing: 2,
-                          children: [
-                            IconButton(
-                              tooltip: 'تعديل بيانات الخدمة',
-                              icon: const Icon(Icons.edit_outlined),
-                              onPressed: _saving
-                                  ? null
-                                  : () => _editOffering(row),
+                      )
+                      .toList(growable: false),
+                ),
+                const SizedBox(height: 14),
+                _SectionCard(
+                  title: 'كل الخدمات',
+                  count: _offerings.length,
+                  children: _offerings
+                      .map(
+                        (row) => ListTile(
+                          title: Text(_text(row['name'], 'خدمة')),
+                          subtitle: Text(
+                            [
+                              _text(row['providerBusinessName']),
+                              _text(row['mainCategoryName']),
+                              'الحالة: ${_text(row['moderationStatus'])}',
+                            ].where((item) => item.isNotEmpty).join(' • '),
+                          ),
+                          trailing: Wrap(
+                            spacing: 2,
+                            children: [
+                              IconButton(
+                                tooltip: 'تعديل بيانات الخدمة',
+                                icon: const Icon(Icons.edit_outlined),
+                                onPressed: _saving
+                                    ? null
+                                    : () => _editOffering(row),
+                              ),
+                              IconButton(
+                                tooltip: 'تغيير حالة النشر',
+                                icon: const Icon(Icons.rule_folder_outlined),
+                                onPressed: _saving
+                                    ? null
+                                    : () => _reviewOffering(row),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+                const SizedBox(height: 14),
+                _SectionCard(
+                  title: 'اقتراحات الفئات',
+                  count: _suggestions.length,
+                  children: _suggestions
+                      .map(
+                        (row) => ListTile(
+                          title: Text(_text(row['name'], 'اقتراح فئة')),
+                          subtitle: Text(
+                            [
+                              _text(row['suggestedByName']),
+                              _text(row['suggestionType']),
+                              'الحالة: ${_text(row['status'])}',
+                            ].where((item) => item.isNotEmpty).join(' • '),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.rule_folder_outlined),
+                            onPressed: _saving
+                                ? null
+                                : () => _reviewSuggestion(row),
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+                const SizedBox(height: 14),
+                _SectionCard(
+                  title: 'بلاغات الخدمات',
+                  count: _reports.length,
+                  children: _reports
+                      .map(
+                        (row) => ListTile(
+                          title: Text(
+                            '${_text(row['targetType'])} #${_int(row['targetId'])}',
+                          ),
+                          subtitle: Text(
+                            [
+                              _text(row['reason']),
+                              'الحالة: ${_text(row['status'])}',
+                            ].where((item) => item.isNotEmpty).join(' • '),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.rule_folder_outlined),
+                            onPressed: _saving
+                                ? null
+                                : () => _reviewReport(row),
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+                const SizedBox(height: 14),
+                _SectionCard(
+                  title: 'أحدث طلبات الخدمة',
+                  count: _requests.length,
+                  children: _requests
+                      .map(
+                        (row) => ListTile(
+                          title: Text(_text(row['requestCode'], 'طلب خدمة')),
+                          subtitle: Text(
+                            [
+                              _text(row['offeringName']),
+                              _text(row['providerBusinessName']),
+                              _text(row['customerFullName']),
+                              'الحالة: ${_text(row['status'])}',
+                            ].where((item) => item.isNotEmpty).join(' • '),
+                          ),
+                        ),
+                      )
+                      .toList(growable: false),
+                ),
+                const SizedBox(height: 14),
+                _SectionCard(
+                  title: 'إعدادات مودل الخدمات',
+                  count: _settings.length,
+                  children: _settings
+                      .map(
+                        (row) => ListTile(
+                          title: Text(_text(row['key'])),
+                          subtitle: Text(
+                            const JsonEncoder.withIndent('  ').convert(
+                              row['value'] ?? const <String, dynamic>{},
                             ),
-                            IconButton(
-                              tooltip: 'تغيير حالة النشر',
-                              icon: const Icon(Icons.rule_folder_outlined),
-                              onPressed: _saving
-                                  ? null
-                                  : () => _reviewOffering(row),
-                            ),
-                          ],
+                            maxLines: 4,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.edit_outlined),
+                            onPressed: _saving ? null : () => _editSetting(row),
+                          ),
                         ),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 14),
-              _SectionCard(
-                title: 'اقتراحات الفئات',
-                count: _suggestions.length,
-                children: _suggestions
-                    .map(
-                      (row) => ListTile(
-                        title: Text(_text(row['name'], 'اقتراح فئة')),
-                        subtitle: Text(
-                          [
-                            _text(row['suggestedByName']),
-                            _text(row['suggestionType']),
-                            'الحالة: ${_text(row['status'])}',
-                          ].where((item) => item.isNotEmpty).join(' • '),
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.rule_folder_outlined),
-                          onPressed: _saving
-                              ? null
-                              : () => _reviewSuggestion(row),
-                        ),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 14),
-              _SectionCard(
-                title: 'بلاغات الخدمات',
-                count: _reports.length,
-                children: _reports
-                    .map(
-                      (row) => ListTile(
-                        title: Text(
-                          '${_text(row['targetType'])} #${_int(row['targetId'])}',
-                        ),
-                        subtitle: Text(
-                          [
-                            _text(row['reason']),
-                            'الحالة: ${_text(row['status'])}',
-                          ].where((item) => item.isNotEmpty).join(' • '),
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.rule_folder_outlined),
-                          onPressed: _saving ? null : () => _reviewReport(row),
-                        ),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 14),
-              _SectionCard(
-                title: 'أحدث طلبات الخدمة',
-                count: _requests.length,
-                children: _requests
-                    .map(
-                      (row) => ListTile(
-                        title: Text(_text(row['requestCode'], 'طلب خدمة')),
-                        subtitle: Text(
-                          [
-                            _text(row['offeringName']),
-                            _text(row['providerBusinessName']),
-                            _text(row['customerFullName']),
-                            'الحالة: ${_text(row['status'])}',
-                          ].where((item) => item.isNotEmpty).join(' • '),
-                        ),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
-              const SizedBox(height: 14),
-              _SectionCard(
-                title: 'إعدادات مودل الخدمات',
-                count: _settings.length,
-                children: _settings
-                    .map(
-                      (row) => ListTile(
-                        title: Text(_text(row['key'])),
-                        subtitle: Text(
-                          const JsonEncoder.withIndent(
-                            '  ',
-                          ).convert(row['value'] ?? const <String, dynamic>{}),
-                          maxLines: 4,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.edit_outlined),
-                          onPressed: _saving ? null : () => _editSetting(row),
-                        ),
-                      ),
-                    )
-                    .toList(growable: false),
-              ),
+                      )
+                      .toList(growable: false),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

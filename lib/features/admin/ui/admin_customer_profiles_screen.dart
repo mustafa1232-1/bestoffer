@@ -83,75 +83,78 @@ class _AdminCustomerProfilesScreenState
           ),
         ],
       ),
-      body: RefreshIndicator(
-        onRefresh: () => ref.read(adminControllerProvider.notifier).bootstrap(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(16),
-          children: [
-            TextField(
-              controller: _searchCtrl,
-              textInputAction: TextInputAction.search,
-              onSubmitted: (value) => ref
-                  .read(adminControllerProvider.notifier)
-                  .searchCustomerInsights(value),
-              decoration: InputDecoration(
-                labelText: l10n.adminCustomerProfilesSearch,
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: IconButton(
-                  onPressed: () => ref
-                      .read(adminControllerProvider.notifier)
-                      .searchCustomerInsights(_searchCtrl.text),
-                  icon: const Icon(Icons.arrow_forward_rounded),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (state.customerInsights.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 28),
-                child: Center(child: Text(l10n.adminCustomerProfilesEmpty)),
-              )
-            else
-              ...state.customerInsights.map(
-                (item) => Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.all(16),
-                    leading: const CircleAvatar(
-                      child: Icon(Icons.person_outline_rounded),
-                    ),
-                    title: Text(
-                      _fullName(item),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(_phone(item)),
-                          if (_block(item).isNotEmpty) Text(_block(item)),
-                          const SizedBox(height: 4),
-                          Text(
-                            l10n.adminCustomerProfilesOrdersSpend(
-                              _orders(item),
-                              formatIqd(_spent(item)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    trailing: FilledButton.tonal(
-                      onPressed: () => _openDetails(item),
-                      child: Text(l10n.commonOpen),
-                    ),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () =>
+              ref.read(adminControllerProvider.notifier).bootstrap(),
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: [
+              TextField(
+                controller: _searchCtrl,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (value) => ref
+                    .read(adminControllerProvider.notifier)
+                    .searchCustomerInsights(value),
+                decoration: InputDecoration(
+                  labelText: l10n.adminCustomerProfilesSearch,
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: IconButton(
+                    onPressed: () => ref
+                        .read(adminControllerProvider.notifier)
+                        .searchCustomerInsights(_searchCtrl.text),
+                    icon: const Icon(Icons.arrow_forward_rounded),
                   ),
                 ),
               ),
-          ],
+              const SizedBox(height: 16),
+              if (state.customerInsights.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 28),
+                  child: Center(child: Text(l10n.adminCustomerProfilesEmpty)),
+                )
+              else
+                ...state.customerInsights.map(
+                  (item) => Card(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.all(16),
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.person_outline_rounded),
+                      ),
+                      title: Text(
+                        _fullName(item),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(_phone(item)),
+                            if (_block(item).isNotEmpty) Text(_block(item)),
+                            const SizedBox(height: 4),
+                            Text(
+                              l10n.adminCustomerProfilesOrdersSpend(
+                                _orders(item),
+                                formatIqd(_spent(item)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      trailing: FilledButton.tonal(
+                        onPressed: () => _openDetails(item),
+                        child: Text(l10n.commonOpen),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

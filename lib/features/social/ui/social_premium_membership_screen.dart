@@ -15,18 +15,21 @@ class SocialPremiumMembershipScreen extends ConsumerWidget {
       textDirection: Directionality.of(context),
       child: Scaffold(
         appBar: AppBar(title: const Text('اشتراك بريميوم')),
-        body: summaryAsync.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                'تعذر تحميل بيانات الاشتراك الآن.\n$error',
-                textAlign: TextAlign.center,
+        body: SafeArea(
+          top: false,
+          child: summaryAsync.when(
+            loading: () => const Center(child: CircularProgressIndicator()),
+            error: (error, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'تعذر تحميل بيانات الاشتراك الآن.\n$error',
+                  textAlign: TextAlign.center,
+                ),
               ),
             ),
+            data: (summary) => _MembershipBody(summary: summary),
           ),
-          data: (summary) => _MembershipBody(summary: summary),
         ),
       ),
     );

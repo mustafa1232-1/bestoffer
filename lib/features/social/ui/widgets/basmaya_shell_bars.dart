@@ -774,7 +774,7 @@ class _BasmayaMoreButton extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () async {
-        await showModalBottomSheet<void>(
+        await showMaslakiBottomSheet<void>(
           context: context,
           showDragHandle: true,
           builder: (context) => SafeArea(

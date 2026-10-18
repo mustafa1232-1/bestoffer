@@ -97,7 +97,7 @@ class _AiDevSupportSettingsScreenState
     }
 
     return Scaffold(
-      body: ListView(
+      body: SafeArea(child: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           _switchTile('ai_analysis_enabled', 'Enable AI Analysis'),
@@ -124,7 +124,7 @@ class _AiDevSupportSettingsScreenState
             label: const Text('Save settings'),
           ),
         ],
-      ),
+      )),
     );
   }
 }

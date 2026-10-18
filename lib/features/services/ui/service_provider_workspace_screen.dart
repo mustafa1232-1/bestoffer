@@ -153,214 +153,217 @@ class ServiceProviderWorkspaceScreen extends ConsumerWidget {
               label: const Text('خدمة جديدة'),
             )
           : null,
-      body: RefreshIndicator(
-        onRefresh: () async {
-          await ctrl.loadWorkspace();
-          await ctrl.loadRequests();
-        },
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 96),
-          children: [
-            if (sectionBlocked)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        servicesSection.badgeLabel ?? 'غير متاح',
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.primary,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(servicesSection.effectiveMessage),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'تم تعطيل إنشاء الخدمات والعروض الجديدة. يمكنك متابعة الطلبات النشطة فقط.',
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            if (state.error != null)
-              Card(
-                color: Colors.red.withValues(alpha: 0.12),
-                child: Padding(
-                  padding: const EdgeInsets.all(10),
-                  child: Text(
-                    state.error!,
-                    style: const TextStyle(color: Colors.red),
-                  ),
-                ),
-              ),
-            if (state.workspaceMissingProfile)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [Icon(Icons.info_outline_rounded)],
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'لا يوجد ملف مقدم خدمة لهذا الحساب بعد.',
-                        textAlign: TextAlign.end,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'افتح شاشة التسجيل المجاني لإرسال طلبك أو متابعة مراجعته.',
-                        textAlign: TextAlign.end,
-                      ),
-                      const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        alignment: WrapAlignment.end,
-                        children: [
-                          FilledButton.icon(
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      const ServiceProviderOnboardingScreen(),
-                                ),
-                              );
-                            },
-                            icon: const Icon(Icons.verified_user_outlined),
-                            label: const Text('فتح التسجيل المجاني'),
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
+          onRefresh: () async {
+            await ctrl.loadWorkspace();
+            await ctrl.loadRequests();
+          },
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 96),
+            children: [
+              if (sectionBlocked)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          servicesSection.badgeLabel ?? 'غير متاح',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.primary,
+                            fontWeight: FontWeight.w900,
                           ),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              ctrl.loadWorkspace();
-                              ctrl.loadRequests();
-                            },
-                            icon: const Icon(Icons.refresh_rounded),
-                            label: const Text('إعادة المحاولة'),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(servicesSection.effectiveMessage),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'تم تعطيل إنشاء الخدمات والعروض الجديدة. يمكنك متابعة الطلبات النشطة فقط.',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (state.error != null)
+                Card(
+                  color: Colors.red.withValues(alpha: 0.12),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: Text(
+                      state.error!,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
+                ),
+              if (state.workspaceMissingProfile)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [Icon(Icons.info_outline_rounded)],
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'لا يوجد ملف مقدم خدمة لهذا الحساب بعد.',
+                          textAlign: TextAlign.end,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w900,
                           ),
-                        ],
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'افتح شاشة التسجيل المجاني لإرسال طلبك أو متابعة مراجعته.',
+                          textAlign: TextAlign.end,
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          alignment: WrapAlignment.end,
+                          children: [
+                            FilledButton.icon(
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const ServiceProviderOnboardingScreen(),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.verified_user_outlined),
+                              label: const Text('فتح التسجيل المجاني'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                ctrl.loadWorkspace();
+                                ctrl.loadRequests();
+                              },
+                              icon: const Icon(Icons.refresh_rounded),
+                              label: const Text('إعادة المحاولة'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (state.loadingWorkspace && workspace == null)
+                const Padding(
+                  padding: EdgeInsets.only(top: 90),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              if (!state.loadingWorkspace &&
+                  workspace == null &&
+                  !state.workspaceMissingProfile)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'لا يوجد ملف مقدم خدمة لهذا الحساب بعد.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              if (workspace != null) ...[
+                _workspaceHeader(workspace),
+                const SizedBox(height: 12),
+                _requestCounts(workspace),
+                const SizedBox(height: 12),
+                _serviceFinancialReport(state.requests),
+                const SizedBox(height: 12),
+                _offeringsSection(
+                  context,
+                  ref,
+                  workspace.provider.offerings,
+                  canEditServices: canEditServices,
+                ),
+                const SizedBox(height: 12),
+                _promotionsSection(
+                  context,
+                  ref,
+                  workspace.promotions,
+                  offerings: workspace.provider.offerings,
+                  canManageOffers: canManageOffers,
+                ),
+                const SizedBox(height: 12),
+                _employeesSection(
+                  context,
+                  ref,
+                  workspace: workspace,
+                  canManageEmployees: canManageEmployees,
+                  canViewAuditLog: canViewAuditLog,
+                ),
+              ],
+              const SizedBox(height: 12),
+              const Text(
+                'الطلبات الواردة',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              if (state.loadingRequests)
+                const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              if (workspace != null && !canViewRequests)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Text(
+                      'ليس لديك صلاحية عرض الطلبات / You do not have permission to view service requests.',
+                    ),
+                  ),
+                ),
+              if (workspace != null &&
+                  canViewRequests &&
+                  !state.loadingRequests &&
+                  visibleRequests.isEmpty)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Text('لا توجد طلبات نشطة يمكن متابعتها حاليًا.'),
+                  ),
+                ),
+              ...visibleRequests.map(
+                (request) => _RequestCard(
+                  request: request,
+                  onOpenDetails: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            ServiceRequestDetailsScreen(requestId: request.id),
                       ),
-                    ],
+                    );
+                  },
+                  onStatusTap: (status) => ctrl.updateRequestStatus(
+                    requestId: request.id,
+                    status: status,
+                  ),
+                  onQuoteTap: () => _showQuoteDialog(
+                    context,
+                    onSubmit: (payload) => ctrl.createQuote(
+                      requestId: request.id,
+                      pricingModel: payload.pricingModel,
+                      pricingUnit: payload.pricingUnit,
+                      amount: payload.amount,
+                      minAmount: payload.minAmount,
+                      maxAmount: payload.maxAmount,
+                      visitFee: payload.visitFee,
+                      note: payload.note,
+                    ),
                   ),
                 ),
-              ),
-            if (state.loadingWorkspace && workspace == null)
-              const Padding(
-                padding: EdgeInsets.only(top: 90),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            if (!state.loadingWorkspace &&
-                workspace == null &&
-                !state.workspaceMissingProfile)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    'لا يوجد ملف مقدم خدمة لهذا الحساب بعد.',
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-            if (workspace != null) ...[
-              _workspaceHeader(workspace),
-              const SizedBox(height: 12),
-              _requestCounts(workspace),
-              const SizedBox(height: 12),
-              _serviceFinancialReport(state.requests),
-              const SizedBox(height: 12),
-              _offeringsSection(
-                context,
-                ref,
-                workspace.provider.offerings,
-                canEditServices: canEditServices,
-              ),
-              const SizedBox(height: 12),
-              _promotionsSection(
-                context,
-                ref,
-                workspace.promotions,
-                offerings: workspace.provider.offerings,
-                canManageOffers: canManageOffers,
-              ),
-              const SizedBox(height: 12),
-              _employeesSection(
-                context,
-                ref,
-                workspace: workspace,
-                canManageEmployees: canManageEmployees,
-                canViewAuditLog: canViewAuditLog,
               ),
             ],
-            const SizedBox(height: 12),
-            const Text(
-              'الطلبات الواردة',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 8),
-            if (state.loadingRequests)
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: Center(child: CircularProgressIndicator()),
-              ),
-            if (workspace != null && !canViewRequests)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(14),
-                  child: Text(
-                    'ليس لديك صلاحية عرض الطلبات / You do not have permission to view service requests.',
-                  ),
-                ),
-              ),
-            if (workspace != null &&
-                canViewRequests &&
-                !state.loadingRequests &&
-                visibleRequests.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(14),
-                  child: Text('لا توجد طلبات نشطة يمكن متابعتها حاليًا.'),
-                ),
-              ),
-            ...visibleRequests.map(
-              (request) => _RequestCard(
-                request: request,
-                onOpenDetails: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          ServiceRequestDetailsScreen(requestId: request.id),
-                    ),
-                  );
-                },
-                onStatusTap: (status) => ctrl.updateRequestStatus(
-                  requestId: request.id,
-                  status: status,
-                ),
-                onQuoteTap: () => _showQuoteDialog(
-                  context,
-                  onSubmit: (payload) => ctrl.createQuote(
-                    requestId: request.id,
-                    pricingModel: payload.pricingModel,
-                    pricingUnit: payload.pricingUnit,
-                    amount: payload.amount,
-                    minAmount: payload.minAmount,
-                    maxAmount: payload.maxAmount,
-                    visitFee: payload.visitFee,
-                    note: payload.note,
-                  ),
-                ),
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -1566,132 +1569,138 @@ class _AllServiceOfferingsScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
-            child: TextField(
-              controller: _searchCtrl,
-              onChanged: (value) => setState(() => _search = value),
-              decoration: InputDecoration(
-                labelText: 'البحث باسم الخدمة أو القسم',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: _search.isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'مسح البحث',
-                        onPressed: () {
-                          _searchCtrl.clear();
-                          setState(() => _search = '');
-                        },
-                        icon: const Icon(Icons.close_rounded),
-                      ),
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+              child: TextField(
+                controller: _searchCtrl,
+                onChanged: (value) => setState(() => _search = value),
+                decoration: InputDecoration(
+                  labelText: 'البحث باسم الخدمة أو القسم',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _search.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'مسح البحث',
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _search = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                ),
               ),
             ),
-          ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            child: SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'all', label: Text('الكل')),
-                ButtonSegment(value: 'approved', label: Text('منشورة')),
-                ButtonSegment(
-                  value: 'pending',
-                  label: Text('بانتظار المراجعة'),
-                ),
-                ButtonSegment(
-                  value: 'changes_requested',
-                  label: Text('تحتاج تعديل'),
-                ),
-                ButtonSegment(value: 'hidden', label: Text('مخفية')),
-              ],
-              selected: {_status},
-              onSelectionChanged: (value) {
-                if (value.isEmpty) return;
-                setState(() => _status = value.first);
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Text(
-                'النتائج: ${filtered.length}',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-          Expanded(
-            child: state.loadingWorkspace && offerings.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : filtered.isEmpty
-                ? const Center(child: Text('لا توجد خدمات مطابقة.'))
-                : RefreshIndicator(
-                    onRefresh: () => ref
-                        .read(
-                          serviceProviderWorkspaceControllerProvider.notifier,
-                        )
-                        .loadWorkspace(),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-                      itemCount: filtered.length,
-                      itemBuilder: (context, index) {
-                        final offering = filtered[index];
-                        final category =
-                            [
-                                  offering.mainCategoryName,
-                                  offering.subcategoryName,
-                                ]
-                                .whereType<String>()
-                                .where((value) => value.isNotEmpty)
-                                .join(' • ');
-                        return Card(
-                          child: ListTile(
-                            onTap: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) => ServiceOfferingDetailsScreen(
-                                  offeringId: offering.id,
-                                ),
-                              ),
-                            ),
-                            leading: CircleAvatar(child: Text('${index + 1}')),
-                            title: Text(
-                              offering.name,
-                              textDirection: TextDirection.rtl,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            subtitle: Text(
-                              [
-                                if (category.isNotEmpty) category,
-                                offering.displayPriceText,
-                                _offeringModerationStatusLabel(
-                                  offering.moderationStatus,
-                                ),
-                              ].join(' • '),
-                              textDirection: TextDirection.rtl,
-                            ),
-                            trailing: widget.canEdit
-                                ? IconButton(
-                                    tooltip: 'تعديل الخدمة',
-                                    onPressed: () => _showCreateOfferingDialog(
-                                      context,
-                                      ref,
-                                      existingOffering: offering,
-                                    ),
-                                    icon: const Icon(Icons.edit_outlined),
-                                  )
-                                : const Icon(Icons.chevron_right_rounded),
-                          ),
-                        );
-                      },
-                    ),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              child: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(value: 'all', label: Text('الكل')),
+                  ButtonSegment(value: 'approved', label: Text('منشورة')),
+                  ButtonSegment(
+                    value: 'pending',
+                    label: Text('بانتظار المراجعة'),
                   ),
-          ),
-        ],
+                  ButtonSegment(
+                    value: 'changes_requested',
+                    label: Text('تحتاج تعديل'),
+                  ),
+                  ButtonSegment(value: 'hidden', label: Text('مخفية')),
+                ],
+                selected: {_status},
+                onSelectionChanged: (value) {
+                  if (value.isEmpty) return;
+                  setState(() => _status = value.first);
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 6, 14, 4),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  'النتائج: ${filtered.length}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+            Expanded(
+              child: state.loadingWorkspace && offerings.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : filtered.isEmpty
+                  ? const Center(child: Text('لا توجد خدمات مطابقة.'))
+                  : RefreshIndicator(
+                      onRefresh: () => ref
+                          .read(
+                            serviceProviderWorkspaceControllerProvider.notifier,
+                          )
+                          .loadWorkspace(),
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final offering = filtered[index];
+                          final category =
+                              [
+                                    offering.mainCategoryName,
+                                    offering.subcategoryName,
+                                  ]
+                                  .whereType<String>()
+                                  .where((value) => value.isNotEmpty)
+                                  .join(' • ');
+                          return Card(
+                            child: ListTile(
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(
+                                  builder: (_) => ServiceOfferingDetailsScreen(
+                                    offeringId: offering.id,
+                                  ),
+                                ),
+                              ),
+                              leading: CircleAvatar(
+                                child: Text('${index + 1}'),
+                              ),
+                              title: Text(
+                                offering.name,
+                                textDirection: TextDirection.rtl,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                              subtitle: Text(
+                                [
+                                  if (category.isNotEmpty) category,
+                                  offering.displayPriceText,
+                                  _offeringModerationStatusLabel(
+                                    offering.moderationStatus,
+                                  ),
+                                ].join(' • '),
+                                textDirection: TextDirection.rtl,
+                              ),
+                              trailing: widget.canEdit
+                                  ? IconButton(
+                                      tooltip: 'تعديل الخدمة',
+                                      onPressed: () =>
+                                          _showCreateOfferingDialog(
+                                            context,
+                                            ref,
+                                            existingOffering: offering,
+                                          ),
+                                      icon: const Icon(Icons.edit_outlined),
+                                    )
+                                  : const Icon(Icons.chevron_right_rounded),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

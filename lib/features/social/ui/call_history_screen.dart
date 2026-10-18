@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart' show DateFormat;
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import 'social_call_screen.dart' show SocialCallScreen, socialCallApiProvider;
 import 'social_chat_thread_screen.dart' show SocialChatThreadScreen;
@@ -20,7 +22,7 @@ class CallHistoryScreen extends ConsumerWidget {
     final async = ref.watch(_callHistoryProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('سجل المكالمات')),
-      body: async.when(
+      body: SafeArea(top: false, child: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, _) => const Center(
           child: Padding(
@@ -48,7 +50,7 @@ class CallHistoryScreen extends ConsumerWidget {
             ),
           );
         },
-      ),
+      )),
     );
   }
 }
@@ -131,7 +133,7 @@ class _CallHistoryTile extends StatelessWidget {
       return tid != null && tid == threadId;
     }).toList(growable: false);
 
-    showModalBottomSheet<void>(
+    showMaslakiBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
@@ -184,7 +186,7 @@ class _CallHistoryTile extends StatelessWidget {
   void _openOptions(BuildContext context) {
     final threadId = (call['threadId'] as num?)?.toInt();
     final peerName = _peerNameOf(call);
-    showModalBottomSheet<void>(
+    showMaslakiBottomSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (sheetContext) => SafeArea(

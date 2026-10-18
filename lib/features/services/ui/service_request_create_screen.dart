@@ -309,283 +309,291 @@ class _ServiceRequestCreateScreenState
             label: Text(_loading ? 'جارٍ إرسال الطلب...' : 'تأكيد طلب الخدمة'),
           ),
         ),
-        body: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            children: [
-              Text(
-                widget.offering.name,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                widget.offering.displayPriceText,
-                style: TextStyle(
-                  color: colorScheme.primary,
-                  fontWeight: FontWeight.w800,
+        body: SafeArea(
+          top: false,
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: [
+                Text(
+                  widget.offering.name,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
                 ),
-              ),
-              if (_error != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: colorScheme.errorContainer,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    _error!,
-                    style: TextStyle(color: colorScheme.onErrorContainer),
+                const SizedBox(height: 4),
+                Text(
+                  widget.offering.displayPriceText,
+                  style: TextStyle(
+                    color: colorScheme.primary,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-              ],
-              const SizedBox(height: 18),
-              const _StepHeading(number: '1', title: 'اختر الموعد'),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _pickDate,
-                      icon: const Icon(Icons.calendar_month_outlined),
-                      label: Text('${_date.year}/${_date.month}/${_date.day}'),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colorScheme.errorContainer,
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: _pickTime,
-                      icon: const Icon(Icons.schedule_rounded),
-                      label: Text(_time.format(context)),
+                    child: Text(
+                      _error!,
+                      style: TextStyle(color: colorScheme.onErrorContainer),
                     ),
                   ),
                 ],
-              ),
-              if (widget.offering.pricingOptions.length > 1) ...[
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  initialValue: _pricingOptionId,
-                  decoration: const InputDecoration(labelText: 'طريقة التسعير'),
-                  items: widget.offering.pricingOptions
-                      .map(
-                        (option) => DropdownMenuItem(
-                          value: option.id,
-                          child: Text(option.displayText()),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    setState(() => _pricingOptionId = value);
-                    _loadPreview();
-                  },
-                ),
-              ],
-              if (_isHourly || _isUnitPricing) ...[
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _isHourly ? _durationCtrl : _quantityCtrl,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: InputDecoration(
-                    labelText: _isHourly ? 'عدد الساعات' : 'الكمية المطلوبة',
-                  ),
-                  validator: (value) {
-                    final number = double.tryParse(value?.trim() ?? '');
-                    return number == null || number <= 0
-                        ? 'أدخل قيمة صحيحة'
-                        : null;
-                  },
-                ),
-              ],
-              const SizedBox(height: 12),
-              _PriceSummary(
-                preview: _preview?.preview,
-                loading: _previewLoading,
-                fallback: widget.offering.displayPriceText,
-              ),
-              const SizedBox(height: 22),
-              const _StepHeading(number: '2', title: 'حدد مكان الخدمة'),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _addressCtrl,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'العنوان التفصيلي',
-                  hintText: 'المحلة، العمارة، الطابق، أقرب نقطة دالة',
-                  prefixIcon: Icon(Icons.home_work_outlined),
-                ),
-                validator: (value) => (value ?? '').trim().length < 5
-                    ? 'اكتب عنواناً واضحاً لتنفيذ الخدمة'
-                    : null,
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: _locating ? null : _useCurrentLocation,
-                icon: _locating
-                    ? const SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Icon(
-                        _latitude == null
-                            ? Icons.my_location_rounded
-                            : Icons.location_on_rounded,
-                      ),
-                label: Text(
-                  _latitude == null
-                      ? 'تحديد موقعي الحالي'
-                      : 'تم تثبيت الموقع - اضغط للتحديث',
-                ),
-              ),
-              const SizedBox(height: 22),
-              const _StepHeading(number: '3', title: 'اشرح ما تحتاجه'),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _descriptionCtrl,
-                minLines: 3,
-                maxLines: 6,
-                decoration: const InputDecoration(
-                  labelText: 'وصف الطلب',
-                  hintText: 'اكتب المشكلة أو المطلوب باختصار...',
-                  alignLabelWithHint: true,
-                ),
-                validator: (value) => (value ?? '').trim().length < 5
-                    ? 'أضف وصفاً قصيراً ليساعد فريق مسلكي'
-                    : null,
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: _attachments.length >= 8 ? null : _pickAttachments,
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: Text(
-                  _attachments.isEmpty
-                      ? 'إضافة صور توضيحية (اختياري)'
-                      : 'إضافة صور أخرى (${_attachments.length}/8)',
-                ),
-              ),
-              if (_attachments.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                const _StepHeading(number: '1', title: 'اختر الموعد'),
                 const SizedBox(height: 10),
-                SizedBox(
-                  height: 76,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: _attachments.length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 8),
-                    itemBuilder: (context, index) {
-                      final file = _attachments[index];
-                      return Stack(
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: file.hasBytes
-                                ? Image.memory(
-                                    file.bytes!,
-                                    width: 76,
-                                    height: 76,
-                                    fit: BoxFit.cover,
-                                  )
-                                : const SizedBox.square(
-                                    dimension: 76,
-                                    child: Icon(Icons.image_outlined),
-                                  ),
-                          ),
-                          Positioned(
-                            top: 2,
-                            left: 2,
-                            child: IconButton.filledTonal(
-                              visualDensity: VisualDensity.compact,
-                              iconSize: 16,
-                              tooltip: 'حذف الصورة',
-                              onPressed: () =>
-                                  setState(() => _attachments.removeAt(index)),
-                              icon: const Icon(Icons.close_rounded),
-                            ),
-                          ),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-              ],
-              if (_isMedical) ...[
-                const SizedBox(height: 12),
-                ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  title: const Text(
-                    'معلومات طبية تساعد المختص (اختيارية)',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
+                Row(
                   children: [
-                    TextField(
-                      controller: _medicalConditionsCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'الأمراض أو الحالات الصحية',
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _pickDate,
+                        icon: const Icon(Icons.calendar_month_outlined),
+                        label: Text(
+                          '${_date.year}/${_date.month}/${_date.day}',
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _medicationsCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'الأدوية المستخدمة',
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _allergiesCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'الحساسيات المعروفة',
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _pickTime,
+                        icon: const Icon(Icons.schedule_rounded),
+                        label: Text(_time.format(context)),
                       ),
                     ),
                   ],
                 ),
-              ],
-              const SizedBox(height: 22),
-              const _StepHeading(number: '4', title: 'طريقة التواصل'),
-              const SizedBox(height: 10),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(
-                    value: 'in_app',
-                    icon: Icon(Icons.chat_bubble_outline_rounded),
-                    label: Text('التطبيق'),
-                  ),
-                  ButtonSegment(
-                    value: 'phone',
-                    icon: Icon(Icons.call_outlined),
-                    label: Text('اتصال'),
-                  ),
-                  ButtonSegment(
-                    value: 'whatsapp',
-                    icon: Icon(Icons.forum_outlined),
-                    label: Text('واتساب'),
+                if (widget.offering.pricingOptions.length > 1) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    initialValue: _pricingOptionId,
+                    decoration: const InputDecoration(
+                      labelText: 'طريقة التسعير',
+                    ),
+                    items: widget.offering.pricingOptions
+                        .map(
+                          (option) => DropdownMenuItem(
+                            value: option.id,
+                            child: Text(option.displayText()),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() => _pricingOptionId = value);
+                      _loadPreview();
+                    },
                   ),
                 ],
-                selected: {_preferredContact},
-                onSelectionChanged: (values) {
-                  setState(() => _preferredContact = values.first);
-                },
-              ),
-              if (_preferredContact != 'in_app') ...[
+                if (_isHourly || _isUnitPricing) ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _isHourly ? _durationCtrl : _quantityCtrl,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: InputDecoration(
+                      labelText: _isHourly ? 'عدد الساعات' : 'الكمية المطلوبة',
+                    ),
+                    validator: (value) {
+                      final number = double.tryParse(value?.trim() ?? '');
+                      return number == null || number <= 0
+                          ? 'أدخل قيمة صحيحة'
+                          : null;
+                    },
+                  ),
+                ],
+                const SizedBox(height: 12),
+                _PriceSummary(
+                  preview: _preview?.preview,
+                  loading: _previewLoading,
+                  fallback: widget.offering.displayPriceText,
+                ),
+                const SizedBox(height: 22),
+                const _StepHeading(number: '2', title: 'حدد مكان الخدمة'),
                 const SizedBox(height: 10),
                 TextFormField(
-                  controller: _phoneCtrl,
-                  keyboardType: TextInputType.phone,
+                  controller: _addressCtrl,
+                  textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
-                    labelText: 'رقم الهاتف للتواصل',
-                    prefixIcon: Icon(Icons.phone_outlined),
+                    labelText: 'العنوان التفصيلي',
+                    hintText: 'المحلة، العمارة، الطابق، أقرب نقطة دالة',
+                    prefixIcon: Icon(Icons.home_work_outlined),
+                  ),
+                  validator: (value) => (value ?? '').trim().length < 5
+                      ? 'اكتب عنواناً واضحاً لتنفيذ الخدمة'
+                      : null,
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _locating ? null : _useCurrentLocation,
+                  icon: _locating
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          _latitude == null
+                              ? Icons.my_location_rounded
+                              : Icons.location_on_rounded,
+                        ),
+                  label: Text(
+                    _latitude == null
+                        ? 'تحديد موقعي الحالي'
+                        : 'تم تثبيت الموقع - اضغط للتحديث',
                   ),
                 ),
+                const SizedBox(height: 22),
+                const _StepHeading(number: '3', title: 'اشرح ما تحتاجه'),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _descriptionCtrl,
+                  minLines: 3,
+                  maxLines: 6,
+                  decoration: const InputDecoration(
+                    labelText: 'وصف الطلب',
+                    hintText: 'اكتب المشكلة أو المطلوب باختصار...',
+                    alignLabelWithHint: true,
+                  ),
+                  validator: (value) => (value ?? '').trim().length < 5
+                      ? 'أضف وصفاً قصيراً ليساعد فريق مسلكي'
+                      : null,
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: _attachments.length >= 8 ? null : _pickAttachments,
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  label: Text(
+                    _attachments.isEmpty
+                        ? 'إضافة صور توضيحية (اختياري)'
+                        : 'إضافة صور أخرى (${_attachments.length}/8)',
+                  ),
+                ),
+                if (_attachments.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 76,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _attachments.length,
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
+                      itemBuilder: (context, index) {
+                        final file = _attachments[index];
+                        return Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: file.hasBytes
+                                  ? Image.memory(
+                                      file.bytes!,
+                                      width: 76,
+                                      height: 76,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : const SizedBox.square(
+                                      dimension: 76,
+                                      child: Icon(Icons.image_outlined),
+                                    ),
+                            ),
+                            Positioned(
+                              top: 2,
+                              left: 2,
+                              child: IconButton.filledTonal(
+                                visualDensity: VisualDensity.compact,
+                                iconSize: 16,
+                                tooltip: 'حذف الصورة',
+                                onPressed: () => setState(
+                                  () => _attachments.removeAt(index),
+                                ),
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                ],
+                if (_isMedical) ...[
+                  const SizedBox(height: 12),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text(
+                      'معلومات طبية تساعد المختص (اختيارية)',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    children: [
+                      TextField(
+                        controller: _medicalConditionsCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'الأمراض أو الحالات الصحية',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _medicationsCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'الأدوية المستخدمة',
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _allergiesCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'الحساسيات المعروفة',
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 22),
+                const _StepHeading(number: '4', title: 'طريقة التواصل'),
+                const SizedBox(height: 10),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: 'in_app',
+                      icon: Icon(Icons.chat_bubble_outline_rounded),
+                      label: Text('التطبيق'),
+                    ),
+                    ButtonSegment(
+                      value: 'phone',
+                      icon: Icon(Icons.call_outlined),
+                      label: Text('اتصال'),
+                    ),
+                    ButtonSegment(
+                      value: 'whatsapp',
+                      icon: Icon(Icons.forum_outlined),
+                      label: Text('واتساب'),
+                    ),
+                  ],
+                  selected: {_preferredContact},
+                  onSelectionChanged: (values) {
+                    setState(() => _preferredContact = values.first);
+                  },
+                ),
+                if (_preferredContact != 'in_app') ...[
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: _phoneCtrl,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'رقم الهاتف للتواصل',
+                      prefixIcon: Icon(Icons.phone_outlined),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  'لن يُعتمد أي مبلغ مختلف قبل أن يظهر لك بوضوح وتوافق عليه.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ],
-              const SizedBox(height: 8),
-              Text(
-                'لن يُعتمد أي مبلغ مختلف قبل أن يظهر لك بوضوح وتوافق عليه.',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+            ),
           ),
         ),
       ),

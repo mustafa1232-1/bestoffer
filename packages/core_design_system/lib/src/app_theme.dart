@@ -3,6 +3,7 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import 'system_ui_styles.dart';
 import 'theme_preset.dart';
 
 @immutable
@@ -639,6 +640,9 @@ class AppTheme {
       canvasColor: t.surfacePrimary,
       splashFactory: InkSparkle.splashFactory,
       appBarTheme: AppBarTheme(
+        // Color-free overlay: the M3 AppBar default sets a transparent
+        // statusBarColor, which routes to deprecated Window APIs.
+        systemOverlayStyle: MaslakiSystemUiStyles.lightIcons,
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: true,

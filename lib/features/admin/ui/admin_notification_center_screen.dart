@@ -280,223 +280,233 @@ class _AdminNotificationCenterScreenState
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                _FilterChipDropdown(
-                  label: l10n.adminOpsFilterStatus,
-                  value: _status,
-                  items: const <String>[
-                    'open',
-                    'acknowledged',
-                    'resolved',
-                    'ignored',
-                    'all',
-                  ],
-                  itemLabel: (v) =>
-                      v == 'all' ? l10n.commonAll : _statusLabel(v),
-                  onChanged: (v) {
-                    if (v == null) return;
-                    setState(() => _status = v);
-                    _load();
-                  },
-                ),
-                _FilterChipDropdown(
-                  label: l10n.adminOpsFilterSeverity,
-                  value: _severity,
-                  items: const <String>[
-                    'critical',
-                    'high',
-                    'medium',
-                    'low',
-                    'info',
-                    'all',
-                  ],
-                  itemLabel: (v) =>
-                      v == 'all' ? l10n.commonAll : _severityLabel(v),
-                  onChanged: (v) {
-                    if (v == null) return;
-                    setState(() => _severity = v);
-                    _load();
-                  },
-                ),
-              ],
+      body: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _FilterChipDropdown(
+                    label: l10n.adminOpsFilterStatus,
+                    value: _status,
+                    items: const <String>[
+                      'open',
+                      'acknowledged',
+                      'resolved',
+                      'ignored',
+                      'all',
+                    ],
+                    itemLabel: (v) =>
+                        v == 'all' ? l10n.commonAll : _statusLabel(v),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() => _status = v);
+                      _load();
+                    },
+                  ),
+                  _FilterChipDropdown(
+                    label: l10n.adminOpsFilterSeverity,
+                    value: _severity,
+                    items: const <String>[
+                      'critical',
+                      'high',
+                      'medium',
+                      'low',
+                      'info',
+                      'all',
+                    ],
+                    itemLabel: (v) =>
+                        v == 'all' ? l10n.commonAll : _severityLabel(v),
+                    onChanged: (v) {
+                      if (v == null) return;
+                      setState(() => _severity = v);
+                      _load();
+                    },
+                  ),
+                ],
+              ),
             ),
-          ),
-          Expanded(
-            child: _loading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                ? Center(child: Text(_error!))
-                : _items.isEmpty
-                ? Center(child: Text(l10n.adminOpsNotificationCenterEmpty))
-                : RefreshIndicator(
-                    onRefresh: _load,
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(12, 6, 12, 20),
-                      itemCount: _items.length,
-                      itemBuilder: (context, index) {
-                        final item = _items[index];
-                        final status = '${item['status'] ?? 'open'}'
-                            .trim()
-                            .toLowerCase();
-                        final severity = '${item['severity'] ?? 'medium'}'
-                            .trim()
-                            .toLowerCase();
-                        final title = '${item['title'] ?? ''}'.trim();
-                        final source = '${item['source'] ?? ''}'.trim();
-                        final type = '${item['event_type'] ?? ''}'.trim();
-                        final createdAt = _relativeTimestamp(
-                          item['created_at']?.toString(),
-                        );
-                        final color = _severityColor(scheme, severity);
-                        final details = item['details'] is Map
-                            ? item['details'] as Map
-                            : null;
-                        final timeline = item['timeline'] is List
-                            ? List<dynamic>.from(item['timeline'] as List)
-                            : const <dynamic>[];
+            Expanded(
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _error != null
+                  ? Center(child: Text(_error!))
+                  : _items.isEmpty
+                  ? Center(child: Text(l10n.adminOpsNotificationCenterEmpty))
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(12, 6, 12, 20),
+                        itemCount: _items.length,
+                        itemBuilder: (context, index) {
+                          final item = _items[index];
+                          final status = '${item['status'] ?? 'open'}'
+                              .trim()
+                              .toLowerCase();
+                          final severity = '${item['severity'] ?? 'medium'}'
+                              .trim()
+                              .toLowerCase();
+                          final title = '${item['title'] ?? ''}'.trim();
+                          final source = '${item['source'] ?? ''}'.trim();
+                          final type = '${item['event_type'] ?? ''}'.trim();
+                          final createdAt = _relativeTimestamp(
+                            item['created_at']?.toString(),
+                          );
+                          final color = _severityColor(scheme, severity);
+                          final details = item['details'] is Map
+                              ? item['details'] as Map
+                              : null;
+                          final timeline = item['timeline'] is List
+                              ? List<dynamic>.from(item['timeline'] as List)
+                              : const <dynamic>[];
 
-                        return Card(
-                          margin: const EdgeInsets.symmetric(vertical: 6),
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        title.isEmpty
-                                            ? l10n.adminOpsNotificationCenterUntitled
-                                            : title,
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .titleMedium
-                                            ?.copyWith(
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                      ),
-                                    ),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 5,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: color.withValues(alpha: 0.14),
-                                        borderRadius: BorderRadius.circular(
-                                          999,
-                                        ),
-                                      ),
-                                      child: Text(
-                                        _severityLabel(severity),
-                                        style: TextStyle(
-                                          color: color,
-                                          fontWeight: FontWeight.w800,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  '${l10n.adminOpsFieldSource}: ${source.isEmpty ? '-' : source}  •  ${l10n.adminOpsFieldType}: ${type.isEmpty ? '-' : type}',
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${l10n.commonStatus}: ${_statusLabel(status)}${createdAt.isEmpty ? '' : '  •  $createdAt'}',
-                                ),
-                                if (details != null && details.isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    details.entries
-                                        .take(3)
-                                        .map((e) => '${e.key}: ${e.value}')
-                                        .join(' • '),
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(
-                                          color: scheme.onSurfaceVariant,
-                                        ),
-                                  ),
-                                ],
-                                if (timeline.isNotEmpty) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    timeline
-                                        .take(2)
-                                        .map((e) {
-                                          final row = e is Map ? e : const {};
-                                          return '${row['to_status'] ?? '-'}: ${row['note'] ?? ''}';
-                                        })
-                                        .join('\n'),
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(
-                                          color: scheme.onSurfaceVariant,
-                                        ),
-                                  ),
-                                ],
-                                if (status == 'open' ||
-                                    status == 'acknowledged') ...[
-                                  const SizedBox(height: 10),
-                                  Wrap(
-                                    spacing: 8,
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
                                     children: [
-                                      OutlinedButton.icon(
-                                        onPressed: () => _assignAlert(
-                                          alertId:
-                                              (item['id'] as num?)?.toInt() ??
-                                              0,
-                                        ),
-                                        icon: const Icon(
-                                          Icons.person_add_alt_1_rounded,
-                                        ),
-                                        label: const Text('Assign'),
-                                      ),
-                                      OutlinedButton.icon(
-                                        onPressed: () => _ackAlert(
-                                          alertId:
-                                              (item['id'] as num?)?.toInt() ??
-                                              0,
-                                          nextStatus: 'acknowledged',
-                                        ),
-                                        icon: const Icon(
-                                          Icons.check_circle_outline,
-                                        ),
-                                        label: Text(
-                                          l10n.adminOpsActionAcknowledge,
+                                      Expanded(
+                                        child: Text(
+                                          title.isEmpty
+                                              ? l10n.adminOpsNotificationCenterUntitled
+                                              : title,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.w800,
+                                              ),
                                         ),
                                       ),
-                                      FilledButton.icon(
-                                        onPressed: () => _ackAlert(
-                                          alertId:
-                                              (item['id'] as num?)?.toInt() ??
-                                              0,
-                                          nextStatus: 'resolved',
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 5,
                                         ),
-                                        icon: const Icon(
-                                          Icons.task_alt_rounded,
+                                        decoration: BoxDecoration(
+                                          color: color.withValues(alpha: 0.14),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
                                         ),
-                                        label: Text(l10n.adminOpsActionResolve),
+                                        child: Text(
+                                          _severityLabel(severity),
+                                          style: TextStyle(
+                                            color: color,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        ),
                                       ),
                                     ],
                                   ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '${l10n.adminOpsFieldSource}: ${source.isEmpty ? '-' : source}  •  ${l10n.adminOpsFieldType}: ${type.isEmpty ? '-' : type}',
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${l10n.commonStatus}: ${_statusLabel(status)}${createdAt.isEmpty ? '' : '  •  $createdAt'}',
+                                  ),
+                                  if (details != null &&
+                                      details.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      details.entries
+                                          .take(3)
+                                          .map((e) => '${e.key}: ${e.value}')
+                                          .join(' • '),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                  if (timeline.isNotEmpty) ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      timeline
+                                          .take(2)
+                                          .map((e) {
+                                            final row = e is Map ? e : const {};
+                                            return '${row['to_status'] ?? '-'}: ${row['note'] ?? ''}';
+                                          })
+                                          .join('\n'),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: scheme.onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                  if (status == 'open' ||
+                                      status == 'acknowledged') ...[
+                                    const SizedBox(height: 10),
+                                    Wrap(
+                                      spacing: 8,
+                                      children: [
+                                        OutlinedButton.icon(
+                                          onPressed: () => _assignAlert(
+                                            alertId:
+                                                (item['id'] as num?)?.toInt() ??
+                                                0,
+                                          ),
+                                          icon: const Icon(
+                                            Icons.person_add_alt_1_rounded,
+                                          ),
+                                          label: const Text('Assign'),
+                                        ),
+                                        OutlinedButton.icon(
+                                          onPressed: () => _ackAlert(
+                                            alertId:
+                                                (item['id'] as num?)?.toInt() ??
+                                                0,
+                                            nextStatus: 'acknowledged',
+                                          ),
+                                          icon: const Icon(
+                                            Icons.check_circle_outline,
+                                          ),
+                                          label: Text(
+                                            l10n.adminOpsActionAcknowledge,
+                                          ),
+                                        ),
+                                        FilledButton.icon(
+                                          onPressed: () => _ackAlert(
+                                            alertId:
+                                                (item['id'] as num?)?.toInt() ??
+                                                0,
+                                            nextStatus: 'resolved',
+                                          ),
+                                          icon: const Icon(
+                                            Icons.task_alt_rounded,
+                                          ),
+                                          label: Text(
+                                            l10n.adminOpsActionResolve,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }

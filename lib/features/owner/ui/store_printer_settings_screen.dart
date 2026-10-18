@@ -6,6 +6,8 @@ import 'package:android_intent_plus/android_intent.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:printing/printing.dart';
+import 'package:core_design_system/core_design_system.dart'
+    show showMaslakiBottomSheet;
 
 import '../../../core/i18n/app_localizations_context.dart';
 import '../../../core/platform/ipos_printer_bridge.dart';
@@ -230,7 +232,7 @@ class _StorePrinterSettingsScreenState
     final jobs = ReceiptPrinterService.instance.history;
     final l10n = context.l10n;
     if (!mounted) return;
-    await showModalBottomSheet<void>(
+    await showMaslakiBottomSheet<void>(
       context: context,
       builder: (_) => SafeArea(
         child: SizedBox(
