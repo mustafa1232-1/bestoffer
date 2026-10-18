@@ -1,5 +1,5 @@
 {
-    "version":  "1.0.15+61-web-20261018-mimo2",
+    "version":  "1.0.15+61-web-20261018-session1",
     "message":  "يتوفر تحديث مهم وإجباري لتطبيق مسلكي. اضغط «تحديث الآن» للحصول على آخر الإصلاحات وتحسينات السرعة.",
     "mandatory":  true,
     "updateUrl":  "https://maslaki-app.web.app/"

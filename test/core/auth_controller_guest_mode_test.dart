@@ -122,16 +122,22 @@ class _HangingTokenSecureStore extends _MemorySecureStore {
 }
 
 class _FakeAuthRepo implements AuthRepo {
-  _FakeAuthRepo({this.user});
+  _FakeAuthRepo({this.user, this.authorizedFailure = false});
 
   final UserModel? user;
+  final bool authorizedFailure;
   int logoutCalls = 0;
 
   @override
   Future<UserModel> me() {
     final currentUser = user;
     if (currentUser != null) return Future<UserModel>.value(currentUser);
-    final requestOptions = RequestOptions(path: '/api/users/me');
+    final requestOptions = RequestOptions(
+      path: '/api/users/me',
+      headers: authorizedFailure
+          ? <String, dynamic>{'Authorization': 'Bearer expired-token'}
+          : null,
+    );
     throw DioException(
       requestOptions: requestOptions,
       response: Response<Map<String, dynamic>>(
@@ -300,6 +306,27 @@ class _RecoveryAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+class _RememberedRestoreDioClient extends DioClient {
+  _RememberedRestoreDioClient(super.store, {required this.rememberedResult});
+
+  final SessionRestoreResult rememberedResult;
+  bool _consumed = false;
+  int restoreCalls = 0;
+
+  @override
+  SessionRestoreResult? takeLatestSessionRestoreResult() {
+    if (_consumed) return null;
+    _consumed = true;
+    return rememberedResult;
+  }
+
+  @override
+  Future<SessionRestoreResult> restoreStoredSession() async {
+    restoreCalls++;
+    return const SessionRestoreResult.pending();
+  }
 }
 
 ResponseBody _json(int status, Map<String, dynamic> body) {
@@ -507,44 +534,42 @@ void main() {
     expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
   });
 
-  test(
-    'invalid recovery 401 is blocked and does not switch to guest',
-    () async {
-      final store = _MemorySecureStore(
-        deviceId: 'device-1',
-        deviceSessionId: 'device-session-1',
-        deviceRecoverySecret: 'secret-1-012345678901234',
-      );
-      final adapter = _RecoveryAdapter(
-        statusCode: 401,
-        message: 'INVALID_RECOVERY_SECRET',
-      );
-      final dioClient = DioClient(store)
-        ..dio.httpClientAdapter = adapter
-        ..dio.options.baseUrl = 'http://127.0.0.1';
+  test('invalid recovery 401 clears the unusable local session', () async {
+    final store = _MemorySecureStore(
+      deviceId: 'device-1',
+      deviceSessionId: 'device-session-1',
+      deviceRecoverySecret: 'secret-1-012345678901234',
+    );
+    final adapter = _RecoveryAdapter(
+      statusCode: 401,
+      message: 'INVALID_RECOVERY_SECRET',
+    );
+    final dioClient = DioClient(store)
+      ..dio.httpClientAdapter = adapter
+      ..dio.options.baseUrl = 'http://127.0.0.1';
 
-      final container = ProviderContainer(
-        overrides: [
-          secureStoreProvider.overrideWithValue(store),
-          dioClientProvider.overrideWithValue(dioClient),
-          authRepoProvider.overrideWithValue(_FakeAuthRepo()),
-        ],
-      );
-      addTearDown(container.dispose);
+    final container = ProviderContainer(
+      overrides: [
+        secureStoreProvider.overrideWithValue(store),
+        dioClientProvider.overrideWithValue(dioClient),
+        authRepoProvider.overrideWithValue(_FakeAuthRepo()),
+      ],
+    );
+    addTearDown(container.dispose);
 
-      await container.read(authControllerProvider.notifier).bootstrap();
+    await container.read(authControllerProvider.notifier).bootstrap();
 
-      final state = container.read(authControllerProvider);
-      expect(state.isGuest, isFalse);
-      expect(state.sessionRecoveryPending, isFalse);
-      expect(state.sessionRestoreStatus, SessionRestoreStatus.blocked);
-      expect(state.errorCode, 'INVALID_RECOVERY_SECRET');
-      expect(store.value('device_session_id'), 'device-session-1');
-      expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
-    },
-  );
+    final state = container.read(authControllerProvider);
+    expect(state.isGuest, isFalse);
+    expect(state.sessionRecoveryPending, isFalse);
+    expect(state.sessionRestoreStatus, SessionRestoreStatus.blocked);
+    expect(state.errorCode, 'INVALID_RECOVERY_SECRET');
+    expect(store.value('device_session_id'), isNull);
+    expect(store.value('device_recovery_secret'), isNull);
+    expect(state.error, isNotNull);
+  });
 
-  test('device reverification 409 is explicit and preserves bundle', () async {
+  test('device reverification 409 returns to a clean login state', () async {
     final store = _MemorySecureStore(
       deviceId: 'device-1',
       deviceSessionId: 'device-session-1',
@@ -575,12 +600,13 @@ void main() {
       state.sessionRestoreStatus,
       SessionRestoreStatus.reVerificationRequired,
     );
-    expect(store.value('device_session_id'), 'device-session-1');
-    expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
+    expect(store.value('device_session_id'), isNull);
+    expect(store.value('device_recovery_secret'), isNull);
+    expect(state.error, isNotNull);
   });
 
   test(
-    'account disabled is explicit and does not clear local bundle',
+    'account disabled is explicit and clears the rejected session',
     () async {
       final store = _MemorySecureStore(
         deviceId: 'device-1',
@@ -609,13 +635,14 @@ void main() {
       final state = container.read(authControllerProvider);
       expect(state.isGuest, isFalse);
       expect(state.sessionRestoreStatus, SessionRestoreStatus.accountDisabled);
-      expect(store.value('device_session_id'), 'device-session-1');
-      expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
+      expect(store.value('device_session_id'), isNull);
+      expect(store.value('device_recovery_secret'), isNull);
+      expect(state.error, isNotNull);
     },
   );
 
   test(
-    'surface mismatch is explicit and does not clear local bundle',
+    'surface mismatch is explicit and clears the rejected session',
     () async {
       final store = _MemorySecureStore(
         deviceId: 'device-1',
@@ -644,8 +671,9 @@ void main() {
       final state = container.read(authControllerProvider);
       expect(state.isGuest, isFalse);
       expect(state.sessionRestoreStatus, SessionRestoreStatus.surfaceMismatch);
-      expect(store.value('device_session_id'), 'device-session-1');
-      expect(store.value('device_recovery_secret'), 'secret-1-012345678901234');
+      expect(store.value('device_session_id'), isNull);
+      expect(store.value('device_recovery_secret'), isNull);
+      expect(state.error, isNotNull);
     },
   );
 
@@ -705,9 +733,52 @@ void main() {
       final state = container.read(authControllerProvider);
       // The recovery flow still tracks the status/code internally...
       expect(state.sessionRestoreStatus, SessionRestoreStatus.blocked);
-      // ...but the user-facing error must be null: the raw backend code must
-      // never reach the login screen.
-      expect(state.error, isNull);
+      // ...but the login screen receives a clean message, never the raw code.
+      expect(state.error, isNotNull);
+      expect(state.error, isNot(contains('SESSION_RECOVERY_REQUIRED')));
+    },
+  );
+
+  test(
+    'expired stored token consumes interceptor recovery result once',
+    () async {
+      final store = _MemorySecureStore(
+        accessToken: 'expired-token',
+        refreshToken: 'expired-refresh',
+        deviceId: 'device-1',
+        deviceSessionId: 'device-session-1',
+        deviceRecoverySecret: 'secret-1-012345678901234',
+      );
+      final dioClient = _RememberedRestoreDioClient(
+        store,
+        rememberedResult: const SessionRestoreResult.reVerificationRequired(
+          code: 'DEVICE_REVERIFICATION_REQUIRED',
+        ),
+      );
+      final container = ProviderContainer(
+        overrides: [
+          secureStoreProvider.overrideWithValue(store),
+          dioClientProvider.overrideWithValue(dioClient),
+          authRepoProvider.overrideWithValue(
+            _FakeAuthRepo(authorizedFailure: true),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container.read(authControllerProvider.notifier).bootstrap();
+
+      final state = container.read(authControllerProvider);
+      expect(dioClient.restoreCalls, 0);
+      expect(state.sessionRecoveryPending, isFalse);
+      expect(
+        state.sessionRestoreStatus,
+        SessionRestoreStatus.reVerificationRequired,
+      );
+      expect(state.token, isNull);
+      expect(store.value('access_token'), isNull);
+      expect(store.value('refresh_token'), isNull);
+      expect(state.error, isNotNull);
     },
   );
 

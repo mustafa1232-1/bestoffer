@@ -4,6 +4,7 @@ import NodeWebSocket from "ws";
 
 import { q } from "./db.js";
 import { env } from "./env.js";
+import { withTimeout } from "../shared/realtime/realtime-resilience.js";
 
 const VALID_REALTIME_MODES = new Set(["dual", "supabase_only", "sse_only"]);
 const DEFAULT_REALTIME_TOKEN_TTL_SEC = 15 * 60;
@@ -25,6 +26,28 @@ const dependencies = {
   query: (text, params) => q(text, params),
   getAdminClient: () => getSupabaseAdminClient(),
 };
+
+function createBoundedSupabaseFetch(timeoutMs) {
+  const boundedTimeoutMs = Math.max(500, Number(timeoutMs) || 6000);
+  return async (input, init = {}) => {
+    const controller = new AbortController();
+    const callerSignal = init.signal;
+    const abortFromCaller = () => controller.abort(callerSignal?.reason);
+    if (callerSignal?.aborted) {
+      abortFromCaller();
+    } else {
+      callerSignal?.addEventListener?.("abort", abortFromCaller, { once: true });
+    }
+    const timer = setTimeout(() => controller.abort(), boundedTimeoutMs);
+    timer.unref?.();
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+      callerSignal?.removeEventListener?.("abort", abortFromCaller);
+    }
+  };
+}
 
 function normalizeRealtimeMode(value) {
   const normalized = String(value || "")
@@ -102,6 +125,9 @@ export function getSupabaseAdminClient() {
         headers: {
           "X-Client-Info": "maslaki-backend-realtime",
         },
+        fetch: createBoundedSupabaseFetch(
+          runtimeEnv.supabaseRealtimeMembershipTimeoutMs
+        ),
       },
       realtime: {
         transport: NodeWebSocket,
@@ -226,7 +252,15 @@ async function checkSupabaseRealtimeAuthorizationTables() {
     return supabaseSqlProbeCache.promise;
   }
 
-  const promise = checkSupabaseRealtimeAuthorizationTablesUncached();
+  const probeTimeoutMs = Math.max(
+    500,
+    Number(dependencies.getEnv().supabaseRealtimeMembershipTimeoutMs) || 6000
+  );
+  const promise = withTimeout(
+    checkSupabaseRealtimeAuthorizationTablesUncached(),
+    probeTimeoutMs,
+    "supabase_readiness_probe"
+  );
   supabaseSqlProbeCache = {
     expiresAt: now + SUPABASE_SQL_PROBE_TTL_MS,
     promise,
@@ -250,16 +284,22 @@ async function checkSupabaseRealtimeAuthorizationTablesUncached() {
     };
   }
 
-  const missingObjects = [];
-  for (const tableName of SUPABASE_SHARED_TOPIC_READINESS_OBJECTS) {
-    const { error } = await client
-      .from(tableName)
-      .select("*", { head: true, count: "exact" })
-      .limit(1);
-    if (error) {
-      missingObjects.push(tableName);
-    }
-  }
+  const tableChecks = await Promise.all(
+    SUPABASE_SHARED_TOPIC_READINESS_OBJECTS.map(async (tableName) => {
+      try {
+        const { error } = await client
+          .from(tableName)
+          .select("*", { head: true, count: "exact" })
+          .limit(1);
+        return { tableName, error };
+      } catch (error) {
+        return { tableName, error };
+      }
+    })
+  );
+  const missingObjects = tableChecks
+    .filter(({ error }) => !!error)
+    .map(({ tableName }) => tableName);
 
   if (missingObjects.length > 0) {
     return {
@@ -271,86 +311,114 @@ async function checkSupabaseRealtimeAuthorizationTablesUncached() {
 
   const membershipProbeChannel = `readiness:probe:${Date.now()}`;
   const membershipProbeUserId = 1;
-  const membershipWrite = await client
-    .from("realtime_channel_member")
-    .upsert(
-      [
-        {
-          channel: membershipProbeChannel,
-          user_id: membershipProbeUserId,
-          role: "member",
-          expires_at: null,
-        },
-      ],
-      {
-        onConflict: "channel,user_id",
-        ignoreDuplicates: false,
-      }
-    );
-  if (membershipWrite.error) {
-    return {
-      ok: false,
-      reason: "membership_write_probe_failed",
-      missingObjects: ["realtime_channel_member"],
-      error: membershipWrite.error.message,
-    };
-  }
-
-  const membershipCleanup = await client
-    .from("realtime_channel_member")
-    .delete()
-    .eq("channel", membershipProbeChannel)
-    .eq("user_id", membershipProbeUserId);
-  if (membershipCleanup.error) {
-    return {
-      ok: false,
-      reason: "membership_cleanup_failed",
-      missingObjects: ["realtime_channel_member"],
-      error: membershipCleanup.error.message,
-    };
-  }
-
-  const auditInsert = await client
-    .from("realtime_channel_audit")
-    .insert({
-      channel: membershipProbeChannel,
-      event: "readiness_probe",
-      user_id: membershipProbeUserId,
-      entity_type: "readiness_probe",
-      entity_id: null,
-    })
-    .select("id")
-    .single();
-  if (auditInsert.error) {
-    return {
-      ok: false,
-      reason: "audit_write_probe_failed",
-      missingObjects: ["realtime_channel_audit"],
-      error: auditInsert.error.message,
-    };
-  }
-
-  const auditId = Number(auditInsert.data?.id || 0);
-  if (auditId > 0) {
-    const auditCleanup = await client
-      .from("realtime_channel_audit")
-      .delete()
-      .eq("id", auditId);
-    if (auditCleanup.error) {
-      return {
-        ok: false,
-        reason: "audit_cleanup_failed",
-        missingObjects: ["realtime_channel_audit"],
-        error: auditCleanup.error.message,
-      };
-    }
-  }
+  const [membershipProbe, auditProbe] = await Promise.all([
+    probeRealtimeMembershipWrite(
+      client,
+      membershipProbeChannel,
+      membershipProbeUserId
+    ),
+    probeRealtimeAuditWrite(client, membershipProbeChannel, membershipProbeUserId),
+  ]);
+  if (!membershipProbe.ok) return membershipProbe;
+  if (!auditProbe.ok) return auditProbe;
 
   return {
     ok: true,
     reason: "ok",
     missingObjects: [],
   };
+}
+
+async function probeRealtimeMembershipWrite(client, channel, userId) {
+  try {
+    const write = await client.from("realtime_channel_member").upsert(
+      [
+        {
+          channel,
+          user_id: userId,
+          role: "member",
+          expires_at: null,
+        },
+      ],
+      { onConflict: "channel,user_id", ignoreDuplicates: false }
+    );
+    if (write.error) {
+      return {
+        ok: false,
+        reason: "membership_write_probe_failed",
+        missingObjects: ["realtime_channel_member"],
+        error: write.error.message,
+      };
+    }
+    const cleanup = await client
+      .from("realtime_channel_member")
+      .delete()
+      .eq("channel", channel)
+      .eq("user_id", userId);
+    if (cleanup.error) {
+      return {
+        ok: false,
+        reason: "membership_cleanup_failed",
+        missingObjects: ["realtime_channel_member"],
+        error: cleanup.error.message,
+      };
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "membership_write_probe_failed",
+      missingObjects: ["realtime_channel_member"],
+      error: error?.message || String(error),
+    };
+  }
+}
+
+async function probeRealtimeAuditWrite(client, channel, userId) {
+  try {
+    const insert = await client
+      .from("realtime_channel_audit")
+      .insert({
+        channel,
+        event: "readiness_probe",
+        user_id: userId,
+        entity_type: "readiness_probe",
+        entity_id: null,
+      })
+      .select("id")
+      .single();
+    if (insert.error) {
+      return {
+        ok: false,
+        reason: "audit_write_probe_failed",
+        missingObjects: ["realtime_channel_audit"],
+        error: insert.error.message,
+      };
+    }
+    const auditId = Number(insert.data?.id || 0);
+    if (auditId > 0) {
+      const cleanup = await client
+        .from("realtime_channel_audit")
+        .delete()
+        .eq("id", auditId);
+      if (cleanup.error) {
+        return {
+          ok: false,
+          reason: "audit_cleanup_failed",
+          missingObjects: ["realtime_channel_audit"],
+          error: cleanup.error.message,
+        };
+      }
+    }
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "audit_write_probe_failed",
+      missingObjects: ["realtime_channel_audit"],
+      error: error?.message || String(error),
+    };
+  }
 }
 
 async function verifyTokenIssuanceCapability() {

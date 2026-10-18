@@ -237,6 +237,55 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
+  Future<SessionRestoreResult> _restoreRejectedSession() async {
+    final client = ref.read(dioClientProvider);
+    final interceptorResult = client.takeLatestSessionRestoreResult();
+    if (interceptorResult != null) return interceptorResult;
+    return client.restoreStoredSession().timeout(kAuthSessionVerifyTimeout);
+  }
+
+  void _setSessionRecoveryPending(String? token) {
+    state = AuthState(
+      token: token,
+      guestMode: false,
+      sessionRecoveryPending: true,
+      sessionRestoreStatus: SessionRestoreStatus.pending,
+    );
+  }
+
+  Future<void> _clearRejectedSession(
+    SecureStore store,
+    SessionRestoreResult restore,
+  ) async {
+    await store.clear();
+    ref.read(dioClientProvider).takeLatestSessionRestoreResult();
+    SessionRecoveryCoordinator.instance.reset();
+    state = AuthState(
+      guestMode: false,
+      sessionRecoveryPending: false,
+      sessionRestoreStatus: restore.status,
+      error: restore.status == SessionRestoreStatus.accountDisabled
+          ? _accountDisabledMessage()
+          : _sessionExpiredMessage(),
+      errorCode: restore.code,
+    );
+  }
+
+  Future<void> _commitVerifiedSession(
+    SecureStore store,
+    String fallbackToken,
+  ) async {
+    final user = await ref
+        .read(authRepoProvider)
+        .me()
+        .timeout(kAuthSessionVerifyTimeout);
+    final latestToken = await _readStoredTokenOrNull(store) ?? fallbackToken;
+    await _applyPreferredLocale(user);
+    await store.saveGuestMode(false);
+    SessionRecoveryCoordinator.instance.reset();
+    state = AuthState(user: user, token: latestToken, guestMode: false);
+  }
+
   Future<void> bootstrap() {
     final inFlight = _bootstrapInFlight;
     if (inFlight != null) return inFlight;
@@ -320,35 +369,16 @@ class AuthController extends StateNotifier<AuthState> {
           );
           return;
         case SessionRestoreStatus.accountDisabled:
-          // A legitimate terminal reason. The device recovery bundle is kept for
-          // the re-verification flow, but the user-facing text is a CLEAN
-          // localized message — never the raw backend code.
-          state = state.copyWith(
-            loading: false,
-            guestMode: false,
-            sessionRestoreStatus: SessionRestoreStatus.accountDisabled,
-            error: _accountDisabledMessage(),
-            errorCode: restore.code,
-            clearValidationError: true,
-          );
+          // A terminal account state must not leave rejected credentials in
+          // storage, otherwise startup repeats the same failed recovery.
+          await _clearRejectedSession(store, restore);
           return;
         case SessionRestoreStatus.reVerificationRequired:
         case SessionRestoreStatus.surfaceMismatch:
         case SessionRestoreStatus.blocked:
-          // Non-recoverable stored session — this is where an invalid refresh
-          // surfaces as SESSION_RECOVERY_REQUIRED. The internal status/code are
-          // retained for the recovery flow, but NEVER shown: `error` is null so
-          // the login screen renders no developer-facing text and there is no
-          // retry loop (restore runs once per launch).
-          state = state.copyWith(
-            loading: false,
-            guestMode: false,
-            sessionRecoveryPending: false,
-            sessionRestoreStatus: restore.status,
-            error: null,
-            errorCode: restore.code,
-            clearValidationError: true,
-          );
+          // Clear credentials that the server definitively rejected and return
+          // to login with a localized message instead of retrying on a timer.
+          await _clearRejectedSession(store, restore);
           return;
       }
     }
@@ -361,68 +391,68 @@ class AuthController extends StateNotifier<AuthState> {
     );
 
     try {
-      final user = await ref
-          .read(authRepoProvider)
-          .me()
-          .timeout(kAuthSessionVerifyTimeout);
-      final latestToken = await _readStoredTokenOrNull(store) ?? token;
-      await _applyPreferredLocale(user);
-      await store.saveGuestMode(false);
-      SessionRecoveryCoordinator.instance.reset();
-      state = state.copyWith(
-        user: user,
-        token: latestToken,
-        guestMode: false,
-        error: null,
-        sessionRecoveryPending: false,
-        clearSessionRestoreStatus: true,
-        clearValidationError: true,
-        clearErrorCode: true,
-      );
+      await _commitVerifiedSession(store, token!);
+      return;
     } catch (e) {
       if (e is DioException) {
         final decision = SessionRecoveryCoordinator.instance.classify(e);
+        if (decision == SessionRecoveryDecision.needsRecovery) {
+          late final SessionRestoreResult restore;
+          try {
+            restore = await _restoreRejectedSession();
+          } catch (_) {
+            _setSessionRecoveryPending(
+              await _readStoredTokenOrNull(store) ?? token,
+            );
+            return;
+          }
+
+          switch (restore.status) {
+            case SessionRestoreStatus.recovered:
+              final restoredToken = restore.token;
+              if (restoredToken == null || restoredToken.isEmpty) {
+                await _clearRejectedSession(
+                  store,
+                  const SessionRestoreResult.blocked(
+                    code: 'INVALID_RECOVERY_RESPONSE',
+                  ),
+                );
+                return;
+              }
+              try {
+                await _commitVerifiedSession(store, restoredToken);
+              } catch (_) {
+                _setSessionRecoveryPending(restoredToken);
+              }
+              return;
+            case SessionRestoreStatus.pending:
+              _setSessionRecoveryPending(
+                await _readStoredTokenOrNull(store) ?? token,
+              );
+              return;
+            case SessionRestoreStatus.noStoredSession:
+            case SessionRestoreStatus.reVerificationRequired:
+            case SessionRestoreStatus.accountDisabled:
+            case SessionRestoreStatus.surfaceMismatch:
+            case SessionRestoreStatus.blocked:
+              await _clearRejectedSession(store, restore);
+              return;
+          }
+        }
+
         if (decision == SessionRecoveryDecision.staleFailure ||
-            decision == SessionRecoveryDecision.recoverable ||
-            decision == SessionRecoveryDecision.needsRecovery) {
+            decision == SessionRecoveryDecision.recoverable) {
           final latestToken = await _readStoredTokenOrNull(store) ?? token;
-          state = state.copyWith(
-            loading: false,
-            token: latestToken,
-            guestMode: false,
-            sessionRecoveryPending:
-                decision == SessionRecoveryDecision.needsRecovery,
-            sessionRestoreStatus:
-                decision == SessionRecoveryDecision.needsRecovery
-                ? SessionRestoreStatus.pending
-                : state.sessionRestoreStatus,
-            clearValidationError: true,
-            clearErrorCode: true,
-          );
+          _setSessionRecoveryPending(latestToken);
           return;
         }
       }
       // Non-auth failure (network / timeout) while verifying an existing token.
       // Keep the stored session — a temporary outage must never clear it — and
       // stay silent; recovery is retried on the next resume/launch.
-      state = state.copyWith(
-        loading: false,
-        token: await _readStoredTokenOrNull(store) ?? token,
-        guestMode: false,
-        sessionRecoveryPending: true,
-        error: null,
-        clearValidationError: true,
-        clearErrorCode: true,
-      );
+      _setSessionRecoveryPending(await _readStoredTokenOrNull(store) ?? token);
       return;
     }
-    state = state.copyWith(
-      loading: false,
-      sessionRecoveryPending: false,
-      clearSessionRestoreStatus: true,
-      clearValidationError: true,
-      clearErrorCode: true,
-    );
   }
 
   Future<void> login(String phone, String pin) async {
@@ -434,6 +464,7 @@ class AuthController extends StateNotifier<AuthState> {
           .read(authRepoProvider)
           .login(phone: phone, pin: pin);
       final token = await ref.read(secureStoreProvider).readToken();
+      ref.read(dioClientProvider).takeLatestSessionRestoreResult();
       await _applyPreferredLocale(user);
       await ref.read(secureStoreProvider).saveGuestMode(false);
       SessionRecoveryCoordinator.instance.reset();
@@ -843,6 +874,13 @@ class AuthController extends StateNotifier<AuthState> {
     return isArabic
         ? 'تم تعطيل هذا الحساب من قبل الإدارة.'
         : 'This account has been disabled by the administration.';
+  }
+
+  String _sessionExpiredMessage() {
+    final isArabic = Intl.getCurrentLocale().toLowerCase().startsWith('ar');
+    return isArabic
+        ? 'انتهت جلستك. سجّل الدخول مرة أخرى للمتابعة.'
+        : 'Your session has expired. Sign in again to continue.';
   }
 
   Future<void> continueAsGuest() async {

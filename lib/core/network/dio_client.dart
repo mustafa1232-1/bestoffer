@@ -171,8 +171,18 @@ class DioClient {
   bool _sessionInvalidated = false;
   String? _rejectedAccessToken;
   DateTime? _rejectedTokenRetryAt;
+  SessionRestoreResult? _latestSessionRestoreResult;
 
   static const _rejectedTokenRetryDelay = Duration(seconds: 30);
+
+  /// Returns the result already produced while the interceptor tried to
+  /// recover a rejected request. Consuming it prevents the bootstrap layer
+  /// from sending the same refresh/recovery sequence a second time.
+  SessionRestoreResult? takeLatestSessionRestoreResult() {
+    final result = _latestSessionRestoreResult;
+    _latestSessionRestoreResult = null;
+    return result;
+  }
 
   Future<String?> recoverStoredSession() async {
     final result = await restoreStoredSession();
@@ -312,6 +322,7 @@ class DioClient {
             : nextRefreshToken,
         sessionId: sessionId.isEmpty ? null : sessionId,
       );
+      _latestSessionRestoreResult = null;
       return accessToken;
     } on DioException catch (error) {
       if (_isInvalidRefreshFailure(error)) {
@@ -341,7 +352,11 @@ class DioClient {
 
   Future<String?> _recoverAccessToken(String? currentAccessToken) async {
     final result = await _recoverAccessTokenResult(currentAccessToken);
-    if (result.isRecovered) return result.token;
+    if (result.isRecovered) {
+      _latestSessionRestoreResult = null;
+      return result.token;
+    }
+    _latestSessionRestoreResult = result;
     if (result.status == SessionRestoreStatus.pending) {
       throw DioException(
         requestOptions: RequestOptions(path: '/api/auth/session/recover'),

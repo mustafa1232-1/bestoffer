@@ -96,7 +96,10 @@ import {
   resolveUploadFilePath,
   uploadsDir,
 } from "./shared/utils/uploads.js";
-import { buildTransientRealtimeProbeFailure } from "./shared/utils/realtime-readiness.js";
+import {
+  buildTransientRealtimeProbeFailure,
+  resolveRealtimeProbeWithinDeadline,
+} from "./shared/utils/realtime-readiness.js";
 
 export const app = express();
 
@@ -104,6 +107,7 @@ const HEALTH_REALTIME_CACHE_TTL_MS = 2 * 60_000;
 const HEALTH_REALTIME_FAILURE_CACHE_TTL_MS = 15_000;
 const HEALTH_REALTIME_STALE_TTL_MS = 15 * 60_000;
 const HEALTH_REALTIME_INITIAL_WAIT_MS = 1_500;
+const HEALTH_REALTIME_REFRESH_DEADLINE_MS = 7_500;
 let healthRealtimeReadinessValue = null;
 let healthRealtimeReadinessExpiresAt = 0;
 let healthRealtimeReadinessStaleAt = 0;
@@ -140,8 +144,20 @@ function startHealthRealtimeReadinessRefresh() {
   // The Supabase readiness probe performs real authorization writes. Keep one
   // probe in flight and cache its result so health endpoints never amplify a
   // transient provider slowdown into a request storm.
-  const pending = getSupabaseRealtimeReadiness()
-    .catch((error) => buildRealtimeProbeFailure("realtime_probe_failed", error))
+  const providerProbe = Promise.resolve()
+    .then(() => getSupabaseRealtimeReadiness())
+    .catch((error) =>
+      buildRealtimeProbeFailure(
+        error?.code === "REALTIME_TIMEOUT"
+          ? "realtime_probe_timeout"
+          : "realtime_probe_failed",
+        error
+      )
+    );
+  const pending = resolveRealtimeProbeWithinDeadline(providerProbe, {
+    timeoutMs: HEALTH_REALTIME_REFRESH_DEADLINE_MS,
+    onTimeout: () => buildRealtimeProbeFailure("realtime_probe_timeout"),
+  })
     .then((value) => {
       const now = Date.now();
       healthRealtimeReadinessValue = value;

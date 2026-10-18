@@ -36,3 +36,21 @@ export function buildTransientRealtimeProbeFailure({
       : {}),
   };
 }
+
+export async function resolveRealtimeProbeWithinDeadline(
+  probe,
+  { timeoutMs, onTimeout }
+) {
+  const boundedTimeoutMs = Math.max(1, Number(timeoutMs) || 1);
+  let timer = null;
+  try {
+    return await Promise.race([
+      Promise.resolve(probe),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(onTimeout()), boundedTimeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
